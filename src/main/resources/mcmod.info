@@ -1,0 +1,16 @@
+[
+{
+  "modid": "Mineqtt",
+  "name": "Mineqtt Mod",
+  "description": "Implementation of the Mqtt protocol in Minecraft",
+  "version": "1.7.10-1.0",
+  "mcversion": "1.7.10",
+  "url": "",
+  "updateUrl": "",
+  "authorList": ["V55V551N"],
+  "credits": "",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}
+]

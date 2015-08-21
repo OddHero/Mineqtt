@@ -1,0 +1,13 @@
+# Keys
+keys.mineqtt.category=Mineqtt
+keys.mineqtt.charge=Charge
+keys.mineqtt.release=Release
+
+# Creative Tabs
+itemGroup.mineqtt=Mineqtt
+
+# Items
+item.mineqtt:mqttsender.name=Handheld Mqtt Sender
+
+# Blocks
+tile.mineqtt:mqttsenderblock.name=Stationary Mqtt Sender

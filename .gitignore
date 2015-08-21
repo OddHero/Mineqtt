@@ -1,0 +1,10 @@
+/.git
+/.gradle
+build/
+eclipse/
+out/
+run/
+1.7.10*
+*iml
+*ipr
+*iws
