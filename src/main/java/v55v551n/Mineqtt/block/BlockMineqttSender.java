@@ -1,5 +1,6 @@
 package v55v551n.Mineqtt.block;
 
+import v55v551n.Mineqtt.Mineqtt;
 import v55v551n.Mineqtt.reference.GUIs;
 import v55v551n.Mineqtt.utility.LogHelper;
 import net.minecraft.entity.player.EntityPlayer;
@@ -17,7 +18,7 @@ public class BlockMineqttSender extends BlockMineqtt {
         if(world.isRemote){
             LogHelper.info("Open gui: " + GUIs.SENDING_GUI.ordinal());
             try {
-                player.openGui(player, 0,world,x,y,z);
+                player.openGui(Mineqtt.instance, GUIs.SENDING_GUI.ordinal(),world,x,y,z);
             }catch (Exception e){
                 e.printStackTrace();
             }

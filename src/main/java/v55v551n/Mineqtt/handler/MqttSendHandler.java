@@ -1,4 +1,4 @@
-package v55v551n.Mineqtt;
+package v55v551n.Mineqtt.handler;
 
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
@@ -53,6 +53,15 @@ public class MqttSendHandler {
 
 	public boolean isRunning() {
 		return client.isConnected();
+	}
+
+	public void stop(){
+		try {
+			client.disconnect();
+			client.close();
+		} catch (MqttException e) {
+			e.printStackTrace();
+		}
 	}
 
 }

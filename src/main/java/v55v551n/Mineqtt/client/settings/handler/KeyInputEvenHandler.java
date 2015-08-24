@@ -20,6 +20,6 @@ public class KeyInputEvenHandler {
 
     @SubscribeEvent
     public void handleKeyInputEvent(InputEvent.KeyInputEvent event){
-        LogHelper.info(getPressedKeyBinding());
+        //LogHelper.info(getPressedKeyBinding());
     }
 }

@@ -1,8 +1,10 @@
 package v55v551n.Mineqtt;
 
+import cpw.mods.fml.common.event.*;
 import v55v551n.Mineqtt.client.settings.handler.KeyInputEvenHandler;
 import v55v551n.Mineqtt.handler.ConfigurationHandler;
-import v55v551n.Mineqtt.handler.guiHandler;
+import v55v551n.Mineqtt.handler.MqttSendHandler;
+import v55v551n.Mineqtt.handler.GuiHandler;
 import v55v551n.Mineqtt.init.ModBlocks;
 import v55v551n.Mineqtt.init.ModItems;
 import v55v551n.Mineqtt.init.Recipes;
@@ -11,7 +13,6 @@ import v55v551n.Mineqtt.reference.Reference;
 import v55v551n.Mineqtt.utility.LogHelper;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.SidedProxy;
-import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.network.NetworkRegistry;
 import net.minecraft.block.Block;
 
@@ -19,9 +20,6 @@ import v55v551n.Mineqtt.commands.sendMqtt;
 
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.Mod.EventHandler;
-import cpw.mods.fml.common.event.FMLInitializationEvent;
-import cpw.mods.fml.common.event.FMLPreInitializationEvent;
-import cpw.mods.fml.common.event.FMLServerStartingEvent;
 
 @Mod(modid = Reference.MOD_ID , name = Reference.MOD_NAME, version = Reference.VERSION, guiFactory = Reference.GUI_FACTORY_CLASS)
 public class Mineqtt {
@@ -55,7 +53,7 @@ public class Mineqtt {
 	@Mod.EventHandler
 	public void init(FMLInitializationEvent event) {
         FMLCommonHandler.instance().bus().register(new KeyInputEvenHandler());
-        NetworkRegistry.INSTANCE.registerGuiHandler(instance, new guiHandler());
+        NetworkRegistry.INSTANCE.registerGuiHandler(instance, new GuiHandler());
 
         LogHelper.info("Initialization Complete!");
 	}
@@ -70,4 +68,10 @@ public class Mineqtt {
 		event.registerServerCommand(new sendMqtt());
         sendHandler = new MqttSendHandler(ConfigurationHandler.brokerAdress,ConfigurationHandler.brokerPort);
 	}
+
+    @Mod.EventHandler
+    public void serverClosed(FMLServerStoppedEvent event){
+        if(sendHandler.isRunning())
+            sendHandler.stop();
+    }
 }
