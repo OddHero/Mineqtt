@@ -11,3 +11,4 @@ item.mineqtt:mqttsender.name=Handheld Mqtt Sender
 
 # Blocks
 tile.mineqtt:mqttsenderblock.name=Stationary Mqtt Sender
+tile.mineqtt:mqttdigitalsender.name=Digital Sender

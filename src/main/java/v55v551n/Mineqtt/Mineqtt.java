@@ -3,7 +3,7 @@ package v55v551n.Mineqtt;
 import cpw.mods.fml.common.event.*;
 import v55v551n.Mineqtt.client.settings.handler.KeyInputEvenHandler;
 import v55v551n.Mineqtt.handler.ConfigurationHandler;
-import v55v551n.Mineqtt.handler.MqttSendHandler;
+import v55v551n.Mineqtt.handler.MqttHandler;
 import v55v551n.Mineqtt.handler.GuiHandler;
 import v55v551n.Mineqtt.init.ModBlocks;
 import v55v551n.Mineqtt.init.ModItems;
@@ -24,7 +24,7 @@ import cpw.mods.fml.common.Mod.EventHandler;
 @Mod(modid = Reference.MOD_ID , name = Reference.MOD_NAME, version = Reference.VERSION, guiFactory = Reference.GUI_FACTORY_CLASS)
 public class Mineqtt {
 
-    public static MqttSendHandler sendHandler;
+    public static MqttHandler sendHandler;
 	public static Block MqttOut;
 	
 	@Mod.Instance(value = Reference.MOD_ID)
@@ -66,12 +66,12 @@ public class Mineqtt {
 	@Mod.EventHandler
 	public void serverStarting(FMLServerStartingEvent event) {
 		event.registerServerCommand(new sendMqtt());
-        sendHandler = new MqttSendHandler(ConfigurationHandler.brokerAdress,ConfigurationHandler.brokerPort);
+        sendHandler = new MqttHandler(ConfigurationHandler.brokerAdress,ConfigurationHandler.brokerPort);
+        sendHandler.subscribeTopic("#");
 	}
 
     @Mod.EventHandler
     public void serverClosed(FMLServerStoppedEvent event){
-        if(sendHandler.isRunning())
-            sendHandler.stop();
+        sendHandler.stop();
     }
 }

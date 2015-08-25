@@ -14,6 +14,7 @@ public class BlockMineqttSender extends BlockMineqtt {
         this.setBlockName("mqttsenderblock");
     }
 
+    @Override
     public boolean onBlockActivated(World world,int x, int y, int z, EntityPlayer player, int side, float hitX, float hitY, float hitZ){
         if(world.isRemote){
             LogHelper.info("Open gui: " + GUIs.SENDING_GUI.ordinal());

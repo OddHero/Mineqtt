@@ -6,14 +6,16 @@ import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.MqttPersistenceException;
+import v55v551n.Mineqtt.utility.LogHelper;
 
-public class MqttSendHandler {
+public class MqttHandler implements MqttCallback{
 
 	MqttClient client;
 	String host;
 	int port;
+	int connectionLostCount = 0;
 
-	public MqttSendHandler(String h, int p) {
+	public MqttHandler(String h, int p) {
 		host = h;
 		port = p;
 		init();
@@ -23,6 +25,8 @@ public class MqttSendHandler {
 		try {
 			client = new MqttClient("tcp://" + host + ":" + port, "MinecraftServerPublisher");
 			client.connect();
+            client.setCallback(this);
+			connectionLostCount = 0;
             sendMessage("log","Minecraft Server connected!");
 		} catch (MqttException e) {
 			e.printStackTrace();
@@ -51,11 +55,21 @@ public class MqttSendHandler {
 		}
 	}
 
+	public void subscribeTopic(String topic){
+		try {
+			client.subscribe(topic);
+			LogHelper.info("Subscribing to: " + topic);
+		} catch (MqttException e) {
+			e.printStackTrace();
+		}
+	}
+
 	public boolean isRunning() {
 		return client.isConnected();
 	}
 
 	public void stop(){
+		sendMessage("log","Minecraft Server disconnecting!");
 		try {
 			client.disconnect();
 			client.close();
@@ -64,4 +78,22 @@ public class MqttSendHandler {
 		}
 	}
 
+	@Override
+	public void connectionLost(Throwable throwable) {
+		connectionLostCount++;
+		if(connectionLostCount<5){
+			stop();
+			init();
+		}
+	}
+
+	@Override
+	public void messageArrived(String topic, MqttMessage message) throws Exception {
+		LogHelper.info(topic + "    " + new String(message.getPayload()));
+	}
+
+	@Override
+	public void deliveryComplete(IMqttDeliveryToken iMqttDeliveryToken) {
+
+	}
 }
