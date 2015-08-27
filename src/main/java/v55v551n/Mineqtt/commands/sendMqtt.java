@@ -37,14 +37,20 @@ public class sendMqtt implements ICommand{
 	@Override
 	public void processCommand(ICommandSender icommandsender, String[] astring) {
 		if(astring.length>=2){
+			boolean retain = false;
+			int start = 1;
+			if (astring.length>=3 && astring[1].equals("true")) {
+				retain = true;
+				start = 2;
+			}
 			String topic, text;
 			topic = (astring[0]);
 			text = "";
-			for (int i = 1; i < astring.length; i++) {
+			for (int i = start; i < astring.length; i++) {
 				text = text + astring[i]+" ";
 			}
 			text.substring(text.length()-1, text.length());
-			Mineqtt.sendHandler.sendMessage(topic, text);
+			Mineqtt.mqttThread.sendMessage(topic, text, retain);
 		}else{
             icommandsender.addChatMessage(new ChatComponentText(getCommandUsage(icommandsender)));
 			//icommandsender.sendChatToPlayer(ChatMessageComponent.createFromText(getCommandUsage(icommandsender)));

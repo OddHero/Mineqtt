@@ -17,7 +17,7 @@ public class ItemMineqttSender extends ItemMineqtt {
         String message;
         message = world.getBlock(x,y,z).getLocalizedName();
         if(!world.isRemote){
-            Mineqtt.sendHandler.sendMessage("test",message);
+            Mineqtt.mqttThread.sendMessage("test",message);
             return true;
         }else{
             return false;

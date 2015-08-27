@@ -2,7 +2,6 @@ package v55v551n.Mineqtt.client.settings.handler;
 
 import v55v551n.Mineqtt.client.settings.Keybindings;
 import v55v551n.Mineqtt.reference.Key;
-import v55v551n.Mineqtt.utility.LogHelper;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.InputEvent;
 

@@ -1,8 +1,6 @@
 package v55v551n.Mineqtt.handler;
 
 import v55v551n.Mineqtt.client.gui.GuiBlockSender;
-import v55v551n.Mineqtt.reference.GUIs;
-import v55v551n.Mineqtt.utility.LogHelper;
 import cpw.mods.fml.common.network.IGuiHandler;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.world.World;

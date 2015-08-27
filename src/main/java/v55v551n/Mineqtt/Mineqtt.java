@@ -3,11 +3,11 @@ package v55v551n.Mineqtt;
 import cpw.mods.fml.common.event.*;
 import v55v551n.Mineqtt.client.settings.handler.KeyInputEvenHandler;
 import v55v551n.Mineqtt.handler.ConfigurationHandler;
-import v55v551n.Mineqtt.handler.MqttHandler;
 import v55v551n.Mineqtt.handler.GuiHandler;
 import v55v551n.Mineqtt.init.ModBlocks;
 import v55v551n.Mineqtt.init.ModItems;
 import v55v551n.Mineqtt.init.Recipes;
+import v55v551n.Mineqtt.mqtt.MQTTClientThread;
 import v55v551n.Mineqtt.proxy.IProxy;
 import v55v551n.Mineqtt.reference.Reference;
 import v55v551n.Mineqtt.utility.LogHelper;
@@ -24,7 +24,8 @@ import cpw.mods.fml.common.Mod.EventHandler;
 @Mod(modid = Reference.MOD_ID , name = Reference.MOD_NAME, version = Reference.VERSION, guiFactory = Reference.GUI_FACTORY_CLASS)
 public class Mineqtt {
 
-    public static MqttHandler sendHandler;
+    private static Thread thread;
+    public static MQTTClientThread mqttThread;
 	public static Block MqttOut;
 	
 	@Mod.Instance(value = Reference.MOD_ID)
@@ -66,12 +67,14 @@ public class Mineqtt {
 	@Mod.EventHandler
 	public void serverStarting(FMLServerStartingEvent event) {
 		event.registerServerCommand(new sendMqtt());
-        sendHandler = new MqttHandler(ConfigurationHandler.brokerAdress,ConfigurationHandler.brokerPort);
-        sendHandler.subscribeTopic("#");
+        mqttThread = new MQTTClientThread(ConfigurationHandler.brokerAdress,ConfigurationHandler.brokerPort);
+        thread = new Thread(mqttThread);
+        thread.start();
+        //mqttThread.subscribeTopic("#");
 	}
 
     @Mod.EventHandler
     public void serverClosed(FMLServerStoppedEvent event){
-        sendHandler.stop();
+        mqttThread.stop();
     }
 }
