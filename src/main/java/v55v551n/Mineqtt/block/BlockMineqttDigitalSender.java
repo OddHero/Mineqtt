@@ -37,7 +37,7 @@ public class BlockMineqttDigitalSender extends BlockMineqtt {
         if (!world.isRemote) {
             if (world.getBlockPowerInput(x, y, z) != strength) {
                 strength = world.getBlockPowerInput(x, y, z);
-                Mineqtt.sendHandler.sendMessage("digital/" + x + "/" + y + "/" + z, "true");
+                Mineqtt.mqttThread.sendMessage("digital/" + x + "/" + y + "/" + z, "true");
                 LogHelper.info(strength);
             }
         }
