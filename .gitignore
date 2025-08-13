@@ -1,0 +1,56 @@
+﻿# Minecraft Modding/Gradle .gitignore
+# Gradle build output
+build/
+!*/src/main/resources/
+!*/src/main/java/
+!*/src/main/
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and crash reports
+**/logs/
+**/crash-reports/
+
+# Generated files
+**/generated/
+**/devlibs/
+**/loom-cache/
+**/tmp/
+
+# JARs and libraries
+**/libs/*.jar
+
+# Gradle wrapper
+.gradle/
+
+# Misc
+*.log
+*.gz
+*.bin
+*.dat
+
+# User-specific files
+run/
+
+# Ignore resourcepacks, saves, mods, downloads
+**/resourcepacks/
+**/saves/
+**/mods/
+**/downloads/
+
+# Ignore default configs
+**/defaultconfigs/
+
+# Ignore options.txt
+**/options.txt

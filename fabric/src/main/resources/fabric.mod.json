@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "mineqtt",
+  "version": "${version}",
+  "name": "MineQTT",
+  "description": "Interact with the Internet of Things through Minecraft.",
+  "authors": [
+    "OddHero"
+  ],
+  "contact": {
+    "homepage": ""
+  },
+  "license": "LGPL-3.0",
+  "icon": "assets/mineqtt/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "art.rehra.mineqtt.fabric.MineqttFabric"
+    ],
+    "client": [
+      "art.rehra.mineqtt.fabric.client.MineqttFabricClient"
+    ]
+  },
+  "mixins": [
+    "mineqtt.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.17.2",
+    "minecraft": "~1.21.8",
+    "java": ">=21",
+    "architectury": ">=17.0.8",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "another-mod": "*"
+  }
+}
