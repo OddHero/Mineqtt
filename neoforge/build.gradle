@@ -57,7 +57,7 @@ shadowJar {
     archiveClassifier = 'dev-shadow'
     // Relocate HiveMQ packages to avoid conflicts with other mods
     relocate('com.hivemq', 'art.rehra.mineqtt.libs.hivemq')
-    relocate('io.netty', 'art.rehra.mineqtt.libs.netty')
+    //relocate('io.netty', 'art.rehra.mineqtt.libs.netty')
     relocate('io.reactivex', 'art.rehra.mineqtt.libs.reactivex')
     relocate('org.reactivestreams', 'art.rehra.mineqtt.libs.reactivestreams')
     relocate('org.jetbrains', 'art.rehra.mineqtt.libs.jetbrains')
@@ -66,13 +66,16 @@ shadowJar {
     relocate('javax.inject', 'art.rehra.mineqtt.libs.javax.inject')
     relocate('dagger', 'art.rehra.mineqtt.libs.dagger')
 
-//
-    //// Exclude problematic service files
-    //exclude 'META-INF/services/reactor.blockhound.integration.BlockHoundIntegration'
-    //exclude 'META-INF/services/io.netty.util.internal.Hidden$NettyBlockHoundIntegration'
-//
+
+    //// Exclude netty as it is already provided by NeoForge/Minecraft
+    exclude 'io/netty/**'
+    exclude 'META-INF/services/io.netty.**'
+
+
+    exclude 'META-INF/services/reactor.blockhound.integration.BlockHoundIntegration'
+
     //// Ensure all classes are included
-    //mergeServiceFiles()
+    mergeServiceFiles()
 }
 
 remapJar {
