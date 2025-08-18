@@ -19,6 +19,9 @@
     ],
     "client": [
       "art.rehra.mineqtt.fabric.client.MineqttFabricClient"
+    ],
+    "modmenu": [
+      "art.rehra.mineqtt.fabric.config.ModMenuIntegration"
     ]
   },
   "mixins": [
@@ -32,6 +35,7 @@
     "fabric-api": "*"
   },
   "suggests": {
-    "another-mod": "*"
+    "modmenu": "*",
+    "cloth-config": "*"
   }
 }

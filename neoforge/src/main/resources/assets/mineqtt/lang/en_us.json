@@ -1,0 +1,27 @@
+﻿{
+  "mineqtt.config.broker_host": "Broker Host",
+  "mineqtt.config.broker_port": "Broker Port",
+  "mineqtt.config.use_authentication": "Use Authentication",
+  "mineqtt.config.username": "Username",
+  "mineqtt.config.password": "Password",
+  "mineqtt.config.connection_timeout": "Connection Timeout (seconds)",
+  "mineqtt.config.auto_reconnect": "Auto Reconnect",
+
+  "mineqtt.config.status_topic": "Status Topic",
+  "mineqtt.config.player_events_topic": "Player Events Topic",
+  "mineqtt.config.chat_topic": "Chat Topic",
+  "mineqtt.config.block_events_topic": "Block Events Topic",
+
+  "mineqtt.config.publish_player_join": "Publish Player Join",
+  "mineqtt.config.publish_player_leave": "Publish Player Leave",
+  "mineqtt.config.publish_chat_messages": "Publish Chat Messages",
+  "mineqtt.config.publish_block_break": "Publish Block Break",
+  "mineqtt.config.publish_block_place": "Publish Block Place",
+
+  "mineqtt.config.online_message": "Online Message",
+  "mineqtt.config.offline_message": "Offline Message",
+
+  "mineqtt.config.enable_debug_logging": "Enable Debug Logging",
+  "mineqtt.config.show_mqtt_status_in_chat": "Show MQTT Status in Chat"
+}
+

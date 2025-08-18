@@ -2,6 +2,13 @@ architectury {
     common rootProject.enabled_platforms.split(',')
 }
 
+repositories {
+    maven {
+        name = "Shedaniel Maven"
+        url = "https://maven.shedaniel.me/"
+    }
+}
+
 dependencies {
     // We depend on Fabric Loader here to use the Fabric @Environment annotations,
     // which get remapped to the correct annotations on each platform.
@@ -10,4 +17,6 @@ dependencies {
 
     modImplementation "dev.architectury:architectury:$rootProject.architectury_api_version"
 
+    // Common Cloth Config dependency
+    modCompileOnly("me.shedaniel.cloth:cloth-config:${rootProject.cloth_config_version}")
 }
