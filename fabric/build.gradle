@@ -35,6 +35,9 @@ dependencies {
 
     common(project(path: ':common', configuration: 'namedElements')) { transitive false }
     shadowBundle project(path: ':common', configuration: 'transformProductionFabric')
+
+    // Add HiveMQ MQTT client dependency for bundling
+    shadowBundle("com.hivemq:hivemq-mqtt-client:1.3.7")
 }
 
 processResources {
@@ -48,6 +51,25 @@ processResources {
 shadowJar {
     configurations = [project.configurations.shadowBundle]
     archiveClassifier = 'dev-shadow'
+
+    // Relocate HiveMQ packages to avoid conflicts with other mods
+    relocate('com.hivemq', 'art.rehra.mineqtt.libs.hivemq')
+    relocate('io.reactivex', 'art.rehra.mineqtt.libs.reactivex')
+    relocate('org.reactivestreams', 'art.rehra.mineqtt.libs.reactivestreams')
+    relocate('org.jetbrains', 'art.rehra.mineqtt.libs.jetbrains')
+    relocate('org.jctools', 'art.rehra.mineqtt.libs.jctools')
+    relocate('org.intellij', 'art.rehra.mineqtt.libs.intellij')
+    relocate('javax.inject', 'art.rehra.mineqtt.libs.javax.inject')
+    relocate('dagger', 'art.rehra.mineqtt.libs.dagger')
+
+    // Exclude netty as it is already provided by Fabric/Minecraft
+    exclude 'io/netty/**'
+    exclude 'META-INF/services/io.netty.**'
+
+    exclude 'META-INF/services/reactor.blockhound.integration.BlockHoundIntegration'
+
+    // Ensure all classes are included
+    mergeServiceFiles()
 }
 
 remapJar {
