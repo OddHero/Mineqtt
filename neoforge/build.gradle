@@ -39,12 +39,8 @@ dependencies {
     common(project(path: ':common', configuration: 'namedElements')) { transitive false }
     shadowBundle project(path: ':common', configuration: 'transformProductionNeoForge')
 
-
-    // Add HiveMQ shaded client to shadowBundle
-    implementation("com.hivemq:hivemq-mqtt-client-shaded:1.3.7")
-    shadowBundle("com.hivemq:hivemq-mqtt-client-shaded:1.3.7")
-
-    //include 'com.hivemq:hivemq-mqtt-client-shaded:1.3.7'
+    forgeRuntimeLibrary("com.hivemq:hivemq-mqtt-client:1.3.7")
+    shadowBundle("com.hivemq:hivemq-mqtt-client:1.3.7")
 
 }
 
@@ -61,12 +57,22 @@ shadowJar {
     archiveClassifier = 'dev-shadow'
     // Relocate HiveMQ packages to avoid conflicts with other mods
     relocate('com.hivemq', 'art.rehra.mineqtt.libs.hivemq')
+    relocate('io.netty', 'art.rehra.mineqtt.libs.netty')
+    relocate('io.reactivex', 'art.rehra.mineqtt.libs.reactivex')
+    relocate('org.reactivestreams', 'art.rehra.mineqtt.libs.reactivestreams')
+    relocate('org.jetbrains', 'art.rehra.mineqtt.libs.jetbrains')
+    relocate('org.jctools', 'art.rehra.mineqtt.libs.jctools')
+    relocate('org.intellij', 'art.rehra.mineqtt.libs.intellij')
+    relocate('javax.inject', 'art.rehra.mineqtt.libs.javax.inject')
+    relocate('dagger', 'art.rehra.mineqtt.libs.dagger')
 
-    // Exclude problematic service files
-    exclude 'META-INF/services/reactor.blockhound.integration.BlockHoundIntegration'
-
-    // Ensure all classes are included
-    mergeServiceFiles()
+//
+    //// Exclude problematic service files
+    //exclude 'META-INF/services/reactor.blockhound.integration.BlockHoundIntegration'
+    //exclude 'META-INF/services/io.netty.util.internal.Hidden$NettyBlockHoundIntegration'
+//
+    //// Ensure all classes are included
+    //mergeServiceFiles()
 }
 
 remapJar {
