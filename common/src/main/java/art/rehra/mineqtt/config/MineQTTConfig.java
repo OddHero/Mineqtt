@@ -2,60 +2,55 @@ package art.rehra.mineqtt.config;
 
 public class MineQTTConfig {
     // MQTT Connection Settings
-    public static String brokerHost = "test.mosquitto.org";
-    public static int brokerPort = 1883;
+    public static String brokerUrl = "tcp://localhost:1883";
+    public static String clientId = "minecraft-client";
     public static String username = "";
     public static String password = "";
-    public static boolean useAuthentication = false;
-    public static int connectionTimeout = 10;
     public static boolean autoReconnect = true;
+    public static int connectionTimeout = 30;
+    public static int keepAlive = 60;
 
     // MQTT Topics
-    public static String statusTopic = "mineqtt/status";
-    public static String playerEventsTopic = "mineqtt/player/events";
-    public static String chatTopic = "mineqtt/chat";
-    public static String blockEventsTopic = "mineqtt/blocks";
+    public static String playerJoinTopic = "minecraft/players/join";
+    public static String playerLeaveTopic = "minecraft/players/leave";
+    public static String chatTopic = "minecraft/chat";
+    public static String blockBreakTopic = "minecraft/blocks/break";
+    public static String blockPlaceTopic = "minecraft/blocks/place";
 
-    // Publishing Settings
-    public static boolean publishPlayerJoin = true;
-    public static boolean publishPlayerLeave = true;
-    public static boolean publishChatMessages = false;
-    public static boolean publishBlockBreak = false;
-    public static boolean publishBlockPlace = false;
+    // Feature Toggles
+    public static boolean enablePlayerEvents = true;
+    public static boolean enableChatEvents = true;
+    public static boolean enableBlockEvents = false;
+    public static boolean enableDebugging = false;
 
     // Message Settings
-    public static String onlineMessage = "MineQTT is online";
-    public static String offlineMessage = "MineQTT is offline";
-
-    // Debug Settings
-    public static boolean enableDebugLogging = false;
-    public static boolean showMqttStatusInChat = false;
+    public static boolean includeCoordinates = true;
+    public static boolean includeTimestamp = true;
+    public static String messageFormat = "json";
 
     // Platform-specific config saving/loading will be handled by each platform
     public static void resetToDefaults() {
-        brokerHost = "test.mosquitto.org";
-        brokerPort = 1883;
+        brokerUrl = "tcp://localhost:1883";
+        clientId = "minecraft-client";
         username = "";
         password = "";
-        useAuthentication = false;
-        connectionTimeout = 10;
         autoReconnect = true;
+        connectionTimeout = 30;
+        keepAlive = 60;
 
-        statusTopic = "mineqtt/status";
-        playerEventsTopic = "mineqtt/player/events";
-        chatTopic = "mineqtt/chat";
-        blockEventsTopic = "mineqtt/blocks";
+        playerJoinTopic = "minecraft/players/join";
+        playerLeaveTopic = "minecraft/players/leave";
+        chatTopic = "minecraft/chat";
+        blockBreakTopic = "minecraft/blocks/break";
+        blockPlaceTopic = "minecraft/blocks/place";
 
-        publishPlayerJoin = true;
-        publishPlayerLeave = true;
-        publishChatMessages = false;
-        publishBlockBreak = false;
-        publishBlockPlace = false;
+        enablePlayerEvents = true;
+        enableChatEvents = true;
+        enableBlockEvents = false;
+        enableDebugging = false;
 
-        onlineMessage = "MineQTT is online";
-        offlineMessage = "MineQTT is offline";
-
-        enableDebugLogging = false;
-        showMqttStatusInChat = false;
+        includeCoordinates = true;
+        includeTimestamp = true;
+        messageFormat = "json";
     }
 }

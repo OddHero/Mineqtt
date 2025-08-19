@@ -1,145 +1,136 @@
 package art.rehra.mineqtt.neoforge.config;
 
-import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.config.MineQTTConfig;
-import me.shedaniel.clothconfig2.api.ConfigBuilder;
-import me.shedaniel.clothconfig2.api.ConfigCategory;
-import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
+import art.rehra.mineqtt.MineQTT;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-public class MineQTTConfigScreen {
+public class MineQTTConfigScreen extends Screen {
+    private final Screen parent;
+    private EditBox brokerUrlField;
+    private EditBox clientIdField;
+    private EditBox usernameField;
+    private EditBox passwordField;
+    private Button saveButton;
+    private Button cancelButton;
+    private Button resetButton;
+
+    public MineQTTConfigScreen(Screen parent) {
+        super(Component.literal("MineQTT Configuration"));
+        this.parent = parent;
+    }
 
     public static Screen createConfigScreen(Screen parent) {
-        ConfigBuilder builder = ConfigBuilder.create()
-                .setParentScreen(parent)
-                .setTitle(Component.translatable("config.mineqtt.title"))
-                .setSavingRunnable(() -> {
-                    MineQTT.getConfigHandler().saveConfig();
-                    MineQTT.initializeMqttClient();
-                });
+        return new MineQTTConfigScreen(parent);
+    }
 
-        ConfigEntryBuilder entryBuilder = builder.entryBuilder();
+    @Override
+    protected void init() {
+        super.init();
 
-        // MQTT Connection Category
-        ConfigCategory connectionCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.connection"));
+        int centerX = this.width / 2;
+        int startY = 50;
+        int fieldWidth = 200;
+        int fieldHeight = 20;
+        int spacing = 25;
 
-        connectionCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.broker_host"), MineQTTConfig.brokerHost)
-                .setTooltip(Component.translatable("config.mineqtt.broker_host.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.brokerHost = value)
-                .build());
+        // Broker URL field
+        this.brokerUrlField = new EditBox(this.font, centerX - fieldWidth / 2, startY, fieldWidth, fieldHeight, Component.literal("Broker URL"));
+        this.brokerUrlField.setValue(MineQTTConfig.brokerUrl);
+        this.brokerUrlField.setMaxLength(256);
+        this.addRenderableWidget(this.brokerUrlField);
 
-        connectionCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.broker_port"), MineQTTConfig.brokerPort)
-                .setTooltip(Component.translatable("config.mineqtt.broker_port.tooltip"))
-                .setMin(1)
-                .setMax(65535)
-                .setSaveConsumer(value -> MineQTTConfig.brokerPort = value)
-                .build());
+        // Client ID field
+        this.clientIdField = new EditBox(this.font, centerX - fieldWidth / 2, startY + spacing, fieldWidth, fieldHeight, Component.literal("Client ID"));
+        this.clientIdField.setValue(MineQTTConfig.clientId);
+        this.clientIdField.setMaxLength(64);
+        this.addRenderableWidget(this.clientIdField);
 
-        connectionCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.use_authentication"), MineQTTConfig.useAuthentication)
-                .setTooltip(Component.translatable("config.mineqtt.use_authentication.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.useAuthentication = value)
-                .build());
+        // Username field
+        this.usernameField = new EditBox(this.font, centerX - fieldWidth / 2, startY + spacing * 2, fieldWidth, fieldHeight, Component.literal("Username"));
+        this.usernameField.setValue(MineQTTConfig.username);
+        this.usernameField.setMaxLength(64);
+        this.addRenderableWidget(this.usernameField);
 
-        connectionCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.username"), MineQTTConfig.username)
-                .setTooltip(Component.translatable("config.mineqtt.username.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.username = value)
-                .build());
+        // Password field
+        this.passwordField = new EditBox(this.font, centerX - fieldWidth / 2, startY + spacing * 3, fieldWidth, fieldHeight, Component.literal("Password"));
+        this.passwordField.setValue(MineQTTConfig.password);
+        this.passwordField.setMaxLength(64);
+        this.addRenderableWidget(this.passwordField);
 
-        connectionCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.password"), MineQTTConfig.password)
-                .setTooltip(Component.translatable("config.mineqtt.password.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.password = value)
-                .build());
+        // Buttons
+        int buttonY = this.height - 40;
+        int buttonWidth = 60;
+        int buttonSpacing = 70;
 
-        connectionCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.connection_timeout"), MineQTTConfig.connectionTimeout)
-                .setTooltip(Component.translatable("config.mineqtt.connection_timeout.tooltip"))
-                .setMin(1)
-                .setMax(60)
-                .setSaveConsumer(value -> MineQTTConfig.connectionTimeout = value)
-                .build());
+        this.saveButton = Button.builder(Component.literal("Save"), this::onSave)
+                .bounds(centerX - buttonSpacing, buttonY, buttonWidth, 20)
+                .build();
+        this.addRenderableWidget(this.saveButton);
 
-        connectionCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.auto_reconnect"), MineQTTConfig.autoReconnect)
-                .setTooltip(Component.translatable("config.mineqtt.auto_reconnect.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.autoReconnect = value)
-                .build());
+        this.cancelButton = Button.builder(Component.literal("Cancel"), this::onCancel)
+                .bounds(centerX - buttonWidth / 2, buttonY, buttonWidth, 20)
+                .build();
+        this.addRenderableWidget(this.cancelButton);
 
-        // Topics Category
-        ConfigCategory topicsCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.topics"));
+        this.resetButton = Button.builder(Component.literal("Reset"), this::onReset)
+                .bounds(centerX + buttonSpacing - buttonWidth, buttonY, buttonWidth, 20)
+                .build();
+        this.addRenderableWidget(this.resetButton);
+    }
 
-        topicsCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.status_topic"), MineQTTConfig.statusTopic)
-                .setTooltip(Component.translatable("config.mineqtt.status_topic.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.statusTopic = value)
-                .build());
+    @Override
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // Let super.render handle the background rendering to avoid double blur
+        super.render(graphics, mouseX, mouseY, partialTick);
 
-        topicsCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.player_events_topic"), MineQTTConfig.playerEventsTopic)
-                .setTooltip(Component.translatable("config.mineqtt.player_events_topic.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.playerEventsTopic = value)
-                .build());
+        // Draw title
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 20, 0xFFFFFF);
 
-        topicsCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.chat_topic"), MineQTTConfig.chatTopic)
-                .setTooltip(Component.translatable("config.mineqtt.chat_topic.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.chatTopic = value)
-                .build());
+        // Draw field labels
+        graphics.drawString(this.font, "Broker URL:", this.brokerUrlField.getX(), this.brokerUrlField.getY() - 12, 0xFFFFFF);
+        graphics.drawString(this.font, "Client ID:", this.clientIdField.getX(), this.clientIdField.getY() - 12, 0xFFFFFF);
+        graphics.drawString(this.font, "Username:", this.usernameField.getX(), this.usernameField.getY() - 12, 0xFFFFFF);
+        graphics.drawString(this.font, "Password:", this.passwordField.getX(), this.passwordField.getY() - 12, 0xFFFFFF);
+    }
 
-        topicsCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.block_events_topic"), MineQTTConfig.blockEventsTopic)
-                .setTooltip(Component.translatable("config.mineqtt.block_events_topic.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.blockEventsTopic = value)
-                .build());
+    private void onSave(Button button) {
+        // Update config values
+        MineQTTConfig.brokerUrl = this.brokerUrlField.getValue();
+        MineQTTConfig.clientId = this.clientIdField.getValue();
+        MineQTTConfig.username = this.usernameField.getValue();
+        MineQTTConfig.password = this.passwordField.getValue();
 
-        // Publishing Settings Category
-        ConfigCategory publishingCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.publishing"));
+        // Save config through handler
+        if (MineQTT.getConfigHandler() != null) {
+            MineQTT.getConfigHandler().saveConfig();
+        }
 
-        publishingCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.publish_player_join"), MineQTTConfig.publishPlayerJoin)
-                .setTooltip(Component.translatable("config.mineqtt.publish_player_join.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.publishPlayerJoin = value)
-                .build());
+        // Close screen
+        this.minecraft.setScreen(this.parent);
+    }
 
-        publishingCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.publish_player_leave"), MineQTTConfig.publishPlayerLeave)
-                .setTooltip(Component.translatable("config.mineqtt.publish_player_leave.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.publishPlayerLeave = value)
-                .build());
+    private void onCancel(Button button) {
+        // Close without saving
+        this.minecraft.setScreen(this.parent);
+    }
 
-        publishingCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.publish_chat_messages"), MineQTTConfig.publishChatMessages)
-                .setTooltip(Component.translatable("config.mineqtt.publish_chat_messages.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.publishChatMessages = value)
-                .build());
+    private void onReset(Button button) {
+        // Reset to defaults
+        MineQTTConfig.resetToDefaults();
 
-        publishingCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.publish_block_break"), MineQTTConfig.publishBlockBreak)
-                .setTooltip(Component.translatable("config.mineqtt.publish_block_break.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.publishBlockBreak = value)
-                .build());
+        // Update field values
+        this.brokerUrlField.setValue(MineQTTConfig.brokerUrl);
+        this.clientIdField.setValue(MineQTTConfig.clientId);
+        this.usernameField.setValue(MineQTTConfig.username);
+        this.passwordField.setValue(MineQTTConfig.password);
+    }
 
-        publishingCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.publish_block_place"), MineQTTConfig.publishBlockPlace)
-                .setTooltip(Component.translatable("config.mineqtt.publish_block_place.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.publishBlockPlace = value)
-                .build());
-
-        // Message Settings Category
-        ConfigCategory messageCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.messages"));
-
-        messageCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.online_message"), MineQTTConfig.onlineMessage)
-                .setTooltip(Component.translatable("config.mineqtt.online_message.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.onlineMessage = value)
-                .build());
-
-        messageCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.offline_message"), MineQTTConfig.offlineMessage)
-                .setTooltip(Component.translatable("config.mineqtt.offline_message.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.offlineMessage = value)
-                .build());
-
-        // Debug Settings Category
-        ConfigCategory debugCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.debug"));
-
-        debugCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.enable_debug_logging"), MineQTTConfig.enableDebugLogging)
-                .setTooltip(Component.translatable("config.mineqtt.enable_debug_logging.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.enableDebugLogging = value)
-                .build());
-
-        debugCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.show_mqtt_status_in_chat"), MineQTTConfig.showMqttStatusInChat)
-                .setTooltip(Component.translatable("config.mineqtt.show_mqtt_status_in_chat.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.showMqttStatusInChat = value)
-                .build());
-
-        return builder.build();
+    @Override
+    public void onClose() {
+        this.minecraft.setScreen(this.parent);
     }
 }

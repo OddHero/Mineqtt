@@ -35,7 +35,7 @@ public class FabricConfigHandler implements ConfigHandler {
                 }
             } catch (Exception e) {
                 LOGGER.error("Failed to load configuration, using defaults", e);
-                resetConfig();
+                resetToDefaults();
             }
         } else {
             LOGGER.info("Configuration file not found, creating default configuration");
@@ -57,92 +57,104 @@ public class FabricConfigHandler implements ConfigHandler {
     }
 
     @Override
-    public void resetConfig() {
+    public boolean isConfigValid() {
+        return MineQTTConfig.brokerUrl != null && !MineQTTConfig.brokerUrl.isEmpty()
+                && MineQTTConfig.clientId != null && !MineQTTConfig.clientId.isEmpty();
+    }
+
+    @Override
+    public void resetToDefaults() {
         MineQTTConfig.resetToDefaults();
         saveConfig();
     }
 
     private ConfigData createConfigData() {
         ConfigData data = new ConfigData();
-        data.brokerHost = MineQTTConfig.brokerHost;
-        data.brokerPort = MineQTTConfig.brokerPort;
+        // MQTT Connection Settings
+        data.brokerUrl = MineQTTConfig.brokerUrl;
+        data.clientId = MineQTTConfig.clientId;
         data.username = MineQTTConfig.username;
         data.password = MineQTTConfig.password;
-        data.useAuthentication = MineQTTConfig.useAuthentication;
-        data.connectionTimeout = MineQTTConfig.connectionTimeout;
         data.autoReconnect = MineQTTConfig.autoReconnect;
+        data.connectionTimeout = MineQTTConfig.connectionTimeout;
+        data.keepAlive = MineQTTConfig.keepAlive;
 
-        data.statusTopic = MineQTTConfig.statusTopic;
-        data.playerEventsTopic = MineQTTConfig.playerEventsTopic;
+        // MQTT Topics
+        data.playerJoinTopic = MineQTTConfig.playerJoinTopic;
+        data.playerLeaveTopic = MineQTTConfig.playerLeaveTopic;
         data.chatTopic = MineQTTConfig.chatTopic;
-        data.blockEventsTopic = MineQTTConfig.blockEventsTopic;
+        data.blockBreakTopic = MineQTTConfig.blockBreakTopic;
+        data.blockPlaceTopic = MineQTTConfig.blockPlaceTopic;
 
-        data.publishPlayerJoin = MineQTTConfig.publishPlayerJoin;
-        data.publishPlayerLeave = MineQTTConfig.publishPlayerLeave;
-        data.publishChatMessages = MineQTTConfig.publishChatMessages;
-        data.publishBlockBreak = MineQTTConfig.publishBlockBreak;
-        data.publishBlockPlace = MineQTTConfig.publishBlockPlace;
+        // Feature Toggles
+        data.enablePlayerEvents = MineQTTConfig.enablePlayerEvents;
+        data.enableChatEvents = MineQTTConfig.enableChatEvents;
+        data.enableBlockEvents = MineQTTConfig.enableBlockEvents;
+        data.enableDebugging = MineQTTConfig.enableDebugging;
 
-        data.onlineMessage = MineQTTConfig.onlineMessage;
-        data.offlineMessage = MineQTTConfig.offlineMessage;
-
-        data.enableDebugLogging = MineQTTConfig.enableDebugLogging;
-        data.showMqttStatusInChat = MineQTTConfig.showMqttStatusInChat;
+        // Message Settings
+        data.includeCoordinates = MineQTTConfig.includeCoordinates;
+        data.includeTimestamp = MineQTTConfig.includeTimestamp;
+        data.messageFormat = MineQTTConfig.messageFormat;
 
         return data;
     }
 
     private void applyConfigData(ConfigData data) {
-        MineQTTConfig.brokerHost = data.brokerHost;
-        MineQTTConfig.brokerPort = data.brokerPort;
+        // MQTT Connection Settings
+        MineQTTConfig.brokerUrl = data.brokerUrl;
+        MineQTTConfig.clientId = data.clientId;
         MineQTTConfig.username = data.username;
         MineQTTConfig.password = data.password;
-        MineQTTConfig.useAuthentication = data.useAuthentication;
-        MineQTTConfig.connectionTimeout = data.connectionTimeout;
         MineQTTConfig.autoReconnect = data.autoReconnect;
+        MineQTTConfig.connectionTimeout = data.connectionTimeout;
+        MineQTTConfig.keepAlive = data.keepAlive;
 
-        MineQTTConfig.statusTopic = data.statusTopic;
-        MineQTTConfig.playerEventsTopic = data.playerEventsTopic;
+        // MQTT Topics
+        MineQTTConfig.playerJoinTopic = data.playerJoinTopic;
+        MineQTTConfig.playerLeaveTopic = data.playerLeaveTopic;
         MineQTTConfig.chatTopic = data.chatTopic;
-        MineQTTConfig.blockEventsTopic = data.blockEventsTopic;
+        MineQTTConfig.blockBreakTopic = data.blockBreakTopic;
+        MineQTTConfig.blockPlaceTopic = data.blockPlaceTopic;
 
-        MineQTTConfig.publishPlayerJoin = data.publishPlayerJoin;
-        MineQTTConfig.publishPlayerLeave = data.publishPlayerLeave;
-        MineQTTConfig.publishChatMessages = data.publishChatMessages;
-        MineQTTConfig.publishBlockBreak = data.publishBlockBreak;
-        MineQTTConfig.publishBlockPlace = data.publishBlockPlace;
+        // Feature Toggles
+        MineQTTConfig.enablePlayerEvents = data.enablePlayerEvents;
+        MineQTTConfig.enableChatEvents = data.enableChatEvents;
+        MineQTTConfig.enableBlockEvents = data.enableBlockEvents;
+        MineQTTConfig.enableDebugging = data.enableDebugging;
 
-        MineQTTConfig.onlineMessage = data.onlineMessage;
-        MineQTTConfig.offlineMessage = data.offlineMessage;
-
-        MineQTTConfig.enableDebugLogging = data.enableDebugLogging;
-        MineQTTConfig.showMqttStatusInChat = data.showMqttStatusInChat;
+        // Message Settings
+        MineQTTConfig.includeCoordinates = data.includeCoordinates;
+        MineQTTConfig.includeTimestamp = data.includeTimestamp;
+        MineQTTConfig.messageFormat = data.messageFormat;
     }
 
     private static class ConfigData {
-        public String brokerHost = "test.mosquitto.org";
-        public int brokerPort = 1883;
+        // MQTT Connection Settings
+        public String brokerUrl = "tcp://localhost:1883";
+        public String clientId = "minecraft-client";
         public String username = "";
         public String password = "";
-        public boolean useAuthentication = false;
-        public int connectionTimeout = 10;
         public boolean autoReconnect = true;
+        public int connectionTimeout = 30;
+        public int keepAlive = 60;
 
-        public String statusTopic = "mineqtt/status";
-        public String playerEventsTopic = "mineqtt/player/events";
-        public String chatTopic = "mineqtt/chat";
-        public String blockEventsTopic = "mineqtt/blocks";
+        // MQTT Topics
+        public String playerJoinTopic = "minecraft/players/join";
+        public String playerLeaveTopic = "minecraft/players/leave";
+        public String chatTopic = "minecraft/chat";
+        public String blockBreakTopic = "minecraft/blocks/break";
+        public String blockPlaceTopic = "minecraft/blocks/place";
 
-        public boolean publishPlayerJoin = true;
-        public boolean publishPlayerLeave = true;
-        public boolean publishChatMessages = false;
-        public boolean publishBlockBreak = false;
-        public boolean publishBlockPlace = false;
+        // Feature Toggles
+        public boolean enablePlayerEvents = true;
+        public boolean enableChatEvents = true;
+        public boolean enableBlockEvents = false;
+        public boolean enableDebugging = false;
 
-        public String onlineMessage = "MineQTT is online";
-        public String offlineMessage = "MineQTT is offline";
-
-        public boolean enableDebugLogging = false;
-        public boolean showMqttStatusInChat = false;
+        // Message Settings
+        public boolean includeCoordinates = true;
+        public boolean includeTimestamp = true;
+        public String messageFormat = "json";
     }
 }

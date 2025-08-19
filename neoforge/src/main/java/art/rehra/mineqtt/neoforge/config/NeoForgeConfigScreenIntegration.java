@@ -1,21 +1,17 @@
 package art.rehra.mineqtt.neoforge.config;
 
-import art.rehra.mineqtt.MineQTT;
-import net.neoforged.fml.ModLoadingContext;
-import net.minecraft.client.gui.screens.Screen;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 
 /**
- * Placeholder for NeoForge config screen integration.
- * This class needs to be properly implemented once the correct
- * NeoForge API for config screens is determined.
+ * NeoForge config screen integration for MineQTT.
+ * This registers our ClothConfig screen with NeoForge's mod config system.
  */
 public class NeoForgeConfigScreenIntegration {
-    private static final Logger LOGGER = LoggerFactory.getLogger("MineQTT-Config");
-
-    public static void register() {
-        // TODO: Implement proper config screen registration once API is determined
-        LOGGER.info("Config screen registration for NeoForge is not yet implemented");
+    public static void register(ModContainer container) {
+        // Register a simple config screen factory with NeoForge's mod menu system
+        container.registerExtensionPoint(IConfigScreenFactory.class,
+            (client, parent) -> new MineQTTConfigScreen(parent)
+        );
     }
 }

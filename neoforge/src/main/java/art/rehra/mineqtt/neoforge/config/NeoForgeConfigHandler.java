@@ -2,164 +2,199 @@ package art.rehra.mineqtt.neoforge.config;
 
 import art.rehra.mineqtt.config.ConfigHandler;
 import art.rehra.mineqtt.config.MineQTTConfig;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import net.neoforged.fml.loading.FMLPaths;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.neoforge.common.ModConfigSpec;
 
 public class NeoForgeConfigHandler implements ConfigHandler {
-    private static final Logger LOGGER = LoggerFactory.getLogger("MineQTT-Config");
-    private static final String CONFIG_FILE_NAME = "mineqtt.json";
-    private final Path configPath;
-    private final Gson gson;
+    private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
-    public NeoForgeConfigHandler() {
-        this.configPath = FMLPaths.CONFIGDIR.get().resolve(CONFIG_FILE_NAME);
-        this.gson = new GsonBuilder().setPrettyPrinting().create();
+    // MQTT Connection Settings
+    public static final ModConfigSpec.ConfigValue<String> BROKER_URL;
+    public static final ModConfigSpec.ConfigValue<String> CLIENT_ID;
+    public static final ModConfigSpec.ConfigValue<String> USERNAME;
+    public static final ModConfigSpec.ConfigValue<String> PASSWORD;
+    public static final ModConfigSpec.BooleanValue AUTO_RECONNECT;
+    public static final ModConfigSpec.IntValue CONNECTION_TIMEOUT;
+    public static final ModConfigSpec.IntValue KEEP_ALIVE;
+
+    // MQTT Topics
+    public static final ModConfigSpec.ConfigValue<String> PLAYER_JOIN_TOPIC;
+    public static final ModConfigSpec.ConfigValue<String> PLAYER_LEAVE_TOPIC;
+    public static final ModConfigSpec.ConfigValue<String> CHAT_TOPIC;
+    public static final ModConfigSpec.ConfigValue<String> BLOCK_BREAK_TOPIC;
+    public static final ModConfigSpec.ConfigValue<String> BLOCK_PLACE_TOPIC;
+
+    // Feature Toggles
+    public static final ModConfigSpec.BooleanValue ENABLE_PLAYER_EVENTS;
+    public static final ModConfigSpec.BooleanValue ENABLE_CHAT_EVENTS;
+    public static final ModConfigSpec.BooleanValue ENABLE_BLOCK_EVENTS;
+    public static final ModConfigSpec.BooleanValue ENABLE_DEBUGGING;
+
+    // Message Settings
+    public static final ModConfigSpec.BooleanValue INCLUDE_COORDINATES;
+    public static final ModConfigSpec.BooleanValue INCLUDE_TIMESTAMP;
+    public static final ModConfigSpec.ConfigValue<String> MESSAGE_FORMAT;
+
+    public static final ModConfigSpec SPEC;
+
+    static {
+        BUILDER.comment("MQTT Connection Settings").push("connection");
+
+        BROKER_URL = BUILDER
+                .comment("MQTT broker URL (e.g., tcp://localhost:1883)")
+                .define("brokerUrl", "tcp://localhost:1883");
+
+        CLIENT_ID = BUILDER
+                .comment("MQTT client identifier")
+                .define("clientId", "minecraft-client");
+
+        USERNAME = BUILDER
+                .comment("MQTT username (leave empty if not required)")
+                .define("username", "");
+
+        PASSWORD = BUILDER
+                .comment("MQTT password (leave empty if not required)")
+                .define("password", "");
+
+        AUTO_RECONNECT = BUILDER
+                .comment("Automatically reconnect to MQTT broker if connection is lost")
+                .define("autoReconnect", true);
+
+        CONNECTION_TIMEOUT = BUILDER
+                .comment("Connection timeout in seconds")
+                .defineInRange("connectionTimeout", 30, 1, 300);
+
+        KEEP_ALIVE = BUILDER
+                .comment("Keep alive interval in seconds")
+                .defineInRange("keepAlive", 60, 1, 3600);
+
+        BUILDER.pop();
+
+        BUILDER.comment("MQTT Topics").push("topics");
+
+        PLAYER_JOIN_TOPIC = BUILDER
+                .comment("Topic for player join events")
+                .define("playerJoinTopic", "minecraft/players/join");
+
+        PLAYER_LEAVE_TOPIC = BUILDER
+                .comment("Topic for player leave events")
+                .define("playerLeaveTopic", "minecraft/players/leave");
+
+        CHAT_TOPIC = BUILDER
+                .comment("Topic for chat messages")
+                .define("chatTopic", "minecraft/chat");
+
+        BLOCK_BREAK_TOPIC = BUILDER
+                .comment("Topic for block break events")
+                .define("blockBreakTopic", "minecraft/blocks/break");
+
+        BLOCK_PLACE_TOPIC = BUILDER
+                .comment("Topic for block place events")
+                .define("blockPlaceTopic", "minecraft/blocks/place");
+
+        BUILDER.pop();
+
+        BUILDER.comment("Feature Toggles").push("features");
+
+        ENABLE_PLAYER_EVENTS = BUILDER
+                .comment("Enable player join/leave events")
+                .define("enablePlayerEvents", true);
+
+        ENABLE_CHAT_EVENTS = BUILDER
+                .comment("Enable chat message events")
+                .define("enableChatEvents", true);
+
+        ENABLE_BLOCK_EVENTS = BUILDER
+                .comment("Enable block break/place events")
+                .define("enableBlockEvents", false);
+
+        ENABLE_DEBUGGING = BUILDER
+                .comment("Enable debug logging")
+                .define("enableDebugging", false);
+
+        BUILDER.pop();
+
+        BUILDER.comment("Message Settings").push("messages");
+
+        INCLUDE_COORDINATES = BUILDER
+                .comment("Include player coordinates in events")
+                .define("includeCoordinates", true);
+
+        INCLUDE_TIMESTAMP = BUILDER
+                .comment("Include timestamp in events")
+                .define("includeTimestamp", true);
+
+        MESSAGE_FORMAT = BUILDER
+                .comment("Message format (json or text)")
+                .define("messageFormat", "json");
+
+        BUILDER.pop();
+
+        SPEC = BUILDER.build();
     }
 
     @Override
     public void loadConfig() {
-        if (Files.exists(configPath)) {
-            try {
-                String jsonContent = Files.readString(configPath);
-                ConfigData configData = gson.fromJson(jsonContent, ConfigData.class);
-                if (configData != null) {
-                    applyConfigData(configData);
-                    LOGGER.info("Configuration loaded from {}", configPath);
-                }
-            } catch (Exception e) {
-                LOGGER.error("Failed to load configuration, using defaults", e);
-                resetConfig();
-            }
-        } else {
-            LOGGER.info("Configuration file not found, creating default configuration");
-            saveConfig();
-        }
+        MineQTTConfig.brokerUrl = BROKER_URL.get();
+        MineQTTConfig.clientId = CLIENT_ID.get();
+        MineQTTConfig.username = USERNAME.get();
+        MineQTTConfig.password = PASSWORD.get();
+        MineQTTConfig.autoReconnect = AUTO_RECONNECT.get();
+        MineQTTConfig.connectionTimeout = CONNECTION_TIMEOUT.get();
+        MineQTTConfig.keepAlive = KEEP_ALIVE.get();
+
+        MineQTTConfig.playerJoinTopic = PLAYER_JOIN_TOPIC.get();
+        MineQTTConfig.playerLeaveTopic = PLAYER_LEAVE_TOPIC.get();
+        MineQTTConfig.chatTopic = CHAT_TOPIC.get();
+        MineQTTConfig.blockBreakTopic = BLOCK_BREAK_TOPIC.get();
+        MineQTTConfig.blockPlaceTopic = BLOCK_PLACE_TOPIC.get();
+
+        MineQTTConfig.enablePlayerEvents = ENABLE_PLAYER_EVENTS.get();
+        MineQTTConfig.enableChatEvents = ENABLE_CHAT_EVENTS.get();
+        MineQTTConfig.enableBlockEvents = ENABLE_BLOCK_EVENTS.get();
+        MineQTTConfig.enableDebugging = ENABLE_DEBUGGING.get();
+
+        MineQTTConfig.includeCoordinates = INCLUDE_COORDINATES.get();
+        MineQTTConfig.includeTimestamp = INCLUDE_TIMESTAMP.get();
+        MineQTTConfig.messageFormat = MESSAGE_FORMAT.get();
     }
 
     @Override
     public void saveConfig() {
-        try {
-            ConfigData configData = createConfigData();
-            String jsonContent = gson.toJson(configData);
-            Files.createDirectories(configPath.getParent());
-            Files.writeString(configPath, jsonContent);
-            LOGGER.info("Configuration saved to {}", configPath);
-        } catch (IOException e) {
-            LOGGER.error("Failed to save configuration", e);
-        }
+        // NeoForge handles saving automatically when values change
+        BROKER_URL.set(MineQTTConfig.brokerUrl);
+        CLIENT_ID.set(MineQTTConfig.clientId);
+        USERNAME.set(MineQTTConfig.username);
+        PASSWORD.set(MineQTTConfig.password);
+        AUTO_RECONNECT.set(MineQTTConfig.autoReconnect);
+        CONNECTION_TIMEOUT.set(MineQTTConfig.connectionTimeout);
+        KEEP_ALIVE.set(MineQTTConfig.keepAlive);
+
+        PLAYER_JOIN_TOPIC.set(MineQTTConfig.playerJoinTopic);
+        PLAYER_LEAVE_TOPIC.set(MineQTTConfig.playerLeaveTopic);
+        CHAT_TOPIC.set(MineQTTConfig.chatTopic);
+        BLOCK_BREAK_TOPIC.set(MineQTTConfig.blockBreakTopic);
+        BLOCK_PLACE_TOPIC.set(MineQTTConfig.blockPlaceTopic);
+
+        ENABLE_PLAYER_EVENTS.set(MineQTTConfig.enablePlayerEvents);
+        ENABLE_CHAT_EVENTS.set(MineQTTConfig.enableChatEvents);
+        ENABLE_BLOCK_EVENTS.set(MineQTTConfig.enableBlockEvents);
+        ENABLE_DEBUGGING.set(MineQTTConfig.enableDebugging);
+
+        INCLUDE_COORDINATES.set(MineQTTConfig.includeCoordinates);
+        INCLUDE_TIMESTAMP.set(MineQTTConfig.includeTimestamp);
+        MESSAGE_FORMAT.set(MineQTTConfig.messageFormat);
     }
 
     @Override
-    public void resetConfig() {
+    public boolean isConfigValid() {
+        return BROKER_URL.get() != null && !BROKER_URL.get().isEmpty() &&
+               CLIENT_ID.get() != null && !CLIENT_ID.get().isEmpty();
+    }
+
+    @Override
+    public void resetToDefaults() {
         MineQTTConfig.resetToDefaults();
         saveConfig();
-        LOGGER.info("Configuration reset to defaults");
-    }
-
-    private ConfigData createConfigData() {
-        ConfigData configData = new ConfigData();
-
-        // Connection settings
-        configData.brokerHost = MineQTTConfig.brokerHost;
-        configData.brokerPort = MineQTTConfig.brokerPort;
-        configData.username = MineQTTConfig.username;
-        configData.password = MineQTTConfig.password;
-        configData.useAuthentication = MineQTTConfig.useAuthentication;
-        configData.connectionTimeout = MineQTTConfig.connectionTimeout;
-        configData.autoReconnect = MineQTTConfig.autoReconnect;
-
-        // Topics
-        configData.statusTopic = MineQTTConfig.statusTopic;
-        configData.playerEventsTopic = MineQTTConfig.playerEventsTopic;
-        configData.chatTopic = MineQTTConfig.chatTopic;
-        configData.blockEventsTopic = MineQTTConfig.blockEventsTopic;
-
-        // Publishing settings
-        configData.publishPlayerJoin = MineQTTConfig.publishPlayerJoin;
-        configData.publishPlayerLeave = MineQTTConfig.publishPlayerLeave;
-        configData.publishChatMessages = MineQTTConfig.publishChatMessages;
-        configData.publishBlockBreak = MineQTTConfig.publishBlockBreak;
-        configData.publishBlockPlace = MineQTTConfig.publishBlockPlace;
-
-        // Message settings
-        configData.onlineMessage = MineQTTConfig.onlineMessage;
-        configData.offlineMessage = MineQTTConfig.offlineMessage;
-
-        // Debug settings
-        configData.enableDebugLogging = MineQTTConfig.enableDebugLogging;
-        configData.showMqttStatusInChat = MineQTTConfig.showMqttStatusInChat;
-
-        return configData;
-    }
-
-    private void applyConfigData(ConfigData configData) {
-        // Connection settings
-        MineQTTConfig.brokerHost = configData.brokerHost;
-        MineQTTConfig.brokerPort = configData.brokerPort;
-        MineQTTConfig.username = configData.username;
-        MineQTTConfig.password = configData.password;
-        MineQTTConfig.useAuthentication = configData.useAuthentication;
-        MineQTTConfig.connectionTimeout = configData.connectionTimeout;
-        MineQTTConfig.autoReconnect = configData.autoReconnect;
-
-        // Topics
-        MineQTTConfig.statusTopic = configData.statusTopic;
-        MineQTTConfig.playerEventsTopic = configData.playerEventsTopic;
-        MineQTTConfig.chatTopic = configData.chatTopic;
-        MineQTTConfig.blockEventsTopic = configData.blockEventsTopic;
-
-        // Publishing settings
-        MineQTTConfig.publishPlayerJoin = configData.publishPlayerJoin;
-        MineQTTConfig.publishPlayerLeave = configData.publishPlayerLeave;
-        MineQTTConfig.publishChatMessages = configData.publishChatMessages;
-        MineQTTConfig.publishBlockBreak = configData.publishBlockBreak;
-        MineQTTConfig.publishBlockPlace = configData.publishBlockPlace;
-
-        // Message settings
-        MineQTTConfig.onlineMessage = configData.onlineMessage;
-        MineQTTConfig.offlineMessage = configData.offlineMessage;
-
-        // Debug settings
-        MineQTTConfig.enableDebugLogging = configData.enableDebugLogging;
-        MineQTTConfig.showMqttStatusInChat = configData.showMqttStatusInChat;
-    }
-
-    private static class ConfigData {
-        // Connection settings
-        public String brokerHost = "test.mosquitto.org";
-        public int brokerPort = 1883;
-        public String username = "";
-        public String password = "";
-        public boolean useAuthentication = false;
-        public int connectionTimeout = 10;
-        public boolean autoReconnect = true;
-
-        // Topics
-        public String statusTopic = "mineqtt/status";
-        public String playerEventsTopic = "mineqtt/player/events";
-        public String chatTopic = "mineqtt/chat";
-        public String blockEventsTopic = "mineqtt/blocks";
-
-        // Publishing settings
-        public boolean publishPlayerJoin = true;
-        public boolean publishPlayerLeave = true;
-        public boolean publishChatMessages = false;
-        public boolean publishBlockBreak = false;
-        public boolean publishBlockPlace = false;
-
-        // Message settings
-        public String onlineMessage = "MineQTT is online";
-        public String offlineMessage = "MineQTT is offline";
-
-        // Debug settings
-        public boolean enableDebugLogging = false;
-        public boolean showMqttStatusInChat = false;
     }
 }
