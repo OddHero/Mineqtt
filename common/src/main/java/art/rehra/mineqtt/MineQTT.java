@@ -1,26 +1,43 @@
 package art.rehra.mineqtt;
 
+import art.rehra.mineqtt.blocks.MineQTTBlocks;
 import art.rehra.mineqtt.config.ConfigHandler;
 import art.rehra.mineqtt.config.MineQTTConfig;
+import art.rehra.mineqtt.items.MineQTTItems;
+import art.rehra.mineqtt.tabs.MineQTTTabs;
+import com.hivemq.client.mqtt.MqttClient;
+import com.hivemq.client.mqtt.datatypes.MqttQos;
+import com.hivemq.client.mqtt.lifecycle.MqttClientAutoReconnect;
+import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.TimeUnit;
 
 public class MineQTT {
     public static final String MOD_ID = "mineqtt";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     private static ConfigHandler configHandler;
+    public static Mqtt3AsyncClient mqttClient;
 
     public static void init() {
         LOGGER.info("Initializing MineQTT...");
 
-        // Config loading is handled by each platform at the appropriate lifecycle time.
-        // Do not call configHandler.loadConfig() here to avoid early access on NeoForge.
+        if (configHandler == null) {
+            throw new IllegalStateException("ConfigHandler not set. Please set it before calling init().");
+        }
+        // Load configuration into MineQTTConfig
+        configHandler.loadConfig();
 
         // Initialize the MQTT client with current config values
         initializeMQTTClient();
 
         LOGGER.info("MineQTT initialized successfully");
+
+        MineQTTTabs.init();
+        MineQTTBlocks.init();
+        MineQTTItems.init();
     }
 
     public static void setConfigHandler(ConfigHandler handler) {
@@ -43,22 +60,43 @@ public class MineQTT {
         }
 
         try {
-            // TODO: Initialize MQTT client with config values
-            LOGGER.info("MQTT client configuration loaded:");
-            LOGGER.info("Broker URL: {}", MineQTTConfig.brokerUrl);
-            LOGGER.info("Client ID: {}", MineQTTConfig.clientId);
-            LOGGER.info("Auto Reconnect: {}", MineQTTConfig.autoReconnect);
+            LOGGER.info("MQTT client configuration:");
+            LOGGER.info("   Broker URL: {}", MineQTTConfig.brokerUrl);
+            LOGGER.info("   Client ID: {}", MineQTTConfig.clientId);
+            LOGGER.info("   Auto Reconnect: {}", MineQTTConfig.autoReconnect);
 
-            // This would be where you initialize the actual MQTT client
-            // Example:
-            // mqttClient = MqttClient.builder()
-            //     .serverHost(MineQTTConfig.brokerUrl)
-            //     .identifier(MineQTTConfig.clientId)
-            //     .build();
+            mqttClient = MqttClient.builder()
+                    .serverHost(MineQTTConfig.brokerUrl)
+                    .identifier(MineQTTConfig.clientId)
+                    .useMqttVersion3().
+                    automaticReconnect(MineQTTConfig.autoReconnect
+                            ? MqttClientAutoReconnect.builder().initialDelay(MineQTTConfig.connectionTimeout, TimeUnit.SECONDS).build()
+                            : null)
+                    .willPublish().topic(MineQTTConfig.getTopicPath(MineQTTConfig.statusTopic)).payload("Offline".getBytes()).qos(MqttQos.AT_LEAST_ONCE).retain(true).applyWillPublish()
+                    .simpleAuth().username(MineQTTConfig.username)
+                    .password(MineQTTConfig.password.getBytes())
+                    .applySimpleAuth()
+                    .addConnectedListener(
+                        conn -> {
+                            LOGGER.info("MQTT client connected to broker: {}", MineQTTConfig.brokerUrl);
+                            // Publish "Online" status message upon successful connection
+                            mqttClient.publishWith().topic(MineQTTConfig.getTopicPath(MineQTTConfig.statusTopic))
+                                    .payload("Online".getBytes())
+                                    .qos(MqttQos.AT_LEAST_ONCE)
+                                    .retain(true)
+                                    .send();
+                        })
+                    .addDisconnectedListener(
+                        disconn -> LOGGER.warn("MQTT client disconnected from broker.", disconn.getCause()))
+                    .buildAsync();
 
-            if (MineQTTConfig.enableDebugging) {
-                LOGGER.info("Connected to MQTT broker successfully");
-            }
+            mqttClient.connect().whenComplete((connAck, throwable) -> {
+                if (throwable != null) {
+                    LOGGER.error("Failed to connect to MQTT broker", throwable);
+                } else {
+                    LOGGER.info("Connected to MQTT broker successfully");
+                }
+            });
         } catch (Exception e) {
             LOGGER.error("Failed to connect to MQTT broker", e);
         }

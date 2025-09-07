@@ -48,7 +48,7 @@ public class MineQTTConfigScreen {
                 .setSaveConsumer(value -> MineQTTConfig.autoReconnect = value)
                 .build());
 
-        connectionCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.connection_timeout"), MineQTTConfig.connectionTimeout)
+        connectionCategory.addEntry(entryBuilder.startLongField(Component.translatable("config.mineqtt.connection_timeout"), MineQTTConfig.connectionTimeout)
                 .setTooltip(Component.translatable("config.mineqtt.connection_timeout.tooltip"))
                 .setMin(1)
                 .setMax(300)
@@ -62,73 +62,16 @@ public class MineQTTConfigScreen {
                 .setSaveConsumer(value -> MineQTTConfig.keepAlive = value)
                 .build());
 
-        // Topics Category
-        ConfigCategory topicsCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.topics"));
+        ConfigCategory topicCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.topics"));
 
-        topicsCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.player_join_topic"), MineQTTConfig.playerJoinTopic)
-                .setTooltip(Component.translatable("config.mineqtt.player_join_topic.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.playerJoinTopic = value)
+        topicCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.base_topic"), MineQTTConfig.baseTopic)
+                .setTooltip(Component.translatable("config.mineqtt.base_topic.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.baseTopic = value)
                 .build());
 
-        topicsCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.player_leave_topic"), MineQTTConfig.playerLeaveTopic)
-                .setTooltip(Component.translatable("config.mineqtt.player_leave_topic.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.playerLeaveTopic = value)
-                .build());
-
-        topicsCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.chat_topic"), MineQTTConfig.chatTopic)
-                .setTooltip(Component.translatable("config.mineqtt.chat_topic.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.chatTopic = value)
-                .build());
-
-        topicsCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.block_break_topic"), MineQTTConfig.blockBreakTopic)
-                .setTooltip(Component.translatable("config.mineqtt.block_break_topic.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.blockBreakTopic = value)
-                .build());
-
-        topicsCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.block_place_topic"), MineQTTConfig.blockPlaceTopic)
-                .setTooltip(Component.translatable("config.mineqtt.block_place_topic.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.blockPlaceTopic = value)
-                .build());
-
-        // Feature Toggles Category
-        ConfigCategory featuresCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.features"));
-
-        featuresCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.enable_player_events"), MineQTTConfig.enablePlayerEvents)
-                .setTooltip(Component.translatable("config.mineqtt.enable_player_events.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.enablePlayerEvents = value)
-                .build());
-
-        featuresCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.enable_chat_events"), MineQTTConfig.enableChatEvents)
-                .setTooltip(Component.translatable("config.mineqtt.enable_chat_events.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.enableChatEvents = value)
-                .build());
-
-        featuresCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.enable_block_events"), MineQTTConfig.enableBlockEvents)
-                .setTooltip(Component.translatable("config.mineqtt.enable_block_events.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.enableBlockEvents = value)
-                .build());
-
-        featuresCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.enable_debugging"), MineQTTConfig.enableDebugging)
-                .setTooltip(Component.translatable("config.mineqtt.enable_debugging.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.enableDebugging = value)
-                .build());
-
-        // Messages Category
-        ConfigCategory messagesCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.messages"));
-
-        messagesCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.include_coordinates"), MineQTTConfig.includeCoordinates)
-                .setTooltip(Component.translatable("config.mineqtt.include_coordinates.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.includeCoordinates = value)
-                .build());
-
-        messagesCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.include_timestamp"), MineQTTConfig.includeTimestamp)
-                .setTooltip(Component.translatable("config.mineqtt.include_timestamp.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.includeTimestamp = value)
-                .build());
-
-        messagesCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.message_format"), MineQTTConfig.messageFormat)
-                .setTooltip(Component.translatable("config.mineqtt.message_format.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.messageFormat = value)
+        topicCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.status_topic"), MineQTTConfig.statusTopic)
+                .setTooltip(Component.translatable("config.mineqtt.status_topic.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.statusTopic = value)
                 .build());
 
         return builder.build();

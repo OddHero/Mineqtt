@@ -7,26 +7,13 @@ public class MineQTTConfig {
     public static String username = "";
     public static String password = "";
     public static boolean autoReconnect = true;
-    public static int connectionTimeout = 30;
+    public static long connectionTimeout = 30;
     public static int keepAlive = 60;
 
     // MQTT Topics
-    public static String playerJoinTopic = "minecraft/players/join";
-    public static String playerLeaveTopic = "minecraft/players/leave";
-    public static String chatTopic = "minecraft/chat";
-    public static String blockBreakTopic = "minecraft/blocks/break";
-    public static String blockPlaceTopic = "minecraft/blocks/place";
+    public static String baseTopic = "minecraft";
+    public static String statusTopic = "status";
 
-    // Feature Toggles
-    public static boolean enablePlayerEvents = true;
-    public static boolean enableChatEvents = true;
-    public static boolean enableBlockEvents = false;
-    public static boolean enableDebugging = false;
-
-    // Message Settings
-    public static boolean includeCoordinates = true;
-    public static boolean includeTimestamp = true;
-    public static String messageFormat = "json";
 
     // Platform-specific config saving/loading will be handled by each platform
     public static void resetToDefaults() {
@@ -37,20 +24,11 @@ public class MineQTTConfig {
         autoReconnect = true;
         connectionTimeout = 30;
         keepAlive = 60;
+        baseTopic = "minecraft";
+        statusTopic = "status";
+    }
 
-        playerJoinTopic = "minecraft/players/join";
-        playerLeaveTopic = "minecraft/players/leave";
-        chatTopic = "minecraft/chat";
-        blockBreakTopic = "minecraft/blocks/break";
-        blockPlaceTopic = "minecraft/blocks/place";
-
-        enablePlayerEvents = true;
-        enableChatEvents = true;
-        enableBlockEvents = false;
-        enableDebugging = false;
-
-        includeCoordinates = true;
-        includeTimestamp = true;
-        messageFormat = "json";
+    public static String getTopicPath(String subTopic) {
+        return baseTopic + "/" + subTopic;
     }
 }

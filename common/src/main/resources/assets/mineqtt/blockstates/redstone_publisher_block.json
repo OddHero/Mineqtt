@@ -1,0 +1,6 @@
+﻿{
+  "variants": {
+    "powered=false" : { "model": "mineqtt:block/redstone_publisher_block" },
+    "powered=true" : { "model": "mineqtt:block/redstone_publisher_block_on" }
+  }
+}

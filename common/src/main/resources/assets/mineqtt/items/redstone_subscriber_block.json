@@ -1,0 +1,6 @@
+﻿{
+  "model": {
+    "type": "minecraft:model",
+    "model": "mineqtt:block/redstone_subscriber_block_on"
+  }
+}

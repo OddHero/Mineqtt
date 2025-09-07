@@ -79,24 +79,6 @@ public class FabricConfigHandler implements ConfigHandler {
         data.connectionTimeout = MineQTTConfig.connectionTimeout;
         data.keepAlive = MineQTTConfig.keepAlive;
 
-        // MQTT Topics
-        data.playerJoinTopic = MineQTTConfig.playerJoinTopic;
-        data.playerLeaveTopic = MineQTTConfig.playerLeaveTopic;
-        data.chatTopic = MineQTTConfig.chatTopic;
-        data.blockBreakTopic = MineQTTConfig.blockBreakTopic;
-        data.blockPlaceTopic = MineQTTConfig.blockPlaceTopic;
-
-        // Feature Toggles
-        data.enablePlayerEvents = MineQTTConfig.enablePlayerEvents;
-        data.enableChatEvents = MineQTTConfig.enableChatEvents;
-        data.enableBlockEvents = MineQTTConfig.enableBlockEvents;
-        data.enableDebugging = MineQTTConfig.enableDebugging;
-
-        // Message Settings
-        data.includeCoordinates = MineQTTConfig.includeCoordinates;
-        data.includeTimestamp = MineQTTConfig.includeTimestamp;
-        data.messageFormat = MineQTTConfig.messageFormat;
-
         return data;
     }
 
@@ -109,24 +91,6 @@ public class FabricConfigHandler implements ConfigHandler {
         MineQTTConfig.autoReconnect = data.autoReconnect;
         MineQTTConfig.connectionTimeout = data.connectionTimeout;
         MineQTTConfig.keepAlive = data.keepAlive;
-
-        // MQTT Topics
-        MineQTTConfig.playerJoinTopic = data.playerJoinTopic;
-        MineQTTConfig.playerLeaveTopic = data.playerLeaveTopic;
-        MineQTTConfig.chatTopic = data.chatTopic;
-        MineQTTConfig.blockBreakTopic = data.blockBreakTopic;
-        MineQTTConfig.blockPlaceTopic = data.blockPlaceTopic;
-
-        // Feature Toggles
-        MineQTTConfig.enablePlayerEvents = data.enablePlayerEvents;
-        MineQTTConfig.enableChatEvents = data.enableChatEvents;
-        MineQTTConfig.enableBlockEvents = data.enableBlockEvents;
-        MineQTTConfig.enableDebugging = data.enableDebugging;
-
-        // Message Settings
-        MineQTTConfig.includeCoordinates = data.includeCoordinates;
-        MineQTTConfig.includeTimestamp = data.includeTimestamp;
-        MineQTTConfig.messageFormat = data.messageFormat;
     }
 
     private static class ConfigData {
@@ -136,25 +100,11 @@ public class FabricConfigHandler implements ConfigHandler {
         public String username = "";
         public String password = "";
         public boolean autoReconnect = true;
-        public int connectionTimeout = 30;
+        public long connectionTimeout = 30;
         public int keepAlive = 60;
 
         // MQTT Topics
-        public String playerJoinTopic = "minecraft/players/join";
-        public String playerLeaveTopic = "minecraft/players/leave";
-        public String chatTopic = "minecraft/chat";
-        public String blockBreakTopic = "minecraft/blocks/break";
-        public String blockPlaceTopic = "minecraft/blocks/place";
-
-        // Feature Toggles
-        public boolean enablePlayerEvents = true;
-        public boolean enableChatEvents = true;
-        public boolean enableBlockEvents = false;
-        public boolean enableDebugging = false;
-
-        // Message Settings
-        public boolean includeCoordinates = true;
-        public boolean includeTimestamp = true;
-        public String messageFormat = "json";
+        public String baseTopic = "minecraft";
+        public String statusTopic = "status";
     }
 }

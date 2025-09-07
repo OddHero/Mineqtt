@@ -5,7 +5,6 @@
   "config.mineqtt.category.publishing": "Publishing Settings",
   "config.mineqtt.category.messages": "Messages",
   "config.mineqtt.category.debug": "Debug Settings",
-
   "config.mineqtt.broker_host": "Broker Host",
   "config.mineqtt.broker_host.tooltip": "The hostname or IP address of the MQTT broker",
   "config.mineqtt.broker_port": "Broker Port",
@@ -18,35 +17,15 @@
   "config.mineqtt.password.tooltip": "Password for MQTT broker authentication",
   "config.mineqtt.connection_timeout": "Connection Timeout (seconds)",
   "config.mineqtt.connection_timeout.tooltip": "How long to wait for connection before timing out",
-
   "config.mineqtt.status_topic": "Status Topic",
   "config.mineqtt.status_topic.tooltip": "Topic for publishing online/offline status",
-  "config.mineqtt.player_events_topic": "Player Events Topic",
-  "config.mineqtt.player_events_topic.tooltip": "Topic for publishing player join/leave events",
-  "config.mineqtt.chat_topic": "Chat Topic",
-  "config.mineqtt.chat_topic.tooltip": "Topic for publishing chat messages",
-  "config.mineqtt.block_events_topic": "Block Events Topic",
-  "config.mineqtt.block_events_topic.tooltip": "Topic for publishing block break/place events",
-
-  "config.mineqtt.publish_player_join": "Publish Player Join",
-  "config.mineqtt.publish_player_join.tooltip": "Publish messages when players join the server",
-  "config.mineqtt.publish_player_leave": "Publish Player Leave",
-  "config.mineqtt.publish_player_leave.tooltip": "Publish messages when players leave the server",
-  "config.mineqtt.publish_chat_messages": "Publish Chat Messages",
-  "config.mineqtt.publish_chat_messages.tooltip": "Publish chat messages to MQTT",
-  "config.mineqtt.publish_block_break": "Publish Block Break",
-  "config.mineqtt.publish_block_break.tooltip": "Publish messages when blocks are broken",
-  "config.mineqtt.publish_block_place": "Publish Block Place",
-  "config.mineqtt.publish_block_place.tooltip": "Publish messages when blocks are placed",
-
-  "config.mineqtt.online_message": "Online Message",
-  "config.mineqtt.online_message.tooltip": "Message sent when MineQTT comes online",
-  "config.mineqtt.offline_message": "Offline Message",
-  "config.mineqtt.offline_message.tooltip": "Message sent when MineQTT goes offline",
-
-  "config.mineqtt.enable_debug_logging": "Enable Debug Logging",
-  "config.mineqtt.enable_debug_logging.tooltip": "Enable verbose debug logging for troubleshooting",
-  "config.mineqtt.show_mqtt_status_in_chat": "Show MQTT Status in Chat",
-  "config.mineqtt.show_mqtt_status_in_chat.tooltip": "Display MQTT connection status messages in chat"
+  "block.mineqtt.terminal_block": "Terminal",
+  "block.mineqtt.redstone_publisher_block": "Redstone Publisher",
+  "block.mineqtt.redstone_subscriber_block": "Redstone Subscriber",
+  "item.mineqtt.terminal_block": "Terminal",
+  "item.mineqtt.cyberdeck": "Cyberdeck",
+  "item.mineqtt.redstone_publisher_block": "Redstone Publisher",
+  "item.mineqtt.redstone_subscriber_block": "Redstone Subscriber",
+  "category.mineqtt_tab": "MineQTT"
 }
 
