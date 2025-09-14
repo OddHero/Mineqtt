@@ -9,6 +9,7 @@ import com.hivemq.client.mqtt.MqttClient;
 import com.hivemq.client.mqtt.datatypes.MqttQos;
 import com.hivemq.client.mqtt.lifecycle.MqttClientAutoReconnect;
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient;
+import dev.architectury.event.events.common.LifecycleEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,14 +31,28 @@ public class MineQTT {
         // Load configuration into MineQTTConfig
         configHandler.loadConfig();
 
-        // Initialize the MQTT client with current config values
-        initializeMQTTClient();
-
         LOGGER.info("MineQTT initialized successfully");
 
         MineQTTTabs.init();
         MineQTTBlocks.init();
         MineQTTItems.init();
+
+        LifecycleEvent.SERVER_STARTING.register(server -> {
+            LOGGER.info("Server starting - initializing MQTT client");
+            initializeMqttClient();
+        });
+
+        LifecycleEvent.SERVER_STOPPING.register(server -> {
+            LOGGER.info("Server stopping - disconnecting MQTT client");
+            if (mqttClient != null && mqttClient.getState().isConnected()) {
+                mqttClient.publishWith().topic(MineQTTConfig.getTopicPath(MineQTTConfig.statusTopic))
+                        .payload("Offline".getBytes())
+                        .qos(MqttQos.AT_LEAST_ONCE)
+                        .retain(true)
+                        .send();
+            }
+        });
+
     }
 
     public static void setConfigHandler(ConfigHandler handler) {
@@ -50,10 +65,6 @@ public class MineQTT {
 
     // New: public wrapper to allow platforms to reinitialize the MQTT client
     public static void initializeMqttClient() {
-        initializeMQTTClient();
-    }
-
-    private static void initializeMQTTClient() {
         if (MineQTTConfig.brokerUrl == null || MineQTTConfig.brokerUrl.isEmpty()) {
             LOGGER.warn("MQTT broker URL not configured, skipping MQTT initialization");
             return;
