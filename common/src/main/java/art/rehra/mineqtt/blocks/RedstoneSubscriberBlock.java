@@ -2,24 +2,20 @@ package art.rehra.mineqtt.blocks;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.config.MineQTTConfig;
-import com.hivemq.client.mqtt.datatypes.MqttQos;
 import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 
-import java.util.Hashtable;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class RedstoneSubscriberBlock extends MineQTTBlock {
 
-    private ConcurrentHashMap<String, Mqtt3Publish> receivedMessages;
+    private final ConcurrentHashMap<String, Mqtt3Publish> receivedMessages;
 
     protected void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
         MineQTT.LOGGER.debug("Placing MineQTT block at " + pos);
@@ -43,7 +39,7 @@ public class RedstoneSubscriberBlock extends MineQTTBlock {
         // Handle received MQTT messages if any
         for (String topic : receivedMessages.keySet()) {
             // Process the message as needed
-            handleIncomingMqttMessage(state, level, pos, random, receivedMessages.get(topic));
+            handleIncomingMqttMessage(state, level, pos, receivedMessages.get(topic));
             // Clear the message after processing
             receivedMessages.remove(topic);
         }
@@ -51,7 +47,7 @@ public class RedstoneSubscriberBlock extends MineQTTBlock {
         level.scheduleTick(pos, this, 1);
     }
 
-    protected void handleIncomingMqttMessage(BlockState state, ServerLevel level, BlockPos pos, RandomSource random, Mqtt3Publish publish) {
+    protected void handleIncomingMqttMessage(BlockState state, ServerLevel level, BlockPos pos, Mqtt3Publish publish) {
         if (level.isClientSide) {
             return; // Only process on the server side
         }
