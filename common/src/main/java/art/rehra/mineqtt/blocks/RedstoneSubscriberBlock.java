@@ -23,7 +23,7 @@ public class RedstoneSubscriberBlock extends MineQTTBlock {
 
     protected void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
         MineQTT.LOGGER.debug("Placing MineQTT block at " + pos);
-         subscribeToMqttTopic(MineQTTConfig.getTopicPath("tuer"));
+         subscribeToMqttTopic(MineQTTConfig.getTopicPath("door"));
         level.scheduleTick(pos, this, 1);
     }
 
