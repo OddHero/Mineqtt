@@ -52,7 +52,7 @@ public class RedstoneSubscriberBlock extends MineQTTBlock {
             return; // Only process on the server side
         }
         MineQTT.LOGGER.info("Received MQTT message on topic: " + publish.getTopic() + " with payload: " + (publish.getPayload().isPresent() ? new String(publish.getPayloadAsBytes()) : "null"));
-        String topic = publish.getTopic().toString();
+        // String topic = publish.getTopic().toString();
         String payload = publish.getPayload().isPresent() ? new String(publish.getPayloadAsBytes()) : "";
 
         // Example: Toggle the POWERED state based on the payload
@@ -70,9 +70,7 @@ public class RedstoneSubscriberBlock extends MineQTTBlock {
         if (MineQTT.mqttClient != null && MineQTT.mqttClient.getState().isConnected()) {
             MineQTT.mqttClient.subscribeWith()
                     .topicFilter(topic)
-                    .callback(publish -> {
-                        receivedMessages.put(topic, publish);
-                    })
+                    .callback(publish -> receivedMessages.put(topic, publish))
                     .send();
         } else {
             MineQTT.LOGGER.warn("MQTT client not connected, cannot subscribe to topic: " + topic);
