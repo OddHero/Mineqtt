@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.fabric;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.fabric.blocks.entities.MineqttBlockEntityTypesFabric;
 import art.rehra.mineqtt.fabric.config.FabricConfigHandler;
 import net.fabricmc.api.ModInitializer;
 
@@ -16,5 +17,7 @@ public final class MineqttFabric implements ModInitializer {
 
         // Run our common setup.
         MineQTT.init();
+
+        MineqttBlockEntityTypesFabric.initBlockEntityTypes();
     }
 }

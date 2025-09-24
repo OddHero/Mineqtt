@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.neoforge;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.neoforge.blocks.entities.MineqttBlockEntityTypesNeoForge;
 import art.rehra.mineqtt.neoforge.config.NeoForgeConfigHandler;
 import art.rehra.mineqtt.neoforge.config.NeoForgeConfigScreenIntegration;
 import net.neoforged.fml.common.Mod;
@@ -28,6 +29,9 @@ public final class MineqttNeoForge {
 
         // Run our common setup
         MineQTT.init();
+
+        // Initialize block entity types
+        MineqttBlockEntityTypesNeoForge.initBlockEntityTypes();
     }
 
     @SubscribeEvent

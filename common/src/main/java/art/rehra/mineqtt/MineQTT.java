@@ -1,15 +1,19 @@
 package art.rehra.mineqtt;
 
-import art.rehra.mineqtt.blocks.MineQTTBlocks;
+import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.config.ConfigHandler;
 import art.rehra.mineqtt.config.MineQTTConfig;
-import art.rehra.mineqtt.items.MineQTTItems;
+import art.rehra.mineqtt.items.MineqttItems;
+import art.rehra.mineqtt.mqtt.SubscriptionManager;
 import art.rehra.mineqtt.tabs.MineQTTTabs;
+import art.rehra.mineqtt.ui.MineqttMenuTypes;
 import com.hivemq.client.mqtt.MqttClient;
 import com.hivemq.client.mqtt.datatypes.MqttQos;
 import com.hivemq.client.mqtt.lifecycle.MqttClientAutoReconnect;
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient;
 import dev.architectury.event.events.common.LifecycleEvent;
+import dev.architectury.event.events.common.TickEvent;
+import net.minecraft.core.BlockPos;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,24 +38,49 @@ public class MineQTT {
         LOGGER.info("MineQTT initialized successfully");
 
         MineQTTTabs.init();
-        MineQTTBlocks.init();
-        MineQTTItems.init();
+        MineqttBlocks.init();
+        MineqttItems.init();
+
+        MineqttMenuTypes.init();
+
 
         LifecycleEvent.SERVER_STARTING.register(server -> {
             LOGGER.info("Server starting - initializing MQTT client");
+            SubscriptionManager.init();
             initializeMqttClient();
         });
+
+        TickEvent.SERVER_PRE.register(SubscriptionManager::onServerPreTick);
 
         LifecycleEvent.SERVER_STOPPING.register(server -> {
             LOGGER.info("Server stopping - disconnecting MQTT client");
             if (mqttClient != null && mqttClient.getState().isConnected()) {
-                mqttClient.publishWith().topic(MineQTTConfig.getTopicPath(MineQTTConfig.statusTopic))
-                        .payload("Offline".getBytes())
-                        .qos(MqttQos.AT_LEAST_ONCE)
-                        .retain(true)
-                        .send();
+                try {
+                    // First publish the offline status
+                    mqttClient.publishWith()
+                            .topic(MineQTTConfig.getTopicPath(MineQTTConfig.statusTopic))
+                            .payload("Offline".getBytes())
+                            .qos(MqttQos.AT_LEAST_ONCE)
+                            .retain(true)
+                            .send()
+                            .whenComplete((result, throwable) -> {
+                                // Then disconnect the client
+                                mqttClient.disconnect().whenComplete((disconnectResult, disconnectThrowable) -> {
+                                    if (disconnectThrowable != null) {
+                                        LOGGER.warn("Error during MQTT disconnect: {}", disconnectThrowable.getMessage());
+                                    } else {
+                                        LOGGER.info("MQTT client disconnected successfully");
+                                    }
+                                });
+                            });
+                } catch (Exception e) {
+                    LOGGER.warn("Error during MQTT shutdown: {}", e.getMessage());
+                    // Force disconnect if publish fails
+                    mqttClient.disconnect();
+                }
             }
         });
+
 
     }
 
@@ -79,8 +108,11 @@ public class MineQTT {
             mqttClient = MqttClient.builder()
                     .serverHost(MineQTTConfig.brokerUrl)
                     .identifier(MineQTTConfig.clientId)
-                    .useMqttVersion3().
-                    automaticReconnect(MineQTTConfig.autoReconnect
+                    .useMqttVersion3()
+                    .executorConfig()
+                    .nettyThreads(2)
+                    .applyExecutorConfig()
+                    .automaticReconnect(MineQTTConfig.autoReconnect
                             ? MqttClientAutoReconnect.builder().initialDelay(MineQTTConfig.connectionTimeout, TimeUnit.SECONDS).build()
                             : null)
                     .willPublish().topic(MineQTTConfig.getTopicPath(MineQTTConfig.statusTopic)).payload("Offline".getBytes()).qos(MqttQos.AT_LEAST_ONCE).retain(true).applyWillPublish()
@@ -88,17 +120,17 @@ public class MineQTT {
                     .password(MineQTTConfig.password.getBytes())
                     .applySimpleAuth()
                     .addConnectedListener(
-                        conn -> {
-                            LOGGER.info("MQTT client connected to broker: {}", MineQTTConfig.brokerUrl);
-                            // Publish "Online" status message upon successful connection
-                            mqttClient.publishWith().topic(MineQTTConfig.getTopicPath(MineQTTConfig.statusTopic))
-                                    .payload("Online".getBytes())
-                                    .qos(MqttQos.AT_LEAST_ONCE)
-                                    .retain(true)
-                                    .send();
-                        })
+                            conn -> {
+                                LOGGER.info("MQTT client connected to broker: {}", MineQTTConfig.brokerUrl);
+                                // Publish "Online" status message upon successful connection
+                                mqttClient.publishWith().topic(MineQTTConfig.getTopicPath(MineQTTConfig.statusTopic))
+                                        .payload("Online".getBytes())
+                                        .qos(MqttQos.AT_LEAST_ONCE)
+                                        .retain(true)
+                                        .send();
+                            })
                     .addDisconnectedListener(
-                        disconn -> LOGGER.warn("MQTT client disconnected from broker.", disconn.getCause()))
+                            disconn -> LOGGER.warn("MQTT client disconnected from broker.", disconn.getCause()))
                     .buildAsync();
 
             mqttClient.connect().whenComplete((connAck, throwable) -> {

@@ -1,7 +1,7 @@
 package art.rehra.mineqtt.tabs;
 
 import art.rehra.mineqtt.MineQTT;
-import art.rehra.mineqtt.items.MineQTTItems;
+import art.rehra.mineqtt.items.MineqttItems;
 import dev.architectury.registry.CreativeTabRegistry;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
@@ -19,7 +19,7 @@ public class MineQTTTabs {
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Creative Mode Tabs");
 
-        MINEQTT_TAB = TABS.register("mineqtt_tab", () -> CreativeTabRegistry.create(Component.translatable("category.mineqtt_tab"), () -> new ItemStack(MineQTTItems.Cyberdeck.get())));
+        MINEQTT_TAB = TABS.register("mineqtt_tab", () -> CreativeTabRegistry.create(Component.translatable("category.mineqtt_tab"), () -> new ItemStack(MineqttItems.Cyberdeck.get())));
 
         TABS.register();
     }

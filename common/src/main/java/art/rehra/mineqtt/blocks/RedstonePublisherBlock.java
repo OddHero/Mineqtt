@@ -1,38 +1,51 @@
 package art.rehra.mineqtt.blocks;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import com.mojang.serialization.MapCodec;
+import dev.architectury.event.events.common.InteractionEvent;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.*;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.*;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.redstone.ExperimentalRedstoneUtils;
 import net.minecraft.world.level.redstone.Orientation;
-import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
-import net.minecraft.world.level.BlockGetter;
 
-import java.util.EnumSet;
-
-public class RedstonePublisherBlock extends MineQTTBlock {
+public class RedstonePublisherBlock extends BaseEntityBlock implements InteractionEvent.RightClickBlock {
     public static final MapCodec<RedstonePublisherBlock> CODEC = simpleCodec(RedstonePublisherBlock::new);
 
+    public static final BooleanProperty POWERED;
+
+    static {
+        POWERED = BlockStateProperties.POWERED;
+    }
+
     @Override
-    protected MapCodec<? extends Block> codec() {
+    protected MapCodec<? extends BaseEntityBlock> codec() {
         return CODEC;
     }
 
     public RedstonePublisherBlock(Properties properties) {
         super(properties);
+
+        this.registerDefaultState(this.getStateDefinition().any().setValue(POWERED, false));
+
+        InteractionEvent.RIGHT_CLICK_BLOCK.register(this);
     }
 
     @Override
@@ -71,16 +84,18 @@ public class RedstonePublisherBlock extends MineQTTBlock {
         return maxSignal;
     }
 
+    @Override
     public void setPlacedBy(Level level, BlockPos pos, BlockState state, LivingEntity placer, ItemStack stack) {
         if (this.shouldTurnOn(level, pos, state)) {
             level.scheduleTick(pos, this, 1);
         }
-
     }
 
     protected void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
         this.updateNeighbors(level, pos, state);
     }
+
+
 
     protected void affectNeighborsAfterRemoval(BlockState state, ServerLevel level, BlockPos pos, boolean movedByPiston) {
         if (!movedByPiston) {
@@ -97,5 +112,75 @@ public class RedstonePublisherBlock extends MineQTTBlock {
         }
     }
 
+    @Override
+    public @Nullable BlockState getStateForPlacement(BlockPlaceContext context) {
+        return this.defaultBlockState().setValue(POWERED, false);
+    }
 
+    @Override
+    protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
+        builder.add(POWERED);
+    }
+
+    @Override
+    protected boolean isSignalSource(BlockState state) { return true; }
+
+    // Publishing MQTT message utility method
+    protected void sendMqttMessage(String topic, String message) {
+        if (MineQTT.mqttClient != null && MineQTT.mqttClient.getState().isConnected()) {
+            MineQTT.mqttClient.publishWith()
+                    .topic(topic)
+                    .payload(message.getBytes())
+                    .send();
+        }else {
+            MineQTT.LOGGER.warn("MQTT client not connected, cannot send message to topic: " + topic);
+        }
+    }
+
+    @Override
+    public @Nullable BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
+        return new PublisherBlockEntity(pos, state);
+    }
+
+    @Override
+    public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
+        return new PublisherBlockEntity.Ticker<>();
+    }
+
+    @Override
+    public void playerDestroy(Level level, Player player, BlockPos pos, BlockState state, @Nullable BlockEntity blockEntity, ItemStack tool) {
+        if (blockEntity instanceof Container container) {
+            Containers.dropContents(level, pos, container);
+            level.updateNeighbourForOutputSignal(pos, this);
+        }
+        super.playerDestroy(level, player, pos, state, blockEntity, tool);
+    }
+
+    @Override
+    public InteractionResult click(Player player, InteractionHand hand, BlockPos pos, Direction face) {
+
+
+        if (player.level().getBlockEntity(pos) == null || !(player.level().getBlockEntity(pos) instanceof PublisherBlockEntity blockEntity)) {
+            return InteractionResult.PASS;
+        }
+
+        if (player.isShiftKeyDown()) {
+            return InteractionResult.PASS;
+        }
+
+        //player.openMenu(blockEntity);
+        return InteractionResult.PASS; // Skip the menu for now
+
+        //return InteractionResult.SUCCESS;
+    }
+
+    @Override
+    protected @Nullable MenuProvider getMenuProvider(BlockState state, Level level, BlockPos pos) {
+        BlockEntity blockEntity = level.getBlockEntity(pos);
+        if (blockEntity instanceof PublisherBlockEntity) {
+            return (MenuProvider) blockEntity;
+        } else {
+            return null;
+        }
+    }
 }

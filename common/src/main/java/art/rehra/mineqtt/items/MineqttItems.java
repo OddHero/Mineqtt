@@ -1,7 +1,7 @@
 package art.rehra.mineqtt.items;
 
 import art.rehra.mineqtt.MineQTT;
-import art.rehra.mineqtt.blocks.MineQTTBlocks;
+import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.tabs.MineQTTTabs;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
@@ -9,12 +9,11 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
 
 import java.util.function.Supplier;
 
-public class MineQTTItems {
+public class MineqttItems {
 
     private static final DeferredRegister<Item> ITEMS = DeferredRegister.create(MineQTT.MOD_ID, Registries.ITEM);
 
@@ -26,9 +25,9 @@ public class MineQTTItems {
     public static void init(){
         MineQTT.LOGGER.info("Registering MineQTT Items");
         Cyberdeck = registerItem("cyberdeck", () -> new Item(baseProperties("cyberdeck").arch$tab(MineQTTTabs.MINEQTT_TAB)));
-        TerminalBlock = registerItem("terminal_block", () -> new BlockItem(MineQTTBlocks.TerminalBlock.get(),baseProperties("terminal_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
-        RedstonePublisherBlock = registerItem("redstone_publisher_block", () -> new BlockItem(MineQTTBlocks.RedstonePublisherBlock.get(),baseProperties("redstone_publisher_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
-        RedstoneSubscriberBlock = registerItem("redstone_subscriber_block", () -> new BlockItem(MineQTTBlocks.RedstoneSubscriberBlock.get(),baseProperties("redstone_subscriber_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        TerminalBlock = registerItem("terminal_block", () -> new BlockItem(MineqttBlocks.TERMINAL_BLOCK.get(),baseProperties("terminal_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        RedstonePublisherBlock = registerItem("redstone_publisher_block", () -> new BlockItem(MineqttBlocks.PUBLISHER_BLOCK.get(),baseProperties("redstone_publisher_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        RedstoneSubscriberBlock = registerItem("redstone_subscriber_block", () -> new BlockItem(MineqttBlocks.SUBSCRIBER_BLOCK.get(),baseProperties("redstone_subscriber_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
 
         ITEMS.register();
     }

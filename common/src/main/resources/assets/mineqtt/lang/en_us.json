@@ -26,6 +26,8 @@
   "item.mineqtt.cyberdeck": "Cyberdeck",
   "item.mineqtt.redstone_publisher_block": "Redstone Publisher",
   "item.mineqtt.redstone_subscriber_block": "Redstone Subscriber",
-  "category.mineqtt_tab": "MineQTT"
+  "category.mineqtt_tab": "MineQTT",
+  "container.mineqtt.publisher": "Redstone Publisher",
+  "container.mineqtt.subscriber": "Redstone Subscriber"
 }
 
