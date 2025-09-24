@@ -55,13 +55,24 @@ public class RedstonePublisherBlock extends BaseEntityBlock implements Interacti
             boolean flag1 = this.shouldTurnOn(level, pos, state);
             if (flag1 && !flag) {
                 level.setBlock(pos, state.setValue(POWERED, true), 3);
-                sendMqttMessage(MineQTTConfig.getTopicPath("switch"), "true");
+                // Get topic from block entity instead of hardcoded value
+                String topic = getTopicFromBlockEntity(level, pos);
+                sendMqttMessage(topic, "true");
             } else if (!flag1 && flag) {
                 level.setBlock(pos, state.setValue(POWERED, false), 3);
-                sendMqttMessage(MineQTTConfig.getTopicPath("switch"), "false");
+                // Get topic from block entity instead of hardcoded value
+                String topic = getTopicFromBlockEntity(level, pos);
+                sendMqttMessage(topic, "false");
             }
         }
         super.neighborChanged(state, level, pos, neighborBlock, orientation, movedByPiston);
+    }
+
+    private String getTopicFromBlockEntity(Level level, BlockPos pos) {
+        if (level.getBlockEntity(pos) instanceof PublisherBlockEntity publisherBlockEntity) {
+            return publisherBlockEntity.getTopic();
+        }
+        return MineQTTConfig.getTopicPath("switch"); // fallback to default
     }
 
     protected boolean shouldTurnOn(Level level, BlockPos pos, BlockState state) {
@@ -158,8 +169,6 @@ public class RedstonePublisherBlock extends BaseEntityBlock implements Interacti
 
     @Override
     public InteractionResult click(Player player, InteractionHand hand, BlockPos pos, Direction face) {
-
-
         if (player.level().getBlockEntity(pos) == null || !(player.level().getBlockEntity(pos) instanceof PublisherBlockEntity blockEntity)) {
             return InteractionResult.PASS;
         }
@@ -168,10 +177,13 @@ public class RedstonePublisherBlock extends BaseEntityBlock implements Interacti
             return InteractionResult.PASS;
         }
 
-        //player.openMenu(blockEntity);
-        return InteractionResult.PASS; // Skip the menu for now
+        if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+            dev.architectury.registry.menu.MenuRegistry.openExtendedMenu(serverPlayer, blockEntity, buf -> {
+                buf.writeBlockPos(blockEntity.getBlockPos());
+            });
+        }
 
-        //return InteractionResult.SUCCESS;
+        return InteractionResult.SUCCESS;
     }
 
     @Override

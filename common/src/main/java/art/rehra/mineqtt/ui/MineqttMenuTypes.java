@@ -19,6 +19,7 @@ public class MineqttMenuTypes {
     public static final DeferredRegister<MenuType<?>> MENU_TYPES = DeferredRegister.create(MineQTT.MOD_ID, Registries.MENU);
 
     public static RegistrySupplier<MenuType<SubscriberBlockMenu>> SUBSCRIBER_BLOCK_MENU;
+    public static RegistrySupplier<MenuType<PublisherBlockMenu>> PUBLISHER_BLOCK_MENU;
 
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Menu Types");
@@ -26,14 +27,18 @@ public class MineqttMenuTypes {
         SUBSCRIBER_BLOCK_MENU = registerMenuType("subscriber_block",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) ->
                         new SubscriberBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
-        //SUBSCRIBER_BLOCK_MENU = registerMenuType("subscriber_block", () -> new MenuType<>(SubscriberBlockMenu::new, FeatureFlagSet.of()));
+
+        PUBLISHER_BLOCK_MENU = registerMenuType("publisher_block",
+                () -> MenuRegistry.ofExtended((id, inventory, buf) ->
+                        new PublisherBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
+
         MENU_TYPES.register();
 
         ClientLifecycleEvent.CLIENT_SETUP.register(client -> {
             MenuRegistry.registerScreenFactory(SUBSCRIBER_BLOCK_MENU.get(), SubscriberBlockScreen::new);
+            MenuRegistry.registerScreenFactory(PUBLISHER_BLOCK_MENU.get(), PublisherBlockScreen::new);
         });
     }
-
 
     public static <T extends MenuType<?>> RegistrySupplier<T> registerMenuType(String name, Supplier<T> menuType) {
         return MENU_TYPES.register(ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, name), menuType);

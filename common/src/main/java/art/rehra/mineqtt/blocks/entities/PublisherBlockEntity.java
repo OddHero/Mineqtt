@@ -1,29 +1,84 @@
 package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.ui.PublisherBlockMenu;
+import dev.architectury.registry.menu.ExtendedMenuProvider;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.NonNullList;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
+import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
-import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
 import org.jetbrains.annotations.NotNull;
 
-public class PublisherBlockEntity extends BaseContainerBlockEntity {
+public class PublisherBlockEntity extends BaseContainerBlockEntity implements ExtendedMenuProvider {
 
-    public final int INVENTORY_SIZE = 27;
+    private String topic = "/mineqtt/default";
+    public final int INVENTORY_SIZE = 2;
     private NonNullList<ItemStack> items;
 
     public PublisherBlockEntity(BlockPos pos, BlockState blockState) {
         super(MineqttBlockEntityTypes.PUBLISHER_BLOCK.get(), pos, blockState);
 
         this.items = NonNullList.withSize(INVENTORY_SIZE, ItemStack.EMPTY);
+    }
+
+    public String getTopic() {
+        return topic;
+    }
+
+    public void setTopic(String topic) {
+        if (!this.topic.equals(topic)) {
+            this.topic = topic;
+            markUpdated();
+        }
+    }
+
+    private void markUpdated() {
+        this.setChanged();
+        this.level.sendBlockUpdated(this.getBlockPos(), this.getBlockState(), this.getBlockState(), Block.UPDATE_CLIENTS);
+    }
+
+    @Override
+    protected void saveAdditional(ValueOutput output) {
+        super.saveAdditional(output);
+        output.putString("topic", this.topic);
+        ContainerHelper.saveAllItems(output, this.items);
+    }
+
+    @Override
+    protected void loadAdditional(ValueInput input) {
+        super.loadAdditional(input);
+        this.topic = input.getString("topic").isPresent() ? input.getString("topic").get() : "/mineqtt/default";
+        this.items = NonNullList.withSize(this.getContainerSize(), ItemStack.EMPTY);
+        ContainerHelper.loadAllItems(input, this.items);
+    }
+
+    @Override
+    public @org.jetbrains.annotations.Nullable Packet<ClientGamePacketListener> getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket.create(this);
+    }
+
+    @Override
+    public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
+        return this.saveWithFullMetadata(registries);
     }
 
     @Override
@@ -42,8 +97,14 @@ public class PublisherBlockEntity extends BaseContainerBlockEntity {
     }
 
     @Override
+    public AbstractContainerMenu createMenu(int containerId, Inventory inventory, Player player) {
+        MineQTT.LOGGER.info("Creating PublisherBlockMenu with topic: " + this.topic);
+        return new PublisherBlockMenu(containerId, inventory, this, player, this.worldPosition);
+    }
+
+    @Override
     protected AbstractContainerMenu createMenu(int containerId, Inventory inventory) {
-        return ChestMenu.threeRows(containerId, inventory, this);
+        return new PublisherBlockMenu(containerId, inventory, this, null, this.worldPosition);
     }
 
     @Override
@@ -51,11 +112,33 @@ public class PublisherBlockEntity extends BaseContainerBlockEntity {
         return INVENTORY_SIZE;
     }
 
+    @Override
+    public void saveExtraData(FriendlyByteBuf buf) {
+        // No extra data needed for now
+    }
+
+    public static String ParseItemStackTopic(ItemStack itemStack) {
+        if (itemStack.isEmpty()) {
+            return "minecraft/default";
+        } else if (itemStack.getItem() == Items.PAPER) {
+            return itemStack.getHoverName().getString();
+        } else {
+            return itemStack.getItem().toString().replace(":", "/");
+        }
+    }
+
     public static class Ticker<T extends BlockEntity> implements BlockEntityTicker<T> {
 
         @Override
         public void tick(Level level, BlockPos blockPos, BlockState blockState, T blockEntity) {
-            MineQTT.LOGGER.info("Ticking RedstonePublisherEntity at " + blockPos.toShortString() + " with state: " + blockState.toString() + " and entity type: " + blockEntity.getClass().getName());
+            if (blockEntity instanceof PublisherBlockEntity publisherBlockEntity) {
+                String oldTopic = publisherBlockEntity.topic;
+                String newTopic = ParseItemStackTopic(publisherBlockEntity.getItem(0));
+                if (!newTopic.equals(oldTopic)) {
+                    MineQTT.LOGGER.info("PublisherBlockEntity at " + blockPos.toShortString() + " changed topic from " + oldTopic + " to " + newTopic);
+                    publisherBlockEntity.setTopic(newTopic);
+                }
+            }
         }
     }
 }
