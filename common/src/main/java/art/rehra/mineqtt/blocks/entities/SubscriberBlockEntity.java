@@ -136,7 +136,6 @@ public class SubscriberBlockEntity extends BaseContainerBlockEntity implements E
 
     @Override
     public AbstractContainerMenu createMenu(int containerId, Inventory inventory, Player player) {
-        MineQTT.LOGGER.info("Creating SubscriberBlockMenu with topic: " + this.topic);
         return new SubscriberBlockMenu(containerId, inventory, this, player, this.worldPosition);
     }
 
@@ -205,14 +204,12 @@ public class SubscriberBlockEntity extends BaseContainerBlockEntity implements E
             BlockState currentState = this.level.getBlockState(this.worldPosition);
             if (currentState.hasProperty(POWERED) && !currentState.getValue(POWERED)) {
                 this.level.setBlock(this.worldPosition, currentState.setValue(POWERED, true), Block.UPDATE_ALL);
-                MineQTT.LOGGER.info("SubscriberBlockEntity at " + this.worldPosition.toShortString() + " set to POWERED state due to message: " + message);
             }
         } else if (message.equalsIgnoreCase("OFF") || message.equalsIgnoreCase("0") || message.equalsIgnoreCase("FALSE")) {
             // Set block to unpowered state
             BlockState currentState = this.level.getBlockState(this.worldPosition);
             if (currentState.hasProperty(POWERED) && currentState.getValue(POWERED)) {
                 this.level.setBlock(this.worldPosition, currentState.setValue(POWERED, false), Block.UPDATE_ALL);
-                MineQTT.LOGGER.info("SubscriberBlockEntity at " + this.worldPosition.toShortString() + " set to UNPOWERED state due to message: " + message);
             }
         }
     }
@@ -230,8 +227,6 @@ public class SubscriberBlockEntity extends BaseContainerBlockEntity implements E
                 boolean topicChanged = !newCombinedTopic.equals(oldTopic);
 
                 if (topicChanged) {
-                    MineQTT.LOGGER.info("SubscriberBlockEntity at " + blockPos.toShortString() + " combined topic changed: " + oldTopic + " -> " + newCombinedTopic);
-
                     // Unsubscribe from old topic
                     subscriberBlockEntity.unsubscribeAll();
 

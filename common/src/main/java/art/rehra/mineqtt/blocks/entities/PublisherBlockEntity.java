@@ -126,7 +126,6 @@ public class PublisherBlockEntity extends BaseContainerBlockEntity implements Ex
 
     @Override
     public AbstractContainerMenu createMenu(int containerId, Inventory inventory, Player player) {
-        MineQTT.LOGGER.info("Creating PublisherBlockMenu with topic: " + this.topic);
         return new PublisherBlockMenu(containerId, inventory, this, player, this.worldPosition);
     }
 
@@ -167,8 +166,6 @@ public class PublisherBlockEntity extends BaseContainerBlockEntity implements Ex
                 boolean topicChanged = !newCombinedTopic.equals(oldTopic);
 
                 if (topicChanged) {
-                    MineQTT.LOGGER.info("PublisherBlockEntity at " + blockPos.toShortString() + " combined topic changed: " + oldTopic + " -> " + newCombinedTopic);
-
                     // Update to new combined topic
                     publisherBlockEntity.setTopic(newCombinedTopic);
                 }
