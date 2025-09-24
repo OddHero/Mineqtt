@@ -91,19 +91,36 @@ public class SubscriptionManager {
         }
     }
 
-    public static void onServerPreTick(MinecraftServer server) {
-        for (Map.Entry<String, Set<ICallbackTarget>> entry : topicSubscribers.entrySet()) {
-            String topic = entry.getKey();
-            String message = lastMessages.get(topic);
-            if (message == null) continue;
-            for (ICallbackTarget target : entry.getValue()) {
-                var blockEntity = server.getLevel(server.overworld().dimension()).getBlockEntity(target.getPosition());
-                if (blockEntity instanceof SubscriberBlockEntity subscriber) {
-                    subscriber.onMessageReceived(topic, message);
-                }
+public static void onServerPreTick(MinecraftServer server) {
+    if (server == null) return;
+
+    // Create a copy of the entries to avoid ConcurrentModificationException
+    Map<String, String> messagesToProcess = new HashMap<>(lastMessages);
+
+    for (Map.Entry<String, String> messageEntry : messagesToProcess.entrySet()) {
+        String topic = messageEntry.getKey();
+        String message = messageEntry.getValue();
+
+        Set<ICallbackTarget> subscribers = topicSubscribers.get(topic);
+        if (subscribers == null) continue;
+
+        // Create a copy of subscribers to avoid ConcurrentModificationException
+        Set<ICallbackTarget> subscribersCopy = new HashSet<>(subscribers);
+
+        for (ICallbackTarget target : subscribersCopy) {
+            if (target == null || target.getPosition() == null) continue;
+
+            var level = server.getLevel(server.overworld().dimension());
+            if (level == null) continue;
+
+            var blockEntity = level.getBlockEntity(target.getPosition());
+            if (blockEntity instanceof SubscriberBlockEntity subscriber) {
+                subscriber.onMessageReceived(topic, message);
             }
-            // Remove the message after delivery (unless retained)
-            lastMessages.remove(topic);
         }
     }
+
+    // Clear all processed messages after delivery
+    lastMessages.clear();
+}
 }

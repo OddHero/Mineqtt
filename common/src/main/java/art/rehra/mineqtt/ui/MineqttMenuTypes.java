@@ -3,6 +3,7 @@ package art.rehra.mineqtt.ui;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.SubscriberBlockEntity;
 import dev.architectury.event.events.client.ClientLifecycleEvent;
+import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.registry.menu.MenuRegistry;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
@@ -34,6 +35,9 @@ public class MineqttMenuTypes {
 
         MENU_TYPES.register();
 
+    }
+
+    public static void initClient() {
         ClientLifecycleEvent.CLIENT_SETUP.register(client -> {
             MenuRegistry.registerScreenFactory(SUBSCRIBER_BLOCK_MENU.get(), SubscriberBlockScreen::new);
             MenuRegistry.registerScreenFactory(PUBLISHER_BLOCK_MENU.get(), PublisherBlockScreen::new);
