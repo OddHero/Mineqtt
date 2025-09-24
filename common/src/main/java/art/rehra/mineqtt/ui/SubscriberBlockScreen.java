@@ -76,39 +76,36 @@ public class SubscriberBlockScreen extends AbstractContainerScreen<SubscriberBlo
     private void renderSubscriberInfo(GuiGraphics guiGraphics, int guiLeft, int guiTop, SubscriberBlockEntity blockEntity, net.minecraft.world.level.Level level, net.minecraft.core.BlockPos pos) {
         int currentY = guiTop + INFO_START_Y;
 
-        // Topic section with proper wrapping
-        String topic = blockEntity.getTopic();
-        guiGraphics.drawString(this.font, "Topic:", guiLeft + MARGIN, currentY, 0xFF555555, false);
-        currentY += LINE_HEIGHT;
+        // Get combined topic
+        String combinedTopic = blockEntity.getCombinedTopic();
+        boolean isEnabled = blockEntity.isEnabled();
 
-        // Wrap topic text if it's too long
-        List<FormattedCharSequence> wrappedTopic = this.font.split(Component.literal(topic), MAX_TEXT_WIDTH);
-        for (FormattedCharSequence line : wrappedTopic) {
-            guiGraphics.drawString(this.font, line, guiLeft + MARGIN + 4, currentY, 0xFF000000, false);
+        if (isEnabled && !combinedTopic.isEmpty()) {
+            // Show only the full combined topic
+            guiGraphics.drawString(this.font, "Topic:", guiLeft + MARGIN, currentY, 0xFF555555, false);
             currentY += LINE_HEIGHT;
+
+            List<FormattedCharSequence> wrappedTopic = this.font.split(Component.literal(combinedTopic), MAX_TEXT_WIDTH);
+            for (FormattedCharSequence line : wrappedTopic) {
+                guiGraphics.drawString(this.font, line, guiLeft + MARGIN + 4, currentY, 0xFF0088FF, false);
+                currentY += LINE_HEIGHT;
+            }
+        } else {
+            // Show message if disabled
+            guiGraphics.drawString(this.font, "No topic configured", guiLeft + MARGIN, currentY, 0xFF666666, false);
+            currentY += LINE_HEIGHT;
+            guiGraphics.drawString(this.font, "Place item in first slot to enable", guiLeft + MARGIN, currentY, 0xFF888888, false);
         }
 
-        // Status section
-        currentY = guiTop + STATUS_Y_OFFSET; // Fixed position for status below slots
+        // Status section at fixed position
+        currentY = guiTop + STATUS_Y_OFFSET;
         var currentState = level.getBlockState(pos);
         boolean isPowered = currentState.getValue(art.rehra.mineqtt.blocks.RedstoneSubscriberBlock.POWERED);
-        String status = isPowered ? "Receiving (Powered)" : "Idle";
-        int statusColor = isPowered ? 0xFF00AA00 : 0xFF666666;
+        String status = isEnabled ? (isPowered ? "Receiving (Powered)" : "Listening") : "Disabled";
+        int statusColor = isEnabled ? (isPowered ? 0xFF00AA00 : 0xFF0088FF) : 0xFF666666;
 
         guiGraphics.drawString(this.font, "Status:", guiLeft + MARGIN, currentY, 0xFF555555, false);
         currentY += LINE_HEIGHT;
         guiGraphics.drawString(this.font, status, guiLeft + MARGIN + 4, currentY, statusColor, false);
-
-        // Instructions (if space allows and no overlap with slots)
-        currentY += LINE_HEIGHT + 4;
-        if (currentY < guiTop + 60) { // Make sure we don't overlap with inventory slots
-            String instruction = "Place item in first slot to set topic";
-            List<FormattedCharSequence> wrappedInstruction = this.font.split(Component.literal(instruction), MAX_TEXT_WIDTH);
-            for (FormattedCharSequence line : wrappedInstruction) {
-                guiGraphics.drawString(this.font, line, guiLeft + MARGIN, currentY, 0xFF888888, false);
-                currentY += 9; // Smaller line height for instructions
-                if (currentY > guiTop + 55) break; // Stop if we're getting too close to slots
-            }
-        }
     }
 }

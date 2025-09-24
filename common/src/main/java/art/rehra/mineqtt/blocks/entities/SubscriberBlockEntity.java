@@ -51,6 +51,34 @@ public class SubscriberBlockEntity extends BaseContainerBlockEntity implements E
         return topic;
     }
 
+    public String getBasePath() {
+        return ParseItemStackTopic(getItem(0));
+    }
+
+    public String getSubPath() {
+        return getItem(1).isEmpty() ? "" : ParseItemStackTopic(getItem(1));
+    }
+
+    public String getCombinedTopic() {
+        String basePath = getBasePath();
+        String subPath = getSubPath();
+
+        if (basePath.isEmpty()) {
+            return "";
+        }
+
+        if (subPath.isEmpty()) {
+            return basePath;
+        }
+
+        return basePath + "/" + subPath;
+    }
+
+    public boolean isEnabled() {
+        // Only enabled if first slot has an item (base path is required)
+        return !getItem(0).isEmpty();
+    }
+
     @Override
     protected void saveAdditional(ValueOutput output) {
         super.saveAdditional(output);
@@ -64,8 +92,11 @@ public class SubscriberBlockEntity extends BaseContainerBlockEntity implements E
         this.topic = input.getString("topic").isPresent() ? input.getString("topic").get() : "/mineqtt/default";
         this.items = NonNullList.withSize(this.getContainerSize(), ItemStack.EMPTY);
         ContainerHelper.loadAllItems(input, this.items);
-        // Ensure subscription is up to date
-        SubscriptionManager.subscribe(this.topic, this);
+
+        // Update subscriptions based on current items
+        if (isEnabled()) {
+            updateSubscriptions();
+        }
     }
 
     @Override
@@ -126,7 +157,20 @@ public class SubscriberBlockEntity extends BaseContainerBlockEntity implements E
         }
     }
 
+    private void updateSubscriptions() {
+        // Subscribe to the combined topic if enabled
+        String combinedTopic = getCombinedTopic();
+        if (isEnabled() && !combinedTopic.isEmpty()) {
+            SubscriptionManager.subscribe(combinedTopic, this);
+        }
+    }
 
+    private void unsubscribeAll() {
+        // Unsubscribe from current topic
+        if (!topic.isEmpty()) {
+            SubscriptionManager.unsubscribe(this.topic, this);
+        }
+    }
 
     private void markUpdated() {
         this.setChanged();
@@ -179,18 +223,35 @@ public class SubscriberBlockEntity extends BaseContainerBlockEntity implements E
         @Override
         public void tick(Level level, BlockPos blockPos, BlockState blockState, T blockEntity) {
             if (blockEntity instanceof SubscriberBlockEntity subscriberBlockEntity) {
+                // Get current combined topic
                 String oldTopic = subscriberBlockEntity.topic;
-                String newTopic = ParseItemStackTopic(subscriberBlockEntity.getItem(0));
-                if (!newTopic.equals(oldTopic)) {
-                    MineQTT.LOGGER.info("SubscriberBlockEntity at " + blockPos.toShortString() + " changed topic from " + oldTopic + " to " + newTopic);
-                    subscriberBlockEntity.setTopic(newTopic);
-                    // Update subscription in SubscriptionManager
-                    SubscriptionManager.unsubscribe(oldTopic, subscriberBlockEntity);
-                    SubscriptionManager.subscribe(newTopic, subscriberBlockEntity);
+                String newCombinedTopic = subscriberBlockEntity.getCombinedTopic();
+
+                boolean topicChanged = !newCombinedTopic.equals(oldTopic);
+
+                if (topicChanged) {
+                    MineQTT.LOGGER.info("SubscriberBlockEntity at " + blockPos.toShortString() + " combined topic changed: " + oldTopic + " -> " + newCombinedTopic);
+
+                    // Unsubscribe from old topic
+                    subscriberBlockEntity.unsubscribeAll();
+
+                    // Update to new combined topic
+                    subscriberBlockEntity.setTopic(newCombinedTopic);
+
+                    // Subscribe to new combined topic if block is enabled
+                    if (subscriberBlockEntity.isEnabled() && !newCombinedTopic.isEmpty()) {
+                        SubscriptionManager.subscribe(newCombinedTopic, subscriberBlockEntity);
+                    } else {
+                        // If disabled (no first slot item), ensure block is unpowered
+                        BlockState currentState = level.getBlockState(blockPos);
+                        if (currentState.hasProperty(POWERED) && currentState.getValue(POWERED)) {
+                            level.setBlock(blockPos, currentState.setValue(POWERED, false), Block.UPDATE_ALL);
+                            MineQTT.LOGGER.info("SubscriberBlockEntity disabled - no base path item in first slot");
+                        }
+                    }
                 }
             }
         }
-
 
     }
 }

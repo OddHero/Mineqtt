@@ -44,6 +44,34 @@ public class PublisherBlockEntity extends BaseContainerBlockEntity implements Ex
         return topic;
     }
 
+    public String getBasePath() {
+        return ParseItemStackTopic(getItem(0));
+    }
+
+    public String getSubPath() {
+        return getItem(1).isEmpty() ? "" : ParseItemStackTopic(getItem(1));
+    }
+
+    public String getCombinedTopic() {
+        String basePath = getBasePath();
+        String subPath = getSubPath();
+
+        if(basePath.isEmpty()) {
+            return "";
+        }
+
+        if (subPath.isEmpty()) {
+            return basePath;
+        }
+
+        return basePath + "/" + subPath;
+    }
+
+    public boolean isEnabled() {
+        // Only enabled if first slot has an item (base path is required)
+        return !getItem(0).isEmpty();
+    }
+
     public void setTopic(String topic) {
         if (!this.topic.equals(topic)) {
             this.topic = topic;
@@ -132,11 +160,17 @@ public class PublisherBlockEntity extends BaseContainerBlockEntity implements Ex
         @Override
         public void tick(Level level, BlockPos blockPos, BlockState blockState, T blockEntity) {
             if (blockEntity instanceof PublisherBlockEntity publisherBlockEntity) {
+                // Get current combined topic
                 String oldTopic = publisherBlockEntity.topic;
-                String newTopic = ParseItemStackTopic(publisherBlockEntity.getItem(0));
-                if (!newTopic.equals(oldTopic)) {
-                    MineQTT.LOGGER.info("PublisherBlockEntity at " + blockPos.toShortString() + " changed topic from " + oldTopic + " to " + newTopic);
-                    publisherBlockEntity.setTopic(newTopic);
+                String newCombinedTopic = publisherBlockEntity.getCombinedTopic();
+
+                boolean topicChanged = !newCombinedTopic.equals(oldTopic);
+
+                if (topicChanged) {
+                    MineQTT.LOGGER.info("PublisherBlockEntity at " + blockPos.toShortString() + " combined topic changed: " + oldTopic + " -> " + newCombinedTopic);
+
+                    // Update to new combined topic
+                    publisherBlockEntity.setTopic(newCombinedTopic);
                 }
             }
         }

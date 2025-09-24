@@ -75,46 +75,43 @@ public class PublisherBlockScreen extends AbstractContainerScreen<PublisherBlock
     private void renderPublisherInfo(GuiGraphics guiGraphics, int guiLeft, int guiTop, PublisherBlockEntity blockEntity, net.minecraft.world.level.Level level, net.minecraft.core.BlockPos pos) {
         int currentY = guiTop + INFO_START_Y;
 
-        // Topic section with proper wrapping
-        String topic = blockEntity.getTopic();
-        guiGraphics.drawString(this.font, "Topic:", guiLeft + MARGIN, currentY, 0xFF555555, false);
-        currentY += LINE_HEIGHT;
+        // Get combined topic
+        String combinedTopic = blockEntity.getCombinedTopic();
+        boolean isEnabled = blockEntity.isEnabled();
 
-        // Wrap topic text if it's too long
-        List<FormattedCharSequence> wrappedTopic = this.font.split(Component.literal(topic), MAX_TEXT_WIDTH);
-        for (FormattedCharSequence line : wrappedTopic) {
-            guiGraphics.drawString(this.font, line, guiLeft + MARGIN + 4, currentY, 0xFF000000, false);
+        if (isEnabled && !combinedTopic.isEmpty()) {
+            // Show only the full combined topic
+            guiGraphics.drawString(this.font, "Publishing To:", guiLeft + MARGIN, currentY, 0xFF555555, false);
             currentY += LINE_HEIGHT;
+
+            List<FormattedCharSequence> wrappedTopic = this.font.split(Component.literal(combinedTopic), MAX_TEXT_WIDTH);
+            for (FormattedCharSequence line : wrappedTopic) {
+                guiGraphics.drawString(this.font, line, guiLeft + MARGIN + 4, currentY, 0xFF0088FF, false);
+                currentY += LINE_HEIGHT;
+            }
+        } else {
+            // Show message if disabled
+            guiGraphics.drawString(this.font, "No topic configured", guiLeft + MARGIN, currentY, 0xFF666666, false);
+            currentY += LINE_HEIGHT;
+            guiGraphics.drawString(this.font, "Place item in first slot to enable", guiLeft + MARGIN, currentY, 0xFF888888, false);
         }
 
-        // Move currentY to the fixed status position
+        // Status section at fixed position
         currentY = guiTop + STATUS_Y_OFFSET;
-
-        // Status section
         var currentState = level.getBlockState(pos);
         boolean isPowered = currentState.getValue(art.rehra.mineqtt.blocks.RedstonePublisherBlock.POWERED);
-        String status = isPowered ? "Publishing" : "Idle";
-        int statusColor = isPowered ? 0xFF0088FF : 0xFF666666;
+        String status = isEnabled ? (isPowered ? "Publishing" : "Ready") : "Disabled";
+        int statusColor = isEnabled ? (isPowered ? 0xFF0088FF : 0xFF00AA00) : 0xFF666666;
 
         guiGraphics.drawString(this.font, "Status:", guiLeft + MARGIN, currentY, 0xFF555555, false);
         currentY += LINE_HEIGHT;
         guiGraphics.drawString(this.font, status, guiLeft + MARGIN + 4, currentY, statusColor, false);
 
         // Redstone signal info
-        currentY += LINE_HEIGHT;
-        String signalInfo = isPowered ? "Redstone: ON → 'true'" : "Redstone: OFF → 'false'";
-        guiGraphics.drawString(this.font, signalInfo, guiLeft + MARGIN + 4, currentY, 0xFF888888, false);
-
-        // Instructions (if space allows and no overlap with slots)
-        currentY += LINE_HEIGHT + 4;
-        if (currentY < guiTop + 55) { // Make sure we don't overlap with inventory slots (moved up from 60 to 55)
-            String instruction = "Place item in first slot to set topic";
-            List<FormattedCharSequence> wrappedInstruction = this.font.split(Component.literal(instruction), MAX_TEXT_WIDTH);
-            for (FormattedCharSequence line : wrappedInstruction) {
-                guiGraphics.drawString(this.font, line, guiLeft + MARGIN, currentY, 0xFF888888, false);
-                currentY += 9; // Smaller line height for instructions
-                if (currentY > guiTop + 50) break; // Stop earlier to avoid overlap with slots
-            }
+        if (isEnabled) {
+            currentY += LINE_HEIGHT;
+            String signalInfo = isPowered ? "Signal: ON → 'true'" : "Signal: OFF → 'false'";
+            guiGraphics.drawString(this.font, signalInfo, guiLeft + MARGIN + 4, currentY, 0xFF888888, false);
         }
     }
 }

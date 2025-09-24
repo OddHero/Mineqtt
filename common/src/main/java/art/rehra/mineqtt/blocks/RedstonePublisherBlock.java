@@ -55,24 +55,44 @@ public class RedstonePublisherBlock extends BaseEntityBlock implements Interacti
             boolean flag1 = this.shouldTurnOn(level, pos, state);
             if (flag1 && !flag) {
                 level.setBlock(pos, state.setValue(POWERED, true), 3);
-                // Get topic from block entity instead of hardcoded value
-                String topic = getTopicFromBlockEntity(level, pos);
-                sendMqttMessage(topic, "true");
+                // Publish to combined topic if enabled
+                publishToCombinedTopic(level, pos, "true");
             } else if (!flag1 && flag) {
                 level.setBlock(pos, state.setValue(POWERED, false), 3);
-                // Get topic from block entity instead of hardcoded value
-                String topic = getTopicFromBlockEntity(level, pos);
-                sendMqttMessage(topic, "false");
+                // Publish to combined topic if enabled
+                publishToCombinedTopic(level, pos, "false");
             }
         }
         super.neighborChanged(state, level, pos, neighborBlock, orientation, movedByPiston);
     }
 
-    private String getTopicFromBlockEntity(Level level, BlockPos pos) {
+    private String getCombinedTopicFromBlockEntity(Level level, BlockPos pos) {
         if (level.getBlockEntity(pos) instanceof PublisherBlockEntity publisherBlockEntity) {
-            return publisherBlockEntity.getTopic();
+            return publisherBlockEntity.getCombinedTopic();
         }
         return MineQTTConfig.getTopicPath("switch"); // fallback to default
+    }
+
+    private boolean isPublisherEnabled(Level level, BlockPos pos) {
+        if (level.getBlockEntity(pos) instanceof PublisherBlockEntity publisherBlockEntity) {
+            return publisherBlockEntity.isEnabled();
+        }
+        return false;
+    }
+
+    private void publishToCombinedTopic(Level level, BlockPos pos, String message) {
+        if (!isPublisherEnabled(level, pos)) {
+            MineQTT.LOGGER.debug("Publisher at " + pos + " is disabled (no base path item in first slot)");
+            return;
+        }
+
+        String combinedTopic = getCombinedTopicFromBlockEntity(level, pos);
+
+        // Publish to combined topic if enabled
+        if (!combinedTopic.isEmpty()) {
+            sendMqttMessage(combinedTopic, message);
+            MineQTT.LOGGER.info("Published '" + message + "' to combined topic: " + combinedTopic);
+        }
     }
 
     protected boolean shouldTurnOn(Level level, BlockPos pos, BlockState state) {
