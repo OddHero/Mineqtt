@@ -1,9 +1,11 @@
 package art.rehra.mineqtt.config;
 
+import java.util.UUID;
+
 public class MineQTTConfig {
     // MQTT Connection Settings
     public static String brokerUrl = "tcp://localhost:1883";
-    public static String clientId = "minecraft-client";
+    public static String clientId = "minecraft-client" + UUID.randomUUID();
     public static String username = "";
     public static String password = "";
     public static boolean autoReconnect = true;
@@ -18,7 +20,7 @@ public class MineQTTConfig {
     // Platform-specific config saving/loading will be handled by each platform
     public static void resetToDefaults() {
         brokerUrl = "tcp://localhost:1883";
-        clientId = "minecraft-client";
+        clientId = "minecraft-client" + UUID.randomUUID();
         username = "";
         password = "";
         autoReconnect = true;

@@ -5,6 +5,8 @@ import art.rehra.mineqtt.config.MineQTTConfig;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
+import java.util.UUID;
+
 public class NeoForgeConfigHandler implements ConfigHandler {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
@@ -28,7 +30,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
 
         CLIENT_ID = BUILDER
                 .comment("MQTT client identifier")
-                .define("clientId", "minecraft-client");
+                .define("clientId", "minecraft-client" + UUID.randomUUID());
 
         USERNAME = BUILDER
                 .comment("MQTT username (leave empty if not required)")

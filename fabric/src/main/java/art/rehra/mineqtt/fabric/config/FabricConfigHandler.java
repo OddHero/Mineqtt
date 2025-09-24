@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.UUID;
 
 public class FabricConfigHandler implements ConfigHandler {
     private static final Logger LOGGER = LoggerFactory.getLogger("MineQTT-Config");
@@ -96,7 +97,7 @@ public class FabricConfigHandler implements ConfigHandler {
     private static class ConfigData {
         // MQTT Connection Settings
         public String brokerUrl = "tcp://localhost:1883";
-        public String clientId = "minecraft-client";
+        public String clientId = "minecraft-client" + UUID.randomUUID();
         public String username = "";
         public String password = "";
         public boolean autoReconnect = true;
