@@ -4,30 +4,33 @@ import java.util.UUID;
 
 public class MineQTTConfig {
     // MQTT Connection Settings
-    public static String brokerUrl = "tcp://localhost:1883";
-    public static String clientId = "minecraft-client" + UUID.randomUUID();
-    public static String username = "";
-    public static String password = "";
-    public static boolean autoReconnect = true;
-    public static long connectionTimeout = 30;
-    public static int keepAlive = 60;
+    public static String brokerUrl;
+    public static String clientId;
+    public static String username;
+    public static String password;
+    public static boolean autoReconnect;
+    public static long connectionTimeout;
+    public static int keepAlive;
 
     // MQTT Topics
-    public static String baseTopic = "minecraft";
-    public static String statusTopic = "status";
+    public static String baseTopic;
+    public static String statusTopic;
 
+    static {
+        resetToDefaults();
+    }
 
     // Platform-specific config saving/loading will be handled by each platform
     public static void resetToDefaults() {
-        brokerUrl = "tcp://localhost:1883";
-        clientId = "minecraft-client" + UUID.randomUUID();
-        username = "";
-        password = "";
-        autoReconnect = true;
-        connectionTimeout = 30;
-        keepAlive = 60;
-        baseTopic = "minecraft";
-        statusTopic = "status";
+        brokerUrl = StaticDefaults.DEFAULT_BROKER_URL;
+        clientId = StaticDefaults.DEFAULT_CLIENT_ID;
+        username = StaticDefaults.DEFAULT_USERNAME;
+        password = StaticDefaults.DEFAULT_PASSWORD;
+        autoReconnect = StaticDefaults.DEFAULT_AUTO_RECONNECT;
+        connectionTimeout = StaticDefaults.DEFAULT_CONNECTION_TIMEOUT;
+        keepAlive = StaticDefaults.DEFAULT_KEEP_ALIVE;
+        baseTopic = StaticDefaults.DEFAULT_TOPIC_BASE;
+        statusTopic = StaticDefaults.DEFAULT_TOPIC_STATUS;
     }
 
     public static String getTopicPath(String subTopic) {
