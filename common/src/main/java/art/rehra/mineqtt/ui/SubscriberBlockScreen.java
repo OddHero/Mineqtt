@@ -3,7 +3,6 @@ package art.rehra.mineqtt.ui;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.SubscriberBlockEntity;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.renderer.RenderPipelines;

@@ -1,7 +1,5 @@
 package art.rehra.mineqtt.config;
 
-import java.util.UUID;
-
 public class MineQTTConfig {
     // MQTT Connection Settings
     public static String brokerUrl;

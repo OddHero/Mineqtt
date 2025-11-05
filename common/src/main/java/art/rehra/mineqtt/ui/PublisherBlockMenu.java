@@ -1,6 +1,5 @@
 package art.rehra.mineqtt.ui;
 
-import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Inventory;

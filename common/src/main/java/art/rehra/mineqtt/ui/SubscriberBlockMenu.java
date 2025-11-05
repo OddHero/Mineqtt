@@ -1,13 +1,7 @@
 package art.rehra.mineqtt.ui;
 
-import art.rehra.mineqtt.MineQTT;
-import art.rehra.mineqtt.blocks.entities.SubscriberBlockEntity;
-import dev.architectury.registry.registries.RegistrySupplier;
-import io.reactivex.annotations.Nullable;
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.Container;
-import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.*;

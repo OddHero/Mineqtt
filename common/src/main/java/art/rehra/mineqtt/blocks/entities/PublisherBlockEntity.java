@@ -1,6 +1,5 @@
 package art.rehra.mineqtt.blocks.entities;
 
-import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.ui.PublisherBlockMenu;
 import dev.architectury.registry.menu.ExtendedMenuProvider;
 import net.minecraft.core.BlockPos;
