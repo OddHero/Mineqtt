@@ -3,6 +3,7 @@ package art.rehra.mineqtt;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.config.ConfigHandler;
 import art.rehra.mineqtt.config.MineQTTConfig;
+import art.rehra.mineqtt.integrations.IModLoaderUtils;
 import art.rehra.mineqtt.items.MineqttItems;
 import art.rehra.mineqtt.mqtt.SubscriptionManager;
 import art.rehra.mineqtt.tabs.MineQTTTabs;
@@ -26,8 +27,14 @@ public class MineQTT {
     private static ConfigHandler configHandler;
     public static Mqtt3AsyncClient mqttClient;
 
+    public static IModLoaderUtils modLoaderUtils;
+
     public static void init() {
         LOGGER.info("Initializing MineQTT...");
+
+        if (modLoaderUtils == null) {
+            throw new IllegalStateException("IModLoaderUtils not set. Please set it before calling init().");
+        }
 
         if (configHandler == null) {
             throw new IllegalStateException("ConfigHandler not set. Please set it before calling init().");
@@ -82,6 +89,10 @@ public class MineQTT {
         });
 
 
+    }
+
+    public static void setModLoaderUtils(IModLoaderUtils utils) {
+        modLoaderUtils = utils;
     }
 
     public static void setConfigHandler(ConfigHandler handler) {

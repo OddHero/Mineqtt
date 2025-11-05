@@ -4,6 +4,7 @@ import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.neoforge.blocks.entities.MineqttBlockEntityTypesNeoForge;
 import art.rehra.mineqtt.neoforge.config.NeoForgeConfigHandler;
 import art.rehra.mineqtt.neoforge.config.NeoForgeConfigScreenIntegration;
+import art.rehra.mineqtt.neoforge.integrations.NeoForgeModLoaderUtils;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.config.ModConfig;
@@ -17,6 +18,9 @@ public final class MineqttNeoForge {
     private static NeoForgeConfigHandler configHandler;
 
     public MineqttNeoForge(ModContainer container) {
+        // Set up the mod loader utils for NeoForge
+        MineQTT.setModLoaderUtils(new NeoForgeModLoaderUtils());
+
         // Set up the config handler for NeoForge using native config system
         configHandler = new NeoForgeConfigHandler();
         MineQTT.setConfigHandler(configHandler);
