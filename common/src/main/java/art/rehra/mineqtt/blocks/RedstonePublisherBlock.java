@@ -3,6 +3,7 @@ package art.rehra.mineqtt.blocks;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
 import art.rehra.mineqtt.config.MineQTTConfig;
+import art.rehra.mineqtt.integrations.MineqttPermission;
 import com.mojang.serialization.MapCodec;
 import dev.architectury.event.events.common.InteractionEvent;
 import net.minecraft.core.BlockPos;
@@ -198,6 +199,9 @@ public class RedstonePublisherBlock extends BaseEntityBlock implements Interacti
         }
 
         if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+            if (!MineQTT.permissionManager.canInteract(serverPlayer, pos, MineqttPermission.INTERACT)) {
+                return InteractionResult.PASS;
+            }
             dev.architectury.registry.menu.MenuRegistry.openExtendedMenu(serverPlayer, blockEntity, buf -> {
                 buf.writeBlockPos(blockEntity.getBlockPos());
             });

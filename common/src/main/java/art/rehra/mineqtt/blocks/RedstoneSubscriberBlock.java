@@ -3,7 +3,8 @@ package art.rehra.mineqtt.blocks;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.SubscriberBlockEntity;
 import art.rehra.mineqtt.config.MineQTTConfig;
-import art.rehra.mineqtt.ui.SubscriberBlockMenu;
+import art.rehra.mineqtt.integrations.MineqttPermission;
+import art.rehra.mineqtt.integrations.PermissionManager;
 import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish;
 import com.hivemq.client.mqtt.mqtt3.message.unsubscribe.Mqtt3Unsubscribe;
 import com.mojang.serialization.MapCodec;
@@ -135,6 +136,10 @@ public class RedstoneSubscriberBlock extends BaseEntityBlock implements Interact
 
 
         if (player instanceof ServerPlayer serverPlayer) {
+            // Check permissions
+            if (!MineQTT.permissionManager.canInteract(serverPlayer, pos, MineqttPermission.INTERACT)) {
+                return InteractionResult.PASS;
+            }
             MenuRegistry.openExtendedMenu(serverPlayer, blockEntity, buf -> {
                 buf.writeBlockPos(blockEntity.getBlockPos());
             });
