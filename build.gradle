@@ -27,6 +27,11 @@ allprojects {
             name = "DevAuth"
             url = "https://pkgs.dev.azure.com/djtheredstoner/DevAuth/_packaging/public/maven/v1"
         }
+
+        maven {
+            name = "Flemmli97"
+            url = "https://maven.blazing-coop.net/releases"
+        }
     }
 }
 

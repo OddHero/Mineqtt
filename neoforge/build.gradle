@@ -36,6 +36,9 @@ dependencies {
 
     modImplementation "dev.architectury:architectury-neoforge:$rootProject.architectury_api_version"
 
+    compileOnly "io.github.flemmli97:flan:${minecraft_version}-${flan_version}-neoforge:api"
+    runtimeOnly "io.github.flemmli97:flan:${minecraft_version}-${flan_version}-neoforge"
+
     common(project(path: ':common', configuration: 'namedElements')) { transitive false }
     shadowBundle project(path: ':common', configuration: 'transformProductionNeoForge')
 

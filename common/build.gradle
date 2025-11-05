@@ -19,4 +19,7 @@ dependencies {
 
     // Common Cloth Config dependency
     modCompileOnly("me.shedaniel.cloth:cloth-config:${rootProject.cloth_config_version}")
+
+    // Common Flan API dependency
+    modCompileOnly "io.github.flemmli97:flan:${minecraft_version}-${flan_version}-common:api"
 }
