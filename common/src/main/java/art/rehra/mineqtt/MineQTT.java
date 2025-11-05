@@ -4,6 +4,7 @@ import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.config.ConfigHandler;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.integrations.IModLoaderUtils;
+import art.rehra.mineqtt.integrations.PermissionManager;
 import art.rehra.mineqtt.items.MineqttItems;
 import art.rehra.mineqtt.mqtt.SubscriptionManager;
 import art.rehra.mineqtt.tabs.MineQTTTabs;
@@ -14,7 +15,6 @@ import com.hivemq.client.mqtt.lifecycle.MqttClientAutoReconnect;
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient;
 import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.TickEvent;
-import net.minecraft.core.BlockPos;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,6 +25,7 @@ public class MineQTT {
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     private static ConfigHandler configHandler;
+    public static PermissionManager permissionManager;
     public static Mqtt3AsyncClient mqttClient;
 
     public static IModLoaderUtils modLoaderUtils;
@@ -39,6 +40,9 @@ public class MineQTT {
         if (configHandler == null) {
             throw new IllegalStateException("ConfigHandler not set. Please set it before calling init().");
         }
+
+        // Initialize PermissionManager
+        permissionManager = new PermissionManager();
         // Load configuration into MineQTTConfig
         configHandler.loadConfig();
 
