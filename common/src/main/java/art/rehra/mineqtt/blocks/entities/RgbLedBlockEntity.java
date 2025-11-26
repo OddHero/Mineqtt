@@ -3,6 +3,8 @@ package art.rehra.mineqtt.blocks.entities;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
 import art.rehra.mineqtt.ui.RgbLedBlockMenu;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -104,6 +106,221 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
 
         message = message.trim();
 
+        // Try to parse as Home Assistant JSON schema first
+        if (message.startsWith("{")) {
+            if (parseHomeAssistantJson(message)) {
+                return;
+            }
+        }
+
+        // Fall back to simple command parsing
+        parseSimpleCommand(message);
+    }
+
+    private boolean parseHomeAssistantJson(String message) {
+        try {
+            JsonObject json = JsonParser.parseString(message).getAsJsonObject();
+            boolean stateChanged = false;
+
+            // Parse state field: "ON" or "OFF"
+            if (json.has("state")) {
+                String state = json.get("state").getAsString();
+                this.lit = state.equalsIgnoreCase("ON");
+                stateChanged = true;
+            }
+
+            // Parse brightness field (0-255)
+            if (json.has("brightness")) {
+                int brightness = Math.max(0, Math.min(255, json.get("brightness").getAsInt()));
+                // Convert from 0-255 to 0-15 scale and apply proportionally
+                int scaledBrightness = (brightness * 15) / 255;
+                if (this.red > 0 || this.green > 0 || this.blue > 0) {
+                    int maxCurrent = Math.max(Math.max(this.red, this.green), this.blue);
+                    if (maxCurrent > 0) {
+                        float factor = scaledBrightness / (float)maxCurrent;
+                        this.red = Math.max(0, Math.min(15, Math.round(this.red * factor)));
+                        this.green = Math.max(0, Math.min(15, Math.round(this.green * factor)));
+                        this.blue = Math.max(0, Math.min(15, Math.round(this.blue * factor)));
+                    }
+                } else {
+                    // If no color set, set to white at brightness
+                    this.red = this.green = this.blue = scaledBrightness;
+                }
+                stateChanged = true;
+            }
+
+            // Parse color object with various modes
+            if (json.has("color")) {
+                JsonObject color = json.getAsJsonObject("color");
+
+                // RGB mode: color.r, color.g, color.b (0-255)
+                if (color.has("r") || color.has("g") || color.has("b")) {
+                    if (color.has("r")) {
+                        int r = Math.max(0, Math.min(255, color.get("r").getAsInt()));
+                        this.red = (r * 15) / 255;
+                    }
+                    if (color.has("g")) {
+                        int g = Math.max(0, Math.min(255, color.get("g").getAsInt()));
+                        this.green = (g * 15) / 255;
+                    }
+                    if (color.has("b")) {
+                        int b = Math.max(0, Math.min(255, color.get("b").getAsInt()));
+                        this.blue = (b * 15) / 255;
+                    }
+                    this.lit = true;
+                    stateChanged = true;
+                }
+
+                // HS mode: color.h (0-360), color.s (0-100)
+                else if (color.has("h") && color.has("s")) {
+                    float h = Math.max(0, Math.min(360, color.get("h").getAsFloat()));
+                    float s = Math.max(0, Math.min(100, color.get("s").getAsFloat())) / 100.0f;
+                    int[] rgb = hsvToRgb(h, s, 1.0f);
+                    this.red = Math.max(0, Math.min(15, (rgb[0] * 15) / 255));
+                    this.green = Math.max(0, Math.min(15, (rgb[1] * 15) / 255));
+                    this.blue = Math.max(0, Math.min(15, (rgb[2] * 15) / 255));
+                    this.lit = true;
+                    stateChanged = true;
+                }
+
+                // XY mode: color.x, color.y (CIE 1931 color space)
+                else if (color.has("x") && color.has("y")) {
+                    float x = Math.max(0, Math.min(1, color.get("x").getAsFloat()));
+                    float y = Math.max(0, Math.min(1, color.get("y").getAsFloat()));
+                    int[] rgb = xyToRgb(x, y);
+                    this.red = Math.max(0, Math.min(15, (rgb[0] * 15) / 255));
+                    this.green = Math.max(0, Math.min(15, (rgb[1] * 15) / 255));
+                    this.blue = Math.max(0, Math.min(15, (rgb[2] * 15) / 255));
+                    this.lit = true;
+                    stateChanged = true;
+                }
+            }
+
+            // Parse color_temp field (mireds or kelvin)
+            if (json.has("color_temp")) {
+                int colorTemp = Math.max(153, Math.min(500, json.get("color_temp").getAsInt()));
+                int[] rgb = colorTempToRgb(colorTemp);
+                this.red = Math.max(0, Math.min(15, (rgb[0] * 15) / 255));
+                this.green = Math.max(0, Math.min(15, (rgb[1] * 15) / 255));
+                this.blue = Math.max(0, Math.min(15, (rgb[2] * 15) / 255));
+                this.lit = true;
+                stateChanged = true;
+            }
+
+            // Parse effect field (for future use)
+            if (json.has("effect")) {
+                String effect = json.get("effect").getAsString();
+                // TODO: Implement effects like "colorloop", "flash", etc.
+                MineQTT.LOGGER.info("Effect received (not yet implemented): " + effect);
+            }
+
+            // Parse transition field (for future use)
+            if (json.has("transition")) {
+                int transition = json.get("transition").getAsInt();
+                // TODO: Implement smooth transitions over time
+                MineQTT.LOGGER.debug("Transition time: " + transition + " seconds");
+            }
+
+            if (stateChanged) {
+                this.setChanged();
+                updateBlockLight();
+                MineQTT.LOGGER.info("RGB LED updated via Home Assistant JSON: R=" + red + " G=" + green + " B=" + blue + " LIT=" + lit);
+                return true;
+            }
+
+        } catch (Exception e) {
+            MineQTT.LOGGER.warn("Failed to parse Home Assistant JSON: " + message, e);
+        }
+        return false;
+    }
+
+    // Convert HSV to RGB (H: 0-360, S: 0-1, V: 0-1)
+    private int[] hsvToRgb(float h, float s, float v) {
+        float c = v * s;
+        float x = c * (1 - Math.abs((h / 60.0f) % 2 - 1));
+        float m = v - c;
+
+        float r, g, b;
+        if (h < 60) { r = c; g = x; b = 0; }
+        else if (h < 120) { r = x; g = c; b = 0; }
+        else if (h < 180) { r = 0; g = c; b = x; }
+        else if (h < 240) { r = 0; g = x; b = c; }
+        else if (h < 300) { r = x; g = 0; b = c; }
+        else { r = c; g = 0; b = x; }
+
+        return new int[]{
+            Math.round((r + m) * 255),
+            Math.round((g + m) * 255),
+            Math.round((b + m) * 255)
+        };
+    }
+
+    // Convert XY (CIE 1931) to RGB (simplified conversion)
+    private int[] xyToRgb(float x, float y) {
+        float z = 1.0f - x - y;
+        float Y = 1.0f;
+        float X = (Y / y) * x;
+        float Z = (Y / y) * z;
+
+        // XYZ to RGB matrix (sRGB D65)
+        float r = X * 3.2406f - Y * 1.5372f - Z * 0.4986f;
+        float g = -X * 0.9689f + Y * 1.8758f + Z * 0.0415f;
+        float b = X * 0.0557f - Y * 0.2040f + Z * 1.0570f;
+
+        // Gamma correction
+        r = r > 0.0031308f ? 1.055f * (float)Math.pow(r, 1/2.4) - 0.055f : 12.92f * r;
+        g = g > 0.0031308f ? 1.055f * (float)Math.pow(g, 1/2.4) - 0.055f : 12.92f * g;
+        b = b > 0.0031308f ? 1.055f * (float)Math.pow(b, 1/2.4) - 0.055f : 12.92f * b;
+
+        return new int[]{
+            Math.max(0, Math.min(255, Math.round(r * 255))),
+            Math.max(0, Math.min(255, Math.round(g * 255))),
+            Math.max(0, Math.min(255, Math.round(b * 255)))
+        };
+    }
+
+    // Convert color temperature (mireds) to RGB
+    private int[] colorTempToRgb(int mireds) {
+        // Convert mireds to Kelvin
+        float kelvin = 1000000.0f / mireds;
+        float temp = kelvin / 100.0f;
+
+        float r, g, b;
+
+        // Red calculation
+        if (temp <= 66) {
+            r = 255;
+        } else {
+            r = temp - 60;
+            r = 329.698727446f * (float)Math.pow(r, -0.1332047592);
+            r = Math.max(0, Math.min(255, r));
+        }
+
+        // Green calculation
+        if (temp <= 66) {
+            g = temp;
+            g = 99.4708025861f * (float)Math.log(g) - 161.1195681661f;
+        } else {
+            g = temp - 60;
+            g = 288.1221695283f * (float)Math.pow(g, -0.0755148492);
+        }
+        g = Math.max(0, Math.min(255, g));
+
+        // Blue calculation
+        if (temp >= 66) {
+            b = 255;
+        } else if (temp <= 19) {
+            b = 0;
+        } else {
+            b = temp - 10;
+            b = 138.5177312231f * (float)Math.log(b) - 305.0447927307f;
+            b = Math.max(0, Math.min(255, b));
+        }
+
+        return new int[]{Math.round(r), Math.round(g), Math.round(b)};
+    }
+
+    private void parseSimpleCommand(String message) {
         // Check for ON/OFF commands
         if (message.equalsIgnoreCase("ON") || message.equalsIgnoreCase("1") || message.equalsIgnoreCase("TRUE")) {
             this.lit = true;
