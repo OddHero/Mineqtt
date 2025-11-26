@@ -53,10 +53,9 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
     @Override
     protected void loadAdditional(net.minecraft.world.level.storage.ValueInput input) {
         super.loadAdditional(input);
-        this.red = input.getIntOr("Red",0);
-        this.green = input.getIntOr("Green",0);
-        this.blue = input.getIntOr("Blue",0);
-        this.blue = input.getIntOr("Blue",0);
+        this.red = input.getIntOr("Red", 0);
+        this.green = input.getIntOr("Green", 0);
+        this.blue = input.getIntOr("Blue", 0);
         this.lit = input.getByteOr("Lit", (byte) 0) != 0;
     }
 
@@ -73,7 +72,13 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
 
     @Override
     public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
-        return this.saveWithFullMetadata(registries);
+        CompoundTag tag = this.saveWithFullMetadata(registries);
+        // Ensure RGB values are in the tag for client sync
+        tag.putInt("Red", red);
+        tag.putInt("Green", green);
+        tag.putInt("Blue", blue);
+        tag.putByte("Lit", (byte) (lit ? 1 : 0));
+        return tag;
     }
 
     @Override
@@ -138,6 +143,14 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
             int lightLevel = getLightLevel();
             BlockState newState = currentState.setValue(RgbLedBlock.LIGHT_LEVEL, lightLevel);
             this.level.setBlock(this.worldPosition, newState, Block.UPDATE_ALL);
+
+            // Force sync block entity data to client for color tinting
+            if (!this.level.isClientSide) {
+                this.level.sendBlockUpdated(this.worldPosition, currentState, newState, Block.UPDATE_CLIENTS);
+            } else {
+                // On client, request chunk re-render to update color
+                this.level.sendBlockUpdated(this.worldPosition, currentState, newState, Block.UPDATE_ALL);
+            }
         }
     }
 
@@ -220,6 +233,54 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                         MineQTT.LOGGER.info("RGB LED disabled - no base path item in first slot");
                     }
                 }
+
+                // Spawn colored particles when lit to create colored light effect
+                if (level.isClientSide && rgbLedBlockEntity.lit && rgbLedBlockEntity.getLightLevel() > 0) {
+                    // Spawn particles every 10 ticks (0.5 seconds)
+                    if (level.getGameTime() % 10 == 0) {
+                        spawnColoredParticles(level, blockPos, rgbLedBlockEntity);
+                    }
+                }
+            }
+        }
+
+        private void spawnColoredParticles(Level level, BlockPos pos, RgbLedBlockEntity entity) {
+            // Convert 0-15 range to 0-255 for particle colors
+            int r = (entity.getRed() * 255) / 15;
+            int g = (entity.getGreen() * 255) / 15;
+            int b = (entity.getBlue() * 255) / 15;
+
+            // Don't spawn particles if color is black
+            if (r == 0 && g == 0 && b == 0) return;
+
+            // Pack RGB into single int (0xRRGGBB)
+            int packedColor = (r << 16) | (g << 8) | b;
+
+            // Spawn particles around the bulb
+            double centerX = pos.getX() + 0.5;
+            double centerY = pos.getY() + 0.6; // Slightly above center
+            double centerZ = pos.getZ() + 0.5;
+
+            // Spawn 2-3 particles per tick in a small radius
+            int particleCount = level.random.nextInt(2) + 2;
+            for (int i = 0; i < particleCount; i++) {
+                double offsetX = (level.random.nextDouble() - 0.5) * 0.3;
+                double offsetY = (level.random.nextDouble() - 0.5) * 0.3;
+                double offsetZ = (level.random.nextDouble() - 0.5) * 0.3;
+
+                // Small upward velocity for glow effect
+                double velocityY = level.random.nextDouble() * 0.02;
+
+                level.addParticle(
+                    new net.minecraft.core.particles.DustParticleOptions(
+                        packedColor,
+                        0.8f // Particle size
+                    ),
+                    centerX + offsetX,
+                    centerY + offsetY,
+                    centerZ + offsetZ,
+                    0, velocityY, 0
+                );
             }
         }
     }
