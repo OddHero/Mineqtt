@@ -13,10 +13,14 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.world.level.redstone.ExperimentalRedstoneUtils;
 import net.minecraft.world.level.redstone.Orientation;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 
 public class RgbLedBlock extends BaseSubscriberBlock {
@@ -25,6 +29,14 @@ public class RgbLedBlock extends BaseSubscriberBlock {
     public static final IntegerProperty RED = IntegerProperty.create("red", 0, 15);
     public static final IntegerProperty GREEN = IntegerProperty.create("green", 0, 15);
     public static final IntegerProperty BLUE = IntegerProperty.create("blue", 0, 15);
+    public static final IntegerProperty BRIGHTNESS = IntegerProperty.create("brightness", 0, 15);
+    public static final BooleanProperty LIT = BlockStateProperties.LIT;
+
+    // Define the shape that matches our model (socket + bulb)
+    // Socket base: 5,0,5 to 11,3,11 (6x3x6)
+    // Socket middle: 6,3,6 to 10,5,10 (4x2x4)
+    // Bulb: approximately 5,5,5 to 11,14,11 (6x9x6 for pear shape)
+    private static final VoxelShape SHAPE = Block.box(5.0, 0.0, 5.0, 11.0, 14.0, 11.0);
 
     public final MapCodec<RgbLedBlock> CODEC = simpleCodec(RgbLedBlock::new);
 
@@ -34,12 +46,19 @@ public class RgbLedBlock extends BaseSubscriberBlock {
                 .setValue(FACING, Direction.NORTH)
                 .setValue(RED, 0)
                 .setValue(GREEN, 0)
-                .setValue(BLUE, 0));
+                .setValue(BLUE, 0)
+                .setValue(BRIGHTNESS, 15)
+                .setValue(LIT, false));
     }
 
     @Override
     protected boolean isSignalSource(BlockState state) {
         return true;
+    }
+
+    @Override
+    protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        return SHAPE;
     }
 
     @Override
