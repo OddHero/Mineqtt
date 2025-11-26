@@ -46,7 +46,8 @@ public class RedstonePublisherBlock extends BaseEntityBlock implements Interacti
 
         this.registerDefaultState(this.getStateDefinition().any().setValue(POWERED, false));
 
-        InteractionEvent.RIGHT_CLICK_BLOCK.register(this);
+        // Don't register event in constructor - causes startup freeze
+        // Event will be registered after all blocks are initialized
     }
 
     @Override

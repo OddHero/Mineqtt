@@ -2,7 +2,6 @@ package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
-import art.rehra.mineqtt.mqtt.SubscriptionManager;
 import art.rehra.mineqtt.ui.RgbLedBlockMenu;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -23,8 +22,42 @@ import org.jetbrains.annotations.Nullable;
 
 public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
 
+    private int red = 0;
+    private int green = 0;
+    private int blue = 0;
+    private boolean lit = false;
+
     public RgbLedBlockEntity(BlockPos pos, BlockState blockState) {
         super(MineqttBlockEntityTypes.RGB_LED_BLOCK.get(), pos, blockState);
+    }
+
+    public int getRed() { return red; }
+    public int getGreen() { return green; }
+    public int getBlue() { return blue; }
+    public boolean isLit() { return lit; }
+
+    public int getLightLevel() {
+        if (!lit) return 0;
+        return Math.max(Math.max(red, green), blue);
+    }
+
+    @Override
+    protected void saveAdditional(net.minecraft.world.level.storage.ValueOutput output) {
+        super.saveAdditional(output);
+        output.putInt("Red", red);
+        output.putInt("Green", green);
+        output.putInt("Blue", blue);
+        output.putByte("Lit", (byte) (lit ? 1 : 0));
+    }
+
+    @Override
+    protected void loadAdditional(net.minecraft.world.level.storage.ValueInput input) {
+        super.loadAdditional(input);
+        this.red = input.getIntOr("Red",0);
+        this.green = input.getIntOr("Green",0);
+        this.blue = input.getIntOr("Blue",0);
+        this.blue = input.getIntOr("Blue",0);
+        this.lit = input.getByteOr("Lit", (byte) 0) != 0;
     }
 
     @Override
@@ -60,26 +93,51 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
 
     @Override
     public void onMessageReceived(String topic, String message) {
+        if (this.level == null || !(this.level.getBlockState(this.worldPosition).getBlock() instanceof RgbLedBlock)) {
+            return;
+        }
+
+        message = message.trim();
+
+        // Check for ON/OFF commands
+        if (message.equalsIgnoreCase("ON") || message.equalsIgnoreCase("1") || message.equalsIgnoreCase("TRUE")) {
+            this.lit = true;
+            this.setChanged();
+            updateBlockLight();
+            MineQTT.LOGGER.info("RGB LED turned ON");
+            return;
+        } else if (message.equalsIgnoreCase("OFF") || message.equalsIgnoreCase("0") || message.equalsIgnoreCase("FALSE")) {
+            this.lit = false;
+            this.setChanged();
+            updateBlockLight();
+            MineQTT.LOGGER.info("RGB LED turned OFF");
+            return;
+        }
+
         // Parse RGB color from message
-        // Expected format: "rgb(255,128,64)" or "#FF8040" or "255,128,64"
         int[] rgb = parseRgbFromMessage(message);
 
         if (rgb != null) {
-            BlockState currentState = this.level.getBlockState(this.worldPosition);
-            if (currentState.getBlock() instanceof RgbLedBlock) {
-                // Convert 0-255 to 0-15 for redstone signal
-                int red = (rgb[0] * 15) / 255;
-                int green = (rgb[1] * 15) / 255;
-                int blue = (rgb[2] * 15) / 255;
+            // Convert 0-255 to 0-15 for light level
+            this.red = (rgb[0] * 15) / 255;
+            this.green = (rgb[1] * 15) / 255;
+            this.blue = (rgb[2] * 15) / 255;
+            this.lit = true; // Auto turn on
 
-                BlockState newState = currentState
-                        .setValue(RgbLedBlock.RED, red)
-                        .setValue(RgbLedBlock.GREEN, green)
-                        .setValue(RgbLedBlock.BLUE, blue);
+            this.setChanged();
+            updateBlockLight();
+            MineQTT.LOGGER.info("RGB LED updated: R=" + red + " G=" + green + " B=" + blue + " (auto ON, light=" + getLightLevel() + ")");
+        }
+    }
 
-                this.level.setBlock(this.worldPosition, newState, Block.UPDATE_ALL);
-                MineQTT.LOGGER.info("RGB LED updated: R=" + red + " G=" + green + " B=" + blue);
-            }
+    private void updateBlockLight() {
+        if (this.level == null) return;
+
+        BlockState currentState = this.level.getBlockState(this.worldPosition);
+        if (currentState.getBlock() instanceof RgbLedBlock) {
+            int lightLevel = getLightLevel();
+            BlockState newState = currentState.setValue(RgbLedBlock.LIGHT_LEVEL, lightLevel);
+            this.level.setBlock(this.worldPosition, newState, Block.UPDATE_ALL);
         }
     }
 
@@ -144,17 +202,22 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                     // Update subscription
                     rgbLedBlockEntity.updateSubscription(newCombinedTopic);
 
-                    // If disabled, reset to black (0, 0, 0)
+                    // If disabled, reset to black and turn off
                     if (!rgbLedBlockEntity.isEnabled()) {
+                        rgbLedBlockEntity.red = 0;
+                        rgbLedBlockEntity.green = 0;
+                        rgbLedBlockEntity.blue = 0;
+                        rgbLedBlockEntity.lit = false;
+                        rgbLedBlockEntity.setChanged();
+
+                        // Update light level in block state
                         BlockState currentState = level.getBlockState(blockPos);
                         if (currentState.getBlock() instanceof RgbLedBlock) {
-                            BlockState newState = currentState
-                                    .setValue(RgbLedBlock.RED, 0)
-                                    .setValue(RgbLedBlock.GREEN, 0)
-                                    .setValue(RgbLedBlock.BLUE, 0);
+                            BlockState newState = currentState.setValue(RgbLedBlock.LIGHT_LEVEL, 0);
                             level.setBlock(blockPos, newState, Block.UPDATE_ALL);
-                            MineQTT.LOGGER.info("RGB LED disabled - no base path item in first slot");
                         }
+
+                        MineQTT.LOGGER.info("RGB LED disabled - no base path item in first slot");
                     }
                 }
             }

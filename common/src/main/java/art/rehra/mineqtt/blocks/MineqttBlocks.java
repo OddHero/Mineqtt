@@ -28,6 +28,26 @@ public class MineqttBlocks {
         SUBSCRIBER_BLOCK = registerBlock("redstone_subscriber_block", () -> new RedstoneSubscriberBlock(baseProperties("redstone_subscriber_block").requiresCorrectToolForDrops().strength(3.5f)));
         RGB_LED_BLOCK = registerBlock("rgb_led_block", () -> new RgbLedBlock(baseProperties("rgb_led_block").requiresCorrectToolForDrops().strength(3.5f)));
         BLOCKS.register();
+
+        // Register interaction events after blocks are initialized
+        registerInteractionEvents();
+    }
+
+    private static void registerInteractionEvents() {
+        MineQTT.LOGGER.info("Registering block interaction events");
+        BaseSubscriberBlock.registerEvents();
+
+        // Register for RedstoneSubscriberBlock
+        dev.architectury.event.events.common.InteractionEvent.RIGHT_CLICK_BLOCK.register((player, hand, pos, face) -> {
+            var block = player.level().getBlockState(pos).getBlock();
+            if (block instanceof RedstoneSubscriberBlock rsb) {
+                return rsb.click(player, hand, pos, face);
+            }
+            if (block instanceof RedstonePublisherBlock rpb) {
+                return rpb.click(player, hand, pos, face);
+            }
+            return net.minecraft.world.InteractionResult.PASS;
+        });
     }
 
     public static RegistrySupplier<Block> registerBlock(String name, Supplier<Block> block) {

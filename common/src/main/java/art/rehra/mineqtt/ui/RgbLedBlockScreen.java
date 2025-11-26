@@ -1,7 +1,6 @@
 package art.rehra.mineqtt.ui;
 
 import art.rehra.mineqtt.MineQTT;
-import art.rehra.mineqtt.blocks.RgbLedBlock;
 import art.rehra.mineqtt.blocks.entities.RgbLedBlockEntity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -59,7 +58,7 @@ public class RgbLedBlockScreen extends AbstractContainerScreen<RgbLedBlockMenu> 
         var blockEntity = (RgbLedBlockEntity) level.getBlockEntity(pos);
 
         if (blockEntity != null) {
-            renderRgbLedInfo(guiGraphics, guiLeft, guiTop, blockEntity, level, pos);
+            renderRgbLedInfo(guiGraphics, guiLeft, guiTop, blockEntity);
         } else {
             String errorMsg = "No Block Entity Found";
             int errorWidth = this.font.width(errorMsg);
@@ -70,7 +69,7 @@ public class RgbLedBlockScreen extends AbstractContainerScreen<RgbLedBlockMenu> 
         this.renderTooltip(guiGraphics, mouseX, mouseY);
     }
 
-    private void renderRgbLedInfo(GuiGraphics guiGraphics, int guiLeft, int guiTop, RgbLedBlockEntity blockEntity, net.minecraft.world.level.Level level, net.minecraft.core.BlockPos pos) {
+    private void renderRgbLedInfo(GuiGraphics guiGraphics, int guiLeft, int guiTop, RgbLedBlockEntity blockEntity) {
         int currentY = guiTop + INFO_START_Y;
 
         String combinedTopic = blockEntity.getCombinedTopic();
@@ -92,20 +91,24 @@ public class RgbLedBlockScreen extends AbstractContainerScreen<RgbLedBlockMenu> 
         }
 
         currentY = guiTop + STATUS_Y_OFFSET;
-        var currentState = level.getBlockState(pos);
 
-        if (currentState.getBlock() instanceof RgbLedBlock) {
-            int red = currentState.getValue(RgbLedBlock.RED);
-            int green = currentState.getValue(RgbLedBlock.GREEN);
-            int blue = currentState.getValue(RgbLedBlock.BLUE);
+        // Query block entity for RGB values (now stored in block entity, not block state)
+        int red = blockEntity.getRed();
+        int green = blockEntity.getGreen();
+        int blue = blockEntity.getBlue();
+        boolean isLit = blockEntity.isLit();
 
-            guiGraphics.drawString(this.font, "Current RGB:", guiLeft + MARGIN, currentY, 0xFF555555, false);
-            currentY += LINE_HEIGHT;
+        guiGraphics.drawString(this.font, "Current RGB:", guiLeft + MARGIN, currentY, 0xFF555555, false);
+        currentY += LINE_HEIGHT;
 
-            String rgbText = String.format("R:%d G:%d B:%d", red, green, blue);
-            int rgbColor = ((red * 17) << 16) | ((green * 17) << 8) | (blue * 17);
-            guiGraphics.drawString(this.font, rgbText, guiLeft + MARGIN + 4, currentY, 0xFF000000 | rgbColor, false);
-        }
+        String rgbText = String.format("R:%d G:%d B:%d", red, green, blue);
+        int rgbColor = ((red * 17) << 16) | ((green * 17) << 8) | (blue * 17);
+        guiGraphics.drawString(this.font, rgbText, guiLeft + MARGIN + 4, currentY, 0xFF000000 | rgbColor, false);
+        currentY += LINE_HEIGHT;
+
+        String statusText = isLit ? "Status: ON" : "Status: OFF";
+        int statusColor = isLit ? 0xFF00FF00 : 0xFFFF0000;
+        guiGraphics.drawString(this.font, statusText, guiLeft + MARGIN, currentY, statusColor, false);
     }
 }
 

@@ -27,11 +27,27 @@ import net.minecraft.core.Direction;
 public abstract class BaseSubscriberBlock extends BaseEntityBlock implements InteractionEvent.RightClickBlock {
 
     protected final MapCodec<? extends BaseSubscriberBlock> codec;
+    private static boolean eventsRegistered = false;
 
     public BaseSubscriberBlock(Properties properties, MapCodec<? extends BaseSubscriberBlock> codec) {
         super(properties);
         this.codec = codec;
-        InteractionEvent.RIGHT_CLICK_BLOCK.register(this);
+        // Don't register event handler in constructor - causes startup freeze
+        // Event registration should happen after all blocks are initialized
+    }
+
+    // Call this after all blocks are registered
+    public static void registerEvents() {
+        if (!eventsRegistered) {
+            InteractionEvent.RIGHT_CLICK_BLOCK.register((player, hand, pos, face) -> {
+                if (player.level().getBlockEntity(pos) instanceof BlockEntity be
+                    && player.level().getBlockState(pos).getBlock() instanceof BaseSubscriberBlock block) {
+                    return block.click(player, hand, pos, face);
+                }
+                return InteractionResult.PASS;
+            });
+            eventsRegistered = true;
+        }
     }
 
     @Override
