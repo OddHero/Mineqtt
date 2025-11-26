@@ -203,5 +203,44 @@ public class HomeAssistantDiscoveryManager {
     public static Set<String> getRegisteredTopics() {
         return new HashSet<>(registeredDevices.keySet());
     }
+
+    /**
+     * Extract the suggested area name from a block position ID.
+     * Block position format: "minecraft:overworld:[100, 64, -200]"
+     *
+     * @param blockPosition Block position identifier
+     * @return Suggested area name (e.g., "Overworld", "Nether", "End")
+     */
+    public static String getSuggestedAreaFromBlockPosition(String blockPosition) {
+        if (blockPosition == null || blockPosition.isEmpty()) {
+            return "Minecraft";
+        }
+
+        // Extract dimension from block position (format: "dimension:coordinates")
+        String dimension;
+        if (blockPosition.contains(":")) {
+            dimension = blockPosition.substring(0, blockPosition.indexOf(":"));
+        } else {
+            return "Minecraft";
+        }
+
+        // Map dimension IDs to friendly area names
+        if (dimension.contains("overworld")) {
+            return "Overworld";
+        } else if (dimension.contains("nether") || dimension.contains("the_nether")) {
+            return "Nether";
+        } else if (dimension.contains("end") || dimension.contains("the_end")) {
+            return "End";
+        } else {
+            // For custom dimensions, try to extract the name
+            String[] parts = dimension.split("[:/]");
+            if (parts.length > 0) {
+                String lastPart = parts[parts.length - 1];
+                // Capitalize first letter
+                return lastPart.substring(0, 1).toUpperCase() + lastPart.substring(1);
+            }
+            return "Minecraft";
+        }
+    }
 }
 

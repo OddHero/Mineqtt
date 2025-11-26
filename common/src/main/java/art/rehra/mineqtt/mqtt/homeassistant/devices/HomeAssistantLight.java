@@ -28,6 +28,7 @@ public class HomeAssistantLight implements HomeAssistantDevice {
     private String deviceModel = "RGB LED Block";
     private String deviceManufacturer = "MineQTT";
     private String deviceSwVersion = "1.0";
+    private String suggestedArea;
 
     public HomeAssistantLight(String topic) {
         this.uniqueId = sanitizeForUniqueId(topic);
@@ -95,6 +96,11 @@ public class HomeAssistantLight implements HomeAssistantDevice {
         return this;
     }
 
+    public HomeAssistantLight setSuggestedArea(String area) {
+        this.suggestedArea = area;
+        return this;
+    }
+
     @Override
     public String toJson() {
         JsonObject config = new JsonObject();
@@ -137,6 +143,9 @@ public class HomeAssistantLight implements HomeAssistantDevice {
         device.addProperty("model", deviceModel);
         device.addProperty("manufacturer", deviceManufacturer);
         device.addProperty("sw_version", deviceSwVersion);
+        if (suggestedArea != null) {
+            device.addProperty("suggested_area", suggestedArea);
+        }
         config.add("device", device);
 
         // Origin information

@@ -433,13 +433,17 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
         // Create block position identifier: "dimension:x:y:z"
         String blockId = getBlockPositionId();
 
+        // Determine area based on dimension
+        String suggestedArea = HomeAssistantDiscoveryManager.getSuggestedAreaFromBlockPosition(blockId);
+
         // Create Home Assistant Light device
         HomeAssistantLight light = new HomeAssistantLight(topic)
             .setName("RGB LED " + topic)
             .setBrightness(true, 255)
             .setSupportedColorModes("rgb", "hs", "xy")
             .setColorTemp(true, 153, 500)
-            .setDeviceInfo("MineQTT RGB LED", "RGB LED Block", "MineQTT", "1.0");
+            .setDeviceInfo("MineQTT RGB LED", "RGB LED Block", "MineQTT", "1.0")
+            .setSuggestedArea(suggestedArea);
 
         // Register with discovery manager
         HomeAssistantDiscoveryManager.registerDevice(topic, blockId, light);
@@ -466,7 +470,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
         if (this.level == null) {
             return worldPosition.toShortString();
         }
-        return level.dimension().location().toString() + ":" + worldPosition.toShortString();
+        return level.dimension().location() + ":" + worldPosition.toShortString();
     }
 
     public static class Ticker<T extends BlockEntity> implements BlockEntityTicker<T> {
@@ -506,13 +510,16 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
 
                         MineQTT.LOGGER.info("RGB LED disabled - no base path item in first slot");
                     } else {
-                        // Create device configuration
+                        // Create device configuration with area
+                        String suggestedArea = HomeAssistantDiscoveryManager.getSuggestedAreaFromBlockPosition(blockId);
+
                         HomeAssistantLight light = new HomeAssistantLight(newCombinedTopic)
                             .setName("RGB LED " + newCombinedTopic)
                             .setBrightness(true, 255)
                             .setSupportedColorModes("rgb", "hs", "xy")
                             .setColorTemp(true, 153, 500)
-                            .setDeviceInfo("MineQTT RGB LED", "RGB LED Block", "MineQTT", "1.0");
+                            .setDeviceInfo("MineQTT RGB LED", "RGB LED Block", "MineQTT", "1.0")
+                            .setSuggestedArea(suggestedArea);
 
                         // Update topic in discovery manager (handles old topic cleanup)
                         HomeAssistantDiscoveryManager.updateDeviceTopic(oldTopic, newCombinedTopic, blockId, light);
