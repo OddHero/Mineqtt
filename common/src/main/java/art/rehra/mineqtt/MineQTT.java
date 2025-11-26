@@ -7,6 +7,7 @@ import art.rehra.mineqtt.integrations.IModLoaderUtils;
 import art.rehra.mineqtt.integrations.PermissionManager;
 import art.rehra.mineqtt.items.MineqttItems;
 import art.rehra.mineqtt.mqtt.SubscriptionManager;
+import art.rehra.mineqtt.mqtt.homeassistant.HomeAssistantDiscoveryManager;
 import art.rehra.mineqtt.tabs.MineQTTTabs;
 import art.rehra.mineqtt.ui.MineqttMenuTypes;
 import com.hivemq.client.mqtt.MqttClient;
@@ -58,6 +59,7 @@ public class MineQTT {
         LifecycleEvent.SERVER_STARTING.register(server -> {
             LOGGER.info("Server starting - initializing MQTT client");
             SubscriptionManager.init();
+            HomeAssistantDiscoveryManager.init();
             initializeMqttClient();
         });
 

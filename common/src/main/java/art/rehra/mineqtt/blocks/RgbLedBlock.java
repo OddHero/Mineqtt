@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.blocks;
 
 import art.rehra.mineqtt.blocks.entities.RgbLedBlockEntity;
+import art.rehra.mineqtt.mqtt.homeassistant.HomeAssistantDiscoveryManager;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -15,6 +16,7 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
@@ -53,6 +55,22 @@ public class RgbLedBlock extends BaseSubscriberBlock {
         builder.add(FACING, LIGHT_LEVEL);
     }
 
+    @Override
+    public BlockState playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
+        // Unregister from Home Assistant discovery before the block is destroyed
+        if (!level.isClientSide) {
+            BlockEntity blockEntity = level.getBlockEntity(pos);
+            if (blockEntity instanceof RgbLedBlockEntity ledEntity) {
+                String topic = ledEntity.getCombinedTopic();
+                if (topic != null && !topic.isEmpty()) {
+                    String blockId = level.dimension().location() + ":" + pos.toShortString();
+                    HomeAssistantDiscoveryManager.unregisterDevice(topic, blockId);
+                }
+            }
+        }
+
+        return super.playerWillDestroy(level, pos, state, player);
+    }
 
     @Override
     protected MapCodec<RgbLedBlock> codec() {

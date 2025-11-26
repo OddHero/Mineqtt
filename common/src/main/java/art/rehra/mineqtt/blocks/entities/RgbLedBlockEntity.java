@@ -2,6 +2,8 @@ package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
+import art.rehra.mineqtt.mqtt.homeassistant.HomeAssistantDiscoveryManager;
+import art.rehra.mineqtt.mqtt.homeassistant.devices.HomeAssistantLight;
 import art.rehra.mineqtt.ui.RgbLedBlockMenu;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -418,19 +420,71 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
         return null;
     }
 
+    /**
+     * Publish Home Assistant MQTT discovery configuration.
+     * Uses the centralized discovery manager.
+     */
+    private void publishHomeAssistantDiscovery() {
+        String topic = getCombinedTopic();
+        if (topic == null || topic.isEmpty()) {
+            return;
+        }
+
+        // Create block position identifier: "dimension:x:y:z"
+        String blockId = getBlockPositionId();
+
+        // Create Home Assistant Light device
+        HomeAssistantLight light = new HomeAssistantLight(topic)
+            .setName("RGB LED " + topic)
+            .setBrightness(true, 255)
+            .setSupportedColorModes("rgb", "hs", "xy")
+            .setColorTemp(true, 153, 500)
+            .setDeviceInfo("MineQTT RGB LED", "RGB LED Block", "MineQTT", "1.0");
+
+        // Register with discovery manager
+        HomeAssistantDiscoveryManager.registerDevice(topic, blockId, light);
+    }
+
+    /**
+     * Remove this device from Home Assistant.
+     * Uses the centralized discovery manager.
+     */
+    private void removeFromHomeAssistant() {
+        String topic = getCombinedTopic();
+        if (topic == null || topic.isEmpty()) {
+            return;
+        }
+
+        String blockId = getBlockPositionId();
+        HomeAssistantDiscoveryManager.unregisterDevice(topic, blockId);
+    }
+
+    /**
+     * Get unique identifier for this block position.
+     */
+    private String getBlockPositionId() {
+        if (this.level == null) {
+            return worldPosition.toShortString();
+        }
+        return level.dimension().location().toString() + ":" + worldPosition.toShortString();
+    }
+
     public static class Ticker<T extends BlockEntity> implements BlockEntityTicker<T> {
         @Override
         public void tick(Level level, BlockPos blockPos, BlockState blockState, T blockEntity) {
             if (blockEntity instanceof RgbLedBlockEntity rgbLedBlockEntity) {
                 String newCombinedTopic = rgbLedBlockEntity.getCombinedTopic();
+                String oldTopic = rgbLedBlockEntity.topic;
 
-                boolean topicChanged = !newCombinedTopic.equals(rgbLedBlockEntity.topic);
+                boolean topicChanged = !newCombinedTopic.equals(oldTopic);
 
                 if (topicChanged) {
                     rgbLedBlockEntity.setTopic(newCombinedTopic);
 
                     // Update subscription
                     rgbLedBlockEntity.updateSubscription(newCombinedTopic);
+
+                    String blockId = rgbLedBlockEntity.getBlockPositionId();
 
                     // If disabled, reset to black and turn off
                     if (!rgbLedBlockEntity.isEnabled()) {
@@ -447,7 +501,21 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                             level.setBlock(blockPos, newState, Block.UPDATE_ALL);
                         }
 
+                        // Unregister from discovery (will remove if last block)
+                        HomeAssistantDiscoveryManager.unregisterDevice(oldTopic, blockId);
+
                         MineQTT.LOGGER.info("RGB LED disabled - no base path item in first slot");
+                    } else {
+                        // Create device configuration
+                        HomeAssistantLight light = new HomeAssistantLight(newCombinedTopic)
+                            .setName("RGB LED " + newCombinedTopic)
+                            .setBrightness(true, 255)
+                            .setSupportedColorModes("rgb", "hs", "xy")
+                            .setColorTemp(true, 153, 500)
+                            .setDeviceInfo("MineQTT RGB LED", "RGB LED Block", "MineQTT", "1.0");
+
+                        // Update topic in discovery manager (handles old topic cleanup)
+                        HomeAssistantDiscoveryManager.updateDeviceTopic(oldTopic, newCombinedTopic, blockId, light);
                     }
                 }
 
