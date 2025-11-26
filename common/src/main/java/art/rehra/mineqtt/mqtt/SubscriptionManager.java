@@ -1,7 +1,6 @@
 package art.rehra.mineqtt.mqtt;
 
 import art.rehra.mineqtt.MineQTT;
-import art.rehra.mineqtt.blocks.entities.SubscriberBlockEntity;
 import net.minecraft.server.MinecraftServer;
 
 import java.util.*;
@@ -65,12 +64,13 @@ public class SubscriptionManager {
             MineQTT.mqttClient.subscribeWith()
                     .topicFilter(topic)
                     .callback(publish -> {
+                        String receivedTopic = publish.getTopic().toString();
                         String message = new String(publish.getPayloadAsBytes());
-                        MineQTT.LOGGER.info("Received message on topic " + publish.getTopic() + ": " + message);
+                        MineQTT.LOGGER.info("Received message on topic " + receivedTopic + ": " + message);
                         if (publish.isRetain()) {
-                            retainedMessages.put(topic, message);
+                            retainedMessages.put(receivedTopic, message);
                         } else {
-                            lastMessages.put(topic, message);
+                            lastMessages.put(receivedTopic, message);
                         }
                     })
                     .send();
@@ -91,36 +91,38 @@ public class SubscriptionManager {
         }
     }
 
-public static void onServerPreTick(MinecraftServer server) {
-    if (server == null) return;
+    public static void onServerPreTick(MinecraftServer server) {
+        if (server == null) return;
 
-    // Create a copy of the entries to avoid ConcurrentModificationException
-    Map<String, String> messagesToProcess = new HashMap<>(lastMessages);
+        // Create a copy of the entries to avoid ConcurrentModificationException
+        Map<String, String> messagesToProcess = new HashMap<>(lastMessages);
 
-    for (Map.Entry<String, String> messageEntry : messagesToProcess.entrySet()) {
-        String topic = messageEntry.getKey();
-        String message = messageEntry.getValue();
+        for (Map.Entry<String, String> messageEntry : messagesToProcess.entrySet()) {
+            String topic = messageEntry.getKey();
+            String message = messageEntry.getValue();
 
-        Set<ICallbackTarget> subscribers = topicSubscribers.get(topic);
-        if (subscribers == null) continue;
+            Set<ICallbackTarget> subscribers = topicSubscribers.get(topic);
+            if (subscribers == null) continue;
 
-        // Create a copy of subscribers to avoid ConcurrentModificationException
-        Set<ICallbackTarget> subscribersCopy = new HashSet<>(subscribers);
+            // Create a copy of subscribers to avoid ConcurrentModificationException
+            Set<ICallbackTarget> subscribersCopy = new HashSet<>(subscribers);
 
-        for (ICallbackTarget target : subscribersCopy) {
-            if (target == null || target.getPosition() == null) continue;
+            for (ICallbackTarget target : subscribersCopy) {
+                if (target == null || target.getPosition() == null) continue;
 
-            var level = server.getLevel(server.overworld().dimension());
-            if (level == null) continue;
+                // Get the dimension for this target
+                var level = server.getLevel(target.getDimension());
+                if (level == null) continue;
 
-            var blockEntity = level.getBlockEntity(target.getPosition());
-            if (blockEntity instanceof SubscriberBlockEntity subscriber) {
-                subscriber.onMessageReceived(topic, message);
+                // Verify the block entity still exists and call the callback
+                var blockEntity = level.getBlockEntity(target.getPosition());
+                if (blockEntity instanceof ICallbackTarget) {
+                    target.onMessageReceived(topic, message);
+                }
             }
         }
-    }
 
-    // Clear all processed messages after delivery
-    lastMessages.clear();
-}
+        // Clear all processed messages after delivery
+        lastMessages.clear();
+    }
 }

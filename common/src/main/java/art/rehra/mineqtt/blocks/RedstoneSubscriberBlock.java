@@ -36,7 +36,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class RedstoneSubscriberBlock extends BaseEntityBlock implements InteractionEvent.RightClickBlock {
 
-
     // Blocks internal State
     public static final BooleanProperty POWERED;
     private final ConcurrentHashMap<String, Mqtt3Publish> receivedMessages;
@@ -76,6 +75,10 @@ public class RedstoneSubscriberBlock extends BaseEntityBlock implements Interact
     }
 
     @Override
+    protected MapCodec<? extends BaseEntityBlock> codec() {
+        return CODEC;
+    }
+
     public void playerDestroy(Level level, Player player, BlockPos pos, BlockState state, @Nullable BlockEntity blockEntity, ItemStack tool) {
         if (blockEntity instanceof Container container) {
             Containers.dropContents(level, pos, container);
@@ -88,6 +91,7 @@ public class RedstoneSubscriberBlock extends BaseEntityBlock implements Interact
         }
         super.playerDestroy(level, player, pos, state, blockEntity, tool);
     }
+
 
     protected void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
         this.updateNeighbors(level, pos, state);
@@ -107,10 +111,6 @@ public class RedstoneSubscriberBlock extends BaseEntityBlock implements Interact
         level.scheduleTick(pos, this, 1);
     }
 
-    @Override
-    protected MapCodec<? extends BaseEntityBlock> codec() {
-        return CODEC;
-    }
 
     @Override
     public @Nullable BlockEntity newBlockEntity(BlockPos pos, BlockState state) {

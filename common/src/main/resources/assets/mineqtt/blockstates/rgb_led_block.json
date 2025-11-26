@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "": { "model": "mineqtt:block/rgb_led_block" }
+  }
+}
+

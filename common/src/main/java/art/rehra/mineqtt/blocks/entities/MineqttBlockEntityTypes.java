@@ -15,6 +15,7 @@ public class MineqttBlockEntityTypes {
 
     public static RegistrySupplier<BlockEntityType<PublisherBlockEntity>> PUBLISHER_BLOCK;
     public static RegistrySupplier<BlockEntityType<SubscriberBlockEntity>> SUBSCRIBER_BLOCK;
+    public static RegistrySupplier<BlockEntityType<RgbLedBlockEntity>> RGB_LED_BLOCK;
 
     public static void writeRegister(){
         BLOCK_ENTITIES.register();

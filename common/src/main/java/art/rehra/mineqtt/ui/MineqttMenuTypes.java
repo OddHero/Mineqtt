@@ -16,22 +16,22 @@ public class MineqttMenuTypes {
 
     public static RegistrySupplier<MenuType<SubscriberBlockMenu>> SUBSCRIBER_BLOCK_MENU;
     public static RegistrySupplier<MenuType<PublisherBlockMenu>> PUBLISHER_BLOCK_MENU;
-
+    public static RegistrySupplier<MenuType<RgbLedBlockMenu>> RGB_LED_BLOCK_MENU;
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Menu Types");
 
-        SUBSCRIBER_BLOCK_MENU = registerMenuType("subscriber_block",
+        SUBSCRIBER_BLOCK_MENU = MENU_TYPES.register("subscriber_block",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) ->
                         new SubscriberBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
 
-        PUBLISHER_BLOCK_MENU = registerMenuType("publisher_block",
+        PUBLISHER_BLOCK_MENU = MENU_TYPES.register("publisher_block",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) ->
                         new PublisherBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
 
-        MENU_TYPES.register();
-    }
+        RGB_LED_BLOCK_MENU = MENU_TYPES.register("rgb_led_block",
+                () -> MenuRegistry.ofExtended((id, inventory, buf) ->
+                        new RgbLedBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
 
-    public static <T extends MenuType<?>> RegistrySupplier<T> registerMenuType(String name, Supplier<T> menuType) {
-        return MENU_TYPES.register(ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, name), menuType);
+        MENU_TYPES.register();
     }
 }

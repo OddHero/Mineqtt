@@ -1,4 +1,4 @@
-﻿{
+﻿﻿{
   "config.mineqtt.title": "MineQTT Configuration",
   "config.mineqtt.category.connection": "MQTT Connection",
   "config.mineqtt.category.topics": "MQTT Topics",
@@ -22,12 +22,15 @@
   "block.mineqtt.terminal_block": "Terminal",
   "block.mineqtt.redstone_publisher_block": "Redstone Publisher",
   "block.mineqtt.redstone_subscriber_block": "Redstone Subscriber",
+  "block.mineqtt.rgb_led_block": "RGB LED Subscriber",
   "item.mineqtt.terminal_block": "Terminal",
   "item.mineqtt.cyberdeck": "Cyberdeck",
   "item.mineqtt.redstone_publisher_block": "Redstone Publisher",
   "item.mineqtt.redstone_subscriber_block": "Redstone Subscriber",
+  "item.mineqtt.rgb_led_block": "RGB LED Subscriber",
   "category.mineqtt_tab": "MineQTT",
   "container.mineqtt.publisher": "Redstone Publisher",
-  "container.mineqtt.subscriber": "Redstone Subscriber"
+  "container.mineqtt.subscriber": "Redstone Subscriber",
+  "container.mineqtt.rgb_led": "RGB LED Subscriber"
 }
 

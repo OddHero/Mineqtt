@@ -18,7 +18,7 @@ public class MineqttBlocks {
     public static RegistrySupplier<Block> TERMINAL_BLOCK;
     public static RegistrySupplier<Block> PUBLISHER_BLOCK;
     public static RegistrySupplier<Block> SUBSCRIBER_BLOCK;
-
+    public static RegistrySupplier<Block> RGB_LED_BLOCK;
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Blocks");
         // Register blocks here
@@ -26,7 +26,7 @@ public class MineqttBlocks {
         TERMINAL_BLOCK = registerBlock("terminal_block", () -> new Block(baseProperties("terminal_block").requiresCorrectToolForDrops().strength(3.5f)));
         PUBLISHER_BLOCK = registerBlock("redstone_publisher_block", () -> new RedstonePublisherBlock(baseProperties("redstone_publisher_block").requiresCorrectToolForDrops().strength(3.5f)));
         SUBSCRIBER_BLOCK = registerBlock("redstone_subscriber_block", () -> new RedstoneSubscriberBlock(baseProperties("redstone_subscriber_block").requiresCorrectToolForDrops().strength(3.5f)));
-
+        RGB_LED_BLOCK = registerBlock("rgb_led_block", () -> new RgbLedBlock(baseProperties("rgb_led_block").requiresCorrectToolForDrops().strength(3.5f)));
         BLOCKS.register();
     }
 
