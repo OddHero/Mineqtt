@@ -169,7 +169,8 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                         int b = Math.max(0, Math.min(255, color.get("b").getAsInt()));
                         this.blue = (b * 15) / 255;
                     }
-                    this.lit = true;
+                    // Only turn on if state was explicitly ON or brightness > 0
+                    // Don't auto-turn on just because color changed
                     stateChanged = true;
                 }
 
@@ -181,7 +182,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                     this.red = Math.max(0, Math.min(15, (rgb[0] * 15) / 255));
                     this.green = Math.max(0, Math.min(15, (rgb[1] * 15) / 255));
                     this.blue = Math.max(0, Math.min(15, (rgb[2] * 15) / 255));
-                    this.lit = true;
+                    // Only turn on if state was explicitly ON or brightness > 0
                     stateChanged = true;
                 }
 
@@ -193,7 +194,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                     this.red = Math.max(0, Math.min(15, (rgb[0] * 15) / 255));
                     this.green = Math.max(0, Math.min(15, (rgb[1] * 15) / 255));
                     this.blue = Math.max(0, Math.min(15, (rgb[2] * 15) / 255));
-                    this.lit = true;
+                    // Only turn on if state was explicitly ON or brightness > 0
                     stateChanged = true;
                 }
             }
@@ -205,7 +206,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                 this.red = Math.max(0, Math.min(15, (rgb[0] * 15) / 255));
                 this.green = Math.max(0, Math.min(15, (rgb[1] * 15) / 255));
                 this.blue = Math.max(0, Math.min(15, (rgb[2] * 15) / 255));
-                this.lit = true;
+                // Only turn on if state was explicitly ON or brightness > 0
                 stateChanged = true;
             }
 
