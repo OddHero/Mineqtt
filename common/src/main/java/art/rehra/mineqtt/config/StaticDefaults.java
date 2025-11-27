@@ -1,5 +1,8 @@
 package art.rehra.mineqtt.config;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+
 public final class StaticDefaults {
 
     // Mod
@@ -8,7 +11,7 @@ public final class StaticDefaults {
 
     // MQTT Connection Settings
     public static final String DEFAULT_BROKER_URL = "test.mosquitto.org";
-    public static final String DEFAULT_CLIENT_ID = java.util.UUID.randomUUID().toString();
+    public static final String DEFAULT_CLIENT_ID = generateClientId();
     public static final String DEFAULT_USERNAME = "";
     public static final String DEFAULT_PASSWORD = "";
     public static final boolean DEFAULT_AUTO_RECONNECT = true;
@@ -24,6 +27,24 @@ public final class StaticDefaults {
     public static final String DEFAULT_TOPIC_CHAT_SAY = "chat/say"; // For receiving chat messages over MQTT
 
     public static final String DEFAULT_TOPIC_PLAYER = "player"; // For player-related messages
+
+    /**
+     * Generate a deterministic client ID based on hostname.
+     * This prevents creating ghost topics on every dev client restart.
+     */
+    private static String generateClientId() {
+        try {
+            String hostname = InetAddress.getLocalHost().getHostName();
+            // Clean hostname to be MQTT-compatible
+            hostname = hostname.replaceAll("[^a-zA-Z0-9-_]", "-");
+            return hostname;
+        } catch (UnknownHostException e) {
+            // Fallback to system property if hostname unavailable
+            String username = System.getProperty("user.name", "unknown");
+            username = username.replaceAll("[^a-zA-Z0-9-_]", "-");
+            return username;
+        }
+    }
     public static final String DEFAULT_TOPIC_PLAYER_JOIN = "player/join"; // For player join
     public static final String DEFAULT_TOPIC_PLAYER_LEAVE = "player/leave"; // For player leave
     public static final String DEFAULT_TOPIC_PLAYER_DEATH = "player/death"; // For player

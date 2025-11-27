@@ -342,7 +342,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
             MineQTT.mqttClient.publishWith()
                 .topic(stateTopic)
                 .payload(payload.getBytes())
-                .retain(true)
+                .retain(false)  // Don't retain state updates - use persistence instead
                 .qos(com.hivemq.client.mqtt.datatypes.MqttQos.AT_LEAST_ONCE)
                 .send();
 

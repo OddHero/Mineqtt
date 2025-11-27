@@ -157,7 +157,7 @@ public class MineQTT {
                     .automaticReconnect(MineQTTConfig.autoReconnect
                             ? MqttClientAutoReconnect.builder().initialDelay(MineQTTConfig.connectionTimeout, TimeUnit.SECONDS).build()
                             : null)
-                    .willPublish().topic(MineQTTConfig.getTopicPath(MineQTTConfig.statusTopic)).payload("Offline".getBytes()).qos(MqttQos.AT_LEAST_ONCE).retain(true).applyWillPublish()
+                    .willPublish().topic(MineQTTConfig.getTopicPath(MineQTTConfig.statusTopic)).payload("Offline".getBytes()).qos(MqttQos.AT_LEAST_ONCE).retain(false).applyWillPublish()
                     .simpleAuth().username(MineQTTConfig.username)
                     .password(MineQTTConfig.password.getBytes())
                     .applySimpleAuth()
@@ -168,7 +168,7 @@ public class MineQTT {
                                 mqttClient.publishWith().topic(MineQTTConfig.getTopicPath(MineQTTConfig.statusTopic))
                                         .payload("Online".getBytes())
                                         .qos(MqttQos.AT_LEAST_ONCE)
-                                        .retain(true)
+                                        .retain(false)  // Don't retain - prevents ghost topics
                                         .send();
                             })
                     .addDisconnectedListener(

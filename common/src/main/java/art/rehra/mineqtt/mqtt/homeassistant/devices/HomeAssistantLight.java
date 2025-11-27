@@ -112,8 +112,9 @@ public class HomeAssistantLight implements HomeAssistantDevice {
         config.addProperty("schema", "json");
         config.addProperty("command_topic", commandTopic);
 
-        // Request Home Assistant to publish commands with retain flag
-        config.addProperty("retain", true);
+        // Don't retain command messages - we use file-based persistence instead
+        // This prevents offline changes from affecting the world on restart
+        config.addProperty("retain", false);
 
         // State topic for feedback
         config.addProperty("state_topic", stateTopic);
