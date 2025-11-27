@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.blocks;
 
 import art.rehra.mineqtt.blocks.entities.RgbLedBlockEntity;
+import art.rehra.mineqtt.mqtt.BlockStateManager;
 import art.rehra.mineqtt.mqtt.homeassistant.HomeAssistantDiscoveryManager;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
@@ -67,6 +68,9 @@ public class RgbLedBlock extends BaseSubscriberBlock {
                     HomeAssistantDiscoveryManager.unregisterDevice(topic, blockId);
                 }
             }
+
+            // Remove block state from persistence
+            BlockStateManager.removeBlockState(level.dimension(), pos);
         }
 
         return super.playerWillDestroy(level, pos, state, player);

@@ -33,6 +33,7 @@ public class HomeAssistantLight implements HomeAssistantDevice {
     public HomeAssistantLight(String topic) {
         this.uniqueId = sanitizeForUniqueId(topic);
         this.commandTopic = topic;
+        this.stateTopic = topic + "/state";  // Auto-set state topic
         this.name = "RGB LED " + topic;
     }
 
@@ -114,10 +115,8 @@ public class HomeAssistantLight implements HomeAssistantDevice {
         // Request Home Assistant to publish commands with retain flag
         config.addProperty("retain", true);
 
-        // Optional state topic
-        if (stateTopic != null) {
-            config.addProperty("state_topic", stateTopic);
-        }
+        // State topic for feedback
+        config.addProperty("state_topic", stateTopic);
 
         // Brightness support
         if (supportsBrightness) {

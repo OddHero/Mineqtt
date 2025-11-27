@@ -7,6 +7,7 @@ import art.rehra.mineqtt.integrations.IModLoaderUtils;
 import art.rehra.mineqtt.integrations.PermissionManager;
 import art.rehra.mineqtt.items.MineqttItems;
 import art.rehra.mineqtt.mqtt.SubscriptionManager;
+import art.rehra.mineqtt.mqtt.BlockStateManager;
 import art.rehra.mineqtt.mqtt.homeassistant.HomeAssistantDiscoveryManager;
 import art.rehra.mineqtt.tabs.MineQTTTabs;
 import art.rehra.mineqtt.ui.MineqttMenuTypes;
@@ -60,35 +61,36 @@ public class MineQTT {
         LifecycleEvent.SERVER_STARTING.register(server -> {
             LOGGER.info("Server starting - initializing MQTT client");
             SubscriptionManager.init();
+            BlockStateManager.init();
             HomeAssistantDiscoveryManager.init();
             initializeMqttClient();
         });
 
         LifecycleEvent.SERVER_LEVEL_LOAD.register(level -> {
-            // Load persisted subscription data when overworld loads (once per world)
+            // Load persisted block states when overworld loads (once per world)
             if (level.dimension() == net.minecraft.world.level.Level.OVERWORLD) {
                 // Save to world folder: saves/WorldName/data/mineqtt/
                 Path worldSaveDir = level.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
                     .resolve("data").resolve("mineqtt");
-                SubscriptionManager.loadPersistedData(worldSaveDir);
-                LOGGER.info("Loaded MQTT subscription data for world: " + level.getServer().getWorldData().getLevelName());
+                BlockStateManager.loadPersistedData(worldSaveDir);
+                LOGGER.info("Loaded MQTT block state data for world: " + level.getServer().getWorldData().getLevelName());
             }
         });
 
         LifecycleEvent.SERVER_LEVEL_SAVE.register(level -> {
-            // Save persisted subscription data when overworld saves
+            // Save persisted block states when overworld saves
             if (level.dimension() == net.minecraft.world.level.Level.OVERWORLD) {
-                SubscriptionManager.savePersistedData();
+                BlockStateManager.savePersistedData();
             }
         });
 
         TickEvent.SERVER_PRE.register(SubscriptionManager::onServerPreTick);
 
         LifecycleEvent.SERVER_STOPPING.register(server -> {
-            LOGGER.info("Server stopping - saving subscription data and disconnecting MQTT client");
+            LOGGER.info("Server stopping - saving block state data and disconnecting MQTT client");
 
-            // Save subscription data before shutdown (final save)
-            SubscriptionManager.savePersistedData();
+            // Save block state data before shutdown (final save)
+            BlockStateManager.savePersistedData();
 
             if (mqttClient != null && mqttClient.getState().isConnected()) {
                 try {

@@ -2,6 +2,8 @@ package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
+import art.rehra.mineqtt.mqtt.BlockStateManager;
+import art.rehra.mineqtt.mqtt.BlockStatePersistence;
 import art.rehra.mineqtt.mqtt.homeassistant.HomeAssistantDiscoveryManager;
 import art.rehra.mineqtt.mqtt.homeassistant.devices.HomeAssistantLight;
 import art.rehra.mineqtt.ui.RgbLedBlockMenu;
@@ -31,6 +33,17 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
     private int blue = 0;
     private boolean lit = false;
 
+    // Target color (full brightness 0-15) - what color was set
+    private int targetRed = 0;
+    private int targetGreen = 0;
+    private int targetBlue = 0;
+
+    // Brightness level (0-255 HA scale, stored for scaling)
+    private int brightness = 255;
+
+    // Flag to track if we've done initial state sync
+    private boolean initialStateSynced = false;
+
     public RgbLedBlockEntity(BlockPos pos, BlockState blockState) {
         super(MineqttBlockEntityTypes.RGB_LED_BLOCK.get(), pos, blockState);
     }
@@ -52,15 +65,45 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
         output.putInt("Green", green);
         output.putInt("Blue", blue);
         output.putByte("Lit", (byte) (lit ? 1 : 0));
+        output.putInt("TargetRed", targetRed);
+        output.putInt("TargetGreen", targetGreen);
+        output.putInt("TargetBlue", targetBlue);
+        output.putInt("Brightness", brightness);
     }
 
     @Override
     protected void loadAdditional(net.minecraft.world.level.storage.ValueInput input) {
         super.loadAdditional(input);
+
+        // Load from NBT first
         this.red = input.getIntOr("Red", 0);
         this.green = input.getIntOr("Green", 0);
         this.blue = input.getIntOr("Blue", 0);
         this.lit = input.getByteOr("Lit", (byte) 0) != 0;
+        this.targetRed = input.getIntOr("TargetRed", 0);
+        this.targetGreen = input.getIntOr("TargetGreen", 0);
+        this.targetBlue = input.getIntOr("TargetBlue", 0);
+        this.brightness = input.getIntOr("Brightness", 255);
+
+        // Try to restore from BlockStateManager (has priority over NBT)
+        // This runs AFTER the block entity is fully constructed and level may be available
+        if (this.level != null && !this.level.isClientSide) {
+            BlockStatePersistence.BlockState savedState = BlockStateManager.getBlockState(
+                this.level.dimension(), this.worldPosition
+            );
+            if (savedState != null) {
+                this.red = savedState.red;
+                this.green = savedState.green;
+                this.blue = savedState.blue;
+                this.targetRed = savedState.targetRed;
+                this.targetGreen = savedState.targetGreen;
+                this.targetBlue = savedState.targetBlue;
+                this.brightness = savedState.brightness;
+                this.lit = savedState.lit;
+
+                MineQTT.LOGGER.info("Restored RGB LED state from persistence: R=" + red + " G=" + green + " B=" + blue + " Brightness=" + brightness);
+            }
+        }
     }
 
     @Override
@@ -133,22 +176,13 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
 
             // Parse brightness field (0-255)
             if (json.has("brightness")) {
-                int brightness = Math.max(0, Math.min(255, json.get("brightness").getAsInt()));
-                // Convert from 0-255 to 0-15 scale and apply proportionally
-                int scaledBrightness = (brightness * 15) / 255;
-                if (this.red > 0 || this.green > 0 || this.blue > 0) {
-                    int maxCurrent = Math.max(Math.max(this.red, this.green), this.blue);
-                    if (maxCurrent > 0) {
-                        float factor = scaledBrightness / (float)maxCurrent;
-                        this.red = Math.max(0, Math.min(15, Math.round(this.red * factor)));
-                        this.green = Math.max(0, Math.min(15, Math.round(this.green * factor)));
-                        this.blue = Math.max(0, Math.min(15, Math.round(this.blue * factor)));
-                    }
-                } else {
-                    // If no color set, set to white at brightness
-                    this.red = this.green = this.blue = scaledBrightness;
+                this.brightness = Math.max(0, Math.min(255, json.get("brightness").getAsInt()));
+                // Only apply brightness if we have valid target colors
+                // If all target colors are 0, don't apply (brightness-only message on fresh block)
+                if (this.targetRed > 0 || this.targetGreen > 0 || this.targetBlue > 0) {
+                    applyBrightness();
+                    stateChanged = true;
                 }
-                stateChanged = true;
             }
 
             // Parse color object with various modes
@@ -159,18 +193,18 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                 if (color.has("r") || color.has("g") || color.has("b")) {
                     if (color.has("r")) {
                         int r = Math.max(0, Math.min(255, color.get("r").getAsInt()));
-                        this.red = (r * 15) / 255;
+                        this.targetRed = (r * 15) / 255;
                     }
                     if (color.has("g")) {
                         int g = Math.max(0, Math.min(255, color.get("g").getAsInt()));
-                        this.green = (g * 15) / 255;
+                        this.targetGreen = (g * 15) / 255;
                     }
                     if (color.has("b")) {
                         int b = Math.max(0, Math.min(255, color.get("b").getAsInt()));
-                        this.blue = (b * 15) / 255;
+                        this.targetBlue = (b * 15) / 255;
                     }
-                    // Only turn on if state was explicitly ON or brightness > 0
-                    // Don't auto-turn on just because color changed
+                    // Apply current brightness to new color
+                    applyBrightness();
                     stateChanged = true;
                 }
 
@@ -179,10 +213,11 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                     float h = Math.max(0, Math.min(360, color.get("h").getAsFloat()));
                     float s = Math.max(0, Math.min(100, color.get("s").getAsFloat())) / 100.0f;
                     int[] rgb = hsvToRgb(h, s, 1.0f);
-                    this.red = Math.max(0, Math.min(15, (rgb[0] * 15) / 255));
-                    this.green = Math.max(0, Math.min(15, (rgb[1] * 15) / 255));
-                    this.blue = Math.max(0, Math.min(15, (rgb[2] * 15) / 255));
-                    // Only turn on if state was explicitly ON or brightness > 0
+                    this.targetRed = (rgb[0] * 15) / 255;
+                    this.targetGreen = (rgb[1] * 15) / 255;
+                    this.targetBlue = (rgb[2] * 15) / 255;
+                    // Apply current brightness to new color
+                    applyBrightness();
                     stateChanged = true;
                 }
 
@@ -191,10 +226,11 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                     float x = Math.max(0, Math.min(1, color.get("x").getAsFloat()));
                     float y = Math.max(0, Math.min(1, color.get("y").getAsFloat()));
                     int[] rgb = xyToRgb(x, y);
-                    this.red = Math.max(0, Math.min(15, (rgb[0] * 15) / 255));
-                    this.green = Math.max(0, Math.min(15, (rgb[1] * 15) / 255));
-                    this.blue = Math.max(0, Math.min(15, (rgb[2] * 15) / 255));
-                    // Only turn on if state was explicitly ON or brightness > 0
+                    this.targetRed = (rgb[0] * 15) / 255;
+                    this.targetGreen = (rgb[1] * 15) / 255;
+                    this.targetBlue = (rgb[2] * 15) / 255;
+                    // Apply current brightness to new color
+                    applyBrightness();
                     stateChanged = true;
                 }
             }
@@ -203,10 +239,11 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
             if (json.has("color_temp")) {
                 int colorTemp = Math.max(153, Math.min(500, json.get("color_temp").getAsInt()));
                 int[] rgb = colorTempToRgb(colorTemp);
-                this.red = Math.max(0, Math.min(15, (rgb[0] * 15) / 255));
-                this.green = Math.max(0, Math.min(15, (rgb[1] * 15) / 255));
-                this.blue = Math.max(0, Math.min(15, (rgb[2] * 15) / 255));
-                // Only turn on if state was explicitly ON or brightness > 0
+                this.targetRed = (rgb[0] * 15) / 255;
+                this.targetGreen = (rgb[1] * 15) / 255;
+                this.targetBlue = (rgb[2] * 15) / 255;
+                // Apply current brightness to new color
+                applyBrightness();
                 stateChanged = true;
             }
 
@@ -227,7 +264,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
             if (stateChanged) {
                 this.setChanged();
                 updateBlockLight();
-                MineQTT.LOGGER.info("RGB LED updated via Home Assistant JSON: R=" + red + " G=" + green + " B=" + blue + " LIT=" + lit);
+                MineQTT.LOGGER.info("RGB LED updated via Home Assistant JSON: R=" + red + " G=" + green + " B=" + blue + " LIT=" + lit + " Brightness=" + brightness);
                 return true;
             }
 
@@ -235,6 +272,84 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
             MineQTT.LOGGER.warn("Failed to parse Home Assistant JSON: " + message, e);
         }
         return false;
+    }
+
+    /**
+     * Apply current brightness level to target colors to get actual RGB values.
+     * This ensures colors are scaled by the brightness setting.
+     */
+    private void applyBrightness() {
+        float brightnessFactor = this.brightness / 255.0f;
+        this.red = Math.round(this.targetRed * brightnessFactor);
+        this.green = Math.round(this.targetGreen * brightnessFactor);
+        this.blue = Math.round(this.targetBlue * brightnessFactor);
+
+        // Clamp values to valid range
+        this.red = Math.max(0, Math.min(15, this.red));
+        this.green = Math.max(0, Math.min(15, this.green));
+        this.blue = Math.max(0, Math.min(15, this.blue));
+
+        // Save state and publish to MQTT
+        saveStateAndPublish();
+    }
+
+    /**
+     * Save current state to persistence and publish to MQTT state topic.
+     */
+    private void saveStateAndPublish() {
+        if (this.level != null && !this.level.isClientSide) {
+            String topic = getCombinedTopic();
+            if (topic != null && !topic.isEmpty()) {
+                // Save to persistence
+                BlockStateManager.updateBlockState(
+                    this.level.dimension(), this.worldPosition,
+                    topic, red, green, blue, targetRed, targetGreen, targetBlue,
+                    brightness, lit
+                );
+
+                // Publish state to MQTT
+                publishStateToMqtt(topic);
+            }
+        }
+    }
+
+    /**
+     * Publish current state to MQTT state topic.
+     * Format matches Home Assistant JSON schema.
+     */
+    private void publishStateToMqtt(String baseTopic) {
+        if (MineQTT.mqttClient == null || !MineQTT.mqttClient.getState().isConnected()) {
+            return;
+        }
+
+        String stateTopic = baseTopic + "/state";
+
+        // Build state JSON
+        JsonObject state = new JsonObject();
+        state.addProperty("state", lit ? "ON" : "OFF");
+        state.addProperty("brightness", brightness);
+
+        // Add color in RGB format (convert 0-15 target to 0-255)
+        JsonObject color = new JsonObject();
+        color.addProperty("r", (targetRed * 255) / 15);
+        color.addProperty("g", (targetGreen * 255) / 15);
+        color.addProperty("b", (targetBlue * 255) / 15);
+        state.add("color", color);
+
+        String payload = state.toString();
+
+        try {
+            MineQTT.mqttClient.publishWith()
+                .topic(stateTopic)
+                .payload(payload.getBytes())
+                .retain(true)
+                .qos(com.hivemq.client.mqtt.datatypes.MqttQos.AT_LEAST_ONCE)
+                .send();
+
+            MineQTT.LOGGER.debug("Published state to " + stateTopic + ": " + payload);
+        } catch (Exception e) {
+            MineQTT.LOGGER.error("Failed to publish state to MQTT", e);
+        }
     }
 
     // Convert HSV to RGB (H: 0-360, S: 0-1, V: 0-1)
@@ -478,6 +593,32 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
         @Override
         public void tick(Level level, BlockPos blockPos, BlockState blockState, T blockEntity) {
             if (blockEntity instanceof RgbLedBlockEntity rgbLedBlockEntity) {
+
+                // On first tick, publish state to MQTT if we have a saved state
+                if (!rgbLedBlockEntity.initialStateSynced && !level.isClientSide) {
+                    rgbLedBlockEntity.initialStateSynced = true;
+
+                    // Save current state to BlockStateManager (in case it was loaded from NBT)
+                    String topic = rgbLedBlockEntity.getCombinedTopic();
+                    if (topic != null && !topic.isEmpty()) {
+                        BlockStateManager.updateBlockState(
+                            level.dimension(), blockPos,
+                            topic,
+                            rgbLedBlockEntity.red, rgbLedBlockEntity.green, rgbLedBlockEntity.blue,
+                            rgbLedBlockEntity.targetRed, rgbLedBlockEntity.targetGreen, rgbLedBlockEntity.targetBlue,
+                            rgbLedBlockEntity.brightness, rgbLedBlockEntity.lit
+                        );
+                    }
+
+                    // Update light level based on loaded state
+                    rgbLedBlockEntity.updateBlockLight();
+
+                    // Publish current state to MQTT so HA knows the state
+                    if (topic != null && !topic.isEmpty()) {
+                        rgbLedBlockEntity.publishStateToMqtt(topic);
+                    }
+                }
+
                 String newCombinedTopic = rgbLedBlockEntity.getCombinedTopic();
                 String oldTopic = rgbLedBlockEntity.topic;
 
@@ -524,10 +665,37 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
 
                         // Update topic in discovery manager (handles old topic cleanup)
                         HomeAssistantDiscoveryManager.updateDeviceTopic(oldTopic, newCombinedTopic, blockId, light);
+
+                        // Check if there's an existing state for this topic (from another block)
+                        BlockStatePersistence.BlockState existingState = BlockStateManager.getStateForTopic(newCombinedTopic);
+                        if (existingState != null && !level.isClientSide) {
+                            // Apply existing state from another block on same topic
+                            rgbLedBlockEntity.targetRed = existingState.targetRed;
+                            rgbLedBlockEntity.targetGreen = existingState.targetGreen;
+                            rgbLedBlockEntity.targetBlue = existingState.targetBlue;
+                            rgbLedBlockEntity.brightness = existingState.brightness;
+                            rgbLedBlockEntity.lit = existingState.lit;
+
+                            // Recalculate display colors
+                            float brightnessFactor = rgbLedBlockEntity.brightness / 255.0f;
+                            rgbLedBlockEntity.red = Math.max(0, Math.min(15, Math.round(rgbLedBlockEntity.targetRed * brightnessFactor)));
+                            rgbLedBlockEntity.green = Math.max(0, Math.min(15, Math.round(rgbLedBlockEntity.targetGreen * brightnessFactor)));
+                            rgbLedBlockEntity.blue = Math.max(0, Math.min(15, Math.round(rgbLedBlockEntity.targetBlue * brightnessFactor)));
+
+                            rgbLedBlockEntity.setChanged();
+
+                            // Update light level
+                            BlockState currentState = level.getBlockState(blockPos);
+                            if (currentState.getBlock() instanceof RgbLedBlock) {
+                                int lightLevel = rgbLedBlockEntity.getLightLevel();
+                                BlockState newState = currentState.setValue(RgbLedBlock.LIGHT_LEVEL, lightLevel);
+                                level.setBlock(blockPos, newState, Block.UPDATE_ALL);
+                            }
+
+                            MineQTT.LOGGER.info("New RGB LED inherited state from existing block on topic: " + newCombinedTopic);
+                        }
                     }
                 }
-
-                // Spawn colored particles when lit to create colored light effect
                 if (level.isClientSide && rgbLedBlockEntity.lit && rgbLedBlockEntity.getLightLevel() > 0) {
                     // Spawn particles every 10 ticks (0.5 seconds)
                     if (level.getGameTime() % 10 == 0) {

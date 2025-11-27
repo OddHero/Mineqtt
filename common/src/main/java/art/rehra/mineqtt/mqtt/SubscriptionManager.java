@@ -3,7 +3,6 @@ package art.rehra.mineqtt.mqtt;
 import art.rehra.mineqtt.MineQTT;
 import net.minecraft.server.MinecraftServer;
 
-import java.nio.file.Path;
 import java.util.*;
 
 public class SubscriptionManager {
@@ -20,44 +19,12 @@ public class SubscriptionManager {
     // Map topic -> cached last message (for immediate delivery to new subscribers)
     private static final Map<String, String> cachedMessages = new HashMap<>();
 
-    // Persisted data loaded at startup
-    private static SubscriptionPersistence.PersistedData persistedData;
-
-    // Save directory for persistence
-    private static Path saveDirectory;
-
     // Initialization method to be called from main Mod file
     public static void init() {
         topicSubscribers.clear();
         activeTopics.clear();
         lastMessages.clear();
         cachedMessages.clear();
-        persistedData = null;
-    }
-
-    /**
-     * Load persisted subscription data from disk.
-     * Called when server starts.
-     */
-    public static void loadPersistedData(Path worldSaveDir) {
-        saveDirectory = worldSaveDir;
-        persistedData = SubscriptionPersistence.load(worldSaveDir);
-
-        // Restore cached messages
-        if (persistedData != null && persistedData.lastMessages != null) {
-            cachedMessages.putAll(persistedData.lastMessages);
-            MineQTT.LOGGER.info("Restored " + cachedMessages.size() + " cached messages from persistence");
-        }
-    }
-
-    /**
-     * Save subscription data to disk.
-     * Called when server stops or world unloads.
-     */
-    public static void savePersistedData() {
-        if (saveDirectory != null) {
-            SubscriptionPersistence.save(saveDirectory, topicSubscribers, cachedMessages);
-        }
     }
 
 
@@ -65,12 +32,8 @@ public class SubscriptionManager {
     public static void subscribe(String topic, ICallbackTarget callbackTarget) {
         topicSubscribers.computeIfAbsent(topic, k -> new HashSet<>()).add(callbackTarget);
 
-        // Deliver cached message immediately if available
-        String cachedMessage = cachedMessages.get(topic);
-        if (cachedMessage != null) {
-            callbackTarget.onMessageReceived(topic, cachedMessage);
-            MineQTT.LOGGER.info("Delivered cached message to subscriber for topic: " + topic);
-        }
+        // Don't deliver cached message here - blocks get their state from BlockStateManager
+        // which has the complete state, not just the last partial message
 
         // Only subscribe at MQTT level if not already done
         if (activeTopics.add(topic)) {
