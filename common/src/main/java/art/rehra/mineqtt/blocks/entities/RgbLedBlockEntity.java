@@ -75,7 +75,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
     protected void loadAdditional(net.minecraft.world.level.storage.ValueInput input) {
         super.loadAdditional(input);
 
-        // Load from NBT first
+        // Load from NBT
         this.red = input.getIntOr("Red", 0);
         this.green = input.getIntOr("Green", 0);
         this.blue = input.getIntOr("Blue", 0);
@@ -85,25 +85,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
         this.targetBlue = input.getIntOr("TargetBlue", 0);
         this.brightness = input.getIntOr("Brightness", 255);
 
-        // Try to restore from BlockStateManager (has priority over NBT)
-        // This runs AFTER the block entity is fully constructed and level may be available
-        if (this.level != null && !this.level.isClientSide) {
-            BlockStatePersistence.BlockState savedState = BlockStateManager.getBlockState(
-                this.level.dimension(), this.worldPosition
-            );
-            if (savedState != null) {
-                this.red = savedState.red;
-                this.green = savedState.green;
-                this.blue = savedState.blue;
-                this.targetRed = savedState.targetRed;
-                this.targetGreen = savedState.targetGreen;
-                this.targetBlue = savedState.targetBlue;
-                this.brightness = savedState.brightness;
-                this.lit = savedState.lit;
-
-                MineQTT.LOGGER.info("Restored RGB LED state from persistence: R=" + red + " G=" + green + " B=" + blue + " Brightness=" + brightness);
-            }
-        }
+        // Note: Topic state will be loaded on first tick when level is available
     }
 
     @Override
@@ -264,6 +246,23 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
             if (stateChanged) {
                 this.setChanged();
                 updateBlockLight();
+
+                // CRITICAL: Update topic state so other blocks inherit correct values
+                // Check if we're on server thread by thread name (level.isClientSide is unreliable in this context)
+                String topic = getCombinedTopic();
+                boolean isServerThread = Thread.currentThread().getName().contains("Server thread");
+
+                if (topic != null && !topic.isEmpty() && isServerThread) {
+                    BlockStateManager.updateTopicState(
+                        topic,
+                        this.targetRed, this.targetGreen, this.targetBlue,
+                        this.brightness, this.lit
+                    );
+                    MineQTT.LOGGER.info("Updated topic state: " + topic + " (R=" + this.targetRed + " G=" + this.targetGreen + " B=" + this.targetBlue + " brightness=" + this.brightness + ")");
+                } else if (!isServerThread) {
+                    MineQTT.LOGGER.debug("Skipped topic state update on client thread");
+                }
+
                 MineQTT.LOGGER.info("RGB LED updated via Home Assistant JSON: R=" + red + " G=" + green + " B=" + blue + " LIT=" + lit + " Brightness=" + brightness);
                 return true;
             }
@@ -300,12 +299,13 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
         if (this.level != null && !this.level.isClientSide) {
             String topic = getCombinedTopic();
             if (topic != null && !topic.isEmpty()) {
-                // Save to persistence
-                BlockStateManager.updateBlockState(
-                    this.level.dimension(), this.worldPosition,
-                    topic, red, green, blue, targetRed, targetGreen, targetBlue,
-                    brightness, lit
+                // Update topic state (shared by all blocks on this topic)
+                BlockStateManager.updateTopicState(
+                    topic, targetRed, targetGreen, targetBlue, brightness, lit
                 );
+
+                // Register this block as using this topic
+                BlockStateManager.registerBlock(topic, this.level.dimension(), this.worldPosition);
 
                 // Publish state to MQTT
                 publishStateToMqtt(topic);
@@ -594,20 +594,56 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
         public void tick(Level level, BlockPos blockPos, BlockState blockState, T blockEntity) {
             if (blockEntity instanceof RgbLedBlockEntity rgbLedBlockEntity) {
 
-                // On first tick, publish state to MQTT if we have a saved state
+                // On first tick, restore from topic state and publish
                 if (!rgbLedBlockEntity.initialStateSynced && !level.isClientSide) {
                     rgbLedBlockEntity.initialStateSynced = true;
 
-                    // Save current state to BlockStateManager (in case it was loaded from NBT)
                     String topic = rgbLedBlockEntity.getCombinedTopic();
                     if (topic != null && !topic.isEmpty()) {
-                        BlockStateManager.updateBlockState(
-                            level.dimension(), blockPos,
-                            topic,
-                            rgbLedBlockEntity.red, rgbLedBlockEntity.green, rgbLedBlockEntity.blue,
-                            rgbLedBlockEntity.targetRed, rgbLedBlockEntity.targetGreen, rgbLedBlockEntity.targetBlue,
-                            rgbLedBlockEntity.brightness, rgbLedBlockEntity.lit
-                        );
+                        // ALWAYS try to restore from topic state - this is the single source of truth
+                        BlockStatePersistence.TopicState topicState = BlockStateManager.getTopicState(topic);
+                        if (topicState != null) {
+                            // Override ALL values from topic state (single source of truth)
+                            rgbLedBlockEntity.targetRed = topicState.targetRed;
+                            rgbLedBlockEntity.targetGreen = topicState.targetGreen;
+                            rgbLedBlockEntity.targetBlue = topicState.targetBlue;
+                            rgbLedBlockEntity.brightness = topicState.brightness;  // Override NBT brightness!
+                            rgbLedBlockEntity.lit = topicState.lit;
+
+                            // Recalculate display colors with TOPIC brightness
+                            float brightnessFactor = rgbLedBlockEntity.brightness / 255.0f;
+                            rgbLedBlockEntity.red = Math.max(0, Math.min(15, Math.round(rgbLedBlockEntity.targetRed * brightnessFactor)));
+                            rgbLedBlockEntity.green = Math.max(0, Math.min(15, Math.round(rgbLedBlockEntity.targetGreen * brightnessFactor)));
+                            rgbLedBlockEntity.blue = Math.max(0, Math.min(15, Math.round(rgbLedBlockEntity.targetBlue * brightnessFactor)));
+
+                            MineQTT.LOGGER.info("Restored RGB LED from topic state: " + topic + " (brightness=" + topicState.brightness + ")");
+                        } else {
+                            // No topic state exists yet - create it from this block's current state
+                            // This ensures the topic state exists for other blocks to inherit
+                            BlockStateManager.updateTopicState(
+                                topic,
+                                rgbLedBlockEntity.targetRed, rgbLedBlockEntity.targetGreen, rgbLedBlockEntity.targetBlue,
+                                rgbLedBlockEntity.brightness, rgbLedBlockEntity.lit
+                            );
+                            MineQTT.LOGGER.info("Created initial topic state from block: " + topic + " (brightness=" + rgbLedBlockEntity.brightness + ")");
+                        }
+
+                        // Register this block with the topic
+                        BlockStateManager.registerBlock(topic, level.dimension(), blockPos);
+
+                        // Register with HomeAssistantDiscoveryManager
+                        String blockId = level.dimension().location() + ":" + blockPos.toShortString();
+                        String suggestedArea = HomeAssistantDiscoveryManager.getSuggestedAreaFromBlockPosition(blockId);
+
+                        HomeAssistantLight light = new HomeAssistantLight(topic)
+                            .setName("RGB LED " + topic)
+                            .setBrightness(true, 255)
+                            .setSupportedColorModes("rgb", "hs", "xy")
+                            .setColorTemp(true, 153, 500)
+                            .setDeviceInfo("MineQTT RGB LED", "RGB LED Block", "MineQTT", "1.0")
+                            .setSuggestedArea(suggestedArea);
+
+                        HomeAssistantDiscoveryManager.registerDevice(topic, blockId, light);
                     }
 
                     // Update light level based on loaded state
@@ -666,23 +702,26 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                         // Update topic in discovery manager (handles old topic cleanup)
                         HomeAssistantDiscoveryManager.updateDeviceTopic(oldTopic, newCombinedTopic, blockId, light);
 
-                        // Check if there's an existing state for this topic (from another block)
-                        BlockStatePersistence.BlockState existingState = BlockStateManager.getStateForTopic(newCombinedTopic);
-                        if (existingState != null && !level.isClientSide) {
-                            // Apply existing state from another block on same topic
-                            rgbLedBlockEntity.targetRed = existingState.targetRed;
-                            rgbLedBlockEntity.targetGreen = existingState.targetGreen;
-                            rgbLedBlockEntity.targetBlue = existingState.targetBlue;
-                            rgbLedBlockEntity.brightness = existingState.brightness;
-                            rgbLedBlockEntity.lit = existingState.lit;
+                        // Check if there's an existing state for this topic
+                        BlockStatePersistence.TopicState topicState = BlockStateManager.getTopicState(newCombinedTopic);
+                        if (topicState != null && !level.isClientSide) {
+                            // Apply topic state (SINGLE SOURCE OF TRUTH)
+                            rgbLedBlockEntity.targetRed = topicState.targetRed;
+                            rgbLedBlockEntity.targetGreen = topicState.targetGreen;
+                            rgbLedBlockEntity.targetBlue = topicState.targetBlue;
+                            rgbLedBlockEntity.brightness = topicState.brightness;  // Override any previous brightness!
+                            rgbLedBlockEntity.lit = topicState.lit;
 
-                            // Recalculate display colors
+                            // Recalculate display colors with TOPIC brightness
                             float brightnessFactor = rgbLedBlockEntity.brightness / 255.0f;
                             rgbLedBlockEntity.red = Math.max(0, Math.min(15, Math.round(rgbLedBlockEntity.targetRed * brightnessFactor)));
                             rgbLedBlockEntity.green = Math.max(0, Math.min(15, Math.round(rgbLedBlockEntity.targetGreen * brightnessFactor)));
                             rgbLedBlockEntity.blue = Math.max(0, Math.min(15, Math.round(rgbLedBlockEntity.targetBlue * brightnessFactor)));
 
                             rgbLedBlockEntity.setChanged();
+
+                            // Register this block with the topic
+                            BlockStateManager.registerBlock(newCombinedTopic, level.dimension(), blockPos);
 
                             // Update light level
                             BlockState currentState = level.getBlockState(blockPos);
@@ -692,7 +731,10 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                                 level.setBlock(blockPos, newState, Block.UPDATE_ALL);
                             }
 
-                            MineQTT.LOGGER.info("New RGB LED inherited state from existing block on topic: " + newCombinedTopic);
+                            MineQTT.LOGGER.info("New RGB LED inherited topic state: " + newCombinedTopic + " (brightness=" + topicState.brightness + ")");
+                        } else {
+                            // No existing state, register block anyway
+                            BlockStateManager.registerBlock(newCombinedTopic, level.dimension(), blockPos);
                         }
                     }
                 }

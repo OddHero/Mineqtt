@@ -14,36 +14,27 @@ import java.nio.file.Path;
 import java.util.*;
 
 /**
- * Persists block entity states (not just last messages).
- * Each block position stores its complete state including color, brightness, etc.
+ * Persists MQTT topic states (not individual block states).
+ * All blocks on the same topic share the same state.
  */
 public class BlockStatePersistence {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     /**
-     * Represents the complete state of a block entity.
+     * Represents the state of a topic (shared by all blocks).
      */
-    public static class BlockState {
-        public String topic;
-        public int red;
-        public int green;
-        public int blue;
+    public static class TopicState {
         public int targetRed;
         public int targetGreen;
         public int targetBlue;
         public int brightness;
         public boolean lit;
+        public List<String> blockPositions = new ArrayList<>();
 
-        public BlockState() {}
+        public TopicState() {}
 
-        public BlockState(String topic, int red, int green, int blue,
-                         int targetRed, int targetGreen, int targetBlue,
-                         int brightness, boolean lit) {
-            this.topic = topic;
-            this.red = red;
-            this.green = green;
-            this.blue = blue;
+        public TopicState(int targetRed, int targetGreen, int targetBlue, int brightness, boolean lit) {
             this.targetRed = targetRed;
             this.targetGreen = targetGreen;
             this.targetBlue = targetBlue;
@@ -53,42 +44,42 @@ public class BlockStatePersistence {
     }
 
     public static class PersistedData {
-        // Map: blockPosition -> state
-        public Map<String, BlockState> blockStates = new HashMap<>();
+        // Map: topic -> state (shared by all blocks on that topic)
+        public Map<String, TopicState> topicStates = new HashMap<>();
 
         public PersistedData() {}
     }
 
     /**
-     * Save block states to disk.
+     * Save topic states to disk.
      */
-    public static void save(Path saveDir, Map<String, BlockState> blockStates) {
+    public static void save(Path saveDir, Map<String, TopicState> topicStates) {
         try {
             Files.createDirectories(saveDir);
-            Path dataFile = saveDir.resolve("mineqtt_block_states.json");
+            Path dataFile = saveDir.resolve("mineqtt_topic_states.json");
 
             PersistedData data = new PersistedData();
-            data.blockStates.putAll(blockStates);
+            data.topicStates.putAll(topicStates);
 
             // Write to file
             try (Writer writer = new FileWriter(dataFile.toFile())) {
                 GSON.toJson(data, writer);
             }
 
-            art.rehra.mineqtt.MineQTT.LOGGER.info("Saved block states: " + data.blockStates.size() + " blocks");
+            art.rehra.mineqtt.MineQTT.LOGGER.info("Saved topic states: " + data.topicStates.size() + " topics");
         } catch (IOException e) {
-            art.rehra.mineqtt.MineQTT.LOGGER.error("Failed to save block states", e);
+            art.rehra.mineqtt.MineQTT.LOGGER.error("Failed to save topic states", e);
         }
     }
 
     /**
-     * Load block states from disk.
+     * Load topic states from disk.
      */
     public static PersistedData load(Path saveDir) {
-        Path dataFile = saveDir.resolve("mineqtt_block_states.json");
+        Path dataFile = saveDir.resolve("mineqtt_topic_states.json");
 
         if (!Files.exists(dataFile)) {
-            art.rehra.mineqtt.MineQTT.LOGGER.info("No saved block states found");
+            art.rehra.mineqtt.MineQTT.LOGGER.info("No saved topic states found");
             return new PersistedData();
         }
 
@@ -100,16 +91,16 @@ public class BlockStatePersistence {
                 data = new PersistedData();
             }
 
-            art.rehra.mineqtt.MineQTT.LOGGER.info("Loaded block states: " + data.blockStates.size() + " blocks");
+            art.rehra.mineqtt.MineQTT.LOGGER.info("Loaded topic states: " + data.topicStates.size() + " topics");
             return data;
         } catch (IOException e) {
-            art.rehra.mineqtt.MineQTT.LOGGER.error("Failed to load block states", e);
+            art.rehra.mineqtt.MineQTT.LOGGER.error("Failed to load topic states", e);
             return new PersistedData();
         }
     }
 
     /**
-     * Generate block position string for persistence key.
+     * Generate block position string for tracking.
      */
     public static String makeBlockPositionKey(ResourceKey<Level> dimension, BlockPos pos) {
         return dimension.location() + ":" + pos.getX() + ":" + pos.getY() + ":" + pos.getZ();

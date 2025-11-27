@@ -58,7 +58,7 @@ public class RgbLedBlock extends BaseSubscriberBlock {
 
     @Override
     public BlockState playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
-        // Unregister from Home Assistant discovery before the block is destroyed
+        // Unregister from Home Assistant discovery and topic before the block is destroyed
         if (!level.isClientSide) {
             BlockEntity blockEntity = level.getBlockEntity(pos);
             if (blockEntity instanceof RgbLedBlockEntity ledEntity) {
@@ -66,11 +66,11 @@ public class RgbLedBlock extends BaseSubscriberBlock {
                 if (topic != null && !topic.isEmpty()) {
                     String blockId = level.dimension().location() + ":" + pos.toShortString();
                     HomeAssistantDiscoveryManager.unregisterDevice(topic, blockId);
+
+                    // Unregister block from topic (removes topic state if last block)
+                    BlockStateManager.unregisterBlock(topic, level.dimension(), pos);
                 }
             }
-
-            // Remove block state from persistence
-            BlockStateManager.removeBlockState(level.dimension(), pos);
         }
 
         return super.playerWillDestroy(level, pos, state, player);
