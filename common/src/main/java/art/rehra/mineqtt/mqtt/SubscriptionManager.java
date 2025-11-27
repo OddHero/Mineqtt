@@ -3,6 +3,7 @@ package art.rehra.mineqtt.mqtt;
 import art.rehra.mineqtt.MineQTT;
 import net.minecraft.server.MinecraftServer;
 
+import java.nio.file.Path;
 import java.util.*;
 
 public class SubscriptionManager {
@@ -13,33 +14,67 @@ public class SubscriptionManager {
     // Tracks which topics are currently subscribed at the MQTT client level
     private static final Set<String> activeTopics = new HashSet<>();
 
-    // Map topic -> last received message (non-retained)
+    // Map topic -> last received message (pending delivery)
     private static final Map<String, String> lastMessages = new HashMap<>();
 
-    // Map topic -> retained message
-    private static final Map<String, String> retainedMessages = new HashMap<>();
+    // Map topic -> cached last message (for immediate delivery to new subscribers)
+    private static final Map<String, String> cachedMessages = new HashMap<>();
+
+    // Persisted data loaded at startup
+    private static SubscriptionPersistence.PersistedData persistedData;
+
+    // Save directory for persistence
+    private static Path saveDirectory;
 
     // Initialization method to be called from main Mod file
     public static void init() {
         topicSubscribers.clear();
         activeTopics.clear();
         lastMessages.clear();
-        retainedMessages.clear();
+        cachedMessages.clear();
+        persistedData = null;
     }
+
+    /**
+     * Load persisted subscription data from disk.
+     * Called when server starts.
+     */
+    public static void loadPersistedData(Path worldSaveDir) {
+        saveDirectory = worldSaveDir;
+        persistedData = SubscriptionPersistence.load(worldSaveDir);
+
+        // Restore cached messages
+        if (persistedData != null && persistedData.lastMessages != null) {
+            cachedMessages.putAll(persistedData.lastMessages);
+            MineQTT.LOGGER.info("Restored " + cachedMessages.size() + " cached messages from persistence");
+        }
+    }
+
+    /**
+     * Save subscription data to disk.
+     * Called when server stops or world unloads.
+     */
+    public static void savePersistedData() {
+        if (saveDirectory != null) {
+            SubscriptionPersistence.save(saveDirectory, topicSubscribers, cachedMessages);
+        }
+    }
+
 
     // Subscribe a ICallbackTarget to a topic
     public static void subscribe(String topic, ICallbackTarget callbackTarget) {
         topicSubscribers.computeIfAbsent(topic, k -> new HashSet<>()).add(callbackTarget);
 
+        // Deliver cached message immediately if available
+        String cachedMessage = cachedMessages.get(topic);
+        if (cachedMessage != null) {
+            callbackTarget.onMessageReceived(topic, cachedMessage);
+            MineQTT.LOGGER.info("Delivered cached message to subscriber for topic: " + topic);
+        }
+
         // Only subscribe at MQTT level if not already done
         if (activeTopics.add(topic)) {
             subscribeToMqttTopic(topic);
-        }
-
-        // If we have a retained message for this topic, send it immediately
-        String retained = retainedMessages.get(topic);
-        if (retained != null) {
-            callbackTarget.onMessageReceived(topic, retained);
         }
     }
 
@@ -66,12 +101,13 @@ public class SubscriptionManager {
                     .callback(publish -> {
                         String receivedTopic = publish.getTopic().toString();
                         String message = new String(publish.getPayloadAsBytes());
-                        MineQTT.LOGGER.info("Received message on topic " + receivedTopic + ": " + message);
-                        if (publish.isRetain()) {
-                            retainedMessages.put(receivedTopic, message);
-                        } else {
-                            lastMessages.put(receivedTopic, message);
-                        }
+                        MineQTT.LOGGER.info("Received message on topic " + receivedTopic + ": " + message + " (retained: " + publish.isRetain() + ")");
+
+                        // Add to pending delivery queue
+                        lastMessages.put(receivedTopic, message);
+
+                        // Cache message for future subscribers
+                        cachedMessages.put(receivedTopic, message);
                     })
                     .send();
         } else {

@@ -19,6 +19,7 @@ import dev.architectury.event.events.common.TickEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 public class MineQTT {
@@ -63,10 +64,32 @@ public class MineQTT {
             initializeMqttClient();
         });
 
+        LifecycleEvent.SERVER_LEVEL_LOAD.register(level -> {
+            // Load persisted subscription data when overworld loads (once per world)
+            if (level.dimension() == net.minecraft.world.level.Level.OVERWORLD) {
+                // Save to world folder: saves/WorldName/data/mineqtt/
+                Path worldSaveDir = level.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
+                    .resolve("data").resolve("mineqtt");
+                SubscriptionManager.loadPersistedData(worldSaveDir);
+                LOGGER.info("Loaded MQTT subscription data for world: " + level.getServer().getWorldData().getLevelName());
+            }
+        });
+
+        LifecycleEvent.SERVER_LEVEL_SAVE.register(level -> {
+            // Save persisted subscription data when overworld saves
+            if (level.dimension() == net.minecraft.world.level.Level.OVERWORLD) {
+                SubscriptionManager.savePersistedData();
+            }
+        });
+
         TickEvent.SERVER_PRE.register(SubscriptionManager::onServerPreTick);
 
         LifecycleEvent.SERVER_STOPPING.register(server -> {
-            LOGGER.info("Server stopping - disconnecting MQTT client");
+            LOGGER.info("Server stopping - saving subscription data and disconnecting MQTT client");
+
+            // Save subscription data before shutdown (final save)
+            SubscriptionManager.savePersistedData();
+
             if (mqttClient != null && mqttClient.getState().isConnected()) {
                 try {
                     // First publish the offline status

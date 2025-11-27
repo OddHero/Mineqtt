@@ -111,6 +111,9 @@ public class HomeAssistantLight implements HomeAssistantDevice {
         config.addProperty("schema", "json");
         config.addProperty("command_topic", commandTopic);
 
+        // Request Home Assistant to publish commands with retain flag
+        config.addProperty("retain", true);
+
         // Optional state topic
         if (stateTopic != null) {
             config.addProperty("state_topic", stateTopic);
