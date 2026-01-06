@@ -37,19 +37,7 @@ public class MineqttBlocks {
 
     private static void registerInteractionEvents() {
         MineQTT.LOGGER.info("Registering block interaction events");
-        BaseSubscriberBlock.registerEvents();
-
-        // Register for RedstoneSubscriberBlock
-        dev.architectury.event.events.common.InteractionEvent.RIGHT_CLICK_BLOCK.register((player, hand, pos, face) -> {
-            var block = player.level().getBlockState(pos).getBlock();
-            if (block instanceof RedstoneSubscriberBlock rsb) {
-                return rsb.click(player, hand, pos, face);
-            }
-            if (block instanceof RedstonePublisherBlock rpb) {
-                return rpb.click(player, hand, pos, face);
-            }
-            return net.minecraft.world.InteractionResult.PASS;
-        });
+        BaseMqttBlock.registerInteractionEvents();
     }
 
     public static RegistrySupplier<Block> registerBlock(String name, Supplier<Block> block) {

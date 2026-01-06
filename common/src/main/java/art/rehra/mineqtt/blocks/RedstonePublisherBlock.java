@@ -3,19 +3,17 @@ package art.rehra.mineqtt.blocks;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
 import art.rehra.mineqtt.config.MineQTTConfig;
-import art.rehra.mineqtt.integrations.MineqttPermission;
 import com.mojang.serialization.MapCodec;
-import dev.architectury.event.events.common.InteractionEvent;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.*;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.*;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.RedStoneWireBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -27,7 +25,7 @@ import net.minecraft.world.level.redstone.ExperimentalRedstoneUtils;
 import net.minecraft.world.level.redstone.Orientation;
 import org.jetbrains.annotations.Nullable;
 
-public class RedstonePublisherBlock extends BaseEntityBlock implements InteractionEvent.RightClickBlock {
+public class RedstonePublisherBlock extends BaseMqttBlock {
     public static final MapCodec<RedstonePublisherBlock> CODEC = simpleCodec(RedstonePublisherBlock::new);
 
     public static final BooleanProperty POWERED;
@@ -36,18 +34,10 @@ public class RedstonePublisherBlock extends BaseEntityBlock implements Interacti
         POWERED = BlockStateProperties.POWERED;
     }
 
-    @Override
-    protected MapCodec<? extends BaseEntityBlock> codec() {
-        return CODEC;
-    }
-
     public RedstonePublisherBlock(Properties properties) {
-        super(properties);
+        super(properties, CODEC);
 
         this.registerDefaultState(this.getStateDefinition().any().setValue(POWERED, false));
-
-        // Don't register event in constructor - causes startup freeze
-        // Event will be registered after all blocks are initialized
     }
 
     @Override
@@ -111,7 +101,7 @@ public class RedstonePublisherBlock extends BaseEntityBlock implements Interacti
                 return i;
             }
             BlockState blockstate = level.getBlockState(blockpos);
-            int signal = Math.max(i, blockstate.is(Blocks.REDSTONE_WIRE) ? (Integer)blockstate.getValue(RedStoneWireBlock.POWER) : 0);
+            int signal = Math.max(i, blockstate.is(Blocks.REDSTONE_WIRE) ? blockstate.getValue(RedStoneWireBlock.POWER) : 0);
             maxSignal = Math.max(maxSignal, signal);
         }
         return maxSignal;
@@ -180,44 +170,4 @@ public class RedstonePublisherBlock extends BaseEntityBlock implements Interacti
         return new PublisherBlockEntity.Ticker<>();
     }
 
-    @Override
-    public void playerDestroy(Level level, Player player, BlockPos pos, BlockState state, @Nullable BlockEntity blockEntity, ItemStack tool) {
-        if (blockEntity instanceof Container container) {
-            Containers.dropContents(level, pos, container);
-            level.updateNeighbourForOutputSignal(pos, this);
-        }
-        super.playerDestroy(level, player, pos, state, blockEntity, tool);
-    }
-
-    @Override
-    public InteractionResult click(Player player, InteractionHand hand, BlockPos pos, Direction face) {
-        if (player.level().getBlockEntity(pos) == null || !(player.level().getBlockEntity(pos) instanceof PublisherBlockEntity blockEntity)) {
-            return InteractionResult.PASS;
-        }
-
-        if (player.isShiftKeyDown()) {
-            return InteractionResult.PASS;
-        }
-
-        if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
-            if (!MineQTT.permissionManager.canInteract(serverPlayer, pos, MineqttPermission.INTERACT)) {
-                return InteractionResult.PASS;
-            }
-            dev.architectury.registry.menu.MenuRegistry.openExtendedMenu(serverPlayer, blockEntity, buf -> {
-                buf.writeBlockPos(blockEntity.getBlockPos());
-            });
-        }
-
-        return InteractionResult.SUCCESS;
-    }
-
-    @Override
-    protected @Nullable MenuProvider getMenuProvider(BlockState state, Level level, BlockPos pos) {
-        BlockEntity blockEntity = level.getBlockEntity(pos);
-        if (blockEntity instanceof PublisherBlockEntity) {
-            return (MenuProvider) blockEntity;
-        } else {
-            return null;
-        }
-    }
 }
