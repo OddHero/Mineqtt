@@ -3,10 +3,7 @@ package art.rehra.mineqtt.neoforge.client;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.client.RgbLedBlockColor;
-import art.rehra.mineqtt.ui.MineqttMenuTypes;
-import art.rehra.mineqtt.ui.PublisherBlockScreen;
-import art.rehra.mineqtt.ui.RgbLedBlockScreen;
-import art.rehra.mineqtt.ui.SubscriberBlockScreen;
+import art.rehra.mineqtt.ui.*;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -14,7 +11,7 @@ import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 
-@EventBusSubscriber(modid = MineQTT.MOD_ID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+@EventBusSubscriber(modid = MineQTT.MOD_ID, value = Dist.CLIENT)
 public class MineqttNeoForgeClient {
 
     @SubscribeEvent
@@ -27,6 +24,7 @@ public class MineqttNeoForgeClient {
         event.register(MineqttMenuTypes.SUBSCRIBER_BLOCK_MENU.get(), SubscriberBlockScreen::new);
         event.register(MineqttMenuTypes.RGB_LED_BLOCK_MENU.get(), RgbLedBlockScreen::new);
         event.register(MineqttMenuTypes.PUBLISHER_BLOCK_MENU.get(), PublisherBlockScreen::new);
+        event.register(MineqttMenuTypes.MOTION_SENSOR_BLOCK_MENU.get(), MotionSensorBlockScreen::new);
     }
 
     @SubscribeEvent

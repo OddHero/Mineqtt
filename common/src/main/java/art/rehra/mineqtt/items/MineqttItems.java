@@ -22,6 +22,7 @@ public class MineqttItems {
     public static RegistrySupplier<Item> RedstonePublisherBlock;
     public static RegistrySupplier<Item> RedstoneSubscriberBlock;
     public static RegistrySupplier<Item> RgbLedBlock;
+    public static RegistrySupplier<Item> MotionSensorBlock;
     public static void init(){
         MineQTT.LOGGER.info("Registering MineQTT Items");
         Cyberdeck = registerItem("cyberdeck", () -> new Item(baseProperties("cyberdeck").arch$tab(MineQTTTabs.MINEQTT_TAB)));
@@ -30,6 +31,8 @@ public class MineqttItems {
         RedstoneSubscriberBlock = registerItem("redstone_subscriber_block", () -> new BlockItem(MineqttBlocks.SUBSCRIBER_BLOCK.get(),baseProperties("redstone_subscriber_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
 
         RgbLedBlock = registerItem("rgb_led_block", () -> new BlockItem(MineqttBlocks.RGB_LED_BLOCK.get(),baseProperties("rgb_led_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+
+        MotionSensorBlock = registerItem("motion_sensor_block", () -> new BlockItem(MineqttBlocks.MOTION_SENSOR_BLOCK.get(), baseProperties("motion_sensor_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
 
         ITEMS.register();
     }

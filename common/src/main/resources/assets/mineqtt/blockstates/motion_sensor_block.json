@@ -1,0 +1,28 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "mineqtt:block/motion_sensor_block",
+      "y": 180
+    },
+    "facing=south": {
+      "model": "mineqtt:block/motion_sensor_block"
+    },
+    "facing=west": {
+      "model": "mineqtt:block/motion_sensor_block",
+      "y": 90
+    },
+    "facing=east": {
+      "model": "mineqtt:block/motion_sensor_block",
+      "y": -90
+    },
+    "facing=up": {
+      "model": "mineqtt:block/motion_sensor_block",
+      "x": 90
+    },
+    "facing=down": {
+      "model": "mineqtt:block/motion_sensor_block",
+      "x": -90
+    }
+  }
+}
+
