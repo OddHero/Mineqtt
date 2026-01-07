@@ -22,7 +22,7 @@ public class MotionSensorBlockScreen extends AbstractContainerScreen<MotionSenso
     private static final int INFO_START_Y = 5;
     private static final int LINE_HEIGHT = 10;
     private static final int MAX_TEXT_WIDTH = 160;
-    private static final int STATUS_Y_OFFSET = 50;
+    private static final int STATUS_Y_OFFSET = 55;
 
     public MotionSensorBlockScreen(MotionSensorBlockMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
@@ -99,12 +99,17 @@ public class MotionSensorBlockScreen extends AbstractContainerScreen<MotionSenso
         String statusText = motionDetected ? "Motion Detected: YES" : "Motion Detected: NO";
 
         guiGraphics.drawString(this.font, statusText, guiLeft + MARGIN, currentY, statusColor, false);
-        currentY += LINE_HEIGHT;
+
+        // Show count
+        int count = blockEntity.getLastCount();
+        String countText = "Mobs: " + (count >= 0 ? count : 0);
+        int countWidth = this.font.width(countText);
+        guiGraphics.drawString(this.font, countText, guiLeft + this.imageWidth - MARGIN - countWidth, currentY, 0xFF555555, false);
+
+        currentY = guiTop + 65;
 
         // Display mob filters info
-        guiGraphics.drawString(this.font, "Mob Filters:", guiLeft + MARGIN, currentY, 0xFF555555, false);
-        currentY += LINE_HEIGHT;
-        guiGraphics.drawString(this.font, "Place mob heads in slots above to filter", guiLeft + MARGIN + 4, currentY, 0xFF888888, false);
+        guiGraphics.drawString(this.font, "Mob Filters (Spawn Eggs):", guiLeft + MARGIN, currentY, 0xFF555555, false);
     }
 }
 

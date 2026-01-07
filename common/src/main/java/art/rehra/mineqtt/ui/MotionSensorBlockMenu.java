@@ -39,6 +39,11 @@ public class MotionSensorBlockMenu extends AbstractContainerMenu {
         // Block Inventory (slots 36+)
         this.addSlot(new Slot(container, 0, 62, 35));   // Base path
         this.addSlot(new Slot(container, 1, 98, 35));   // Sub path
+
+        // Filter Slots (slots 38-42)
+        for (int i = 0; i < 5; ++i) {
+            this.addSlot(new Slot(container, 2 + i, 44 + i * 18, 75));
+        }
     }
 
     @Override
@@ -54,7 +59,7 @@ public class MotionSensorBlockMenu extends AbstractContainerMenu {
             int playerHotbarStart = 27;
             int playerHotbarEnd = 36;
             int blockInvStart = 36;
-            int blockInvEnd = 38; // 2 topic slots only
+            int blockInvEnd = 43; // 2 topic slots + 5 filter slots
 
             if (index < playerInvEnd) {
                 // Move from player inventory to block inventory

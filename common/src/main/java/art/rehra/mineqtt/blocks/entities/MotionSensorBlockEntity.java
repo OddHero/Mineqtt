@@ -4,10 +4,13 @@ import art.rehra.mineqtt.ui.MotionSensorBlockMenu;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
@@ -26,6 +29,7 @@ public class MotionSensorBlockEntity extends MqttPublisherBlockEntity {
     // Current motion detection state
     private boolean motionDetected = false;
     private long lastMotionTime = 0;
+    private int lastCount = -1;
 
     public MotionSensorBlockEntity(BlockPos pos, BlockState blockState) {
         super(MineqttBlockEntityTypes.MOTION_SENSOR_BLOCK.get(), pos, blockState);
@@ -52,11 +56,16 @@ public class MotionSensorBlockEntity extends MqttPublisherBlockEntity {
         return lastMotionTime;
     }
 
+    public int getLastCount() {
+        return lastCount;
+    }
+
     @Override
     protected void saveAdditional(ValueOutput output) {
         super.saveAdditional(output);
         output.putByte("MotionDetected", (byte) (motionDetected ? 1 : 0));
         output.putLong("LastMotionTime", lastMotionTime);
+        output.putInt("LastCount", lastCount);
     }
 
     @Override
@@ -64,6 +73,7 @@ public class MotionSensorBlockEntity extends MqttPublisherBlockEntity {
         super.loadAdditional(input);
         this.motionDetected = input.getByteOr("MotionDetected", (byte) 0) != 0;
         this.lastMotionTime = input.getLongOr("LastMotionTime", 0L);
+        this.lastCount = input.getIntOr("LastCount", -1);
     }
 
     @Override
@@ -90,6 +100,34 @@ public class MotionSensorBlockEntity extends MqttPublisherBlockEntity {
     public void saveExtraData(FriendlyByteBuf buf) {
     }
 
+    @Override
+    public int getContainerSize() {
+        return INVENTORY_SIZE + NUM_FILTERS;
+    }
+
+    public boolean matchesFilters(LivingEntity entity) {
+        boolean hasFilters = false;
+        for (int i = 0; i < NUM_FILTERS; i++) {
+            ItemStack filterStack = getItem(INVENTORY_SIZE + i);
+            if (!filterStack.isEmpty()) {
+                hasFilters = true;
+                if (isMatching(filterStack, entity)) {
+                    return true;
+                }
+            }
+        }
+        return !hasFilters;
+    }
+
+    private boolean isMatching(ItemStack filterStack, LivingEntity entity) {
+        if (filterStack.getItem() instanceof SpawnEggItem spawnEgg) {
+            if (this.level == null) return false;
+            EntityType<?> type = spawnEgg.getType(this.level.registryAccess(), filterStack);
+            return type != null && type.equals(entity.getType());
+        }
+        return false;
+    }
+
     /**
      * Ticker for updating motion sensor logic
      */
@@ -112,17 +150,26 @@ public class MotionSensorBlockEntity extends MqttPublisherBlockEntity {
                         // Detection box: 5x5x5 area in front of the sensor
                         AABB box = new AABB(pos).inflate(2.0).move(facing.getStepX() * 2.5, facing.getStepY() * 2.5, facing.getStepZ() * 2.5);
 
-                        List<LivingEntity> entities = level.getEntitiesOfClass(LivingEntity.class, box, entity -> !(entity instanceof Player));
+                        List<LivingEntity> entities = level.getEntitiesOfClass(LivingEntity.class, box, entity -> {
+                            if (entity instanceof Player) return false;
+                            return sensor.matchesFilters(entity);
+                        });
 
-                        boolean detected = !entities.isEmpty();
+                        int count = entities.size();
+                        boolean detected = count > 0;
                         if (detected != sensor.isMotionDetected()) {
                             sensor.setMotionDetected(detected);
-                            sensor.publish(detected ? "ON" : "OFF");
                         }
-                    } else if (sensor.isMotionDetected()) {
+
+                        if (count != sensor.lastCount) {
+                            sensor.lastCount = count;
+                            sensor.publish(String.valueOf(count));
+                        }
+                    } else if (sensor.isMotionDetected() || sensor.lastCount != 0) {
                         // Reset if disabled
                         sensor.setMotionDetected(false);
-                        sensor.publish("OFF");
+                        sensor.lastCount = 0;
+                        sensor.publish("0");
                     }
                 }
             }
