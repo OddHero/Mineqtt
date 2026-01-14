@@ -2,6 +2,8 @@ package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.ui.MotionSensorBlockMenu;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.EntityType;
@@ -101,6 +103,14 @@ public class MotionSensorBlockEntity extends MqttPublisherBlockEntity {
     }
 
     @Override
+    public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
+        CompoundTag tag = super.getUpdateTag(registries);
+        tag.putInt("LastCount", lastCount);
+        tag.putByte("MotionDetected", (byte) (motionDetected ? 1 : 0));
+        return tag;
+    }
+
+    @Override
     public int getContainerSize() {
         return INVENTORY_SIZE + NUM_FILTERS;
     }
@@ -164,12 +174,14 @@ public class MotionSensorBlockEntity extends MqttPublisherBlockEntity {
                         if (count != sensor.lastCount) {
                             sensor.lastCount = count;
                             sensor.publish(String.valueOf(count));
+                            sensor.markUpdated();
                         }
                     } else if (sensor.isMotionDetected() || sensor.lastCount != 0) {
                         // Reset if disabled
                         sensor.setMotionDetected(false);
                         sensor.lastCount = 0;
                         sensor.publish("0");
+                        sensor.markUpdated();
                     }
                 }
             }
