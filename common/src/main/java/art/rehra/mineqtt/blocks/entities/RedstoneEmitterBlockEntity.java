@@ -44,6 +44,10 @@ public class RedstoneEmitterBlockEntity extends MqttSubscriberBlockEntity {
 
     @Override
     public void onMessageReceived(String topic, String message) {
+        if (this.level == null) {
+            return;
+        }
+
         // Set the Power state based on message content
         int power = -1;
         if (message.equalsIgnoreCase("ON") || message.equalsIgnoreCase("TRUE")) {
@@ -67,6 +71,9 @@ public class RedstoneEmitterBlockEntity extends MqttSubscriberBlockEntity {
                 if (this.level.getBlockState(this.worldPosition).getBlock() instanceof RedstoneEmitterBlock emitterBlock) {
                     emitterBlock.updateNeighbors(this.level, this.worldPosition, newState);
                 }
+            } else if (!currentState.hasProperty(POWER)) {
+                // This can happen if the block entity exists but the block state is wrong (e.g. during placement/removal)
+                MineQTT.LOGGER.warn("RedstoneEmitterBlockEntity at {} has no POWER property", this.worldPosition);
             }
         }
     }

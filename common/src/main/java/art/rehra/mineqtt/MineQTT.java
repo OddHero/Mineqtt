@@ -6,8 +6,8 @@ import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.integrations.IModLoaderUtils;
 import art.rehra.mineqtt.integrations.PermissionManager;
 import art.rehra.mineqtt.items.MineqttItems;
-import art.rehra.mineqtt.mqtt.SubscriptionManager;
 import art.rehra.mineqtt.mqtt.BlockStateManager;
+import art.rehra.mineqtt.mqtt.SubscriptionManager;
 import art.rehra.mineqtt.mqtt.homeassistant.HomeAssistantDiscoveryManager;
 import art.rehra.mineqtt.tabs.MineQTTTabs;
 import art.rehra.mineqtt.ui.MineqttMenuTypes;
@@ -59,16 +59,23 @@ public class MineQTT {
 
 
         LifecycleEvent.SERVER_STARTING.register(server -> {
-            LOGGER.info("Server starting - initializing MQTT client");
-            SubscriptionManager.init();
-            BlockStateManager.init();
-            HomeAssistantDiscoveryManager.init();
-            initializeMqttClient();
+            // This now fires after some chunks might have loaded in some environments.
+            // We moved actual initialization to SERVER_LEVEL_LOAD (overworld) to be safer.
         });
 
         LifecycleEvent.SERVER_LEVEL_LOAD.register(level -> {
             // Load persisted block states when overworld loads (once per world)
             if (level.dimension() == net.minecraft.world.level.Level.OVERWORLD) {
+                LOGGER.info("Overworld loaded - initializing MineQTT world-specific systems");
+
+                // Clear world-specific subscribers from previous session (if any)
+                // Note: BEs for the new world might have already called subscribe() if chunks loaded early.
+                // So we don't call SubscriptionManager.clearSubscribers() here anymore.
+
+                BlockStateManager.init();
+                HomeAssistantDiscoveryManager.init();
+                initializeMqttClient();
+
                 // Save to world folder: saves/WorldName/data/mineqtt/
                 Path worldSaveDir = level.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
                     .resolve("data").resolve("mineqtt");
@@ -87,10 +94,13 @@ public class MineQTT {
         TickEvent.SERVER_PRE.register(SubscriptionManager::onServerPreTick);
 
         LifecycleEvent.SERVER_STOPPING.register(server -> {
-            LOGGER.info("Server stopping - saving block state data and disconnecting MQTT client");
+            LOGGER.info("Server stopping - saving block state data and cleaning up");
 
             // Save block state data before shutdown (final save)
             BlockStateManager.savePersistedData();
+
+            // Clear subscribers to avoid stale references in the next session
+            SubscriptionManager.clearSubscribers();
 
             if (mqttClient != null && mqttClient.getState().isConnected()) {
                 try {
@@ -170,6 +180,9 @@ public class MineQTT {
                                         .qos(MqttQos.AT_LEAST_ONCE)
                                         .retain(false)  // Don't retain - prevents ghost topics
                                         .send();
+
+                                // Resubscribe to all active topics
+                                SubscriptionManager.resubscribeAll();
                             })
                     .addDisconnectedListener(
                             disconn -> LOGGER.warn("MQTT client disconnected from broker.", disconn.getCause()))

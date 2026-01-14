@@ -30,9 +30,12 @@ public abstract class MqttSubscriberBlockEntity extends BaseMqttBlockEntity impl
         super.loadAdditional(input);
         this.currentSubscribedTopic = input.getString("currentSubscribedTopic").orElse("");
 
-        // Subscribe to current topic after loading
-        if (isEnabled() && !this.currentSubscribedTopic.isEmpty()) {
-            SubscriptionManager.subscribe(this.currentSubscribedTopic, this);
+        // Register subscription intent after loading
+        // The actual MQTT subscription will happen when the client connects
+        String combinedTopic = getCombinedTopic();
+        if (isEnabled() && !combinedTopic.isEmpty()) {
+            this.currentSubscribedTopic = combinedTopic;
+            SubscriptionManager.subscribe(combinedTopic, this);
         }
     }
 
