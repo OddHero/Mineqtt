@@ -4,21 +4,22 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.*;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 
-public class SubscriberBlockMenu extends AbstractContainerMenu {
+public class RedstoneEmitterBlockMenu extends AbstractContainerMenu {
     public Container container;
     public final Player player;
     public BlockPos blockPos;
 
-    public SubscriberBlockMenu(int containerId, Inventory playerInventory, Player player, BlockPos blockPos) {
+    public RedstoneEmitterBlockMenu(int containerId, Inventory playerInventory, Player player, BlockPos blockPos) {
         this(containerId, playerInventory, (Container) playerInventory.player.level().getBlockEntity(blockPos), player, blockPos);
     }
 
 
-    public SubscriberBlockMenu(int containerId, Inventory playerInventory, Container container, Player player, BlockPos blockPos) {
-        super(MineqttMenuTypes.SUBSCRIBER_BLOCK_MENU.get(), containerId);
+    public RedstoneEmitterBlockMenu(int containerId, Inventory playerInventory, Container container, Player player, BlockPos blockPos) {
+        super(MineqttMenuTypes.REDSTONE_EMITTER_BLOCK_MENU.get(), containerId);
 
         this.player = player;
         this.container = container;

@@ -11,16 +11,16 @@ public class MineqttMenuTypes {
 
     public static final DeferredRegister<MenuType<?>> MENU_TYPES = DeferredRegister.create(MineQTT.MOD_ID, Registries.MENU);
 
-    public static RegistrySupplier<MenuType<SubscriberBlockMenu>> SUBSCRIBER_BLOCK_MENU;
+    public static RegistrySupplier<MenuType<RedstoneEmitterBlockMenu>> REDSTONE_EMITTER_BLOCK_MENU;
     public static RegistrySupplier<MenuType<PublisherBlockMenu>> PUBLISHER_BLOCK_MENU;
     public static RegistrySupplier<MenuType<RgbLedBlockMenu>> RGB_LED_BLOCK_MENU;
     public static RegistrySupplier<MenuType<MotionSensorBlockMenu>> MOTION_SENSOR_BLOCK_MENU;
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Menu Types");
 
-        SUBSCRIBER_BLOCK_MENU = MENU_TYPES.register("subscriber_block",
+        REDSTONE_EMITTER_BLOCK_MENU = MENU_TYPES.register("redstone_emitter_block",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) ->
-                        new SubscriberBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
+                        new RedstoneEmitterBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
 
         PUBLISHER_BLOCK_MENU = MENU_TYPES.register("publisher_block",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) ->

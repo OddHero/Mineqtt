@@ -28,7 +28,7 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
 
     public BaseMqttBlockEntity(BlockEntityType<?> blockEntityType, BlockPos pos, BlockState blockState) {
         super(blockEntityType, pos, blockState);
-        this.items = NonNullList.withSize(INVENTORY_SIZE, ItemStack.EMPTY);
+        this.items = NonNullList.withSize(getContainerSize(), ItemStack.EMPTY);
         this.topic = getDefaultTopic();
     }
 

@@ -1,6 +1,0 @@
-{
-	"parent": "block/cube_all",
-	"textures": {
-		"all": "mineqtt:block/redstone_subscriber_block_on"
-	}
-}

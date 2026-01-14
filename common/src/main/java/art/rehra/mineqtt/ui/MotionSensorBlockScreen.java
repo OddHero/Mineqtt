@@ -27,6 +27,7 @@ public class MotionSensorBlockScreen extends AbstractContainerScreen<MotionSenso
     public MotionSensorBlockScreen(MotionSensorBlockMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
         this.font = Minecraft.getInstance().font;
+        this.imageHeight = 183;
     }
 
     @Override

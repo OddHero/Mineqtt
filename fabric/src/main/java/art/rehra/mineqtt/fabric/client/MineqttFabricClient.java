@@ -15,7 +15,7 @@ public final class MineqttFabricClient implements ClientModInitializer {
         MineQTT.LOGGER.info("MineQTT Fabric Client initializing");
 
         // Register screens using Fabric's native screen registration
-        MenuScreens.register(MineqttMenuTypes.SUBSCRIBER_BLOCK_MENU.get(), SubscriberBlockScreen::new);
+        MenuScreens.register(MineqttMenuTypes.REDSTONE_EMITTER_BLOCK_MENU.get(), RedstoneEmitterBlockScreen::new);
         MenuScreens.register(MineqttMenuTypes.RGB_LED_BLOCK_MENU.get(), RgbLedBlockScreen::new);
         MenuScreens.register(MineqttMenuTypes.PUBLISHER_BLOCK_MENU.get(), PublisherBlockScreen::new);
         MenuScreens.register(MineqttMenuTypes.MOTION_SENSOR_BLOCK_MENU.get(), MotionSensorBlockScreen::new);

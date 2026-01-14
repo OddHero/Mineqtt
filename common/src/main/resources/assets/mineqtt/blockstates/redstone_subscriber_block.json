@@ -1,6 +1,0 @@
-﻿{
-  "variants": {
-    "powered=false" : { "model": "mineqtt:block/redstone_subscriber_block" },
-    "powered=true" : { "model": "mineqtt:block/redstone_subscriber_block_on" }
-  }
-}

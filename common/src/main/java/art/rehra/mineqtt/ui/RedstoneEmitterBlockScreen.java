@@ -1,7 +1,8 @@
 package art.rehra.mineqtt.ui;
 
 import art.rehra.mineqtt.MineQTT;
-import art.rehra.mineqtt.blocks.entities.SubscriberBlockEntity;
+import art.rehra.mineqtt.blocks.RedstoneEmitterBlock;
+import art.rehra.mineqtt.blocks.entities.RedstoneEmitterBlockEntity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -13,9 +14,9 @@ import net.minecraft.world.entity.player.Inventory;
 
 import java.util.List;
 
-public class SubscriberBlockScreen extends AbstractContainerScreen<SubscriberBlockMenu> {
+public class RedstoneEmitterBlockScreen extends AbstractContainerScreen<RedstoneEmitterBlockMenu> {
 
-    public static final ResourceLocation BACKGROUND = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "textures/gui/subscriber/topic_screen.png");
+    public static final ResourceLocation BACKGROUND = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "textures/gui/redstone_emitter/topic_screen.png");
 
     // GUI layout constants for better positioning
     private static final int MARGIN = 8;
@@ -25,7 +26,7 @@ public class SubscriberBlockScreen extends AbstractContainerScreen<SubscriberBlo
     private static final int MAX_TEXT_WIDTH = 160; // Leave some margin from GUI edges
     private static final int STATUS_Y_OFFSET = 50; // Fixed position for status below slots
 
-    public SubscriberBlockScreen(SubscriberBlockMenu menu, Inventory playerInventory, Component title) {
+    public RedstoneEmitterBlockScreen(RedstoneEmitterBlockMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
         this.font = Minecraft.getInstance().font;
     }
@@ -33,7 +34,7 @@ public class SubscriberBlockScreen extends AbstractContainerScreen<SubscriberBlo
     @Override
     protected void renderLabels(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         // Render custom title
-        Component title = Component.literal("MQTT Subscriber");
+        Component title = Component.literal("Redstone Emitter");
         int titleWidth = this.font.width(title);
         int titleX = (this.imageWidth - titleWidth) / 2;
         guiGraphics.drawString(this.font, title, titleX, TITLE_Y, 0x404040, false);
@@ -57,10 +58,10 @@ public class SubscriberBlockScreen extends AbstractContainerScreen<SubscriberBlo
         var player = this.menu.player;
         var pos = this.menu.blockPos;
         var level = player.level();
-        var blockEntity = (SubscriberBlockEntity) level.getBlockEntity(pos);
+        var blockEntity = (RedstoneEmitterBlockEntity) level.getBlockEntity(pos);
 
         if (blockEntity != null) {
-            renderSubscriberInfo(guiGraphics, guiLeft, guiTop, blockEntity, level, pos);
+            renderEmitterInfo(guiGraphics, guiLeft, guiTop, blockEntity, level, pos);
         } else {
             // Center the error message
             String errorMsg = "No Block Entity Found";
@@ -72,7 +73,7 @@ public class SubscriberBlockScreen extends AbstractContainerScreen<SubscriberBlo
         this.renderTooltip(guiGraphics, mouseX, mouseY);
     }
 
-    private void renderSubscriberInfo(GuiGraphics guiGraphics, int guiLeft, int guiTop, SubscriberBlockEntity blockEntity, net.minecraft.world.level.Level level, net.minecraft.core.BlockPos pos) {
+    private void renderEmitterInfo(GuiGraphics guiGraphics, int guiLeft, int guiTop, RedstoneEmitterBlockEntity blockEntity, net.minecraft.world.level.Level level, net.minecraft.core.BlockPos pos) {
         int currentY = guiTop + INFO_START_Y;
 
         // Get combined topic
@@ -99,8 +100,9 @@ public class SubscriberBlockScreen extends AbstractContainerScreen<SubscriberBlo
         // Status section at fixed position
         currentY = guiTop + STATUS_Y_OFFSET;
         var currentState = level.getBlockState(pos);
-        boolean isPowered = currentState.getValue(art.rehra.mineqtt.blocks.RedstoneSubscriberBlock.POWERED);
-        String status = isEnabled ? (isPowered ? "Receiving (Powered)" : "Listening") : "Disabled";
+        int power = currentState.getValue(RedstoneEmitterBlock.POWER);
+        boolean isPowered = power > 0;
+        String status = isEnabled ? (isPowered ? "Receiving (Power: " + power + ")" : "Listening") : "Disabled";
         int statusColor = isEnabled ? (isPowered ? 0xFF00AA00 : 0xFF0088FF) : 0xFF666666;
 
         guiGraphics.drawString(this.font, "Status:", guiLeft + MARGIN, currentY, 0xFF555555, false);

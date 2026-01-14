@@ -8,7 +8,7 @@ public class MineqttBlockEntityTypesNeoForge extends MineqttBlockEntityTypes {
 
     public static void initBlockEntityTypes() {
         PUBLISHER_BLOCK = registerBlockEntity("publisher_block", () -> new BlockEntityType<>(PublisherBlockEntity::new, MineqttBlocks.PUBLISHER_BLOCK.get()));
-        SUBSCRIBER_BLOCK = registerBlockEntity("subscriber_block", () -> new BlockEntityType<>(SubscriberBlockEntity::new, MineqttBlocks.SUBSCRIBER_BLOCK.get()));
+        REDSTONE_EMITTER_BLOCK_ENTITY = registerBlockEntity("redstone_emitter_block", () -> new BlockEntityType<>(RedstoneEmitterBlockEntity::new, MineqttBlocks.REDSTONE_EMITTER_BLOCK.get()));
 
         RGB_LED_BLOCK = registerBlockEntity("rgb_led_block", () -> new BlockEntityType<>(RgbLedBlockEntity::new, MineqttBlocks.RGB_LED_BLOCK.get()));
         MOTION_SENSOR_BLOCK = registerBlockEntity("motion_sensor_block", () -> new BlockEntityType<>(MotionSensorBlockEntity::new, MineqttBlocks.MOTION_SENSOR_BLOCK.get()));

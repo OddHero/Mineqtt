@@ -1,0 +1,52 @@
+﻿{
+  "variants": {
+    "power=0": {
+      "model": "mineqtt:block/redstone_emitter_block"
+    },
+    "power=1": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=2": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=3": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=4": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=5": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=6": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=7": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=8": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=9": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=10": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=11": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=12": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=13": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=14": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    },
+    "power=15": {
+      "model": "mineqtt:block/redstone_emitter_block_on"
+    }
+  }
+}

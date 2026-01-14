@@ -17,7 +17,7 @@ public class MineqttBlocks {
 
     public static RegistrySupplier<Block> TERMINAL_BLOCK;
     public static RegistrySupplier<Block> PUBLISHER_BLOCK;
-    public static RegistrySupplier<Block> SUBSCRIBER_BLOCK;
+    public static RegistrySupplier<Block> REDSTONE_EMITTER_BLOCK;
     public static RegistrySupplier<Block> RGB_LED_BLOCK;
     public static RegistrySupplier<Block> MOTION_SENSOR_BLOCK;
     public static void init() {
@@ -26,7 +26,7 @@ public class MineqttBlocks {
 
         TERMINAL_BLOCK = registerBlock("terminal_block", () -> new Block(baseProperties("terminal_block").requiresCorrectToolForDrops().strength(3.5f)));
         PUBLISHER_BLOCK = registerBlock("redstone_publisher_block", () -> new RedstonePublisherBlock(baseProperties("redstone_publisher_block").requiresCorrectToolForDrops().strength(3.5f)));
-        SUBSCRIBER_BLOCK = registerBlock("redstone_subscriber_block", () -> new RedstoneSubscriberBlock(baseProperties("redstone_subscriber_block").requiresCorrectToolForDrops().strength(3.5f)));
+        REDSTONE_EMITTER_BLOCK = registerBlock("redstone_emitter_block", () -> new RedstoneEmitterBlock(baseProperties("redstone_emitter_block").requiresCorrectToolForDrops().strength(3.5f)));
         RGB_LED_BLOCK = registerBlock("rgb_led_block", () -> new RgbLedBlock(baseProperties("rgb_led_block").requiresCorrectToolForDrops().strength(3.5f)));
         MOTION_SENSOR_BLOCK = registerBlock("motion_sensor_block", () -> new MotionSensorBlock(baseProperties("motion_sensor_block").requiresCorrectToolForDrops().strength(3.5f)));
         BLOCKS.register();

@@ -1,0 +1,6 @@
+{
+  "parent": "block/cube_all",
+  "textures": {
+    "all": "mineqtt:block/redstone_emitter_block"
+  }
+}

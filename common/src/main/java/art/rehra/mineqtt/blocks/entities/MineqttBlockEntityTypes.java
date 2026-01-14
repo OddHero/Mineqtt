@@ -14,7 +14,7 @@ public class MineqttBlockEntityTypes {
     private static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES = DeferredRegister.create(MineQTT.MOD_ID, Registries.BLOCK_ENTITY_TYPE);
 
     public static RegistrySupplier<BlockEntityType<PublisherBlockEntity>> PUBLISHER_BLOCK;
-    public static RegistrySupplier<BlockEntityType<SubscriberBlockEntity>> SUBSCRIBER_BLOCK;
+    public static RegistrySupplier<BlockEntityType<RedstoneEmitterBlockEntity>> REDSTONE_EMITTER_BLOCK_ENTITY;
     public static RegistrySupplier<BlockEntityType<RgbLedBlockEntity>> RGB_LED_BLOCK;
     public static RegistrySupplier<BlockEntityType<MotionSensorBlockEntity>> MOTION_SENSOR_BLOCK;
 
