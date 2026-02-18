@@ -25,7 +25,7 @@ public class MineqttItems {
     public static RegistrySupplier<Item> MotionSensorBlock;
     public static void init(){
         MineQTT.LOGGER.info("Registering MineQTT Items");
-        Cyberdeck = registerItem("cyberdeck", () -> new Item(baseProperties("cyberdeck").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        Cyberdeck = registerItem("cyberdeck", () -> new CyberdeckItem(baseProperties("cyberdeck").arch$tab(MineQTTTabs.MINEQTT_TAB)));
         TerminalBlock = registerItem("terminal_block", () -> new BlockItem(MineqttBlocks.TERMINAL_BLOCK.get(),baseProperties("terminal_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
         RedstonePublisherBlock = registerItem("redstone_publisher_block", () -> new BlockItem(MineqttBlocks.PUBLISHER_BLOCK.get(),baseProperties("redstone_publisher_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
         RedstoneEmitterBlock = registerItem("redstone_emitter_block", () -> new BlockItem(MineqttBlocks.REDSTONE_EMITTER_BLOCK.get(), baseProperties("redstone_emitter_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));

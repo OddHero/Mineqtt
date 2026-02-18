@@ -25,6 +25,7 @@ public class MineqttNeoForgeClient {
         event.register(MineqttMenuTypes.RGB_LED_BLOCK_MENU.get(), RgbLedBlockScreen::new);
         event.register(MineqttMenuTypes.PUBLISHER_BLOCK_MENU.get(), PublisherBlockScreen::new);
         event.register(MineqttMenuTypes.MOTION_SENSOR_BLOCK_MENU.get(), MotionSensorBlockScreen::new);
+        event.register(MineqttMenuTypes.CYBERDECK_MENU.get(), CyberdeckScreen::new);
     }
 
     @SubscribeEvent

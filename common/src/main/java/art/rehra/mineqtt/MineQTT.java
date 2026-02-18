@@ -10,6 +10,8 @@ import art.rehra.mineqtt.items.MineqttItems;
 import art.rehra.mineqtt.mqtt.BlockStateManager;
 import art.rehra.mineqtt.mqtt.SubscriptionManager;
 import art.rehra.mineqtt.mqtt.homeassistant.HomeAssistantDiscoveryManager;
+import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.registry.MineqttDataComponents;
 import art.rehra.mineqtt.tabs.MineQTTTabs;
 import art.rehra.mineqtt.ui.MineqttMenuTypes;
 import com.hivemq.client.mqtt.MqttClient;
@@ -34,6 +36,7 @@ public class MineQTT {
     public static Mqtt3AsyncClient mqttClient;
 
     public static IModLoaderUtils modLoaderUtils;
+    public static net.minecraft.server.MinecraftServer currentServer;
 
     public static void init() {
         LOGGER.info("Initializing MineQTT...");
@@ -54,15 +57,16 @@ public class MineQTT {
         LOGGER.info("MineQTT initialized successfully");
 
         MineQTTTabs.init();
+        MineqttDataComponents.init();
         MineqttBlocks.init();
         MineqttItems.init();
 
         MineqttMenuTypes.init();
+        MineqttNetworking.init();
 
 
         LifecycleEvent.SERVER_STARTING.register(server -> {
-            // This now fires after some chunks might have loaded in some environments.
-            // We moved actual initialization to SERVER_LEVEL_LOAD (overworld) to be safer.
+            currentServer = server;
         });
 
         LifecycleEvent.SERVER_LEVEL_LOAD.register(level -> {
@@ -93,13 +97,23 @@ public class MineQTT {
             }
         });
 
-        TickEvent.SERVER_PRE.register(SubscriptionManager::onServerPreTick);
+        TickEvent.SERVER_PRE.register(server -> {
+            SubscriptionManager.onServerPreTick(server);
+            art.rehra.mineqtt.mqtt.CyberdeckSessionManager.tick(server);
+        });
+
+        dev.architectury.event.events.common.PlayerEvent.PLAYER_QUIT.register(player -> {
+            if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                art.rehra.mineqtt.mqtt.CyberdeckSessionManager.onPlayerLoggedOut(serverPlayer);
+            }
+        });
 
         CommandRegistrationEvent.EVENT.register((dispatcher, registryAccess, selection) -> {
             MineQTTCommands.register(dispatcher);
         });
 
         LifecycleEvent.SERVER_STOPPING.register(server -> {
+            currentServer = null;
             LOGGER.info("Server stopping - saving block state data and cleaning up");
 
             // Save block state data before shutdown (final save)

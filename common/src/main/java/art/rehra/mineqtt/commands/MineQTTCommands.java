@@ -2,15 +2,19 @@ package art.rehra.mineqtt.commands;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.config.MineQTTConfig;
+import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+
+import java.nio.charset.StandardCharsets;
 
 public class MineQTTCommands {
 
@@ -44,8 +48,33 @@ public class MineQTTCommands {
                             return 1;
                         }));
 
+        // /mineqtt publish <topic> <payload...>
+        LiteralArgumentBuilder<CommandSourceStack> publish = Commands.literal("publish")
+                .then(Commands.argument("topic", StringArgumentType.string())
+                        .then(Commands.argument("payload", StringArgumentType.greedyString())
+                                .executes(ctx -> {
+                                    String topic = StringArgumentType.getString(ctx, "topic");
+                                    String payload = StringArgumentType.getString(ctx, "payload");
+                                    if (MineQTT.mqttClient == null || !MineQTT.mqttClient.getState().isConnected()) {
+                                        ctx.getSource().sendFailure(Component.literal("MQTT not connected"));
+                                        return 0;
+                                    }
+                                    try {
+                                        MineQTT.mqttClient.toAsync().publish(Mqtt3Publish.builder()
+                                                .topic(topic)
+                                                .payload(payload.getBytes(StandardCharsets.UTF_8))
+                                                .build());
+                                        ctx.getSource().sendSuccess(() -> Component.literal("Published to: " + topic), false);
+                                        return 1;
+                                    } catch (Exception e) {
+                                        ctx.getSource().sendFailure(Component.literal("Publish failed: " + e.getMessage()));
+                                        return 0;
+                                    }
+                                })));
+
         mineqtt.then(setgoal);
         mineqtt.then(enablegoal);
+        mineqtt.then(publish);
         dispatcher.register(mineqtt);
     }
 

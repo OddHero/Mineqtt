@@ -6,6 +6,7 @@ import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.item.ItemStack;
 
 public class MineqttMenuTypes {
 
@@ -15,6 +16,7 @@ public class MineqttMenuTypes {
     public static RegistrySupplier<MenuType<PublisherBlockMenu>> PUBLISHER_BLOCK_MENU;
     public static RegistrySupplier<MenuType<RgbLedBlockMenu>> RGB_LED_BLOCK_MENU;
     public static RegistrySupplier<MenuType<MotionSensorBlockMenu>> MOTION_SENSOR_BLOCK_MENU;
+    public static RegistrySupplier<MenuType<CyberdeckMenu>> CYBERDECK_MENU;
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Menu Types");
 
@@ -33,6 +35,17 @@ public class MineqttMenuTypes {
         MOTION_SENSOR_BLOCK_MENU = MENU_TYPES.register("motion_sensor_block",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) ->
                         new MotionSensorBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
+
+        CYBERDECK_MENU = MENU_TYPES.register("cyberdeck",
+                () -> MenuRegistry.ofExtended((id, inventory, buf) -> {
+                    // On server, it's safer to find it in inventory.
+                    // On client, it's also safer to find it in inventory as we don't send the slot index in buf here (yet).
+                    ItemStack stack = inventory.player.getMainHandItem();
+                    if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) {
+                        stack = inventory.player.getOffhandItem();
+                    }
+                    return new CyberdeckMenu(id, inventory, stack);
+                }));
 
         MENU_TYPES.register();
     }

@@ -19,6 +19,7 @@ public final class MineqttFabricClient implements ClientModInitializer {
         MenuScreens.register(MineqttMenuTypes.RGB_LED_BLOCK_MENU.get(), RgbLedBlockScreen::new);
         MenuScreens.register(MineqttMenuTypes.PUBLISHER_BLOCK_MENU.get(), PublisherBlockScreen::new);
         MenuScreens.register(MineqttMenuTypes.MOTION_SENSOR_BLOCK_MENU.get(), MotionSensorBlockScreen::new);
+        MenuScreens.register(MineqttMenuTypes.CYBERDECK_MENU.get(), CyberdeckScreen::new);
 
         // Register RGB LED block color handler
         ColorProviderRegistry.BLOCK.register(new RgbLedBlockColor(), MineqttBlocks.RGB_LED_BLOCK.get());
