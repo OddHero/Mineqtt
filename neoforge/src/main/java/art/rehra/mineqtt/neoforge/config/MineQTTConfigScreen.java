@@ -16,6 +16,8 @@ public class MineQTTConfigScreen extends Screen {
     private EditBox passwordField;
     private Button allowItemPortalButton;
     private boolean allowItemPortalValue;
+    private Button zombieGoalEnabledButton;
+    private boolean zombieGoalEnabledValue;
     private Button saveButton;
     private Button cancelButton;
     private Button resetButton;
@@ -71,6 +73,14 @@ public class MineQTTConfigScreen extends Screen {
         }).bounds(centerX - fieldWidth / 2, startY + spacing * 4, fieldWidth, fieldHeight).build();
         this.addRenderableWidget(this.allowItemPortalButton);
 
+        // Zombie Goal Enabled Toggle
+        this.zombieGoalEnabledValue = MineQTTConfig.zombieGoalEnabled;
+        this.zombieGoalEnabledButton = Button.builder(getZombieGoalEnabledComponent(), (btn) -> {
+            this.zombieGoalEnabledValue = !this.zombieGoalEnabledValue;
+            btn.setMessage(getZombieGoalEnabledComponent());
+        }).bounds(centerX - fieldWidth / 2, startY + spacing * 5, fieldWidth, fieldHeight).build();
+        this.addRenderableWidget(this.zombieGoalEnabledButton);
+
         // Buttons
         int buttonY = this.height - 40;
         int buttonWidth = 60;
@@ -114,6 +124,7 @@ public class MineQTTConfigScreen extends Screen {
         MineQTTConfig.username = this.usernameField.getValue();
         MineQTTConfig.password = this.passwordField.getValue();
         MineQTTConfig.allowItemNetherPortalTeleport = this.allowItemPortalValue;
+        MineQTTConfig.zombieGoalEnabled = this.zombieGoalEnabledValue;
 
         // Save config through handler
         if (MineQTT.getConfigHandler() != null) {
@@ -140,10 +151,16 @@ public class MineQTTConfigScreen extends Screen {
         this.passwordField.setValue(MineQTTConfig.password);
         this.allowItemPortalValue = MineQTTConfig.allowItemNetherPortalTeleport;
         this.allowItemPortalButton.setMessage(getAllowItemPortalComponent());
+        this.zombieGoalEnabledValue = MineQTTConfig.zombieGoalEnabled;
+        this.zombieGoalEnabledButton.setMessage(getZombieGoalEnabledComponent());
     }
 
     private Component getAllowItemPortalComponent() {
         return Component.literal("Allow Items Thru Portals: " + (allowItemPortalValue ? "Enabled" : "Disabled"));
+    }
+
+    private Component getZombieGoalEnabledComponent() {
+        return Component.literal("Zombie Goal: " + (zombieGoalEnabledValue ? "Enabled" : "Disabled"));
     }
 
     @Override

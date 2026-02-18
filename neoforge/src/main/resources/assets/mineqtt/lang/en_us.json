@@ -23,6 +23,10 @@
 
   "mineqtt.config.enable_debug_logging": "Enable Debug Logging",
   "mineqtt.config.show_mqtt_status_in_chat": "Show MQTT Status in Chat",
-  "mineqtt.config.allow_item_nether_portal_teleport": "Allow Items Through Nether Portals"
+  "mineqtt.config.allow_item_nether_portal_teleport": "Allow Items Through Nether Portals",
+  "mineqtt.config.zombie_goal_enabled": "Enable Zombie Goal",
+  "mineqtt.config.goal_x": "Goal X",
+  "mineqtt.config.goal_y": "Goal Y",
+  "mineqtt.config.goal_z": "Goal Z"
 }
 

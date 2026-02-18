@@ -82,6 +82,29 @@ public class MineQTTConfigScreen {
                 .setSaveConsumer(value -> MineQTTConfig.allowItemNetherPortalTeleport = value)
                 .build());
 
+        // Goal Settings Category
+        ConfigCategory goalCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.goal"));
+
+        goalCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.zombie_goal_enabled"), MineQTTConfig.zombieGoalEnabled)
+                .setTooltip(Component.translatable("config.mineqtt.zombie_goal_enabled.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.zombieGoalEnabled = value)
+                .build());
+
+        goalCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.goal_x"), MineQTTConfig.goalX)
+                .setTooltip(Component.translatable("config.mineqtt.goal_x.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.goalX = value)
+                .build());
+
+        goalCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.goal_y"), MineQTTConfig.goalY)
+                .setTooltip(Component.translatable("config.mineqtt.goal_y.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.goalY = value)
+                .build());
+
+        goalCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.goal_z"), MineQTTConfig.goalZ)
+                .setTooltip(Component.translatable("config.mineqtt.goal_z.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.goalZ = value)
+                .build());
+
         return builder.build();
     }
 }

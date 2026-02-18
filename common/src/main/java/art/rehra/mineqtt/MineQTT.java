@@ -1,6 +1,7 @@
 package art.rehra.mineqtt;
 
 import art.rehra.mineqtt.blocks.MineqttBlocks;
+import art.rehra.mineqtt.commands.MineQTTCommands;
 import art.rehra.mineqtt.config.ConfigHandler;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.integrations.IModLoaderUtils;
@@ -15,6 +16,7 @@ import com.hivemq.client.mqtt.MqttClient;
 import com.hivemq.client.mqtt.datatypes.MqttQos;
 import com.hivemq.client.mqtt.lifecycle.MqttClientAutoReconnect;
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient;
+import dev.architectury.event.events.common.CommandRegistrationEvent;
 import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.TickEvent;
 import org.slf4j.Logger;
@@ -92,6 +94,10 @@ public class MineQTT {
         });
 
         TickEvent.SERVER_PRE.register(SubscriptionManager::onServerPreTick);
+
+        CommandRegistrationEvent.EVENT.register((dispatcher, registryAccess, selection) -> {
+            MineQTTCommands.register(dispatcher);
+        });
 
         LifecycleEvent.SERVER_STOPPING.register(server -> {
             LOGGER.info("Server stopping - saving block state data and cleaning up");

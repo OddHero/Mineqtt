@@ -80,6 +80,12 @@ public class FabricConfigHandler implements ConfigHandler {
         data.connectionTimeout = MineQTTConfig.connectionTimeout;
         data.keepAlive = MineQTTConfig.keepAlive;
         data.allowItemNetherPortalTeleport = MineQTTConfig.allowItemNetherPortalTeleport;
+        data.baseTopic = MineQTTConfig.baseTopic;
+        data.statusTopic = MineQTTConfig.statusTopic;
+        data.goalX = MineQTTConfig.goalX;
+        data.goalY = MineQTTConfig.goalY;
+        data.goalZ = MineQTTConfig.goalZ;
+        data.zombieGoalEnabled = MineQTTConfig.zombieGoalEnabled;
 
         return data;
     }
@@ -94,6 +100,12 @@ public class FabricConfigHandler implements ConfigHandler {
         MineQTTConfig.connectionTimeout = data.connectionTimeout;
         MineQTTConfig.keepAlive = data.keepAlive;
         MineQTTConfig.allowItemNetherPortalTeleport = data.allowItemNetherPortalTeleport;
+        MineQTTConfig.baseTopic = data.baseTopic;
+        MineQTTConfig.statusTopic = data.statusTopic;
+        MineQTTConfig.goalX = data.goalX;
+        MineQTTConfig.goalY = data.goalY;
+        MineQTTConfig.goalZ = data.goalZ;
+        MineQTTConfig.zombieGoalEnabled = data.zombieGoalEnabled;
     }
 
     private static class ConfigData {
@@ -110,5 +122,11 @@ public class FabricConfigHandler implements ConfigHandler {
         // MQTT Topics
         public String baseTopic = "minecraft";
         public String statusTopic = "status";
+
+        // Goal Coordinates
+        public int goalX = 7;
+        public int goalY = -35;
+        public int goalZ = 4;
+        public boolean zombieGoalEnabled = false;
     }
 }

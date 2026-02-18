@@ -19,6 +19,14 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     public static final ModConfigSpec.IntValue KEEP_ALIVE;
     public static final ModConfigSpec.BooleanValue ALLOW_ITEM_NETHER_PORTAL_TELEPORT;
 
+    public static final ModConfigSpec.ConfigValue<String> BASE_TOPIC;
+    public static final ModConfigSpec.ConfigValue<String> STATUS_TOPIC;
+
+    public static final ModConfigSpec.IntValue GOAL_X;
+    public static final ModConfigSpec.IntValue GOAL_Y;
+    public static final ModConfigSpec.IntValue GOAL_Z;
+    public static final ModConfigSpec.BooleanValue ZOMBIE_GOAL_ENABLED;
+
     public static final ModConfigSpec SPEC;
 
     static {
@@ -58,6 +66,38 @@ public class NeoForgeConfigHandler implements ConfigHandler {
 
         BUILDER.pop();
 
+        BUILDER.comment("MQTT Topics").push("topics");
+
+        BASE_TOPIC = BUILDER
+                .comment("MQTT base topic")
+                .define("baseTopic", "minecraft");
+
+        STATUS_TOPIC = BUILDER
+                .comment("MQTT status topic")
+                .define("statusTopic", "status");
+
+        BUILDER.pop();
+
+        BUILDER.comment("Goal Coordinates").push("goal");
+
+        GOAL_X = BUILDER
+                .comment("X coordinate of the global goal")
+                .defineInRange("goalX", 7, -30000000, 30000000);
+
+        GOAL_Y = BUILDER
+                .comment("Y coordinate of the global goal")
+                .defineInRange("goalY", -35, -2048, 2048);
+
+        GOAL_Z = BUILDER
+                .comment("Z coordinate of the global goal")
+                .defineInRange("goalZ", 4, -30000000, 30000000);
+
+        ZOMBIE_GOAL_ENABLED = BUILDER
+                .comment("Whether the global zombie goal is enabled")
+                .define("zombieGoalEnabled", false);
+
+        BUILDER.pop();
+
         SPEC = BUILDER.build();
     }
 
@@ -71,6 +111,12 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         MineQTTConfig.connectionTimeout = CONNECTION_TIMEOUT.get();
         MineQTTConfig.keepAlive = KEEP_ALIVE.get();
         MineQTTConfig.allowItemNetherPortalTeleport = ALLOW_ITEM_NETHER_PORTAL_TELEPORT.get();
+        MineQTTConfig.baseTopic = BASE_TOPIC.get();
+        MineQTTConfig.statusTopic = STATUS_TOPIC.get();
+        MineQTTConfig.goalX = GOAL_X.get();
+        MineQTTConfig.goalY = GOAL_Y.get();
+        MineQTTConfig.goalZ = GOAL_Z.get();
+        MineQTTConfig.zombieGoalEnabled = ZOMBIE_GOAL_ENABLED.get();
     }
 
     @Override
@@ -84,6 +130,12 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         CONNECTION_TIMEOUT.set(MineQTTConfig.connectionTimeout);
         KEEP_ALIVE.set(MineQTTConfig.keepAlive);
         ALLOW_ITEM_NETHER_PORTAL_TELEPORT.set(MineQTTConfig.allowItemNetherPortalTeleport);
+        BASE_TOPIC.set(MineQTTConfig.baseTopic);
+        STATUS_TOPIC.set(MineQTTConfig.statusTopic);
+        GOAL_X.set(MineQTTConfig.goalX);
+        GOAL_Y.set(MineQTTConfig.goalY);
+        GOAL_Z.set(MineQTTConfig.goalZ);
+        ZOMBIE_GOAL_ENABLED.set(MineQTTConfig.zombieGoalEnabled);
     }
 
     @Override

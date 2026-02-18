@@ -28,6 +28,10 @@ public final class StaticDefaults {
     public static final String DEFAULT_TOPIC_CHAT_SAY = "chat/say"; // For receiving chat messages over MQTT
 
     public static final String DEFAULT_TOPIC_PLAYER = "player"; // For player-related messages
+    public static final int DEFAULT_GOAL_X = 7;
+    public static final int DEFAULT_GOAL_Y = -35;
+    public static final int DEFAULT_GOAL_Z = 4;
+    public static final boolean DEFAULT_ZOMBIE_GOAL_ENABLED = false;
 
     /**
      * Generate a deterministic client ID based on hostname.

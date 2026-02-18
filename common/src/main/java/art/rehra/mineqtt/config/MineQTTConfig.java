@@ -14,6 +14,10 @@ public class MineQTTConfig {
     // MQTT Topics
     public static String baseTopic;
     public static String statusTopic;
+    public static int goalX;
+    public static int goalY;
+    public static int goalZ;
+    public static boolean zombieGoalEnabled;
 
     static {
         resetToDefaults();
@@ -31,6 +35,10 @@ public class MineQTTConfig {
         allowItemNetherPortalTeleport = StaticDefaults.DEFAULT_ALLOW_ITEM_NETHER_PORTAL_TELEPORT;
         baseTopic = StaticDefaults.DEFAULT_TOPIC_BASE;
         statusTopic = StaticDefaults.DEFAULT_TOPIC_STATUS;
+        goalX = StaticDefaults.DEFAULT_GOAL_X;
+        goalY = StaticDefaults.DEFAULT_GOAL_Y;
+        goalZ = StaticDefaults.DEFAULT_GOAL_Z;
+        zombieGoalEnabled = StaticDefaults.DEFAULT_ZOMBIE_GOAL_ENABLED;
     }
 
     public static String getTopicPath(String subTopic) {

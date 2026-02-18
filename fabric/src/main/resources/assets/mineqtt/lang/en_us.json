@@ -6,6 +6,7 @@
   "config.mineqtt.category.messages": "Messages",
   "config.mineqtt.category.debug": "Debug Settings",
   "config.mineqtt.category.general": "General Settings",
+  "config.mineqtt.category.goal": "Zombie Goal Settings",
 
   "config.mineqtt.broker_host": "Broker Host",
   "config.mineqtt.broker_host.tooltip": "The hostname or IP address of the MQTT broker",
@@ -50,6 +51,14 @@
   "config.mineqtt.show_mqtt_status_in_chat": "Show MQTT Status in Chat",
   "config.mineqtt.show_mqtt_status_in_chat.tooltip": "Display MQTT connection status messages in chat",
   "config.mineqtt.allow_item_nether_portal_teleport": "Allow Items Through Nether Portals",
-  "config.mineqtt.allow_item_nether_portal_teleport.tooltip": "If disabled, items thrown into a nether portal will not teleport and just pass through."
+  "config.mineqtt.allow_item_nether_portal_teleport.tooltip": "If disabled, items thrown into a nether portal will not teleport and just pass through.",
+  "config.mineqtt.zombie_goal_enabled": "Enable Zombie Goal",
+  "config.mineqtt.zombie_goal_enabled.tooltip": "Whether zombies should move toward the global goal",
+  "config.mineqtt.goal_x": "Goal X",
+  "config.mineqtt.goal_x.tooltip": "The X coordinate zombies will move toward",
+  "config.mineqtt.goal_y": "Goal Y",
+  "config.mineqtt.goal_y.tooltip": "The Y coordinate zombies will move toward",
+  "config.mineqtt.goal_z": "Goal Z",
+  "config.mineqtt.goal_z.tooltip": "The Z coordinate zombies will move toward"
 }
 
