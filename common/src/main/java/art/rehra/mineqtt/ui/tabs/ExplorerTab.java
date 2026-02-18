@@ -34,8 +34,6 @@ public class ExplorerTab implements CyberdeckTab {
     @Override
     public void onActivated() {
         if (listenBtn != null) listenBtn.visible = true;
-        // Hide publish-specific widgets via screen helpers
-        this.screen.setPublishControlsVisible(false);
     }
 
     @Override
