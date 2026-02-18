@@ -74,6 +74,14 @@ public class MineQTTConfigScreen {
                 .setSaveConsumer(value -> MineQTTConfig.statusTopic = value)
                 .build());
 
+        // General Settings Category
+        ConfigCategory generalCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.general"));
+
+        generalCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.allow_item_nether_portal_teleport"), MineQTTConfig.allowItemNetherPortalTeleport)
+                .setTooltip(Component.translatable("config.mineqtt.allow_item_nether_portal_teleport.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.allowItemNetherPortalTeleport = value)
+                .build());
+
         return builder.build();
     }
 }

@@ -17,6 +17,7 @@ public final class StaticDefaults {
     public static final boolean DEFAULT_AUTO_RECONNECT = true;
     public static final long DEFAULT_CONNECTION_TIMEOUT = 30L; // seconds
     public static final int DEFAULT_KEEP_ALIVE = 60; // seconds
+    public static final boolean DEFAULT_ALLOW_ITEM_NETHER_PORTAL_TELEPORT = true;
 
     // MQTT Topics
     public static final String DEFAULT_TOPIC_BASE = "minecraft-" + DEFAULT_CLIENT_ID; // Unique base topic per client

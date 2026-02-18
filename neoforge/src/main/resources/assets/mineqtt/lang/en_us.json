@@ -22,6 +22,7 @@
   "mineqtt.config.offline_message": "Offline Message",
 
   "mineqtt.config.enable_debug_logging": "Enable Debug Logging",
-  "mineqtt.config.show_mqtt_status_in_chat": "Show MQTT Status in Chat"
+  "mineqtt.config.show_mqtt_status_in_chat": "Show MQTT Status in Chat",
+  "mineqtt.config.allow_item_nether_portal_teleport": "Allow Items Through Nether Portals"
 }
 

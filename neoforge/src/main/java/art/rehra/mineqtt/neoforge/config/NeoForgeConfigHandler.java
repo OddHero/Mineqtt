@@ -2,7 +2,6 @@ package art.rehra.mineqtt.neoforge.config;
 
 import art.rehra.mineqtt.config.ConfigHandler;
 import art.rehra.mineqtt.config.MineQTTConfig;
-import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 import java.util.UUID;
@@ -18,6 +17,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     public static final ModConfigSpec.BooleanValue AUTO_RECONNECT;
     public static final ModConfigSpec.LongValue CONNECTION_TIMEOUT;
     public static final ModConfigSpec.IntValue KEEP_ALIVE;
+    public static final ModConfigSpec.BooleanValue ALLOW_ITEM_NETHER_PORTAL_TELEPORT;
 
     public static final ModConfigSpec SPEC;
 
@@ -52,6 +52,10 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                 .comment("Keep alive interval in seconds")
                 .defineInRange("keepAlive", 60, 1, 3600);
 
+        ALLOW_ITEM_NETHER_PORTAL_TELEPORT = BUILDER
+                .comment("Allow items to teleport through nether portals")
+                .define("allowItemNetherPortalTeleport", true);
+
         BUILDER.pop();
 
         SPEC = BUILDER.build();
@@ -66,6 +70,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         MineQTTConfig.autoReconnect = AUTO_RECONNECT.get();
         MineQTTConfig.connectionTimeout = CONNECTION_TIMEOUT.get();
         MineQTTConfig.keepAlive = KEEP_ALIVE.get();
+        MineQTTConfig.allowItemNetherPortalTeleport = ALLOW_ITEM_NETHER_PORTAL_TELEPORT.get();
     }
 
     @Override
@@ -78,6 +83,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         AUTO_RECONNECT.set(MineQTTConfig.autoReconnect);
         CONNECTION_TIMEOUT.set(MineQTTConfig.connectionTimeout);
         KEEP_ALIVE.set(MineQTTConfig.keepAlive);
+        ALLOW_ITEM_NETHER_PORTAL_TELEPORT.set(MineQTTConfig.allowItemNetherPortalTeleport);
     }
 
     @Override

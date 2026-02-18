@@ -1,7 +1,7 @@
 package art.rehra.mineqtt.neoforge.config;
 
-import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.config.MineQTTConfig;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -14,6 +14,8 @@ public class MineQTTConfigScreen extends Screen {
     private EditBox clientIdField;
     private EditBox usernameField;
     private EditBox passwordField;
+    private Button allowItemPortalButton;
+    private boolean allowItemPortalValue;
     private Button saveButton;
     private Button cancelButton;
     private Button resetButton;
@@ -61,6 +63,14 @@ public class MineQTTConfigScreen extends Screen {
         this.passwordField.setMaxLength(64);
         this.addRenderableWidget(this.passwordField);
 
+        // Allow Item Portal Toggle
+        this.allowItemPortalValue = MineQTTConfig.allowItemNetherPortalTeleport;
+        this.allowItemPortalButton = Button.builder(getAllowItemPortalComponent(), (btn) -> {
+            this.allowItemPortalValue = !this.allowItemPortalValue;
+            btn.setMessage(getAllowItemPortalComponent());
+        }).bounds(centerX - fieldWidth / 2, startY + spacing * 4, fieldWidth, fieldHeight).build();
+        this.addRenderableWidget(this.allowItemPortalButton);
+
         // Buttons
         int buttonY = this.height - 40;
         int buttonWidth = 60;
@@ -103,6 +113,7 @@ public class MineQTTConfigScreen extends Screen {
         MineQTTConfig.clientId = this.clientIdField.getValue();
         MineQTTConfig.username = this.usernameField.getValue();
         MineQTTConfig.password = this.passwordField.getValue();
+        MineQTTConfig.allowItemNetherPortalTeleport = this.allowItemPortalValue;
 
         // Save config through handler
         if (MineQTT.getConfigHandler() != null) {
@@ -127,6 +138,12 @@ public class MineQTTConfigScreen extends Screen {
         this.clientIdField.setValue(MineQTTConfig.clientId);
         this.usernameField.setValue(MineQTTConfig.username);
         this.passwordField.setValue(MineQTTConfig.password);
+        this.allowItemPortalValue = MineQTTConfig.allowItemNetherPortalTeleport;
+        this.allowItemPortalButton.setMessage(getAllowItemPortalComponent());
+    }
+
+    private Component getAllowItemPortalComponent() {
+        return Component.literal("Allow Items Thru Portals: " + (allowItemPortalValue ? "Enabled" : "Disabled"));
     }
 
     @Override

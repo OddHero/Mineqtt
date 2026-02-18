@@ -79,6 +79,7 @@ public class FabricConfigHandler implements ConfigHandler {
         data.autoReconnect = MineQTTConfig.autoReconnect;
         data.connectionTimeout = MineQTTConfig.connectionTimeout;
         data.keepAlive = MineQTTConfig.keepAlive;
+        data.allowItemNetherPortalTeleport = MineQTTConfig.allowItemNetherPortalTeleport;
 
         return data;
     }
@@ -92,6 +93,7 @@ public class FabricConfigHandler implements ConfigHandler {
         MineQTTConfig.autoReconnect = data.autoReconnect;
         MineQTTConfig.connectionTimeout = data.connectionTimeout;
         MineQTTConfig.keepAlive = data.keepAlive;
+        MineQTTConfig.allowItemNetherPortalTeleport = data.allowItemNetherPortalTeleport;
     }
 
     private static class ConfigData {
@@ -103,6 +105,7 @@ public class FabricConfigHandler implements ConfigHandler {
         public boolean autoReconnect = true;
         public long connectionTimeout = 30;
         public int keepAlive = 60;
+        public boolean allowItemNetherPortalTeleport = true;
 
         // MQTT Topics
         public String baseTopic = "minecraft";

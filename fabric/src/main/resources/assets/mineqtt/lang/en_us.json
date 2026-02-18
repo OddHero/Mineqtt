@@ -5,6 +5,7 @@
   "config.mineqtt.category.publishing": "Publishing Settings",
   "config.mineqtt.category.messages": "Messages",
   "config.mineqtt.category.debug": "Debug Settings",
+  "config.mineqtt.category.general": "General Settings",
 
   "config.mineqtt.broker_host": "Broker Host",
   "config.mineqtt.broker_host.tooltip": "The hostname or IP address of the MQTT broker",
@@ -47,6 +48,8 @@
   "config.mineqtt.enable_debug_logging": "Enable Debug Logging",
   "config.mineqtt.enable_debug_logging.tooltip": "Enable verbose debug logging for troubleshooting",
   "config.mineqtt.show_mqtt_status_in_chat": "Show MQTT Status in Chat",
-  "config.mineqtt.show_mqtt_status_in_chat.tooltip": "Display MQTT connection status messages in chat"
+  "config.mineqtt.show_mqtt_status_in_chat.tooltip": "Display MQTT connection status messages in chat",
+  "config.mineqtt.allow_item_nether_portal_teleport": "Allow Items Through Nether Portals",
+  "config.mineqtt.allow_item_nether_portal_teleport.tooltip": "If disabled, items thrown into a nether portal will not teleport and just pass through."
 }
 

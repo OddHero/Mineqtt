@@ -9,6 +9,7 @@ public class MineQTTConfig {
     public static boolean autoReconnect;
     public static long connectionTimeout;
     public static int keepAlive;
+    public static boolean allowItemNetherPortalTeleport;
 
     // MQTT Topics
     public static String baseTopic;
@@ -27,6 +28,7 @@ public class MineQTTConfig {
         autoReconnect = StaticDefaults.DEFAULT_AUTO_RECONNECT;
         connectionTimeout = StaticDefaults.DEFAULT_CONNECTION_TIMEOUT;
         keepAlive = StaticDefaults.DEFAULT_KEEP_ALIVE;
+        allowItemNetherPortalTeleport = StaticDefaults.DEFAULT_ALLOW_ITEM_NETHER_PORTAL_TELEPORT;
         baseTopic = StaticDefaults.DEFAULT_TOPIC_BASE;
         statusTopic = StaticDefaults.DEFAULT_TOPIC_STATUS;
     }
