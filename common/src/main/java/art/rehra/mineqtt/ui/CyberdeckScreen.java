@@ -2,8 +2,10 @@ package art.rehra.mineqtt.ui;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
-import art.rehra.mineqtt.items.CyberdeckDataUtil;
 import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.ui.tabs.CyberdeckTab;
+import art.rehra.mineqtt.ui.tabs.ExplorerTab;
+import art.rehra.mineqtt.ui.tabs.PublishTab;
 import dev.architectury.networking.NetworkManager;
 import io.netty.buffer.Unpooled;
 import net.minecraft.client.Minecraft;
@@ -21,34 +23,40 @@ public class CyberdeckScreen extends AbstractContainerScreen<CyberdeckMenu> {
 
     // Temporary: reuse existing publisher background until a custom cyberdeck texture is added
     private static final ResourceLocation BACKGROUND = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "textures/gui/cyberdeck/background.png");
-    private static final int MAX_VISIBLE_TOPICS = 8;
     private static final java.util.Map<String, String> DISCOVERED_TOPICS = new java.util.TreeMap<>();
     private Tab activeTab = Tab.EXPLORER;
-    // Publisher controls
+    // Publisher controls (owned by screen, toggled by PublishTab)
     private EditBox topicField;
     private EditBox payloadField;
     private Button sendButton;
-    private Button listenBtn;
+    // Explorer-specific control is managed in ExplorerTab
     private Button explorerTabBtn;
     private Button publishTabBtn;
-    private int scrollOffset = 0;
+
+    // Tabs
+    private CyberdeckTab explorerTab;
+    private CyberdeckTab publishTab;
 
     public CyberdeckScreen(CyberdeckMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
         this.font = Minecraft.getInstance().font;
-        this.imageWidth = 176;
-        this.imageHeight = 222;
+        this.imageWidth = 256;
+        this.imageHeight = 256;
     }
 
     public static void updateTopic(String topic, String payload) {
         DISCOVERED_TOPICS.put(topic, payload);
     }
 
+    public static String getDiscoveredPayload(String topic) {
+        return DISCOVERED_TOPICS.get(topic);
+    }
+
     @Override
     protected void init() {
         super.init();
-        int left = (this.width - this.imageWidth) / 2;
-        int top = (this.height - this.imageHeight) / 2;
+        int left = getGuiLeft();
+        int top = getGuiTop();
 
         // Tabs
         explorerTabBtn = Button.builder(Component.literal("Explorer"), b -> switchTab(Tab.EXPLORER))
@@ -58,43 +66,37 @@ public class CyberdeckScreen extends AbstractContainerScreen<CyberdeckMenu> {
         addRenderableWidget(explorerTabBtn);
         addRenderableWidget(publishTabBtn);
 
-        // Publisher controls
+        // Publisher controls (managed by PublishTab visibility)
         topicField = new EditBox(this.font, left + 10, top + 56, 156, 16, Component.literal("Topic"));
         topicField.setMaxLength(256);
         payloadField = new EditBox(this.font, left + 10, top + 80, 156, 16, Component.literal("Payload"));
         payloadField.setMaxLength(1024);
         sendButton = Button.builder(Component.literal("Send"), b -> onSendClicked())
                 .pos(left + 10, top + 104).size(50, 20).build();
-
-        boolean isListening = CyberdeckDataUtil.isListening(this.menu.itemStack);
-        listenBtn = Button.builder(Component.literal(isListening ? "Listen: ON" : "Listen: OFF"), b -> onListenClicked())
-                .pos(left + 80, top + 33).size(80, 20).build();
-
         addRenderableWidget(topicField);
         addRenderableWidget(payloadField);
         addRenderableWidget(sendButton);
-        addRenderableWidget(listenBtn);
+        setPublishControlsVisible(false);
+
+        // Initialize tab instances
+        explorerTab = new ExplorerTab(this);
+        publishTab = new PublishTab(this);
+        explorerTab.onInit();
+        publishTab.onInit();
+
+        // Activate default tab
+        switchTab(Tab.EXPLORER);
     }
 
-    @SuppressWarnings("removal")
-    private void onListenClicked() {
-        boolean currentState = CyberdeckDataUtil.isListening(this.menu.itemStack);
-        boolean newState = !currentState;
-
-        // Update local state for immediate feedback
-        CyberdeckDataUtil.setListening(this.menu.itemStack, newState);
-        listenBtn.setMessage(Component.literal(newState ? "Listen: ON" : "Listen: OFF"));
-
-        // Send to server
-        if (this.minecraft != null && this.minecraft.level != null) {
-            RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(Unpooled.buffer(), this.minecraft.level.registryAccess());
-            buf.writeBoolean(newState);
-            NetworkManager.sendToServer(MineqttNetworking.CYBERDECK_LISTEN_TOGGLE, buf);
-        }
-    }
 
     private void switchTab(Tab tab) {
+        // Deactivate current
+        CyberdeckTab current = getActiveTab();
+        if (current != null) current.onDeactivated();
         this.activeTab = tab;
+        // Activate new
+        CyberdeckTab next = getActiveTab();
+        if (next != null) next.onActivated();
     }
 
     @SuppressWarnings("removal")
@@ -135,34 +137,9 @@ public class CyberdeckScreen extends AbstractContainerScreen<CyberdeckMenu> {
         int titleX = (this.imageWidth - titleWidth) / 2;
         guiGraphics.drawString(this.font, title, titleX, 6, 0x404040, false);
 
-        if (activeTab == Tab.EXPLORER) {
-            topicField.visible = false;
-            payloadField.visible = false;
-            sendButton.visible = false;
-            listenBtn.visible = true;
-
-            int y = 55;
-            int startIdx = scrollOffset;
-            int count = 0;
-
-            var entries = new java.util.ArrayList<>(DISCOVERED_TOPICS.entrySet());
-            for (int i = startIdx; i < entries.size() && count < MAX_VISIBLE_TOPICS; i++) {
-                var entry = entries.get(i);
-                String line = entry.getKey() + ": " + entry.getValue();
-                if (line.length() > 30) line = line.substring(0, 27) + "...";
-                guiGraphics.drawString(this.font, line, 8, y, 0xFF333333, false);
-                y += 10;
-                count++;
-            }
-            if (entries.isEmpty()) {
-                guiGraphics.drawString(this.font, "No topics discovered yet.", 8, 30, 0xFF888888, false);
-            }
-        } else {
-            topicField.visible = true;
-            payloadField.visible = true;
-            sendButton.visible = true;
-            listenBtn.visible = false;
-            guiGraphics.drawString(this.font, "Manual Publish", 8, 30, 0xFF555555, false);
+        CyberdeckTab tab = getActiveTab();
+        if (tab != null) {
+            tab.renderLabels(guiGraphics, mouseX, mouseY);
         }
     }
 
@@ -175,10 +152,12 @@ public class CyberdeckScreen extends AbstractContainerScreen<CyberdeckMenu> {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (this.topicField.keyPressed(keyCode, scanCode, modifiers) || this.topicField.canConsumeInput()) {
+        CyberdeckTab tab = getActiveTab();
+        if (tab != null && tab.keyPressed(keyCode, scanCode, modifiers)) return true;
+        if (this.topicField != null && (this.topicField.keyPressed(keyCode, scanCode, modifiers) || this.topicField.canConsumeInput())) {
             return true;
         }
-        if (this.payloadField.keyPressed(keyCode, scanCode, modifiers) || this.payloadField.canConsumeInput()) {
+        if (this.payloadField != null && (this.payloadField.keyPressed(keyCode, scanCode, modifiers) || this.payloadField.canConsumeInput())) {
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -186,10 +165,8 @@ public class CyberdeckScreen extends AbstractContainerScreen<CyberdeckMenu> {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if (activeTab == Tab.EXPLORER) {
-            scrollOffset = (int) Math.max(0, scrollOffset - scrollY);
-            return true;
-        }
+        CyberdeckTab tab = getActiveTab();
+        if (tab != null && tab.mouseScrolled(mouseX, mouseY, scrollX, scrollY)) return true;
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
@@ -202,5 +179,57 @@ public class CyberdeckScreen extends AbstractContainerScreen<CyberdeckMenu> {
 
     private enum Tab {
         EXPLORER, PUBLISH
+    }
+
+    // Helper: determine current active tab instance
+    private CyberdeckTab getActiveTab() {
+        return switch (activeTab) {
+            case EXPLORER -> explorerTab;
+            case PUBLISH -> publishTab;
+        };
+    }
+
+    // Helper: gui left/top
+    public int getGuiLeft() {
+        return (this.width - this.imageWidth) / 2;
+    }
+
+    public int getGuiTop() {
+        return (this.height - this.imageHeight) / 2;
+    }
+
+    // Expose minimal getters for tabs
+    public void setPublishControlsVisible(boolean visible) {
+        if (topicField != null) topicField.visible = visible;
+        if (payloadField != null) payloadField.visible = visible;
+        if (sendButton != null) sendButton.visible = visible;
+    }
+
+    public EditBox getTopicField() {
+        return this.topicField;
+    }
+
+    public EditBox getPayloadField() {
+        return this.payloadField;
+    }
+
+    public Button getSendButton() {
+        return this.sendButton;
+    }
+
+    public net.minecraft.client.gui.Font getFont() {
+        return this.font;
+    }
+
+    public Minecraft getMinecraft() {
+        return this.minecraft;
+    }
+
+    public CyberdeckMenu getMenu() {
+        return this.menu;
+    }
+
+    public void addButton(Button button) {
+        this.addRenderableWidget(button);
     }
 }
