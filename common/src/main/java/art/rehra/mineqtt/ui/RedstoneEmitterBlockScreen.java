@@ -11,6 +11,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 
@@ -108,5 +109,18 @@ public class RedstoneEmitterBlockScreen extends AbstractContainerScreen<Redstone
         guiGraphics.drawString(this.font, "Status:", guiLeft + MARGIN, currentY, 0xFF555555, false);
         currentY += LINE_HEIGHT;
         guiGraphics.drawString(this.font, status, guiLeft + MARGIN + 4, currentY, statusColor, false);
+
+        // Signal value info
+        if (isEnabled) {
+            currentY += LINE_HEIGHT;
+            ItemStack onStack = blockEntity.getItem(2);
+            ItemStack offStack = blockEntity.getItem(3);
+
+            String onValue = onStack.isEmpty() ? "true/on" : RedstoneEmitterBlockEntity.parseItemStackTopic(onStack);
+            String offValue = offStack.isEmpty() ? "false/off" : RedstoneEmitterBlockEntity.parseItemStackTopic(offStack);
+
+            String signalInfo = "ON: '" + onValue + "' | OFF: '" + offValue + "'";
+            guiGraphics.drawString(this.font, signalInfo, guiLeft + MARGIN + 4, currentY, 0xFF888888, false);
+        }
     }
 }

@@ -8,6 +8,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -48,18 +49,35 @@ public class RedstoneEmitterBlockEntity extends MqttSubscriberBlockEntity {
             return;
         }
 
+        ItemStack onStack = getItem(2);
+        ItemStack offStack = getItem(3);
+
+        String customOn = onStack.isEmpty() ? null : parseItemStackTopic(onStack);
+        String customOff = offStack.isEmpty() ? null : parseItemStackTopic(offStack);
+
         // Set the Power state based on message content
         int power = -1;
-        if (message.equalsIgnoreCase("ON") || message.equalsIgnoreCase("TRUE")) {
-            power = 15;
-        } else if (message.equalsIgnoreCase("OFF") || message.equalsIgnoreCase("FALSE")) {
-            power = 0;
-        } else {
-            try {
-                power = Integer.parseInt(message);
-                power = Math.clamp(power, 0, 15);
-            } catch (NumberFormatException e) {
-                // Not a number, ignore
+
+        if (customOn != null || customOff != null) {
+            if (message.equals(customOn)) {
+                power = 15;
+            } else if (message.equals(customOff)) {
+                power = 0;
+            }
+        }
+
+        if (power == -1) {
+            if (message.equalsIgnoreCase("ON") || message.equalsIgnoreCase("TRUE")) {
+                power = 15;
+            } else if (message.equalsIgnoreCase("OFF") || message.equalsIgnoreCase("FALSE")) {
+                power = 0;
+            } else {
+                try {
+                    power = Integer.parseInt(message);
+                    power = Math.clamp(power, 0, 15);
+                } catch (NumberFormatException e) {
+                    // Not a number, ignore
+                }
             }
         }
 

@@ -38,8 +38,10 @@ public class RedstoneEmitterBlockMenu extends AbstractContainerMenu {
         }
 
         // Block Inventory
-        this.addSlot(new Slot(container, 0, 62, 35)); // Input
-        this.addSlot(new Slot(container, 1, 98, 35)); // Output
+        this.addSlot(new Slot(container, 0, 8, 26)); // Base Topic
+        this.addSlot(new Slot(container, 1, 44, 26)); // Sub Topic
+        this.addSlot(new Slot(container, 2, 104, 26)); // ON Value
+        this.addSlot(new Slot(container, 3, 152, 26)); // OFF Value
     }
 
     @Override
@@ -52,10 +54,10 @@ public class RedstoneEmitterBlockMenu extends AbstractContainerMenu {
 
             if (index < 36) {
                 // Move from player inventory to block inventory
-                if (!this.moveItemStackTo(originalStack, 36, 38, false)) {
+                if (!this.moveItemStackTo(originalStack, 36, 40, false)) {
                     return ItemStack.EMPTY;
                 }
-            } else if (index < 38) {
+            } else if (index < 40) {
                 // Move from block inventory to player inventory
                 if (!this.moveItemStackTo(originalStack, 0, 36, false)) {
                     return ItemStack.EMPTY;
