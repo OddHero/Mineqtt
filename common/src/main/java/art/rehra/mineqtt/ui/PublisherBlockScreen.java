@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.ui;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -10,6 +11,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 
@@ -110,7 +112,13 @@ public class PublisherBlockScreen extends AbstractContainerScreen<PublisherBlock
         // Redstone signal info
         if (isEnabled) {
             currentY += LINE_HEIGHT;
-            String signalInfo = isPowered ? "Signal: ON → 'true'" : "Signal: OFF → 'false'";
+            ItemStack onStack = blockEntity.getItem(2);
+            ItemStack offStack = blockEntity.getItem(3);
+
+            String onValue = onStack.isEmpty() ? "true" : BaseMqttBlockEntity.parseItemStackTopic(onStack);
+            String offValue = offStack.isEmpty() ? "false" : BaseMqttBlockEntity.parseItemStackTopic(offStack);
+
+            String signalInfo = isPowered ? "Signal: ON → '" + onValue + "'" : "Signal: OFF → '" + offValue + "'";
             guiGraphics.drawString(this.font, signalInfo, guiLeft + MARGIN + 4, currentY, 0xFF888888, false);
         }
     }

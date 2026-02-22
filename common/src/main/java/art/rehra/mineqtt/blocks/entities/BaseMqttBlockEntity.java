@@ -22,7 +22,7 @@ import org.jetbrains.annotations.Nullable;
 
 public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity implements ExtendedMenuProvider {
 
-    public static final int INVENTORY_SIZE = 2;
+    public static final int INVENTORY_SIZE = 4;
     protected String topic = "";
     protected NonNullList<ItemStack> items;
 

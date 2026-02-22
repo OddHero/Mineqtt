@@ -4,7 +4,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.*;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 
 public class PublisherBlockMenu extends AbstractContainerMenu {
@@ -35,9 +36,11 @@ public class PublisherBlockMenu extends AbstractContainerMenu {
             this.addSlot(new Slot(playerInventory, col, 8 + col * 18, 142));
         }
 
-        // Block Inventory - Topic slot (first slot determines the topic)
-        this.addSlot(new Slot(container, 0, 62, 35)); // Topic Input
-        this.addSlot(new Slot(container, 1, 98, 35)); // Output/Status
+        // Block Inventory - Topic slots and Value slots
+        this.addSlot(new Slot(container, 0, 8, 26)); // Base Topic
+        this.addSlot(new Slot(container, 1, 44, 26)); // Sub Topic
+        this.addSlot(new Slot(container, 2, 104, 26)); // ON Value
+        this.addSlot(new Slot(container, 3, 152, 26)); // OFF Value
     }
 
     @Override
@@ -50,10 +53,10 @@ public class PublisherBlockMenu extends AbstractContainerMenu {
 
             if (index < 36) {
                 // Move from player inventory to block inventory
-                if (!this.moveItemStackTo(originalStack, 36, 38, false)) {
+                if (!this.moveItemStackTo(originalStack, 36, 40, false)) {
                     return ItemStack.EMPTY;
                 }
-            } else if (index < 38) {
+            } else if (index < 40) {
                 // Move from block inventory to player inventory
                 if (!this.moveItemStackTo(originalStack, 0, 36, false)) {
                     return ItemStack.EMPTY;

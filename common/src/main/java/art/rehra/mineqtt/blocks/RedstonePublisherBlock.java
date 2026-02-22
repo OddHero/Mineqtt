@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.blocks;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import com.mojang.serialization.MapCodec;
@@ -72,13 +73,26 @@ public class RedstonePublisherBlock extends BaseMqttBlock {
         return false;
     }
 
-    private void publishToCombinedTopic(Level level, BlockPos pos, String message) {
+    private void publishToCombinedTopic(Level level, BlockPos pos, String defaultMessage) {
         if (!isPublisherEnabled(level, pos)) {
             MineQTT.LOGGER.debug("Publisher at " + pos + " is disabled (no base path item in first slot)");
             return;
         }
 
         String combinedTopic = getCombinedTopicFromBlockEntity(level, pos);
+        String message = defaultMessage;
+
+        // Use custom ON/OFF value if item is present
+        if (level.getBlockEntity(pos) instanceof PublisherBlockEntity publisherBlockEntity) {
+            ItemStack onStack = publisherBlockEntity.getItem(2);
+            ItemStack offStack = publisherBlockEntity.getItem(3);
+
+            if (defaultMessage.equals("true") && !onStack.isEmpty()) {
+                message = BaseMqttBlockEntity.parseItemStackTopic(onStack);
+            } else if (defaultMessage.equals("false") && !offStack.isEmpty()) {
+                message = BaseMqttBlockEntity.parseItemStackTopic(offStack);
+            }
+        }
 
         // Publish to combined topic if enabled
         if (!combinedTopic.isEmpty()) {
