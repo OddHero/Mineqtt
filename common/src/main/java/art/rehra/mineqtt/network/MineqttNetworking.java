@@ -73,23 +73,15 @@ public final class MineqttNetworking {
         });
 
         // S2C: Cyberdeck topic update (topic, payload)
-        // Architectury 17+ on Fabric requires both sides to register the codec,
-        // but Side.S2C registerReceiver throws AbstractMethodError on server.
-        // Side.C2S registration on both sides is the safe way for C2S.
-        // For S2C, we use Side.S2C only on client, and on server we need to register the payload separately.
+        // Architectury 17+ on Fabric requires the codec to be registered for S2C on the server
+        // so that sendToPlayer can find it. registerReceiver with Side.S2C on the server
+        // is NOT supported on Fabric (throws AbstractMethodError).
+        // We use registerS2CPayloadType on the server (which is safe on all loaders) 
+        // and registerReceiver only on the client.
         if (dev.architectury.platform.Platform.getEnv() == net.fabricmc.api.EnvType.CLIENT) {
             NetworkManager.registerReceiver(NetworkManager.Side.S2C, CyberdeckTopicUpdatePayload.TYPE, CyberdeckTopicUpdatePayload.CODEC, ClientPacketHandler::handleTopicUpdate);
         } else {
-            // Registration on server to avoid NPE during sendToPlayer
-            try {
-                // We use Side.C2S here on server as a workaround because S2C registration on server
-                // causes AbstractMethodError on Fabric Architectury 17.0.8,
-                // but the codec must still be registered for sendToPlayer to work.
-                NetworkManager.registerReceiver(NetworkManager.Side.C2S, CyberdeckTopicUpdatePayload.TYPE, CyberdeckTopicUpdatePayload.CODEC, (payload, context) -> {
-                });
-            } catch (Exception e) {
-                MineQTT.LOGGER.error("[MineQTT] Failed to register topic update codec on server: {}", e.getMessage());
-            }
+            NetworkManager.registerS2CPayloadType(CyberdeckTopicUpdatePayload.TYPE, CyberdeckTopicUpdatePayload.CODEC);
         }
     }
 
