@@ -111,4 +111,25 @@ public class CyberdeckSessionManager {
         playerDiscoveredTopics.remove(player.getUUID());
         checkGlobalUnsubscribe();
     }
+
+    public static void onPlayerLoggedIn(ServerPlayer player) {
+        // Check if player has a cyberdeck item with listening set to true
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            net.minecraft.world.item.ItemStack stack = player.getInventory().getItem(i);
+            if (stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem) {
+                if (art.rehra.mineqtt.items.CyberdeckDataUtil.isListening(stack)) {
+                    toggleListening(player, true);
+                    MineQTT.LOGGER.debug("[Cyberdeck] Restored listening for player {} from item data", player.getGameProfile().getName());
+                    break;
+                }
+            }
+        }
+    }
+
+    public static void resubscribeIfNecessary() {
+        if (!activeListeners.isEmpty()) {
+            isGlobalSubscribed = false; // Reset flag to force re-subscription
+            ensureGlobalSubscription();
+        }
+    }
 }

@@ -102,6 +102,12 @@ public class MineQTT {
             art.rehra.mineqtt.mqtt.CyberdeckSessionManager.tick(server);
         });
 
+        dev.architectury.event.events.common.PlayerEvent.PLAYER_JOIN.register(player -> {
+            if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                art.rehra.mineqtt.mqtt.CyberdeckSessionManager.onPlayerLoggedIn(serverPlayer);
+            }
+        });
+
         dev.architectury.event.events.common.PlayerEvent.PLAYER_QUIT.register(player -> {
             if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
                 art.rehra.mineqtt.mqtt.CyberdeckSessionManager.onPlayerLoggedOut(serverPlayer);
@@ -203,6 +209,7 @@ public class MineQTT {
 
                                 // Resubscribe to all active topics
                                 SubscriptionManager.resubscribeAll();
+                                art.rehra.mineqtt.mqtt.CyberdeckSessionManager.resubscribeIfNecessary();
                             })
                     .addDisconnectedListener(
                             disconn -> LOGGER.warn("MQTT client disconnected from broker.", disconn.getCause()))

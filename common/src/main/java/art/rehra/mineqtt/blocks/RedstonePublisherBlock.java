@@ -97,7 +97,6 @@ public class RedstonePublisherBlock extends BaseMqttBlock {
         // Publish to combined topic if enabled
         if (!combinedTopic.isEmpty()) {
             sendMqttMessage(combinedTopic, message);
-            MineQTT.LOGGER.info("Published '" + message + "' to combined topic: " + combinedTopic);
         }
     }
 
