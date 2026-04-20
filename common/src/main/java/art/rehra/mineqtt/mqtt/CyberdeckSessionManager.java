@@ -80,12 +80,10 @@ public class CyberdeckSessionManager {
     public static void broadcastToPlayer(ServerPlayer player, String topic, String payload) {
         if (!isListening(player)) return;
 
-        net.minecraft.network.RegistryFriendlyByteBuf buf = new net.minecraft.network.RegistryFriendlyByteBuf(
-                io.netty.buffer.Unpooled.buffer(), player.registryAccess());
-        buf.writeUtf(topic);
-        buf.writeUtf(payload);
-
-        dev.architectury.networking.NetworkManager.sendToPlayer(player, art.rehra.mineqtt.network.MineqttNetworking.CYBERDECK_TOPIC_UPDATE, buf);
+        // Use CustomPacketPayload-based sending to avoid NPE in NetworkAggregator (MC 1.21+)
+        art.rehra.mineqtt.network.MineqttNetworking.CyberdeckTopicUpdatePayload packet =
+                new art.rehra.mineqtt.network.MineqttNetworking.CyberdeckTopicUpdatePayload(topic, payload);
+        dev.architectury.networking.NetworkManager.sendToPlayer(player, packet);
     }
 
     public static void tick(net.minecraft.server.MinecraftServer server) {

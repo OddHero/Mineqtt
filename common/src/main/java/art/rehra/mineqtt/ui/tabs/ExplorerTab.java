@@ -5,10 +5,8 @@ import art.rehra.mineqtt.items.CyberdeckDataUtil;
 import art.rehra.mineqtt.network.MineqttNetworking;
 import art.rehra.mineqtt.ui.CyberdeckScreen;
 import dev.architectury.networking.NetworkManager;
-import io.netty.buffer.Unpooled;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 
 public class ExplorerTab implements CyberdeckTab {
@@ -83,7 +81,7 @@ public class ExplorerTab implements CyberdeckTab {
         return false;
     }
 
-    private void onListenClicked() {
+    public void onListenClicked() {
         boolean currentState = CyberdeckDataUtil.isListening(this.screen.getMenu().itemStack);
         boolean newState = !currentState;
 
@@ -95,9 +93,7 @@ public class ExplorerTab implements CyberdeckTab {
 
         // Send to server
         if (this.screen.getMinecraft() != null && this.screen.getMinecraft().level != null) {
-            RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(Unpooled.buffer(), this.screen.getMinecraft().level.registryAccess());
-            buf.writeBoolean(newState);
-            NetworkManager.sendToServer(MineqttNetworking.CYBERDECK_LISTEN_TOGGLE, buf);
+            NetworkManager.sendToServer(new MineqttNetworking.CyberdeckListenTogglePayload(newState));
         }
     }
 }

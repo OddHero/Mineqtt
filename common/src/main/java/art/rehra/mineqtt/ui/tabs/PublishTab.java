@@ -2,11 +2,10 @@ package art.rehra.mineqtt.ui.tabs;
 
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.ui.CyberdeckScreen;
-import io.netty.buffer.Unpooled;
+import dev.architectury.networking.NetworkManager;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
@@ -76,7 +75,6 @@ public class PublishTab implements CyberdeckTab {
         if (sendButton != null) sendButton.visible = visible;
     }
 
-    @SuppressWarnings("removal")
     private void onSendClicked() {
         String topic = topicField.getValue() != null ? topicField.getValue().trim() : "";
         String payload = payloadField.getValue() != null ? payloadField.getValue() : "";
@@ -100,10 +98,7 @@ public class PublishTab implements CyberdeckTab {
 
         // Send as a networking packet instead of a command to avoid slashes issues
         if (screen.getMinecraft() != null && screen.getMinecraft().level != null) {
-            RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(Unpooled.buffer(), screen.getMinecraft().level.registryAccess());
-            buf.writeUtf(finalTopic, 512);
-            buf.writeUtf(finalPayload, 2048);
-            dev.architectury.networking.NetworkManager.sendToServer(art.rehra.mineqtt.network.MineqttNetworking.CYBERDECK_PUBLISH, buf);
+            NetworkManager.sendToServer(new art.rehra.mineqtt.network.MineqttNetworking.CyberdeckPublishPayload(finalTopic, finalPayload));
         }
     }
 
