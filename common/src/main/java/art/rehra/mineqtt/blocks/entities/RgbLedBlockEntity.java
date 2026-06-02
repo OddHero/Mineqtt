@@ -6,7 +6,8 @@ import art.rehra.mineqtt.mqtt.BlockStateManager;
 import art.rehra.mineqtt.mqtt.BlockStatePersistence;
 import art.rehra.mineqtt.mqtt.homeassistant.HomeAssistantDiscoveryManager;
 import art.rehra.mineqtt.mqtt.homeassistant.devices.HomeAssistantLight;
-import art.rehra.mineqtt.ui.RgbLedBlockMenu;
+import art.rehra.mineqtt.ui.framework.MqttTab;
+import art.rehra.mineqtt.ui.framework.tabs.RgbLedStatusTab;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.core.BlockPos;
@@ -16,15 +17,14 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
 
@@ -116,13 +116,15 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
     }
 
     @Override
-    public AbstractContainerMenu createMenu(int containerId, Inventory inventory, Player player) {
-        return new RgbLedBlockMenu(containerId, inventory, this, player, this.worldPosition);
+    public List<MqttTab> getTabs() {
+        List<MqttTab> tabs = super.getTabs();
+        tabs.add(new RgbLedStatusTab());
+        return tabs;
     }
 
     @Override
-    protected AbstractContainerMenu createMenu(int containerId, Inventory inventory) {
-        return new RgbLedBlockMenu(containerId, inventory, this, null, this.worldPosition);
+    public int getContainerSize() {
+        return 2;
     }
 
     @Override

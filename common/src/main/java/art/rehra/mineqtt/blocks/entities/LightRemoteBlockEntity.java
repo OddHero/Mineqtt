@@ -1,16 +1,16 @@
 package art.rehra.mineqtt.blocks.entities;
 
-import art.rehra.mineqtt.ui.LightRemoteMenu;
+import art.rehra.mineqtt.ui.framework.MqttTab;
+import art.rehra.mineqtt.ui.framework.tabs.LightRemoteTab;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.List;
 
 public class LightRemoteBlockEntity extends MqttPublisherBlockEntity {
 
@@ -29,13 +29,15 @@ public class LightRemoteBlockEntity extends MqttPublisherBlockEntity {
     }
 
     @Override
-    public AbstractContainerMenu createMenu(int containerId, Inventory inventory, Player player) {
-        return new LightRemoteMenu(containerId, inventory, this, player, this.worldPosition);
+    public List<MqttTab> getTabs() {
+        List<MqttTab> tabs = super.getTabs();
+        tabs.add(new LightRemoteTab());
+        return tabs;
     }
 
     @Override
-    protected AbstractContainerMenu createMenu(int containerId, Inventory inventory) {
-        return new LightRemoteMenu(containerId, inventory, this, null, this.worldPosition);
+    public int getContainerSize() {
+        return 2;
     }
 
     /**

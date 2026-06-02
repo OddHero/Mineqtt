@@ -3,7 +3,10 @@ package art.rehra.mineqtt.neoforge.client;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.client.RgbLedBlockColor;
-import art.rehra.mineqtt.ui.*;
+import art.rehra.mineqtt.ui.CyberdeckScreen;
+import art.rehra.mineqtt.ui.MineqttMenuTypes;
+import art.rehra.mineqtt.ui.framework.MineqttClientTabs;
+import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -17,22 +20,18 @@ public class MineqttNeoForgeClient {
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
         MineQTT.LOGGER.info("MineQTT NeoForge Client initializing");
+        // Wire tab-id -> client view implementations.
+        MineqttClientTabs.registerAll();
     }
 
     @SubscribeEvent
     public static void registerScreens(RegisterMenuScreensEvent event) {
-        event.register(MineqttMenuTypes.REDSTONE_EMITTER_BLOCK_MENU.get(), RedstoneEmitterBlockScreen::new);
-        event.register(MineqttMenuTypes.RGB_LED_BLOCK_MENU.get(), RgbLedBlockScreen::new);
-        event.register(MineqttMenuTypes.PUBLISHER_BLOCK_MENU.get(), PublisherBlockScreen::new);
-        event.register(MineqttMenuTypes.MOTION_SENSOR_BLOCK_MENU.get(), MotionSensorBlockScreen::new);
-        event.register(MineqttMenuTypes.LIGHT_REMOTE_BLOCK_MENU.get(), LightRemoteScreen::new);
+        event.register(MineqttMenuTypes.MQTT_TABBED_MENU.get(), TabbedMqttScreen::new);
         event.register(MineqttMenuTypes.CYBERDECK_MENU.get(), CyberdeckScreen::new);
     }
 
     @SubscribeEvent
     public static void registerBlockColors(RegisterColorHandlersEvent.Block event) {
         event.register(new RgbLedBlockColor(), MineqttBlocks.RGB_LED_BLOCK.get());
-        // Note: Item color registration not needed as items default to white
     }
 }
-

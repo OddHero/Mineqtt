@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.ui;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import dev.architectury.registry.menu.MenuRegistry;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
@@ -8,43 +9,33 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.ItemStack;
 
+/**
+ * Registry of all MineQTT {@link MenuType}s.
+ *
+ * <p>Every MQTT block opens a single shared, tabbed menu type ({@link #MQTT_TABBED_MENU}).
+ * The set of tabs displayed inside the menu is provided by the {@code BaseMqttBlockEntity}
+ * itself, so the screen automatically adapts to whichever block is opened. The Cyberdeck
+ * keeps its own dedicated menu because it is not a block but an item.</p>
+ */
 public class MineqttMenuTypes {
 
     public static final DeferredRegister<MenuType<?>> MENU_TYPES = DeferredRegister.create(MineQTT.MOD_ID, Registries.MENU);
 
-    public static RegistrySupplier<MenuType<RedstoneEmitterBlockMenu>> REDSTONE_EMITTER_BLOCK_MENU;
-    public static RegistrySupplier<MenuType<PublisherBlockMenu>> PUBLISHER_BLOCK_MENU;
-    public static RegistrySupplier<MenuType<RgbLedBlockMenu>> RGB_LED_BLOCK_MENU;
-    public static RegistrySupplier<MenuType<MotionSensorBlockMenu>> MOTION_SENSOR_BLOCK_MENU;
+    /**
+     * Unified tabbed menu used by every MQTT block.
+     */
+    public static RegistrySupplier<MenuType<TabbedMqttMenu>> MQTT_TABBED_MENU;
     public static RegistrySupplier<MenuType<CyberdeckMenu>> CYBERDECK_MENU;
-    public static RegistrySupplier<MenuType<LightRemoteMenu>> LIGHT_REMOTE_BLOCK_MENU;
+
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Menu Types");
 
-        REDSTONE_EMITTER_BLOCK_MENU = MENU_TYPES.register("redstone_emitter_block",
+        MQTT_TABBED_MENU = MENU_TYPES.register("mqtt_tabbed",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) ->
-                        new RedstoneEmitterBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
-
-        PUBLISHER_BLOCK_MENU = MENU_TYPES.register("publisher_block",
-                () -> MenuRegistry.ofExtended((id, inventory, buf) ->
-                        new PublisherBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
-
-        RGB_LED_BLOCK_MENU = MENU_TYPES.register("rgb_led_block",
-                () -> MenuRegistry.ofExtended((id, inventory, buf) ->
-                        new RgbLedBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
-
-        MOTION_SENSOR_BLOCK_MENU = MENU_TYPES.register("motion_sensor_block",
-                () -> MenuRegistry.ofExtended((id, inventory, buf) ->
-                        new MotionSensorBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
-
-        LIGHT_REMOTE_BLOCK_MENU = MENU_TYPES.register("light_remote_block",
-                () -> MenuRegistry.ofExtended((id, inventory, buf) ->
-                        new LightRemoteMenu(id, inventory, inventory.player, buf.readBlockPos())));
+                        new TabbedMqttMenu(id, inventory, inventory.player, buf.readBlockPos(), null)));
 
         CYBERDECK_MENU = MENU_TYPES.register("cyberdeck",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) -> {
-                    // On server, it's safer to find it in inventory.
-                    // On client, it's also safer to find it in inventory as we don't send the slot index in buf here (yet).
                     ItemStack stack = inventory.player.getMainHandItem();
                     if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) {
                         stack = inventory.player.getOffhandItem();

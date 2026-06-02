@@ -1,16 +1,14 @@
 package art.rehra.mineqtt.blocks.entities;
 
-import art.rehra.mineqtt.ui.MotionSensorBlockMenu;
+import art.rehra.mineqtt.ui.framework.MqttTab;
+import art.rehra.mineqtt.ui.framework.tabs.MotionSensorTab;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.level.Level;
@@ -79,13 +77,10 @@ public class MotionSensorBlockEntity extends MqttPublisherBlockEntity {
     }
 
     @Override
-    public AbstractContainerMenu createMenu(int id, Inventory playerInventory, Player player) {
-        return new MotionSensorBlockMenu(id, playerInventory, this, player, this.worldPosition);
-    }
-
-    @Override
-    protected AbstractContainerMenu createMenu(int id, Inventory playerInventory) {
-        return new MotionSensorBlockMenu(id, playerInventory, this, null, this.worldPosition);
+    public List<MqttTab> getTabs() {
+        List<MqttTab> tabs = super.getTabs();
+        tabs.add(new MotionSensorTab());
+        return tabs;
     }
 
     @Override
@@ -96,10 +91,6 @@ public class MotionSensorBlockEntity extends MqttPublisherBlockEntity {
     @Override
     public Component getDisplayName() {
         return Component.literal("Motion Sensor");
-    }
-
-    @Override
-    public void saveExtraData(FriendlyByteBuf buf) {
     }
 
     @Override

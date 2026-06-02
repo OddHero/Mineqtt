@@ -47,6 +47,11 @@
   "container.mineqtt.motion_sensor": "Motion Sensor",
   "block.mineqtt.light_remote_block": "Light Remote",
   "item.mineqtt.light_remote_block": "Light Remote",
-  "container.mineqtt.light_remote": "Light Remote"
+  "container.mineqtt.light_remote": "Light Remote",
+  "mineqtt.tab.settings": "MQTT Settings",
+  "mineqtt.tab.publisher_values": "Payloads",
+  "mineqtt.tab.motion_filters": "Mob Filters",
+  "mineqtt.tab.rgb_status": "Status",
+  "mineqtt.tab.light_remote": "Remote"
 }
 

@@ -2,18 +2,18 @@ package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.RedstoneEmitterBlock;
-import art.rehra.mineqtt.ui.RedstoneEmitterBlockMenu;
+import art.rehra.mineqtt.ui.framework.MqttTab;
+import art.rehra.mineqtt.ui.framework.tabs.PublisherValuesTab;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.state.BlockState;
+
+import java.util.List;
 
 import static art.rehra.mineqtt.blocks.RedstoneEmitterBlock.POWER;
 
@@ -34,13 +34,10 @@ public class RedstoneEmitterBlockEntity extends MqttSubscriberBlockEntity {
     }
 
     @Override
-    public AbstractContainerMenu createMenu(int containerId, Inventory inventory, Player player) {
-        return new RedstoneEmitterBlockMenu(containerId, inventory, this, player, this.worldPosition);
-    }
-
-    @Override
-    protected AbstractContainerMenu createMenu(int containerId, Inventory inventory) {
-        return new RedstoneEmitterBlockMenu(containerId, inventory, this, null, this.worldPosition);
+    public List<MqttTab> getTabs() {
+        List<MqttTab> tabs = super.getTabs();
+        tabs.add(new PublisherValuesTab());
+        return tabs;
     }
 
     @Override

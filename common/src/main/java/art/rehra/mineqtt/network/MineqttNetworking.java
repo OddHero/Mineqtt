@@ -15,6 +15,7 @@ public final class MineqttNetworking {
     public static final ResourceLocation CYBERDECK_LISTEN_TOGGLE_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_listen_toggle");
     public static final ResourceLocation CYBERDECK_TOPIC_UPDATE_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_topic_update");
     public static final ResourceLocation LIGHT_REMOTE_COMMAND_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "light_remote_command");
+    public static final ResourceLocation SET_ACTIVE_TAB_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "set_active_tab");
 
     @Deprecated
     public static final ResourceLocation CYBERDECK_PUBLISH = CYBERDECK_PUBLISH_ID;
@@ -95,6 +96,20 @@ public final class MineqttNetworking {
             });
         });
 
+        // C2S: remember the last tab opened in a tabbed MQTT-block screen
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetActiveTabPayload.TYPE, SetActiveTabPayload.CODEC, (payload, context) -> {
+            net.minecraft.core.BlockPos pos = payload.pos();
+            String tabId = payload.tabId();
+            context.queue(() -> {
+                if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer sp) {
+                    var be = sp.level().getBlockEntity(pos);
+                    if (be instanceof art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity mqtt) {
+                        mqtt.setLastTabId(tabId);
+                    }
+                }
+            });
+        });
+
         if (dev.architectury.platform.Platform.getEnv() == net.fabricmc.api.EnvType.CLIENT) {
             NetworkManager.registerReceiver(NetworkManager.Side.S2C, CyberdeckTopicUpdatePayload.TYPE, CyberdeckTopicUpdatePayload.CODEC, ClientPacketHandler::handleTopicUpdate);
         } else {
@@ -150,6 +165,20 @@ public final class MineqttNetworking {
                 net.minecraft.core.BlockPos.STREAM_CODEC.cast(), LightRemoteCommandPayload::pos,
                 net.minecraft.network.codec.ByteBufCodecs.stringUtf8(4096), LightRemoteCommandPayload::jsonPayload,
                 LightRemoteCommandPayload::new
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record SetActiveTabPayload(net.minecraft.core.BlockPos pos, String tabId) implements CustomPacketPayload {
+        public static final Type<SetActiveTabPayload> TYPE = new Type<>(SET_ACTIVE_TAB_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, SetActiveTabPayload> CODEC = StreamCodec.composite(
+                net.minecraft.core.BlockPos.STREAM_CODEC.cast(), SetActiveTabPayload::pos,
+                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(64), SetActiveTabPayload::tabId,
+                SetActiveTabPayload::new
         );
 
         @Override
