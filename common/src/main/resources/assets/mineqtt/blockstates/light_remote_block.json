@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "mineqtt:block/light_remote_block"
+    }
+  }
+}

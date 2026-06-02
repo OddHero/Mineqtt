@@ -12,6 +12,7 @@ public class MineqttBlockEntityTypesNeoForge extends MineqttBlockEntityTypes {
 
         RGB_LED_BLOCK = registerBlockEntity("rgb_led_block", () -> new BlockEntityType<>(RgbLedBlockEntity::new, MineqttBlocks.RGB_LED_BLOCK.get()));
         MOTION_SENSOR_BLOCK = registerBlockEntity("motion_sensor_block", () -> new BlockEntityType<>(MotionSensorBlockEntity::new, MineqttBlocks.MOTION_SENSOR_BLOCK.get()));
+        LIGHT_REMOTE_BLOCK = registerBlockEntity("light_remote_block", () -> new BlockEntityType<>(LightRemoteBlockEntity::new, MineqttBlocks.LIGHT_REMOTE_BLOCK.get()));
         writeRegister();
     }
 }

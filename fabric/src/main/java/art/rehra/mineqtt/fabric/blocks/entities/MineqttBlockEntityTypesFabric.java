@@ -12,6 +12,7 @@ public class MineqttBlockEntityTypesFabric  extends MineqttBlockEntityTypes {
 
         RGB_LED_BLOCK = registerBlockEntity("rgb_led_block", () -> FabricBlockEntityTypeBuilder.create(RgbLedBlockEntity::new, MineqttBlocks.RGB_LED_BLOCK.get()).build());
         MOTION_SENSOR_BLOCK = registerBlockEntity("motion_sensor_block", () -> FabricBlockEntityTypeBuilder.create(MotionSensorBlockEntity::new, MineqttBlocks.MOTION_SENSOR_BLOCK.get()).build());
+        LIGHT_REMOTE_BLOCK = registerBlockEntity("light_remote_block", () -> FabricBlockEntityTypeBuilder.create(LightRemoteBlockEntity::new, MineqttBlocks.LIGHT_REMOTE_BLOCK.get()).build());
         writeRegister();
     }
 }

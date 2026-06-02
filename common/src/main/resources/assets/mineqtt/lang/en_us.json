@@ -44,6 +44,9 @@
   "container.mineqtt.publisher": "Redstone Publisher",
   "container.mineqtt.subscriber": "Redstone Emitter",
   "container.mineqtt.rgb_led": "RGB LED Subscriber",
-  "container.mineqtt.motion_sensor": "Motion Sensor"
+  "container.mineqtt.motion_sensor": "Motion Sensor",
+  "block.mineqtt.light_remote_block": "Light Remote",
+  "item.mineqtt.light_remote_block": "Light Remote",
+  "container.mineqtt.light_remote": "Light Remote"
 }
 

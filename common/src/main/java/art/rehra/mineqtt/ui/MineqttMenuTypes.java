@@ -17,6 +17,7 @@ public class MineqttMenuTypes {
     public static RegistrySupplier<MenuType<RgbLedBlockMenu>> RGB_LED_BLOCK_MENU;
     public static RegistrySupplier<MenuType<MotionSensorBlockMenu>> MOTION_SENSOR_BLOCK_MENU;
     public static RegistrySupplier<MenuType<CyberdeckMenu>> CYBERDECK_MENU;
+    public static RegistrySupplier<MenuType<LightRemoteMenu>> LIGHT_REMOTE_BLOCK_MENU;
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Menu Types");
 
@@ -35,6 +36,10 @@ public class MineqttMenuTypes {
         MOTION_SENSOR_BLOCK_MENU = MENU_TYPES.register("motion_sensor_block",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) ->
                         new MotionSensorBlockMenu(id, inventory, inventory.player, buf.readBlockPos())));
+
+        LIGHT_REMOTE_BLOCK_MENU = MENU_TYPES.register("light_remote_block",
+                () -> MenuRegistry.ofExtended((id, inventory, buf) ->
+                        new LightRemoteMenu(id, inventory, inventory.player, buf.readBlockPos())));
 
         CYBERDECK_MENU = MENU_TYPES.register("cyberdeck",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) -> {

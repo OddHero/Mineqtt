@@ -14,6 +14,7 @@ public final class MineqttNetworking {
     public static final ResourceLocation CYBERDECK_PUBLISH_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_publish");
     public static final ResourceLocation CYBERDECK_LISTEN_TOGGLE_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_listen_toggle");
     public static final ResourceLocation CYBERDECK_TOPIC_UPDATE_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_topic_update");
+    public static final ResourceLocation LIGHT_REMOTE_COMMAND_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "light_remote_command");
 
     @Deprecated
     public static final ResourceLocation CYBERDECK_PUBLISH = CYBERDECK_PUBLISH_ID;
@@ -78,6 +79,22 @@ public final class MineqttNetworking {
         // is NOT supported on Fabric (throws AbstractMethodError).
         // We use registerS2CPayloadType on the server (which is safe on all loaders) 
         // and registerReceiver only on the client.
+        // C2S: Light Remote command (blockPos, jsonPayload)
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, LightRemoteCommandPayload.TYPE, LightRemoteCommandPayload.CODEC, (payload, context) -> {
+            net.minecraft.core.BlockPos pos = payload.pos();
+            String jsonPayload = payload.jsonPayload();
+
+            context.queue(() -> {
+                if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                    var level = serverPlayer.level();
+                    if (level.getBlockEntity(pos) instanceof art.rehra.mineqtt.blocks.entities.LightRemoteBlockEntity lightRemote) {
+                        lightRemote.publishLightCommand(jsonPayload);
+                        MineQTT.LOGGER.debug("[LightRemote] Player {} published light command to {}", serverPlayer.getGameProfile().getName(), pos);
+                    }
+                }
+            });
+        });
+
         if (dev.architectury.platform.Platform.getEnv() == net.fabricmc.api.EnvType.CLIENT) {
             NetworkManager.registerReceiver(NetworkManager.Side.S2C, CyberdeckTopicUpdatePayload.TYPE, CyberdeckTopicUpdatePayload.CODEC, ClientPacketHandler::handleTopicUpdate);
         } else {
@@ -118,6 +135,21 @@ public final class MineqttNetworking {
                 net.minecraft.network.codec.ByteBufCodecs.stringUtf8(512), CyberdeckTopicUpdatePayload::topic,
                 net.minecraft.network.codec.ByteBufCodecs.stringUtf8(2048), CyberdeckTopicUpdatePayload::payload,
                 CyberdeckTopicUpdatePayload::new
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record LightRemoteCommandPayload(net.minecraft.core.BlockPos pos,
+                                            String jsonPayload) implements CustomPacketPayload {
+        public static final Type<LightRemoteCommandPayload> TYPE = new Type<>(LIGHT_REMOTE_COMMAND_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, LightRemoteCommandPayload> CODEC = StreamCodec.composite(
+                net.minecraft.core.BlockPos.STREAM_CODEC.cast(), LightRemoteCommandPayload::pos,
+                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(4096), LightRemoteCommandPayload::jsonPayload,
+                LightRemoteCommandPayload::new
         );
 
         @Override

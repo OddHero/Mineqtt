@@ -17,6 +17,7 @@ public class MineqttBlockEntityTypes {
     public static RegistrySupplier<BlockEntityType<RedstoneEmitterBlockEntity>> REDSTONE_EMITTER_BLOCK_ENTITY;
     public static RegistrySupplier<BlockEntityType<RgbLedBlockEntity>> RGB_LED_BLOCK;
     public static RegistrySupplier<BlockEntityType<MotionSensorBlockEntity>> MOTION_SENSOR_BLOCK;
+    public static RegistrySupplier<BlockEntityType<LightRemoteBlockEntity>> LIGHT_REMOTE_BLOCK;
 
     public static void writeRegister(){
         BLOCK_ENTITIES.register();
