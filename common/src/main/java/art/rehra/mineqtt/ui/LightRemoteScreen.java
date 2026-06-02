@@ -45,6 +45,20 @@ public class LightRemoteScreen extends AbstractContainerScreen<LightRemoteMenu> 
     // Tracks which color descriptor was last changed: "rgb" or "kelvin"
     private String lastColorMode = "kelvin";
 
+    private static final int PICKER_W = 160;
+    private static final int PICKER_H = 92;
+    private static final int PICKER_PAD = 8;
+    private static final int SLIDER_H = 10;
+    private static final int SLIDER_SPACING = 6;
+    // === Color picker popup state ===
+    private boolean colorPickerOpen = false;
+    // Picker geometry (relative to screen, computed on open)
+    private int pickerX, pickerY;
+    // Color preview swatch bounds (set in renderRemoteInfo)
+    private int previewX0, previewY0, previewX1, previewY1;
+    // Which slider is being dragged: 0=R, 1=G, 2=B, -1=none
+    private int draggingSlider = -1;
+
     public LightRemoteScreen(LightRemoteMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
         this.font = Minecraft.getInstance().font;
@@ -269,7 +283,205 @@ public class LightRemoteScreen extends AbstractContainerScreen<LightRemoteMenu> 
             renderRemoteInfo(guiGraphics, guiLeft, guiTop, lightRemote);
         }
 
+        if (colorPickerOpen) {
+            renderColorPicker(guiGraphics, mouseX, mouseY);
+        }
+
         this.renderTooltip(guiGraphics, mouseX, mouseY);
+    }
+
+    private void openColorPicker() {
+        // Position picker near the swatch but inside the screen
+        pickerX = previewX0;
+        pickerY = previewY0 - PICKER_H - 4;
+        if (pickerY < 4) pickerY = previewY1 + 4;
+        colorPickerOpen = true;
+    }
+
+    private void closeColorPicker() {
+        colorPickerOpen = false;
+        draggingSlider = -1;
+    }
+
+    private int sliderY(int idx) {
+        return pickerY + PICKER_PAD + 12 + idx * (SLIDER_H + SLIDER_SPACING);
+    }
+
+    private int sliderX() {
+        return pickerX + PICKER_PAD + 12;
+    }
+
+    private int sliderW() {
+        return PICKER_W - PICKER_PAD * 2 - 12 - 30;
+    }
+
+    private void renderColorPicker(GuiGraphics g, int mouseX, int mouseY) {
+        // Full-screen dim scrim to visually indicate modality (and block clicks via input handlers)
+        g.fill(0, 0, this.width, this.height, 0x80000000);
+
+        int x = pickerX, y = pickerY;
+        int w = PICKER_W, h = PICKER_H;
+        // Background panel
+        g.fill(x - 2, y - 2, x + w + 2, y + h + 2, 0xFF202020);
+        g.fill(x, y, x + w, y + h, 0xFFE0E0E0);
+
+        // Title
+        g.drawString(this.font, "RGB Color", x + PICKER_PAD, y + PICKER_PAD - 2, 0xFF222222, false);
+
+        int sx = sliderX();
+        int sw = sliderW();
+        int[] values = {red, green, blue};
+        String[] labels = {"R", "G", "B"};
+        int[] trackColors = {0xFFCC3030, 0xFF30AA30, 0xFF3060CC};
+        for (int i = 0; i < 3; i++) {
+            int sy = sliderY(i);
+            // Label
+            g.drawString(this.font, labels[i], x + PICKER_PAD, sy + 1, 0xFF222222, false);
+            // Track
+            g.fill(sx, sy, sx + sw, sy + SLIDER_H, 0xFF555555);
+            // Fill proportional to value
+            int filled = Math.round(values[i] / 255f * sw);
+            g.fill(sx, sy, sx + filled, sy + SLIDER_H, trackColors[i]);
+            // Knob
+            int kx = sx + filled;
+            g.fill(kx - 1, sy - 1, kx + 2, sy + SLIDER_H + 1, 0xFFFFFFFF);
+            // Value text
+            String vs = String.valueOf(values[i]);
+            g.drawString(this.font, vs, sx + sw + 4, sy + 1, 0xFF222222, false);
+        }
+
+        // Current color preview
+        int prevY = sliderY(2) + SLIDER_H + 6;
+        int curColor = 0xFF000000 | (red << 16) | (green << 8) | blue;
+        g.fill(x + PICKER_PAD, prevY, x + w - PICKER_PAD, prevY + 10, curColor);
+        g.renderOutline(x + PICKER_PAD, prevY, w - PICKER_PAD * 2, 10, 0xFF333333);
+
+        // Close text (top-right)
+        String close = "[X]";
+        int cw = this.font.width(close);
+        g.drawString(this.font, close, x + w - cw - 3, y - 1, 0xFF990000, false);
+    }
+
+    private int sliderHit(double mx, double my) {
+        int sx = sliderX();
+        int sw = sliderW();
+        for (int i = 0; i < 3; i++) {
+            int sy = sliderY(i);
+            if (mx >= sx && mx < sx + sw && my >= sy - 1 && my < sy + SLIDER_H + 1) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void updateSliderFromMouse(int idx, double mx) {
+        int sx = sliderX();
+        int sw = sliderW();
+        float t = (float) ((mx - sx) / (double) sw);
+        if (t < 0f) t = 0f;
+        if (t > 1f) t = 1f;
+        int v = Math.round(t * 255f);
+        switch (idx) {
+            case 0:
+                red = v;
+                break;
+            case 1:
+                green = v;
+                break;
+            case 2:
+                blue = v;
+                break;
+        }
+    }
+
+    private boolean isInsidePicker(double mx, double my) {
+        return mx >= pickerX - 2 && mx <= pickerX + PICKER_W + 2
+                && my >= pickerY - 2 && my <= pickerY + PICKER_H + 2;
+    }
+
+    private void applyPickerColor() {
+        lastColorMode = "rgb";
+        lightOn = true;
+        sendCommand();
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (colorPickerOpen) {
+            // Modal: swallow everything; do not delegate to super (which would hit underlying buttons)
+            if (button == 0) {
+                int hit = sliderHit(mouseX, mouseY);
+                if (hit >= 0) {
+                    draggingSlider = hit;
+                    updateSliderFromMouse(hit, mouseX);
+                    applyPickerColor();
+                    return true;
+                }
+                if (!isInsidePicker(mouseX, mouseY)) {
+                    closeColorPicker();
+                    return true;
+                }
+            }
+            return true; // swallow all input while modal
+        }
+        // Open picker on click of preview swatch
+        if (button == 0 && mouseX >= previewX0 && mouseX < previewX1
+                && mouseY >= previewY0 && mouseY < previewY1) {
+            openColorPicker();
+            return true;
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dx, double dy) {
+        if (colorPickerOpen) {
+            if (button == 0 && draggingSlider >= 0) {
+                updateSliderFromMouse(draggingSlider, mouseX);
+                applyPickerColor();
+            }
+            return true; // swallow
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dx, dy);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (colorPickerOpen) {
+            if (button == 0) {
+                draggingSlider = -1;
+            }
+            return true; // swallow
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double dxs, double dys) {
+        if (colorPickerOpen) {
+            return true; // swallow scroll while modal
+        }
+        return super.mouseScrolled(mouseX, mouseY, dxs, dys);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (colorPickerOpen) {
+            if (keyCode == 256 /* ESC */) {
+                closeColorPicker();
+                return true;
+            }
+            return true; // swallow all keys while modal (incl. inventory key 'E')
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean charTyped(char c, int modifiers) {
+        if (colorPickerOpen) {
+            return true;
+        }
+        return super.charTyped(c, modifiers);
     }
 
     private void renderRemoteInfo(GuiGraphics guiGraphics, int guiLeft, int guiTop, LightRemoteBlockEntity blockEntity) {
@@ -311,11 +523,15 @@ public class LightRemoteScreen extends AbstractContainerScreen<LightRemoteMenu> 
         int transWidth = this.font.width(transLabel);
         guiGraphics.drawString(this.font, transLabel, guiLeft + (this.imageWidth - transWidth) / 2, transY + 4, 0xFF333333, false);
 
-        // Color preview swatch
+        // Color preview swatch (clickable: opens color wheel popup)
         int previewY = guiTop + 162;
         int previewColor = 0xFF000000 | (red << 16) | (green << 8) | blue;
-        guiGraphics.fill(guiLeft + 10, previewY, guiLeft + 166, previewY + 12, previewColor);
-        guiGraphics.renderOutline(guiLeft + 10, previewY, 156, 12, 0xFF333333);
+        this.previewX0 = guiLeft + 10;
+        this.previewY0 = previewY;
+        this.previewX1 = guiLeft + 166;
+        this.previewY1 = previewY + 12;
+        guiGraphics.fill(previewX0, previewY0, previewX1, previewY1, previewColor);
+        guiGraphics.renderOutline(previewX0, previewY0, 156, 12, 0xFF333333);
 
         // State indicator
         String stateLabel = lightOn ? "§a⬤ ON" : "§c⬤ OFF";
