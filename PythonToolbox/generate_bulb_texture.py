@@ -3,7 +3,10 @@
 Generate RGB LED Bulb Texture
 Creates a white/translucent glass bulb texture that can be tinted
 """
+import os
 from PIL import Image, ImageDraw
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # Create 16x16 texture
 size = 16
@@ -34,7 +37,7 @@ for x in [0, 1, size-2, size-1]:
             pixels[x, y] = (r, g, b, int(a * 0.5))
 
 # Save the texture
-output_path = 'common/src/main/resources/assets/mineqtt/textures/block/rgb_led_bulb.png'
+output_path = '../common/src/main/resources/assets/mineqtt/textures/block/rgb_led_bulb.png'
 img.save(output_path)
 print(f"Bulb texture saved to {output_path}")
 

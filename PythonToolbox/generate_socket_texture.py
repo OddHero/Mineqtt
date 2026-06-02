@@ -3,7 +3,10 @@
 Generate RGB LED Socket Texture
 Creates a simple metallic socket texture for the light bulb base
 """
+import os
 from PIL import Image, ImageDraw
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # Create 16x16 texture
 size = 16
@@ -31,7 +34,7 @@ for y in range(2, size-2, 3):
     draw.line([2, y, size-3, y], fill=(50, 50, 50, 255), width=1)
 
 # Save the texture
-output_path = 'common/src/main/resources/assets/mineqtt/textures/block/rgb_led_socket.png'
+output_path = '../common/src/main/resources/assets/mineqtt/textures/block/rgb_led_socket.png'
 img.save(output_path)
 print(f"Socket texture saved to {output_path}")
 

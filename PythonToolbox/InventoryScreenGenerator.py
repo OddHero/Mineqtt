@@ -1,6 +1,8 @@
-from PIL import Image, ImageDraw, ImageFont
-import random
 import os
+import random
+from PIL import Image, ImageDraw, ImageFont
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 def create_minecraft_inventory():
     # Create a 256x256 pixel image

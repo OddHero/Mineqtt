@@ -2,7 +2,7 @@
 echo Generating RGB LED Block textures...
 echo.
 
-python generate_led_textures.py
+python PythonToolbox\generate_led_textures.py
 
 if %ERRORLEVEL% EQU 0 (
     echo.

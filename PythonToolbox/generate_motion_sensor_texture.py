@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Generate procedural motion sensor dome textures"""
-from PIL import Image, ImageDraw
 import math
+import os
+from PIL import Image, ImageDraw
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 def create_motion_sensor_texture(width=16, height=16):
     """Create a dome security camera texture"""
@@ -80,10 +83,10 @@ def create_mount_texture(width=16, height=16):
 
 # Generate textures
 motion_sensor = create_motion_sensor_texture()
-motion_sensor.save('C:\\repos\\Mineqtt\\common\\src\\main\\resources\\assets\\mineqtt\\textures\\block\\motion_sensor_dome.png')
+motion_sensor.save('../common/src/main/resources/assets/mineqtt/textures/block/motion_sensor_dome.png')
 
 mount = create_mount_texture()
-mount.save('C:\\repos\\Mineqtt\\common\\src\\main\\resources\\assets\\mineqtt\\textures\\block\\motion_sensor_mount.png')
+mount.save('../common/src/main/resources/assets/mineqtt/textures/block/motion_sensor_mount.png')
 
 print("Textures generated successfully!")
 print("- motion_sensor_dome.png: Dome security camera texture")

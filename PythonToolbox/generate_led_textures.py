@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
 Generate all RGB LED Block textures
-Run this script from the project root directory
 """
 import os
 from PIL import Image, ImageDraw
 
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 # Ensure output directory exists
-output_dir = 'common/src/main/resources/assets/mineqtt/textures/block'
+output_dir = '../common/src/main/resources/assets/mineqtt/textures/block'
 os.makedirs(output_dir, exist_ok=True)
 
 def generate_socket_texture():
