@@ -1,5 +1,6 @@
 plugins {
     id 'com.gradleup.shadow'
+    id "com.modrinth.minotaur" version "2.+"
 }
 
 architectury {
@@ -87,5 +88,25 @@ shadowJar {
 }
 
 remapJar {
+    //noinspection GrDeprecatedAPIUsage
     input.set shadowJar.archiveFile
+}
+
+modrinth {
+    token = System.getenv("MODRINTH_TOKEN")
+    // Remember to have the MODRINTH_TOKEN environment variable set or else this will fail - just make sure it stays private!
+    projectId = "mineqtt" // This can be the project ID or the slug. Either will work!
+    versionType = "release" // This is the default -- can also be `beta` or `alpha`
+    uploadFile = remapJar // With Loom, this MUST be set to `remapJar` instead of `jar`!
+    gameVersions = ["1.21.8"] // Must be an array, even with only one version
+    loaders = ["fabric"] // Must also be an array - no need to specify this if you're using Loom or ForgeGradle
+    dependencies { // A special DSL for creating dependencies
+        // scope.type
+        // The scope can be `required`, `optional`, `incompatible`, or `embedded`
+        // The type can either be `project` or `version`
+        required.project "fabric-api"
+        required.project "architectury-api"
+        optional.project "flan"
+    }
+    syncBodyFrom = rootProject.file("README.md").text
 }
