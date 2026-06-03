@@ -43,7 +43,7 @@ public class CyberdeckItem extends Item {
 
                 @Override
                 public void saveExtraData(FriendlyByteBuf buf) {
-                    // No extra data needed for this menu
+                    buf.writeByte(0); // Send dummy byte
                 }
             });
         }

@@ -1,8 +1,8 @@
 package art.rehra.mineqtt.ui.tabs;
 
-import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.ui.CyberdeckScreen;
 import dev.architectury.networking.NetworkManager;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -21,15 +21,15 @@ public class PublishTab implements CyberdeckTab {
 
     @Override
     public void renderLabels(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        int left = screen.getGuiLeft();
-        int top = screen.getGuiTop();
+        int left = screen.getLeftPos();
+        int top = screen.getTopPos();
         guiGraphics.drawString(screen.getFont(), "Topic:", 8, 60, 0xFF555555, false);
         guiGraphics.drawString(screen.getFont(), "Payload:", 8, 84, 0xFF555555, false);
 
         var baseStack = this.screen.getMenu().container.getItem(0);
         var subStack = this.screen.getMenu().container.getItem(1);
-        String base = BaseMqttBlockEntity.parseItemStackTopic(baseStack);
-        String sub = subStack.isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(subStack);
+        String base = art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(baseStack);
+        String sub = subStack.isEmpty() ? "" : art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(subStack);
         String topic = sub.isEmpty() ? base : base + "/" + sub;
 
         if (!baseStack.isEmpty()) topicField.setValue(topic);
@@ -42,8 +42,8 @@ public class PublishTab implements CyberdeckTab {
 
     @Override
     public void onInit() {
-        int left = screen.getGuiLeft();
-        int top = screen.getGuiTop();
+        int left = screen.getLeftPos();
+        int top = screen.getTopPos();
 
         topicField = new EditBox(screen.getFont(), left + 50, top + 56, 156, 16, Component.literal("Topic"));
         topicField.setMaxLength(256);
@@ -52,9 +52,9 @@ public class PublishTab implements CyberdeckTab {
         sendButton = Button.builder(Component.literal("Send"), b -> onSendClicked())
                 .pos(left + 10, top + 104).size(50, 20).build();
 
-        screen.addWidget(topicField);
-        screen.addWidget(payloadField);
-        screen.addButton(sendButton);
+        screen.addTabWidget(topicField);
+        screen.addTabWidget(payloadField);
+        screen.addTabWidget(sendButton);
 
         setPublishControlsVisible(false);
     }
@@ -83,8 +83,8 @@ public class PublishTab implements CyberdeckTab {
             // Derive from cyberdeck slots if manual topic is empty
             var baseStack = screen.getMenu().container.getItem(0);
             var subStack = screen.getMenu().container.getItem(1);
-            String base = BaseMqttBlockEntity.parseItemStackTopic(baseStack);
-            String sub = subStack.isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(subStack);
+            String base = art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(baseStack);
+            String sub = subStack.isEmpty() ? "" : art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(subStack);
             topic = sub.isEmpty() ? base : base + "/" + sub;
         }
 
@@ -97,7 +97,7 @@ public class PublishTab implements CyberdeckTab {
         final String finalPayload = payload != null ? payload : "";
 
         // Send as a networking packet instead of a command to avoid slashes issues
-        if (screen.getMinecraft() != null && screen.getMinecraft().level != null) {
+        if (Minecraft.getInstance().level != null) {
             NetworkManager.sendToServer(new art.rehra.mineqtt.network.MineqttNetworking.CyberdeckPublishPayload(finalTopic, finalPayload));
         }
     }
@@ -106,7 +106,7 @@ public class PublishTab implements CyberdeckTab {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         // esc >
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            screen.getMinecraft().setScreen(null);
+            Minecraft.getInstance().setScreen(null);
             return true;
         }
 

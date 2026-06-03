@@ -82,15 +82,45 @@ public final class MineqttNetworking {
         // and registerReceiver only on the client.
         // C2S: Light Remote command (blockPos, jsonPayload)
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, LightRemoteCommandPayload.TYPE, LightRemoteCommandPayload.CODEC, (payload, context) -> {
-            net.minecraft.core.BlockPos pos = payload.pos();
+            var posOpt = payload.pos();
             String jsonPayload = payload.jsonPayload();
 
             context.queue(() -> {
                 if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
                     var level = serverPlayer.level();
-                    if (level.getBlockEntity(pos) instanceof art.rehra.mineqtt.blocks.entities.LightRemoteBlockEntity lightRemote) {
-                        lightRemote.publishLightCommand(jsonPayload);
-                        MineQTT.LOGGER.debug("[LightRemote] Player {} published light command to {}", serverPlayer.getGameProfile().getName(), pos);
+                    if (posOpt.isPresent()) {
+                        if (level.getBlockEntity(posOpt.get()) instanceof art.rehra.mineqtt.blocks.entities.LightRemoteBlockEntity lightRemote) {
+                            lightRemote.publishLightCommand(jsonPayload);
+                            MineQTT.LOGGER.debug("[LightRemote] Player {} published light command to {}", serverPlayer.getGameProfile().getName(), posOpt.get());
+                        }
+                    } else if (serverPlayer.containerMenu instanceof art.rehra.mineqtt.ui.CyberdeckMenu cyberdeckMenu) {
+                        // For Cyberdeck (item-based GUI), publish directly via the shared MQTT client.
+                        // The topic is derived from the two frequency slots (base + sub), matching
+                        // the convention used by BaseMqttBlockEntity and CyberdeckPublishPayload.
+                        var baseStack = cyberdeckMenu.container.getItem(0);
+                        var subStack = cyberdeckMenu.container.getItem(1);
+                        String base = art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(baseStack);
+                        String sub = subStack.isEmpty() ? "" : art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(subStack);
+                        String topic = sub.isEmpty() ? base : base + "/" + sub;
+                        if (topic == null || topic.isBlank()) {
+                            MineQTT.LOGGER.warn("[LightRemote] Cyberdeck has no configured topic; cannot publish light command.");
+                            return;
+                        }
+                        if (MineQTT.mqttClient == null || !MineQTT.mqttClient.getState().isConnected()) {
+                            MineQTT.LOGGER.warn("[LightRemote] MQTT client not connected; cannot publish to {}", topic);
+                            return;
+                        }
+                        try {
+                            byte[] payloadBytes = jsonPayload.getBytes(StandardCharsets.UTF_8);
+                            MineQTT.mqttClient.toAsync().publish(Mqtt3Publish.builder()
+                                    .topic(topic)
+                                    .payload(payloadBytes)
+                                    .build());
+                            MineQTT.LOGGER.debug("[LightRemote] Player {} published light command from Cyberdeck to {}: {}",
+                                    serverPlayer.getGameProfile().getName(), topic, jsonPayload);
+                        } catch (Exception e) {
+                            MineQTT.LOGGER.error("[LightRemote] Failed publishing from Cyberdeck to {}: {}", topic, e.getMessage());
+                        }
                     }
                 }
             });
@@ -98,13 +128,17 @@ public final class MineqttNetworking {
 
         // C2S: remember the last tab opened in a tabbed MQTT-block screen
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetActiveTabPayload.TYPE, SetActiveTabPayload.CODEC, (payload, context) -> {
-            net.minecraft.core.BlockPos pos = payload.pos();
+            var posOpt = payload.pos();
             String tabId = payload.tabId();
             context.queue(() -> {
                 if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer sp) {
-                    var be = sp.level().getBlockEntity(pos);
-                    if (be instanceof art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity mqtt) {
-                        mqtt.setLastTabId(tabId);
+                    if (posOpt.isPresent()) {
+                        var be = sp.level().getBlockEntity(posOpt.get());
+                        if (be instanceof art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity mqtt) {
+                            mqtt.setLastTabId(tabId);
+                        }
+                    } else if (sp.containerMenu instanceof art.rehra.mineqtt.ui.framework.TabbedMqttMenu menu) {
+                        menu.setActiveTab(tabId);
                     }
                 }
             });
@@ -158,11 +192,11 @@ public final class MineqttNetworking {
         }
     }
 
-    public record LightRemoteCommandPayload(net.minecraft.core.BlockPos pos,
+    public record LightRemoteCommandPayload(java.util.Optional<net.minecraft.core.BlockPos> pos,
                                             String jsonPayload) implements CustomPacketPayload {
         public static final Type<LightRemoteCommandPayload> TYPE = new Type<>(LIGHT_REMOTE_COMMAND_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, LightRemoteCommandPayload> CODEC = StreamCodec.composite(
-                net.minecraft.core.BlockPos.STREAM_CODEC.cast(), LightRemoteCommandPayload::pos,
+                net.minecraft.network.codec.ByteBufCodecs.optional(net.minecraft.core.BlockPos.STREAM_CODEC), LightRemoteCommandPayload::pos,
                 net.minecraft.network.codec.ByteBufCodecs.stringUtf8(4096), LightRemoteCommandPayload::jsonPayload,
                 LightRemoteCommandPayload::new
         );
@@ -173,10 +207,11 @@ public final class MineqttNetworking {
         }
     }
 
-    public record SetActiveTabPayload(net.minecraft.core.BlockPos pos, String tabId) implements CustomPacketPayload {
+    public record SetActiveTabPayload(java.util.Optional<net.minecraft.core.BlockPos> pos,
+                                      String tabId) implements CustomPacketPayload {
         public static final Type<SetActiveTabPayload> TYPE = new Type<>(SET_ACTIVE_TAB_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, SetActiveTabPayload> CODEC = StreamCodec.composite(
-                net.minecraft.core.BlockPos.STREAM_CODEC.cast(), SetActiveTabPayload::pos,
+                net.minecraft.network.codec.ByteBufCodecs.optional(net.minecraft.core.BlockPos.STREAM_CODEC), SetActiveTabPayload::pos,
                 net.minecraft.network.codec.ByteBufCodecs.stringUtf8(64), SetActiveTabPayload::tabId,
                 SetActiveTabPayload::new
         );

@@ -27,6 +27,7 @@ public class MineqttMenuTypes {
     public static RegistrySupplier<MenuType<TabbedMqttMenu>> MQTT_TABBED_MENU;
     public static RegistrySupplier<MenuType<CyberdeckMenu>> CYBERDECK_MENU;
 
+    @SuppressWarnings("unchecked")
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Menu Types");
 
@@ -36,6 +37,7 @@ public class MineqttMenuTypes {
 
         CYBERDECK_MENU = MENU_TYPES.register("cyberdeck",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) -> {
+                    buf.readByte(); // Read dummy byte to avoid empty buffer issues
                     ItemStack stack = inventory.player.getMainHandItem();
                     if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) {
                         stack = inventory.player.getOffhandItem();

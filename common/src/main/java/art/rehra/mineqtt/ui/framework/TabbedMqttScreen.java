@@ -81,7 +81,7 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     public void switchTab(String tabId) {
         if (tabId.equals(this.menu.getActiveTabId())) return;
         this.menu.setActiveTab(tabId);
-        NetworkManager.sendToServer(new MineqttNetworking.SetActiveTabPayload(this.menu.blockPos, tabId));
+        NetworkManager.sendToServer(new MineqttNetworking.SetActiveTabPayload(java.util.Optional.ofNullable(this.menu.blockPos), tabId));
         rebuildActiveView();
     }
 

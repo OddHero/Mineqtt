@@ -8,6 +8,7 @@ import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 
@@ -37,24 +38,25 @@ public class TabbedMqttMenu extends AbstractContainerMenu {
 
     public final Player player;
     public final Container container;
-    public final BlockPos blockPos;
+    public final BlockPos blockPos; // @Nullable for items
     public final List<MqttTab> tabs;
     private final int containerSlotStart;
     private final int containerSlotEnd;
     private String activeTabId;
 
     public TabbedMqttMenu(int containerId, Inventory playerInventory, Player player, BlockPos blockPos, String initialTabId) {
-        this(containerId, playerInventory, resolveContainer(playerInventory, blockPos), resolveTabs(playerInventory, blockPos), player, blockPos, initialTabId);
+        this(MineqttMenuTypes.MQTT_TABBED_MENU.get(), containerId, playerInventory, resolveContainer(playerInventory, blockPos), resolveTabs(playerInventory, blockPos), player, blockPos, initialTabId);
     }
 
-    public TabbedMqttMenu(int containerId,
+    public TabbedMqttMenu(MenuType<?> type,
+                          int containerId,
                           Inventory playerInventory,
                           Container container,
                           List<MqttTab> tabs,
                           Player player,
                           BlockPos blockPos,
                           String initialTabId) {
-        super(MineqttMenuTypes.MQTT_TABBED_MENU.get(), containerId);
+        super(type, containerId);
         this.player = player;
         this.container = container;
         this.blockPos = blockPos;
@@ -79,11 +81,13 @@ public class TabbedMqttMenu extends AbstractContainerMenu {
     }
 
     private static Container resolveContainer(Inventory inv, BlockPos pos) {
+        if (pos == null) return new SimpleContainer(0);
         var be = inv.player.level().getBlockEntity(pos);
         return be instanceof Container c ? c : new SimpleContainer(0);
     }
 
     private static List<MqttTab> resolveTabs(Inventory inv, BlockPos pos) {
+        if (pos == null) return List.of();
         var be = inv.player.level().getBlockEntity(pos);
         return be instanceof BaseMqttBlockEntity mqtt ? mqtt.getTabs() : List.of();
     }

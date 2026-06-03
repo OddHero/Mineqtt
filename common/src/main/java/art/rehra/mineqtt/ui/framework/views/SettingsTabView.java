@@ -25,8 +25,23 @@ public class SettingsTabView implements MqttTabView {
     @Override
     public void renderContent(GuiGraphics g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         TabbedMqttMenu menu = screen.getMenu();
-        var be = menu.player.level().getBlockEntity(menu.blockPos);
-        if (!(be instanceof BaseMqttBlockEntity mqtt)) return;
+        String topic;
+        boolean enabled;
+
+        if (menu.blockPos != null) {
+            var be = menu.player.level().getBlockEntity(menu.blockPos);
+            if (!(be instanceof BaseMqttBlockEntity mqtt)) return;
+            topic = mqtt.getCombinedTopic();
+            enabled = mqtt.isEnabled();
+        } else {
+            // Cyberdeck (item-based)
+            var baseStack = menu.container.getItem(0);
+            var subStack = menu.container.getItem(1);
+            String base = BaseMqttBlockEntity.parseItemStackTopic(baseStack);
+            String sub = subStack.isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(subStack);
+            topic = sub.isEmpty() ? base : base + "/" + sub;
+            enabled = !baseStack.isEmpty();
+        }
 
         int x = guiLeft + 8;
         // Slot labels — centered above each 16px slot (slots at y=36..52).
@@ -38,8 +53,6 @@ public class SettingsTabView implements MqttTabView {
         // Topic info — rendered BELOW the slots so it never overlaps them.
         // Available vertical band: y=56 .. PLAYER_INV_Y(110) - 1.
         int topicY = guiTop + 58;
-        String topic = mqtt.getCombinedTopic();
-        boolean enabled = mqtt.isEnabled();
 
         if (enabled && !topic.isEmpty()) {
             GuiText.drawTruncated(g, "Topic:", x, topicY, CONTENT_W, 0xFF555555);

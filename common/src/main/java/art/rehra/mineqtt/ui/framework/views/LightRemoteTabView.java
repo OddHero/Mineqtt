@@ -114,7 +114,7 @@ public class LightRemoteTabView implements MqttTabView {
         String json = String.format(java.util.Locale.US,
                 "{\"state\":\"%s\",\"brightness\":%d,\"brightness_pct\":%d%s,\"transition\":%.1f}",
                 lightOn ? "ON" : "OFF", brightness, brightnessPct, colorPart, transition);
-        NetworkManager.sendToServer(new MineqttNetworking.LightRemoteCommandPayload(screen.getMenu().blockPos, json));
+        NetworkManager.sendToServer(new MineqttNetworking.LightRemoteCommandPayload(java.util.Optional.ofNullable(screen.getMenu().blockPos), json));
     }
 
     // ---- Rendering ----

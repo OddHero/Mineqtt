@@ -3,9 +3,11 @@ package art.rehra.mineqtt.ui.tabs;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.items.CyberdeckDataUtil;
 import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.ui.CyberdeckMenu;
 import art.rehra.mineqtt.ui.CyberdeckScreen;
 import art.rehra.mineqtt.ui.framework.GuiText;
 import dev.architectury.networking.NetworkManager;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.network.chat.Component;
@@ -20,13 +22,13 @@ public class ExplorerTab implements CyberdeckTab {
 
     @Override
     public void onInit() {
-        int left = this.screen.getGuiLeft();
-        int top = this.screen.getGuiTop();
+        int left = this.screen.getLeftPos();
+        int top = this.screen.getTopPos();
 
-        boolean isListening = CyberdeckDataUtil.isListening(this.screen.getMenu().itemStack);
+        boolean isListening = CyberdeckDataUtil.isListening(((CyberdeckMenu) this.screen.getMenu()).itemStack);
         listenBtn = Button.builder(Component.literal(isListening ? "Listen: ON" : "Listen: OFF"), b -> onListenClicked())
                 .pos(left + 80, top + 33).size(80, 20).build();
-        this.screen.addButton(listenBtn);
+        this.screen.addTabWidget(listenBtn);
         listenBtn.visible = false; // will be made visible on activation
     }
 
@@ -91,17 +93,17 @@ public class ExplorerTab implements CyberdeckTab {
     }
 
     public void onListenClicked() {
-        boolean currentState = CyberdeckDataUtil.isListening(this.screen.getMenu().itemStack);
+        boolean currentState = CyberdeckDataUtil.isListening(((CyberdeckMenu) this.screen.getMenu()).itemStack);
         boolean newState = !currentState;
 
         // Update local state for immediate feedback
-        CyberdeckDataUtil.setListening(this.screen.getMenu().itemStack, newState);
+        CyberdeckDataUtil.setListening(((CyberdeckMenu) this.screen.getMenu()).itemStack, newState);
         if (listenBtn != null) {
             listenBtn.setMessage(Component.literal(newState ? "Listen: ON" : "Listen: OFF"));
         }
 
         // Send to server
-        if (this.screen.getMinecraft() != null && this.screen.getMinecraft().level != null) {
+        if (Minecraft.getInstance().level != null) {
             NetworkManager.sendToServer(new MineqttNetworking.CyberdeckListenTogglePayload(newState));
         }
     }
