@@ -96,6 +96,15 @@ public class CyberdeckScreen extends AbstractContainerScreen<CyberdeckMenu> {
         int guiLeft = (this.width - this.imageWidth) / 2;
         int guiTop = (this.height - this.imageHeight) / 2;
         guiGraphics.blit(RenderPipelines.GUI_TEXTURED, BACKGROUND, guiLeft, guiTop, 0.0F, 0.0F, this.imageWidth, this.imageHeight, 256, 256);
+
+        // Draw individual slot boxes
+        for (net.minecraft.world.inventory.Slot s : this.menu.slots) {
+            int sx = guiLeft + s.x;
+            int sy = guiTop + s.y;
+            // Sunken bevel: dark outline, mid background
+            guiGraphics.fill(sx - 1, sy - 1, sx + 17, sy + 17, 0xFF373737);
+            guiGraphics.fill(sx, sy, sx + 16, sy + 16, 0xFF8B8B8B);
+        }
     }
 
     @Override

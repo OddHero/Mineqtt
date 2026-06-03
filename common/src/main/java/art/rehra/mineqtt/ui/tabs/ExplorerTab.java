@@ -4,6 +4,7 @@ import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.items.CyberdeckDataUtil;
 import art.rehra.mineqtt.network.MineqttNetworking;
 import art.rehra.mineqtt.ui.CyberdeckScreen;
+import art.rehra.mineqtt.ui.framework.GuiText;
 import dev.architectury.networking.NetworkManager;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -52,21 +53,29 @@ public class ExplorerTab implements CyberdeckTab {
         // Look up latest payload for this topic
         String payload = CyberdeckScreen.getDiscoveredPayload(topic);
 
+        // Cyberdeck is 256px wide; renderLabels is in screen-local space (origin at guiLeft/guiTop).
+        // Reserve 8px padding on both sides.
+        final int contentW = 256 - 16;
         int x = 8;
         int y = 54;
         guiGraphics.drawString(this.screen.getFont(), "Explorer", x, y, 0xFF555555, false);
         y += 12;
+        // "Topic:" label is fixed-width; the topic itself can shrink-to-fit and is auto-scaled.
+        final int topicLabelW = 40;
         guiGraphics.drawString(this.screen.getFont(), "Topic:", x, y, 0xFF333333, false);
-        guiGraphics.drawString(this.screen.getFont(), topic, x + 40, y, 0xFF000000, false);
+        GuiText.drawAutoScaled(guiGraphics, topic, x + topicLabelW, y, contentW - topicLabelW, 10,
+                0xFF000000, mouseX, mouseY);
         y += 12;
+        final int payloadLabelW = 48;
         guiGraphics.drawString(this.screen.getFont(), "Payload:", x, y, 0xFF333333, false);
 
         if (payload == null) {
-            guiGraphics.drawString(this.screen.getFont(), "<no data received yet>", x + 48, y, 0xFF888888, false);
+            GuiText.drawTruncated(guiGraphics, "<no data received yet>",
+                    x + payloadLabelW, y, contentW - payloadLabelW, 0xFF888888, mouseX, mouseY);
         } else {
-            // Truncate long payload for now (could be enhanced to wrap)
-            String display = payload.length() > 80 ? payload.substring(0, 77) + "..." : payload;
-            guiGraphics.drawString(this.screen.getFont(), display, x + 48, y, 0xFF000000, false);
+            // Auto-scale long payloads so they shrink before ellipsizing; tooltip shows the full text.
+            GuiText.drawAutoScaled(guiGraphics, payload, x + payloadLabelW, y, contentW - payloadLabelW, 10,
+                    0xFF000000, mouseX, mouseY);
         }
     }
 

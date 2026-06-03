@@ -29,12 +29,12 @@ public class PublisherValuesTabView implements MqttTabView {
         if (!(be instanceof BaseMqttBlockEntity mqtt)) return;
 
         int x = guiLeft + 8;
-        int y = guiTop + 18;
 
-        // Slot labels — centered above their 16px slots.
-        GuiText.drawCentered(g, "ON", guiLeft + 62, guiTop + 26, 16, 0xFF555555);
-        GuiText.drawCentered(g, "OFF", guiLeft + 98, guiTop + 26, 16, 0xFF555555);
+        // Slot labels — centered above their 16px slots (slots at y=36..52).
+        GuiText.drawCentered(g, "ON", guiLeft + 61, guiTop + 26, 24, 0xFF555555);
+        GuiText.drawCentered(g, "OFF", guiLeft + 97, guiTop + 26, 24, 0xFF555555);
 
+        // Status line — single row above the slot labels.
         boolean isPowered = false;
         try {
             var state = level.getBlockState(menu.blockPos);
@@ -47,7 +47,7 @@ public class PublisherValuesTabView implements MqttTabView {
         boolean enabled = mqtt.isEnabled();
         String status = enabled ? (isPowered ? "Publishing" : "Ready") : "Disabled";
         int color = enabled ? (isPowered ? 0xFF0088FF : 0xFF00AA00) : 0xFF666666;
-        GuiText.drawTruncated(g, "Status: " + status, x, y, CONTENT_W, color, mouseX, mouseY);
+        GuiText.drawTruncated(g, "Status: " + status, x, guiTop + 18, CONTENT_W, color, mouseX, mouseY);
 
         if (enabled) {
             ItemStack onStack = mqtt.getItem(2);
@@ -55,10 +55,12 @@ public class PublisherValuesTabView implements MqttTabView {
             String onValue = onStack.isEmpty() ? "true" : BaseMqttBlockEntity.parseItemStackTopic(onStack);
             String offValue = offStack.isEmpty() ? "false" : BaseMqttBlockEntity.parseItemStackTopic(offStack);
             String signal = isPowered ? "ON → '" + onValue + "'" : "OFF → '" + offValue + "'";
-            // Auto-scale the dynamic payload lines so long values shrink before truncating.
-            GuiText.drawAutoScaled(g, signal, x, y + 12, CONTENT_W, 10, 0xFF888888, mouseX, mouseY);
-            GuiText.drawAutoScaled(g, "ON  payload: '" + onValue + "'", x, y + 60, CONTENT_W, 10, 0xFF555555, mouseX, mouseY);
-            GuiText.drawAutoScaled(g, "OFF payload: '" + offValue + "'", x, y + 72, CONTENT_W, 10, 0xFF555555, mouseX, mouseY);
+            // Render the signal + payload lines BELOW the slots (y=52) so they
+            // never overlap the slot labels or the slot icons themselves.
+            int by = guiTop + 58;
+            GuiText.drawAutoScaled(g, signal, x, by, CONTENT_W, 10, 0xFF888888, mouseX, mouseY);
+            GuiText.drawAutoScaled(g, "ON  payload: '" + onValue + "'", x, by + 14, CONTENT_W, 10, 0xFF555555, mouseX, mouseY);
+            GuiText.drawAutoScaled(g, "OFF payload: '" + offValue + "'", x, by + 26, CONTENT_W, 10, 0xFF555555, mouseX, mouseY);
         }
     }
 }

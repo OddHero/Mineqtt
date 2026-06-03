@@ -29,24 +29,26 @@ public class SettingsTabView implements MqttTabView {
         if (!(be instanceof BaseMqttBlockEntity mqtt)) return;
 
         int x = guiLeft + 8;
-        int y = guiTop + 18;
+        // Slot labels — centered above each 16px slot (slots at y=36..52).
+        // Use 18px label width (>16) so localized labels are slightly less likely
+        // to truncate; the labels are short fixed strings.
+        GuiText.drawCentered(g, "Base", guiLeft + 61, guiTop + 26, 24, 0xFF555555);
+        GuiText.drawCentered(g, "Sub", guiLeft + 97, guiTop + 26, 24, 0xFF555555);
+
+        // Topic info — rendered BELOW the slots so it never overlaps them.
+        // Available vertical band: y=56 .. PLAYER_INV_Y(110) - 1.
+        int topicY = guiTop + 58;
         String topic = mqtt.getCombinedTopic();
         boolean enabled = mqtt.isEnabled();
 
         if (enabled && !topic.isEmpty()) {
-            GuiText.drawTruncated(g, "Topic:", x, y, CONTENT_W, 0xFF555555);
-            y += 10;
+            GuiText.drawTruncated(g, "Topic:", x, topicY, CONTENT_W, 0xFF555555);
             // Auto-scale the topic so long paths shrink before being truncated.
-            // Reserve ~2 lines of vertical space (textbox area).
-            GuiText.drawAutoScaled(g, topic, x + 4, y, CONTENT_W - 4, 20, 0xFF0088FF, mouseX, mouseY);
+            // Reserve a generous textbox area below the "Topic:" label.
+            GuiText.drawAutoScaled(g, topic, x + 4, topicY + 10, CONTENT_W - 4, 30, 0xFF0088FF, mouseX, mouseY);
         } else {
-            GuiText.drawTruncated(g, "No topic configured", x, y, CONTENT_W, 0xFF666666, mouseX, mouseY);
-            y += 10;
-            GuiText.drawTruncated(g, "Place item in left slot to enable", x, y, CONTENT_W, 0xFF888888, mouseX, mouseY);
+            GuiText.drawTruncated(g, "No topic configured", x, topicY, CONTENT_W, 0xFF666666, mouseX, mouseY);
+            GuiText.drawTruncated(g, "Place item in left slot to enable", x, topicY + 10, CONTENT_W, 0xFF888888, mouseX, mouseY);
         }
-
-        // Slot labels — centered above each 16px slot.
-        GuiText.drawCentered(g, "Base", guiLeft + 62, guiTop + 26, 16, 0xFF555555);
-        GuiText.drawCentered(g, "Sub", guiLeft + 98, guiTop + 26, 16, 0xFF555555);
     }
 }

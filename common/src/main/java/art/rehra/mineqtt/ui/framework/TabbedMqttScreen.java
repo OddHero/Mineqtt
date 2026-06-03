@@ -119,20 +119,10 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
         int x = this.leftPos, y = this.topPos, w = this.imageWidth, h = this.imageHeight;
         g.fill(x - 1, y - 1, x + w + 1, y + h + 1, 0xFF3A3A3A);
         g.fill(x, y, x + w, y + h, 0xFFC6C6C6);
-        // Inventory background shading
-        int invX = x + 7, invY = y + this.imageHeight - 94 + 11;
-        g.fill(invX - 1, invY - 1, invX + 9 * 18 + 1, invY + 3 * 18 + 1, 0xFF373737);
-        g.fill(invX, invY, invX + 9 * 18, invY + 3 * 18, 0xFF8B8B8B);
-        // Hotbar shading
-        int hotY = y + this.imageHeight - 24;
-        g.fill(invX - 1, hotY - 1, invX + 9 * 18 + 1, hotY + 18 + 1, 0xFF373737);
-        g.fill(invX, hotY, invX + 9 * 18, hotY + 18, 0xFF8B8B8B);
 
-        // Dynamic slot outlines for any active TabbedSlot contributed by the current tab.
-        // (Player inventory slots already have backgrounds drawn above.)
+        // Dynamic slot outlines for every slot.
         for (net.minecraft.world.inventory.Slot s : this.menu.slots) {
-            if (!(s instanceof TabbedSlot ts)) continue;
-            if (!ts.isActive()) continue;
+            if (s instanceof TabbedSlot ts && !ts.isActive()) continue;
             int sx = this.leftPos + s.x;
             int sy = this.topPos + s.y;
             // Sunken bevel: dark outline, mid background, subtle inner highlight.
