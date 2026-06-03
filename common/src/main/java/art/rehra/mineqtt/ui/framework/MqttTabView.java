@@ -2,6 +2,7 @@ package art.rehra.mineqtt.ui.framework;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 
@@ -68,6 +69,15 @@ public interface MqttTabView {
      * Return true if this view is in a modal state (color picker, popup, …) so that the screen swallows other input.
      */
     default boolean isModal() {
+        return false;
+    }
+
+    /**
+     * Called when the player shift-clicks an item stack in their inventory while this view is active.
+     * Return {@code true} to consume the click (suppressing the vanilla quick-move behavior).
+     * The provided {@code stack} is a snapshot; do not mutate it.
+     */
+    default boolean onShiftClickItem(ItemStack stack) {
         return false;
     }
 }

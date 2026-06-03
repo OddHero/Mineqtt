@@ -11,6 +11,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 
@@ -82,5 +83,14 @@ public class CyberdeckPublishTabView implements MqttTabView {
     public boolean charTyped(char c, int modifiers) {
         if (topicField.charTyped(c, modifiers)) return true;
         return payloadField.charTyped(c, modifiers);
+    }
+
+    @Override
+    public boolean onShiftClickItem(ItemStack stack) {
+        if (stack.isEmpty() || payloadField == null) return false;
+        // Use the stack's display name (respects custom names / item display name).
+        payloadField.setValue(stack.getHoverName().getString());
+        payloadField.moveCursorToEnd(false);
+        return true;
     }
 }

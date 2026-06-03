@@ -251,4 +251,24 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
         if (activeView != null && activeView.charTyped(c, modifiers)) return true;
         return super.charTyped(c, modifiers);
     }
+
+    @Override
+    protected void slotClicked(net.minecraft.world.inventory.Slot slot,
+                               int slotId,
+                               int mouseButton,
+                               net.minecraft.world.inventory.ClickType type) {
+        // Let the active view intercept shift-clicks on player-inventory slots so
+        // it can react to the picked item (e.g. fill a text field with its name)
+        // instead of quick-moving the stack into a slot that may not exist.
+        if (type == net.minecraft.world.inventory.ClickType.QUICK_MOVE
+                && slot != null
+                && slot.container instanceof Inventory
+                && activeView != null) {
+            ItemStack stack = slot.getItem();
+            if (!stack.isEmpty() && activeView.onShiftClickItem(stack)) {
+                return;
+            }
+        }
+        super.slotClicked(slot, slotId, mouseButton, type);
+    }
 }

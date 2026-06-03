@@ -26,11 +26,8 @@ public class CyberdeckPublishTab extends MqttTab {
 
     @Override
     public void buildSlots(TabbedMqttMenu menu, Container container) {
-        if (container.getContainerSize() >= 4) {
-            // Reusing same index as PublisherValuesTab for consistency
-            // Publisher block uses index 2 and 3 for ON/OFF payloads (items).
-            // Cyberdeck uses index 2 for the item to be published.
-            menu.addTabSlot(id(), container, 2, 80, 36); // Item payload slot
-        }
+        // No slots: the payload is typed manually. Shift-clicking an item in the
+        // player inventory fills the payload field with that item's name (handled
+        // by CyberdeckPublishTabView via TabbedMqttScreen#slotClicked).
     }
 }
