@@ -122,6 +122,7 @@ public class RedstonePublisherBlock extends BaseMqttBlock {
 
     @Override
     public void setPlacedBy(Level level, BlockPos pos, BlockState state, LivingEntity placer, ItemStack stack) {
+        super.setPlacedBy(level, pos, state, placer, stack);
         if (this.shouldTurnOn(level, pos, state)) {
             level.scheduleTick(pos, this, 1);
         }

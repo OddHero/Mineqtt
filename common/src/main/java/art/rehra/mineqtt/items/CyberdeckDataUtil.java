@@ -23,6 +23,16 @@ public final class CyberdeckDataUtil {
         stack.set(MineqttDataComponents.LISTENING.get(), value);
     }
 
+    public static boolean isPrivate(ItemStack stack) {
+        if (stack.isEmpty()) return false;
+        return stack.getOrDefault(MineqttDataComponents.PRIVATE_MODE.get(), false);
+    }
+
+    public static void setPrivate(ItemStack stack, boolean value) {
+        if (stack.isEmpty()) return;
+        stack.set(MineqttDataComponents.PRIVATE_MODE.get(), value);
+    }
+
     public static void loadToContainer(ItemStack stack, SimpleContainer container, HolderLookup.Provider registries) {
         if (stack.isEmpty()) return;
         ItemContainerContents contents = stack.get(MineqttDataComponents.INVENTORY.get());

@@ -52,6 +52,7 @@
   "mineqtt.tab.publisher_values": "Payloads",
   "mineqtt.tab.motion_filters": "Mob Filters",
   "mineqtt.tab.rgb_status": "Status",
-  "mineqtt.tab.light_remote": "Remote"
+  "mineqtt.tab.light_remote": "Remote",
+  "mineqtt.tab.settings.private.tooltip": "Private topic prefix"
 }
 

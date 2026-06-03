@@ -38,6 +38,16 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
      * Last tab the player opened on this block; persisted via NBT and sent with {@link #saveExtraData}.
      */
     protected String lastTabId = "";
+    /**
+     * Username of the player that placed this block. Empty if unknown (e.g. world-gen / pre-feature blocks).
+     * Used as the topic prefix when {@link #privateMode} is enabled.
+     */
+    protected String ownerName = "";
+    /**
+     * When {@code true}, {@link #getCombinedTopic()} is prefixed with the owner's username.
+     * If no base item is set, the topic becomes just the owner's username.
+     */
+    protected boolean privateMode = false;
 
     public BaseMqttBlockEntity(BlockEntityType<?> blockEntityType, BlockPos pos, BlockState blockState) {
         super(blockEntityType, pos, blockState);
@@ -77,22 +87,51 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
     }
 
     public String getCombinedTopic() {
-        String basePath = getBasePath();
         String subPath = getSubPath();
+        String basePath = getItem(0).isEmpty() ? "" : getBasePath();
 
+        String combined;
         if (basePath.isEmpty()) {
-            return "";
+            combined = "";
+        } else if (subPath.isEmpty()) {
+            combined = basePath;
+        } else {
+            combined = basePath + "/" + subPath;
         }
 
-        if (subPath.isEmpty()) {
-            return basePath;
+        if (privateMode && !ownerName.isEmpty()) {
+            return combined.isEmpty() ? ownerName : ownerName + "/" + combined;
         }
-
-        return basePath + "/" + subPath;
+        return combined;
     }
 
     public boolean isEnabled() {
+        // In private mode the owner name alone is a valid topic, so no base item is required.
+        if (privateMode && !ownerName.isEmpty()) return true;
         return !getItem(0).isEmpty();
+    }
+
+    public String getOwnerName() {
+        return ownerName;
+    }
+
+    public void setOwnerName(String ownerName) {
+        if (ownerName == null) ownerName = "";
+        if (!this.ownerName.equals(ownerName)) {
+            this.ownerName = ownerName;
+            this.setChanged();
+        }
+    }
+
+    public boolean isPrivateMode() {
+        return privateMode;
+    }
+
+    public void setPrivateMode(boolean privateMode) {
+        if (this.privateMode != privateMode) {
+            this.privateMode = privateMode;
+            markUpdated();
+        }
     }
 
     public void markUpdated() {
@@ -107,6 +146,8 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
         super.saveAdditional(output);
         output.putString("topic", this.topic);
         output.putString("lastTabId", this.lastTabId);
+        output.putString("ownerName", this.ownerName);
+        output.putBoolean("privateMode", this.privateMode);
         ContainerHelper.saveAllItems(output, this.items);
     }
 
@@ -115,6 +156,8 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
         super.loadAdditional(input);
         this.topic = input.getString("topic").orElse(getDefaultTopic());
         this.lastTabId = input.getString("lastTabId").orElse("");
+        this.ownerName = input.getString("ownerName").orElse("");
+        this.privateMode = input.getBooleanOr("privateMode", false);
         this.items = NonNullList.withSize(this.getContainerSize(), ItemStack.EMPTY);
         ContainerHelper.loadAllItems(input, this.items);
     }

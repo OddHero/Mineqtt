@@ -15,6 +15,7 @@ public abstract class BaseSubscriberBlock extends BaseMqttBlock {
 
     @Override
     public void setPlacedBy(Level level, BlockPos pos, BlockState state, LivingEntity placer, ItemStack stack) {
+        super.setPlacedBy(level, pos, state, placer, stack);
         level.scheduleTick(pos, this, 1);
     }
 

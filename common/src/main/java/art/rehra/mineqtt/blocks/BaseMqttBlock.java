@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.blocks;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.integrations.MineqttPermission;
 import com.mojang.serialization.MapCodec;
 import dev.architectury.event.events.common.InteractionEvent;
@@ -9,6 +10,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.*;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -37,6 +39,17 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
                 return InteractionResult.PASS;
             });
             eventsRegistered = true;
+        }
+    }
+
+    @Override
+    public void setPlacedBy(Level level, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack stack) {
+        super.setPlacedBy(level, pos, state, placer, stack);
+        if (!level.isClientSide && placer instanceof Player p) {
+            BlockEntity be = level.getBlockEntity(pos);
+            if (be instanceof BaseMqttBlockEntity mqtt) {
+                mqtt.setOwnerName(p.getGameProfile().getName());
+            }
         }
     }
 

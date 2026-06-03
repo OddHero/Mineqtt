@@ -16,6 +16,7 @@ public final class MineqttNetworking {
     public static final ResourceLocation CYBERDECK_TOPIC_UPDATE_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_topic_update");
     public static final ResourceLocation LIGHT_REMOTE_COMMAND_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "light_remote_command");
     public static final ResourceLocation SET_ACTIVE_TAB_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "set_active_tab");
+    public static final ResourceLocation SET_PRIVATE_MODE_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "set_private_mode");
 
     @Deprecated
     public static final ResourceLocation CYBERDECK_PUBLISH = CYBERDECK_PUBLISH_ID;
@@ -27,13 +28,33 @@ public final class MineqttNetworking {
     private MineqttNetworking() {
     }
 
+    /**
+     * Prefixes {@code topic} with the player's username when the held cyberdeck
+     * has private-mode enabled. If the topic is empty, returns just the username.
+     * Returns {@code topic} unchanged when private-mode is off or no cyberdeck is held.
+     */
+    private static String applyCyberdeckPrivatePrefix(net.minecraft.server.level.ServerPlayer sp, String topic) {
+        net.minecraft.world.item.ItemStack stack = sp.getMainHandItem();
+        if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) {
+            stack = sp.getOffhandItem();
+        }
+        if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) return topic;
+        if (!art.rehra.mineqtt.items.CyberdeckDataUtil.isPrivate(stack)) return topic;
+        String owner = sp.getGameProfile().getName();
+        if (topic == null || topic.isBlank()) return owner;
+        return owner + "/" + topic;
+    }
+
     public static void init() {
         // C2S: Cyberdeck manual publish (topic, payload)
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, CyberdeckPublishPayload.TYPE, CyberdeckPublishPayload.CODEC, (payload, context) -> {
-            String topic = payload.topic();
             String payloadStr = payload.payload();
 
             context.queue(() -> {
+                String topic = payload.topic();
+                if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer sp) {
+                    topic = applyCyberdeckPrivatePrefix(sp, topic);
+                }
                 if (MineQTT.mqttClient == null || !MineQTT.mqttClient.getState().isConnected()) {
                     MineQTT.LOGGER.warn("[Cyberdeck] MQTT client not connected; cannot publish to {}", topic);
                     return;
@@ -102,6 +123,7 @@ public final class MineqttNetworking {
                         String base = art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(baseStack);
                         String sub = subStack.isEmpty() ? "" : art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(subStack);
                         String topic = sub.isEmpty() ? base : base + "/" + sub;
+                        topic = applyCyberdeckPrivatePrefix(serverPlayer, topic);
                         if (topic == null || topic.isBlank()) {
                             MineQTT.LOGGER.warn("[LightRemote] Cyberdeck has no configured topic; cannot publish light command.");
                             return;
@@ -139,6 +161,39 @@ public final class MineqttNetworking {
                         }
                     } else if (sp.containerMenu instanceof art.rehra.mineqtt.ui.framework.TabbedMqttMenu menu) {
                         menu.setActiveTab(tabId);
+                    }
+                }
+            });
+        });
+
+        // C2S: toggle private-mode (topic prefixed with owner username) for a tabbed MQTT block
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetPrivateModePayload.TYPE, SetPrivateModePayload.CODEC, (payload, context) -> {
+            var posOpt = payload.pos();
+            boolean enabled = payload.enabled();
+            context.queue(() -> {
+                if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer sp && posOpt.isEmpty()) {
+                    // Cyberdeck (item-based): persist on the held cyberdeck stack.
+                    net.minecraft.world.item.ItemStack stack = sp.getMainHandItem();
+                    if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) {
+                        stack = sp.getOffhandItem();
+                    }
+                    if (stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem) {
+                        art.rehra.mineqtt.items.CyberdeckDataUtil.setPrivate(stack, enabled);
+                    }
+                } else if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer sp && posOpt.isPresent()) {
+                    var be = sp.level().getBlockEntity(posOpt.get());
+                    if (be instanceof art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity mqtt) {
+                        // Only the owner (or anyone, if no owner recorded yet) may toggle private mode.
+                        String owner = mqtt.getOwnerName();
+                        String playerName = sp.getGameProfile().getName();
+                        if (owner.isEmpty() || owner.equals(playerName)) {
+                            if (owner.isEmpty()) {
+                                mqtt.setOwnerName(playerName);
+                            }
+                            mqtt.setPrivateMode(enabled);
+                        } else {
+                            MineQTT.LOGGER.debug("[PrivateMode] {} tried to toggle private mode on a block owned by {}", playerName, owner);
+                        }
                     }
                 }
             });
@@ -214,6 +269,21 @@ public final class MineqttNetworking {
                 net.minecraft.network.codec.ByteBufCodecs.optional(net.minecraft.core.BlockPos.STREAM_CODEC), SetActiveTabPayload::pos,
                 net.minecraft.network.codec.ByteBufCodecs.stringUtf8(64), SetActiveTabPayload::tabId,
                 SetActiveTabPayload::new
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record SetPrivateModePayload(java.util.Optional<net.minecraft.core.BlockPos> pos,
+                                        boolean enabled) implements CustomPacketPayload {
+        public static final Type<SetPrivateModePayload> TYPE = new Type<>(SET_PRIVATE_MODE_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, SetPrivateModePayload> CODEC = StreamCodec.composite(
+                net.minecraft.network.codec.ByteBufCodecs.optional(net.minecraft.core.BlockPos.STREAM_CODEC), SetPrivateModePayload::pos,
+                net.minecraft.network.codec.ByteBufCodecs.BOOL, SetPrivateModePayload::enabled,
+                SetPrivateModePayload::new
         );
 
         @Override
