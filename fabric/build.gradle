@@ -1,6 +1,7 @@
 plugins {
     id 'com.gradleup.shadow'
     id "com.modrinth.minotaur" version "2.+"
+    id("net.darkhax.curseforgegradle") version "1.1.15"
 }
 
 architectury {
@@ -109,4 +110,24 @@ modrinth {
         optional.project "flan"
     }
     syncBodyFrom = rootProject.file("README.md").text
+}
+
+task publishCurseForge(type: net.darkhax.curseforgegradle.TaskPublishCurseForge) {
+
+    // Your auth token for CurseForge. This is like a password, and you should
+    // never share your token with a third party. Store this token in an
+    // environment variable or build secret.
+    apiToken = System.getenv("CURSEFORGE_TOKEN")
+
+    // The ID of the CurseForge project you want to upload to.
+    def projectId = 1347076
+
+    // Defines the output of the jar task as the file to upload. This returns
+    // an UploadArtifact that can be used to configure things like versions and
+    // the changelog.
+    def mainFile = upload(projectId, remapJar)
+    mainFile.changelog = 'See Description.'
+    mainFile.addGameVersion('1.21.8')
+    mainFile.addModLoader('Fabric')
+    mainFile.releaseType = 'release'
 }
