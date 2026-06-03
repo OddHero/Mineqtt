@@ -1,7 +1,9 @@
 package art.rehra.mineqtt.ui.framework.views;
 
 import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
+import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import dev.architectury.networking.NetworkManager;
 import net.minecraft.client.Minecraft;
@@ -124,12 +126,12 @@ public class LightRemoteTabView implements MqttTabView {
         var font = Minecraft.getInstance().font;
 
         int sliderX = guiLeft + 8;
-        int sliderW = 160;
+        int sliderW = TabbedMqttMenu.GUI_WIDTH - 16; // keep label/slider within panel
 
         // Brightness
         int by = guiTop + 36;
-        g.drawString(font, "Brightness: " + brightness + " (" + Math.round((brightness / 255f) * 100) + "%)",
-                sliderX, by, 0xFF333333, false);
+        GuiText.drawTruncated(g, "Brightness: " + brightness + " (" + Math.round((brightness / 255f) * 100) + "%)",
+                sliderX, by, sliderW, 0xFF333333, mouseX, mouseY);
         brightSliderX = sliderX;
         brightSliderY = by + 11;
         brightSliderW = sliderW;
@@ -137,7 +139,7 @@ public class LightRemoteTabView implements MqttTabView {
 
         // Kelvin
         int ky = guiTop + 56;
-        g.drawString(font, "Kelvin: " + kelvin + "K", sliderX, ky, 0xFF333333, false);
+        GuiText.drawTruncated(g, "Kelvin: " + kelvin + "K", sliderX, ky, sliderW, 0xFF333333, mouseX, mouseY);
         kelvinSliderX = sliderX;
         kelvinSliderY = ky + 11;
         kelvinSliderW = sliderW;
@@ -153,6 +155,7 @@ public class LightRemoteTabView implements MqttTabView {
         previewY1 = swatchY + 12;
         g.fill(previewX0, previewY0, previewX1, previewY1, color);
         g.renderOutline(previewX0, previewY0, sliderW, 12, 0xFF333333);
+        // Drawn directly (not via GuiText) because it uses dropShadow + § color codes.
         String state = lightOn ? "§a⬤ ON" : "§c⬤ OFF";
         g.drawString(font, state, previewX1 - font.width(state) - 4, previewY0 + 2, 0xFFFFFFFF, true);
     }
@@ -204,27 +207,28 @@ public class LightRemoteTabView implements MqttTabView {
         int x = pickerX, y = pickerY, w = PICKER_W, h = PICKER_H;
         g.fill(x - 2, y - 2, x + w + 2, y + h + 2, 0xFF202020);
         g.fill(x, y, x + w, y + h, 0xFFE0E0E0);
-        g.drawString(font, "RGB Color", x + PICKER_PAD, y + PICKER_PAD - 2, 0xFF222222, false);
+        GuiText.drawTruncated(g, "RGB Color", x + PICKER_PAD, y + PICKER_PAD - 2, w - PICKER_PAD * 2, 0xFF222222);
         int sx = pickSliderX(), sw = pickSliderW();
         int[] vals = {red, green, blue};
         String[] labels = {"R", "G", "B"};
         int[] colors = {0xFFCC3030, 0xFF30AA30, 0xFF3060CC};
         for (int i = 0; i < 3; i++) {
             int sy = pickSliderY(i);
-            g.drawString(font, labels[i], x + PICKER_PAD, sy + 1, 0xFF222222, false);
+            GuiText.drawTruncated(g, labels[i], x + PICKER_PAD, sy + 1, 10, 0xFF222222);
             g.fill(sx, sy, sx + sw, sy + PICK_SLIDER_H, 0xFF555555);
             int filled = Math.round(vals[i] / 255f * sw);
             g.fill(sx, sy, sx + filled, sy + PICK_SLIDER_H, colors[i]);
             int kx = sx + filled;
             g.fill(kx - 1, sy - 1, kx + 2, sy + PICK_SLIDER_H + 1, 0xFFFFFFFF);
-            g.drawString(font, String.valueOf(vals[i]), sx + sw + 4, sy + 1, 0xFF222222, false);
+            // Numeric value, capped to the right-margin reservation (30px).
+            GuiText.drawTruncated(g, String.valueOf(vals[i]), sx + sw + 4, sy + 1, 26, 0xFF222222);
         }
         int prevY = pickSliderY(2) + PICK_SLIDER_H + 6;
         int cur = 0xFF000000 | (red << 16) | (green << 8) | blue;
         g.fill(x + PICKER_PAD, prevY, x + w - PICKER_PAD, prevY + 10, cur);
         g.renderOutline(x + PICKER_PAD, prevY, w - PICKER_PAD * 2, 10, 0xFF333333);
         String close = "[X]";
-        g.drawString(font, close, x + w - font.width(close) - 3, y - 1, 0xFF990000, false);
+        GuiText.drawRight(g, close, x + w - 3, y - 1, 20, 0xFF990000);
     }
 
     private int pickerSliderHit(double mx, double my) {
@@ -304,12 +308,13 @@ public class LightRemoteTabView implements MqttTabView {
         g.fill(x - 2, y - 2, x + w + 2, y + h + 2, 0xFF202020);
         g.fill(x, y, x + w, y + h, 0xFFE0E0E0);
         String[] titles = {"Brightness (0-255)", "Kelvin (" + KELVIN_MIN + "-" + KELVIN_MAX + ")", "Transition (s)"};
-        g.drawString(font, numInputTarget >= 0 ? titles[numInputTarget] : "", x + 6, y + 4, 0xFF222222, false);
+        GuiText.drawTruncated(g, numInputTarget >= 0 ? titles[numInputTarget] : "",
+                x + 6, y + 4, w - 12, 0xFF222222);
         int boxX = x + 6, boxY = y + 18, boxW = w - 12, boxH = 14;
         g.fill(boxX, boxY, boxX + boxW, boxY + boxH, 0xFFFFFFFF);
         g.renderOutline(boxX, boxY, boxW, boxH, 0xFF333333);
-        g.drawString(font, numInputBuf + "_", boxX + 3, boxY + 3, 0xFF000000, false);
-        g.drawString(font, "Enter=OK  ESC=Cancel", x + 6, y + h - 10, 0xFF555555, false);
+        GuiText.drawTruncated(g, numInputBuf + "_", boxX + 3, boxY + 3, boxW - 6, 0xFF000000);
+        GuiText.drawTruncated(g, "Enter=OK  ESC=Cancel", x + 6, y + h - 10, w - 12, 0xFF555555);
     }
 
     private boolean insideNumInput(double mx, double my) {

@@ -36,6 +36,7 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     public static final int TAB_OVERLAP = 4;
     private final List<AbstractWidget> tabViewWidgets = new ArrayList<>();
     private MqttTabView activeView;
+    private int lastMouseX = Integer.MIN_VALUE, lastMouseY = Integer.MIN_VALUE;
 
     public TabbedMqttScreen(TabbedMqttMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
@@ -126,6 +127,18 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
         int hotY = y + this.imageHeight - 24;
         g.fill(invX - 1, hotY - 1, invX + 9 * 18 + 1, hotY + 18 + 1, 0xFF373737);
         g.fill(invX, hotY, invX + 9 * 18, hotY + 18, 0xFF8B8B8B);
+
+        // Dynamic slot outlines for any active TabbedSlot contributed by the current tab.
+        // (Player inventory slots already have backgrounds drawn above.)
+        for (net.minecraft.world.inventory.Slot s : this.menu.slots) {
+            if (!(s instanceof TabbedSlot ts)) continue;
+            if (!ts.isActive()) continue;
+            int sx = this.leftPos + s.x;
+            int sy = this.topPos + s.y;
+            // Sunken bevel: dark outline, mid background, subtle inner highlight.
+            g.fill(sx - 1, sy - 1, sx + 17, sy + 17, 0xFF373737);
+            g.fill(sx, sy, sx + 16, sy + 16, 0xFF8B8B8B);
+        }
     }
 
     private void renderTabBar(GuiGraphics g) {
@@ -158,13 +171,20 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     protected void renderLabels(GuiGraphics g, int mouseX, int mouseY) {
         MqttTab tab = this.menu.getActiveTab();
         Component title = tab != null ? tab.title() : this.title;
-        int tw = this.font.width(title);
-        g.drawString(this.font, title, (this.imageWidth - tw) / 2, 6, 0x404040, false);
-        g.drawString(this.font, this.playerInventoryTitle, 8, this.inventoryLabelY, 0x404040, false);
+        // renderLabels is called inside a translated pose (origin = guiLeft,guiTop).
+        // Convert the absolute mouse coords to the same local space so tooltips work.
+        int localMX = lastMouseX == Integer.MIN_VALUE ? Integer.MIN_VALUE : lastMouseX - this.leftPos;
+        int localMY = lastMouseY == Integer.MIN_VALUE ? Integer.MIN_VALUE : lastMouseY - this.topPos;
+        // Centered title — truncated so a long localized name can never overflow the GUI.
+        GuiText.drawCentered(g, title, 0, 6, this.imageWidth, 0x404040, localMX, localMY);
+        // Inventory label — capped to the inventory width.
+        GuiText.drawTruncated(g, this.playerInventoryTitle, 8, this.inventoryLabelY, 9 * 18, 0x404040, localMX, localMY);
     }
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        this.lastMouseX = mouseX;
+        this.lastMouseY = mouseY;
         this.renderBackground(g, mouseX, mouseY, partialTick);
         super.render(g, mouseX, mouseY, partialTick);
         if (activeView != null) {
