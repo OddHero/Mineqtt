@@ -26,6 +26,7 @@ you send via unsecured public mqtt servers. I suggest using a self hosted MQTT-B
 - Connect to MQTT-Broker with username/password Authentication
 - Gui to configure topics for Senders and Receivers
 - Portable Topic Debugger (Subscribe/Publish via handheld "Cyberdeck")
+- Smart Light remote control
 
 ### Planned
 
