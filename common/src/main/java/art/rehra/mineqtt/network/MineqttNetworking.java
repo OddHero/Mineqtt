@@ -120,7 +120,7 @@ public final class MineqttNetworking {
                         // the convention used by BaseMqttBlockEntity and CyberdeckPublishPayload.
                         var baseStack = cyberdeckMenu.container.getItem(0);
                         var subStack = cyberdeckMenu.container.getItem(1);
-                        String base = art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(baseStack);
+                        String base = baseStack.isEmpty() ? "" : art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(baseStack);
                         String sub = subStack.isEmpty() ? "" : art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(subStack);
                         String topic = sub.isEmpty() ? base : base + "/" + sub;
                         topic = applyCyberdeckPrivatePrefix(serverPlayer, topic);

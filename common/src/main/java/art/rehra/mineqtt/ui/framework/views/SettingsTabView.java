@@ -122,7 +122,7 @@ public class SettingsTabView implements MqttTabView {
             // Cyberdeck (item-based): build the topic from the slots, with optional client-side private prefix.
             var baseStack = menu.container.getItem(0);
             var subStack = menu.container.getItem(1);
-            String base = BaseMqttBlockEntity.parseItemStackTopic(baseStack);
+            String base = baseStack.isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(baseStack);
             String sub = subStack.isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(subStack);
             String combined = sub.isEmpty() ? base : base + "/" + sub;
             if (art.rehra.mineqtt.items.CyberdeckDataUtil.isPrivate(cyberdeckStack(menu))) {
