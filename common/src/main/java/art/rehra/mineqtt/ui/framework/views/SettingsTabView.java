@@ -8,7 +8,7 @@ import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import com.mojang.authlib.properties.PropertyMap;
 import dev.architectury.networking.NetworkManager;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
@@ -80,7 +80,7 @@ public class SettingsTabView implements MqttTabView {
             if (be instanceof BaseMqttBlockEntity m && !m.getOwnerName().isEmpty()) return m.getOwnerName();
         }
         // Fallback to the viewing player (used for cyberdeck and pre-feature blocks).
-        return menu.player.getGameProfile().getName();
+        return menu.player.getGameProfile().name();
     }
 
     private void togglePrivate() {
@@ -108,7 +108,7 @@ public class SettingsTabView implements MqttTabView {
     }
 
     @Override
-    public void renderContent(GuiGraphics g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
+    public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         TabbedMqttMenu menu = screen.getMenu();
         String topic;
         boolean enabled;
@@ -126,7 +126,7 @@ public class SettingsTabView implements MqttTabView {
             String sub = subStack.isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(subStack);
             String combined = sub.isEmpty() ? base : base + "/" + sub;
             if (art.rehra.mineqtt.items.CyberdeckDataUtil.isPrivate(cyberdeckStack(menu))) {
-                String owner = menu.player.getGameProfile().getName();
+                String owner = menu.player.getGameProfile().name();
                 combined = combined.isEmpty() ? owner : owner + "/" + combined;
                 enabled = true;
             } else {
@@ -136,11 +136,11 @@ public class SettingsTabView implements MqttTabView {
         }
 
         int x = guiLeft + 8;
-        // Slot labels — centered above each 16px slot (slots at y=36..52).
+        // Slot labels â€” centered above each 16px slot (slots at y=36..52).
         GuiText.drawCentered(g, "Base", guiLeft + 61, guiTop + 26, 24, 0xFF555555);
         GuiText.drawCentered(g, "Sub", guiLeft + 97, guiTop + 26, 24, 0xFF555555);
 
-        // Topic info — rendered BELOW the slots so it never overlaps them.
+        // Topic info â€” rendered BELOW the slots so it never overlaps them.
         int topicY = guiTop + 58;
 
         if (enabled && !topic.isEmpty()) {
@@ -188,7 +188,7 @@ public class SettingsTabView implements MqttTabView {
         }
 
         @Override
-        protected void renderWidget(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        protected void renderWidget(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
             boolean on = isOn.getAsBoolean();
             // Background: subtle dark slot-like frame regardless of state, for visual consistency.
             g.fill(getX() - 1, getY() - 1, getX() + width + 1, getY() + height + 1, 0xFF373737);

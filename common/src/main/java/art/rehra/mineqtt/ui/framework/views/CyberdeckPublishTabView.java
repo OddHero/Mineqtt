@@ -9,7 +9,7 @@ import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import dev.architectury.networking.NetworkManager;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -36,7 +36,7 @@ public class CyberdeckPublishTabView implements MqttTabView {
         String topic = sub.isEmpty() ? base : base + "/" + sub;
         if (isHeldCyberdeckPrivate()) {
             String owner = Minecraft.getInstance().player != null
-                    ? Minecraft.getInstance().player.getGameProfile().getName() : "";
+                    ? Minecraft.getInstance().player.getGameProfile().name() : "";
             if (!owner.isEmpty()) {
                 topic = topic.isEmpty() ? owner : owner + "/" + topic;
             }
@@ -59,7 +59,7 @@ public class CyberdeckPublishTabView implements MqttTabView {
     }
 
     @Override
-    public void renderContent(GuiGraphics g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
+    public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         g.drawString(screen.getFont(), "Topic:", guiLeft + 8, guiTop + 22, 0xFF555555, false);
         g.drawString(screen.getFont(), "Payload:", guiLeft + 8, guiTop + 46, 0xFF555555, false);
     }
@@ -85,7 +85,7 @@ public class CyberdeckPublishTabView implements MqttTabView {
         // so strip it from the displayed topic before sending to avoid duplication.
         boolean privateMode = isHeldCyberdeckPrivate();
         if (privateMode && Minecraft.getInstance().player != null) {
-            String owner = Minecraft.getInstance().player.getGameProfile().getName();
+            String owner = Minecraft.getInstance().player.getGameProfile().name();
             if (topic.equals(owner)) {
                 topic = "";
             } else if (topic.startsWith(owner + "/")) {

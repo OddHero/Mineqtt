@@ -6,7 +6,7 @@ import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.world.item.ItemStack;
 
 /**
@@ -22,7 +22,7 @@ public class PublisherValuesTabView implements MqttTabView {
     }
 
     @Override
-    public void renderContent(GuiGraphics g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
+    public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         TabbedMqttMenu menu = screen.getMenu();
         var level = menu.player.level();
         var be = level.getBlockEntity(menu.blockPos);
@@ -30,11 +30,11 @@ public class PublisherValuesTabView implements MqttTabView {
 
         int x = guiLeft + 8;
 
-        // Slot labels — centered above their 16px slots (slots at y=36..52).
+        // Slot labels â€” centered above their 16px slots (slots at y=36..52).
         GuiText.drawCentered(g, "ON", guiLeft + 61, guiTop + 26, 24, 0xFF555555);
         GuiText.drawCentered(g, "OFF", guiLeft + 97, guiTop + 26, 24, 0xFF555555);
 
-        // Status line — single row above the slot labels.
+        // Status line â€” single row above the slot labels.
         boolean isPowered = false;
         try {
             var state = level.getBlockState(menu.blockPos);
@@ -54,7 +54,7 @@ public class PublisherValuesTabView implements MqttTabView {
             ItemStack offStack = mqtt.getItem(3);
             String onValue = onStack.isEmpty() ? "true" : BaseMqttBlockEntity.parseItemStackTopic(onStack);
             String offValue = offStack.isEmpty() ? "false" : BaseMqttBlockEntity.parseItemStackTopic(offStack);
-            String signal = isPowered ? "ON → '" + onValue + "'" : "OFF → '" + offValue + "'";
+            String signal = isPowered ? "ON â†’ '" + onValue + "'" : "OFF â†’ '" + offValue + "'";
             // Render the signal + payload lines BELOW the slots (y=52) so they
             // never overlap the slot labels or the slot icons themselves.
             int by = guiTop + 58;

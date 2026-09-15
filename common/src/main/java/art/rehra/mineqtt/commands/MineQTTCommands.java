@@ -20,7 +20,7 @@ public class MineQTTCommands {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         LiteralArgumentBuilder<CommandSourceStack> mineqtt = Commands.literal("mineqtt")
-                .requires(source -> source.hasPermission(2));
+                .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS));
 
         LiteralArgumentBuilder<CommandSourceStack> setgoal = Commands.literal("setgoal")
                 .then(Commands.argument("pos", BlockPosArgument.blockPos())

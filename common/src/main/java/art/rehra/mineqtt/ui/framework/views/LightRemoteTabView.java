@@ -7,7 +7,7 @@ import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import dev.architectury.networking.NetworkManager;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.network.chat.Component;
@@ -65,22 +65,22 @@ public class LightRemoteTabView implements MqttTabView {
 
         int btnH = 14;
         int powerY = guiTop + 18;
-        widgets.add(Button.builder(Component.literal("§a⬤ ON"), b -> {
+        widgets.add(Button.builder(Component.literal("Â§aâ¬¤ ON"), b -> {
                     lightOn = true;
                     sendCommand();
                 })
                 .bounds(guiLeft + 8, powerY, 78, btnH).build());
-        widgets.add(Button.builder(Component.literal("§c⬤ OFF"), b -> {
+        widgets.add(Button.builder(Component.literal("Â§câ¬¤ OFF"), b -> {
                     lightOn = false;
                     sendCommand();
                 })
                 .bounds(guiLeft + 90, powerY, 78, btnH).build());
 
-        // Color presets — single row of 6 small buttons (R G B W Y + picker)
+        // Color presets â€” single row of 6 small buttons (R G B W Y + picker)
         int presetY = guiTop + 76;
         int presetH = 14;
         int[] presetColors = {0xCC0000, 0x00CC00, 0x0066CC, 0xFFFFFF, 0xFFCC00, 0x00CCCC, 0xCC00CC, 0xCC6600, 0x8000FF, 0xFFB464};
-        String[] presetLabels = {"§cR", "§aG", "§9B", "§fW", "§eY", "§bC", "§dM", "§6O", "§5P", "§eWW"};
+        String[] presetLabels = {"Â§cR", "Â§aG", "Â§9B", "Â§fW", "Â§eY", "Â§bC", "Â§dM", "Â§6O", "Â§5P", "Â§eWW"};
         int n = presetLabels.length;
         int sp = 1;
         int totalW = 176 - 16; // available width
@@ -120,7 +120,7 @@ public class LightRemoteTabView implements MqttTabView {
     // ---- Rendering ----
 
     @Override
-    public void renderContent(GuiGraphics g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
+    public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         this.guiLeft = guiLeft;
         this.guiTop = guiTop;
         var font = Minecraft.getInstance().font;
@@ -155,18 +155,18 @@ public class LightRemoteTabView implements MqttTabView {
         previewY1 = swatchY + 12;
         g.fill(previewX0, previewY0, previewX1, previewY1, color);
         g.renderOutline(previewX0, previewY0, sliderW, 12, 0xFF333333);
-        // Drawn directly (not via GuiText) because it uses dropShadow + § color codes.
-        String state = lightOn ? "§a⬤ ON" : "§c⬤ OFF";
+        // Drawn directly (not via GuiText) because it uses dropShadow + Â§ color codes.
+        String state = lightOn ? "Â§aâ¬¤ ON" : "Â§câ¬¤ OFF";
         g.drawString(font, state, previewX1 - font.width(state) - 4, previewY0 + 2, 0xFFFFFFFF, true);
     }
 
     @Override
-    public void renderOverlay(GuiGraphics g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
+    public void renderOverlay(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         if (pickerOpen) renderPicker(g);
         if (numInputOpen) renderNumInput(g);
     }
 
-    private void drawSlider(GuiGraphics g, int x, int y, int w, float t, int fill) {
+    private void drawSlider(GuiGraphicsExtractor g, int x, int y, int w, float t, int fill) {
         if (t < 0) t = 0;
         if (t > 1) t = 1;
         g.fill(x, y, x + w, y + SLIDER_H, 0xFF555555);
@@ -201,7 +201,7 @@ public class LightRemoteTabView implements MqttTabView {
         return PICKER_W - PICKER_PAD * 2 - 12 - 30;
     }
 
-    private void renderPicker(GuiGraphics g) {
+    private void renderPicker(GuiGraphicsExtractor g) {
         g.fill(0, 0, screen.width, screen.height, 0x80000000);
         var font = Minecraft.getInstance().font;
         int x = pickerX, y = pickerY, w = PICKER_W, h = PICKER_H;
@@ -301,7 +301,7 @@ public class LightRemoteTabView implements MqttTabView {
         closeNumInput();
     }
 
-    private void renderNumInput(GuiGraphics g) {
+    private void renderNumInput(GuiGraphicsExtractor g) {
         g.fill(0, 0, screen.width, screen.height, 0x80000000);
         var font = Minecraft.getInstance().font;
         int x = numInputX, y = numInputY, w = NUM_W, h = NUM_H;

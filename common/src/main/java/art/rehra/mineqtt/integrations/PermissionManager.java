@@ -4,13 +4,13 @@ import art.rehra.mineqtt.MineQTT;
 import io.github.flemmli97.flan.api.ClaimHandler;
 import io.github.flemmli97.flan.api.permission.BuiltinPermission;
 import net.minecraft.core.BlockPos;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Dictionary;
 
 public class PermissionManager {
-    private static final Dictionary<MineqttPermission, ResourceLocation> flanPermissionMappings = new java.util.Hashtable<>();
+    private static final Dictionary<MineqttPermission, Identifier> flanPermissionMappings = new java.util.Hashtable<>();
 
 
     public PermissionManager() {

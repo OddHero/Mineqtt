@@ -4,7 +4,7 @@ import art.rehra.mineqtt.MineQTT;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 
 import java.util.function.Supplier;
@@ -24,6 +24,6 @@ public class MineqttBlockEntityTypes {
     }
 
     public static <T extends BlockEntityType<?>> RegistrySupplier<T> registerBlockEntity(String name, Supplier<T> blockEntity) {
-        return BLOCK_ENTITIES.register(ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, name), blockEntity);
+        return BLOCK_ENTITIES.register(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, name), blockEntity);
     }
 }

@@ -5,7 +5,7 @@ import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 
@@ -43,10 +43,10 @@ public class MineqttBlocks {
     }
 
     public static RegistrySupplier<Block> registerBlock(String name, Supplier<Block> block) {
-        return BLOCKS.register(ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, name), block);
+        return BLOCKS.register(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, name), block);
     }
 
     public static Block.Properties baseProperties(String name) {
-        return BlockBehaviour.Properties.of().setId(ResourceKey.create(Registries.BLOCK, ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, name)));
+        return BlockBehaviour.Properties.of().setId(ResourceKey.create(Registries.BLOCK, Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, name)));
     }
 }

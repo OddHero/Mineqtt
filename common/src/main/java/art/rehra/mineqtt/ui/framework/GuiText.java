@@ -2,7 +2,7 @@ package art.rehra.mineqtt.ui.framework;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 
@@ -38,18 +38,18 @@ public final class GuiText {
 
     // ===== Truncated, left-aligned =====
 
-    public static void drawTruncated(GuiGraphics g, String text, int x, int y, int maxWidth, int color) {
+    public static void drawTruncated(GuiGraphicsExtractor g, String text, int x, int y, int maxWidth, int color) {
         drawTruncated(g, text, x, y, maxWidth, color, Integer.MIN_VALUE, Integer.MIN_VALUE);
     }
 
-    public static void drawTruncated(GuiGraphics g, Component text, int x, int y, int maxWidth, int color) {
+    public static void drawTruncated(GuiGraphicsExtractor g, Component text, int x, int y, int maxWidth, int color) {
         drawTruncated(g, text.getString(), x, y, maxWidth, color, Integer.MIN_VALUE, Integer.MIN_VALUE);
     }
 
     /**
-     * Tooltip-aware overload — shows the full text when hovered if truncation occurred.
+     * Tooltip-aware overload â€” shows the full text when hovered if truncation occurred.
      */
-    public static void drawTruncated(GuiGraphics g, String text, int x, int y, int maxWidth, int color, int mouseX, int mouseY) {
+    public static void drawTruncated(GuiGraphicsExtractor g, String text, int x, int y, int maxWidth, int color, int mouseX, int mouseY) {
         Font f = font();
         String s = truncate(f, text, maxWidth);
         g.drawString(f, s, x, y, color, false);
@@ -59,21 +59,21 @@ public final class GuiText {
         }
     }
 
-    public static void drawTruncated(GuiGraphics g, Component text, int x, int y, int maxWidth, int color, int mouseX, int mouseY) {
+    public static void drawTruncated(GuiGraphicsExtractor g, Component text, int x, int y, int maxWidth, int color, int mouseX, int mouseY) {
         drawTruncated(g, text.getString(), x, y, maxWidth, color, mouseX, mouseY);
     }
 
     // ===== Truncated, centered =====
 
-    public static void drawCentered(GuiGraphics g, String text, int x, int y, int width, int color) {
+    public static void drawCentered(GuiGraphicsExtractor g, String text, int x, int y, int width, int color) {
         drawCentered(g, text, x, y, width, color, Integer.MIN_VALUE, Integer.MIN_VALUE);
     }
 
-    public static void drawCentered(GuiGraphics g, Component text, int x, int y, int width, int color) {
+    public static void drawCentered(GuiGraphicsExtractor g, Component text, int x, int y, int width, int color) {
         drawCentered(g, text.getString(), x, y, width, color, Integer.MIN_VALUE, Integer.MIN_VALUE);
     }
 
-    public static void drawCentered(GuiGraphics g, String text, int x, int y, int width, int color, int mouseX, int mouseY) {
+    public static void drawCentered(GuiGraphicsExtractor g, String text, int x, int y, int width, int color, int mouseX, int mouseY) {
         Font f = font();
         String s = truncate(f, text, width);
         int tw = f.width(s);
@@ -84,17 +84,17 @@ public final class GuiText {
         }
     }
 
-    public static void drawCentered(GuiGraphics g, Component text, int x, int y, int width, int color, int mouseX, int mouseY) {
+    public static void drawCentered(GuiGraphicsExtractor g, Component text, int x, int y, int width, int color, int mouseX, int mouseY) {
         drawCentered(g, text.getString(), x, y, width, color, mouseX, mouseY);
     }
 
     // ===== Truncated, right-aligned =====
 
-    public static void drawRight(GuiGraphics g, String text, int rightX, int y, int maxWidth, int color) {
+    public static void drawRight(GuiGraphicsExtractor g, String text, int rightX, int y, int maxWidth, int color) {
         drawRight(g, text, rightX, y, maxWidth, color, Integer.MIN_VALUE, Integer.MIN_VALUE);
     }
 
-    public static void drawRight(GuiGraphics g, String text, int rightX, int y, int maxWidth, int color, int mouseX, int mouseY) {
+    public static void drawRight(GuiGraphicsExtractor g, String text, int rightX, int y, int maxWidth, int color, int mouseX, int mouseY) {
         Font f = font();
         String s = truncate(f, text, maxWidth);
         int tw = f.width(s);
@@ -107,7 +107,7 @@ public final class GuiText {
 
     // ===== Wrapped =====
 
-    public static int drawWrapped(GuiGraphics g, String text, int x, int y, int maxWidth, int color) {
+    public static int drawWrapped(GuiGraphicsExtractor g, String text, int x, int y, int maxWidth, int color) {
         Font f = font();
         List<FormattedCharSequence> lines = f.split(Component.literal(text), maxWidth);
         int lineH = f.lineHeight;
@@ -121,22 +121,22 @@ public final class GuiText {
     // ===== Auto-scaled textbox =====
 
     /**
-     * Renders {@code text} so that it always fits inside a {@code maxWidth × maxHeight}
+     * Renders {@code text} so that it always fits inside a {@code maxWidth Ã— maxHeight}
      * box. The text is rendered at scale 1.0 if possible; otherwise the font is shrunk
      * down (uniformly) until it fits, or until {@link #MIN_AUTO_SCALE} is reached, in
      * which case the text is truncated with an ellipsis.
      *
      * <p>The text is left-aligned and vertically centered within the box.</p>
      */
-    public static void drawAutoScaled(GuiGraphics g, String text, int x, int y, int maxWidth, int maxHeight, int color) {
+    public static void drawAutoScaled(GuiGraphicsExtractor g, String text, int x, int y, int maxWidth, int maxHeight, int color) {
         drawAutoScaled(g, text, x, y, maxWidth, maxHeight, color, Alignment.LEFT, Integer.MIN_VALUE, Integer.MIN_VALUE);
     }
 
-    public static void drawAutoScaled(GuiGraphics g, String text, int x, int y, int maxWidth, int maxHeight, int color, int mouseX, int mouseY) {
+    public static void drawAutoScaled(GuiGraphicsExtractor g, String text, int x, int y, int maxWidth, int maxHeight, int color, int mouseX, int mouseY) {
         drawAutoScaled(g, text, x, y, maxWidth, maxHeight, color, Alignment.LEFT, mouseX, mouseY);
     }
 
-    public static void drawAutoScaled(GuiGraphics g, String text, int x, int y, int maxWidth, int maxHeight, int color,
+    public static void drawAutoScaled(GuiGraphicsExtractor g, String text, int x, int y, int maxWidth, int maxHeight, int color,
                                       Alignment align, int mouseX, int mouseY) {
         if (text == null || text.isEmpty() || maxWidth <= 0 || maxHeight <= 0) return;
         Font f = font();
@@ -150,7 +150,7 @@ public final class GuiText {
         String rendered = text;
 
         if (scale < MIN_AUTO_SCALE) {
-            // Even the smallest acceptable scale can't fit — clamp scale and truncate.
+            // Even the smallest acceptable scale can't fit â€” clamp scale and truncate.
             scale = MIN_AUTO_SCALE;
             int effectiveMaxW = (int) Math.floor(maxWidth / scale);
             rendered = truncate(f, text, effectiveMaxW);
@@ -205,7 +205,7 @@ public final class GuiText {
 
     // ===== Helpers =====
 
-    private static void maybeTooltip(GuiGraphics g, String fullText, int x, int y, int w, int h, int mouseX, int mouseY) {
+    private static void maybeTooltip(GuiGraphicsExtractor g, String fullText, int x, int y, int w, int h, int mouseX, int mouseY) {
         if (mouseX == Integer.MIN_VALUE || mouseY == Integer.MIN_VALUE) return;
         if (fullText == null || fullText.isEmpty()) return;
         if (mouseX < x || mouseX >= x + w || mouseY < y || mouseY >= y + h) return;

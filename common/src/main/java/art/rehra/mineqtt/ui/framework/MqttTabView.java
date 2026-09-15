@@ -1,6 +1,6 @@
 package art.rehra.mineqtt.ui.framework;
 
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.world.item.ItemStack;
 
@@ -32,13 +32,13 @@ public interface MqttTabView {
     /**
      * Renders content under the player inventory area (above the inventory rows).
      */
-    default void renderContent(GuiGraphics g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
+    default void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
     }
 
     /**
      * Optional overlay rendered above slots/widgets (e.g. picker popups).
      */
-    default void renderOverlay(GuiGraphics g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
+    default void renderOverlay(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
     }
 
     default boolean mouseClicked(double mouseX, double mouseY, int button) {
@@ -66,7 +66,7 @@ public interface MqttTabView {
     }
 
     /**
-     * Return true if this view is in a modal state (color picker, popup, …) so that the screen swallows other input.
+     * Return true if this view is in a modal state (color picker, popup, â€¦) so that the screen swallows other input.
      */
     default boolean isModal() {
         return false;

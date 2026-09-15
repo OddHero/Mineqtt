@@ -9,7 +9,7 @@ import art.rehra.mineqtt.ui.framework.MqttTabView;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import dev.architectury.networking.NetworkManager;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.network.chat.Component;
@@ -59,7 +59,7 @@ public class CyberdeckExplorerTabView implements MqttTabView {
     }
 
     @Override
-    public void renderContent(GuiGraphics g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
+    public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         TabbedMqttMenu menu = screen.getMenu();
         var baseStack = menu.container.getItem(0);
         var subStack = menu.container.getItem(1);

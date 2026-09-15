@@ -119,7 +119,7 @@ public class CyberdeckSessionManager {
             if (stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem) {
                 if (art.rehra.mineqtt.items.CyberdeckDataUtil.isListening(stack)) {
                     toggleListening(player, true);
-                    MineQTT.LOGGER.debug("[Cyberdeck] Restored listening for player {} from item data", player.getGameProfile().getName());
+                    MineQTT.LOGGER.debug("[Cyberdeck] Restored listening for player {} from item data", player.getGameProfile().name());
                     break;
                 }
             }

@@ -6,24 +6,24 @@ import dev.architectury.networking.NetworkManager;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 import java.nio.charset.StandardCharsets;
 
 public final class MineqttNetworking {
-    public static final ResourceLocation CYBERDECK_PUBLISH_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_publish");
-    public static final ResourceLocation CYBERDECK_LISTEN_TOGGLE_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_listen_toggle");
-    public static final ResourceLocation CYBERDECK_TOPIC_UPDATE_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_topic_update");
-    public static final ResourceLocation LIGHT_REMOTE_COMMAND_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "light_remote_command");
-    public static final ResourceLocation SET_ACTIVE_TAB_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "set_active_tab");
-    public static final ResourceLocation SET_PRIVATE_MODE_ID = ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, "set_private_mode");
+    public static final Identifier CYBERDECK_PUBLISH_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_publish");
+    public static final Identifier CYBERDECK_LISTEN_TOGGLE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_listen_toggle");
+    public static final Identifier CYBERDECK_TOPIC_UPDATE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_topic_update");
+    public static final Identifier LIGHT_REMOTE_COMMAND_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "light_remote_command");
+    public static final Identifier SET_ACTIVE_TAB_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_active_tab");
+    public static final Identifier SET_PRIVATE_MODE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_private_mode");
 
     @Deprecated
-    public static final ResourceLocation CYBERDECK_PUBLISH = CYBERDECK_PUBLISH_ID;
+    public static final Identifier CYBERDECK_PUBLISH = CYBERDECK_PUBLISH_ID;
     @Deprecated
-    public static final ResourceLocation CYBERDECK_LISTEN_TOGGLE = CYBERDECK_LISTEN_TOGGLE_ID;
+    public static final Identifier CYBERDECK_LISTEN_TOGGLE = CYBERDECK_LISTEN_TOGGLE_ID;
     @Deprecated
-    public static final ResourceLocation CYBERDECK_TOPIC_UPDATE = CYBERDECK_TOPIC_UPDATE_ID;
+    public static final Identifier CYBERDECK_TOPIC_UPDATE = CYBERDECK_TOPIC_UPDATE_ID;
 
     private MineqttNetworking() {
     }
@@ -40,7 +40,7 @@ public final class MineqttNetworking {
         }
         if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) return topic;
         if (!art.rehra.mineqtt.items.CyberdeckDataUtil.isPrivate(stack)) return topic;
-        String owner = sp.getGameProfile().getName();
+        String owner = sp.getGameProfile().name();
         if (topic == null || topic.isBlank()) return owner;
         return owner + "/" + topic;
     }
@@ -67,7 +67,7 @@ public final class MineqttNetworking {
                             .topic(topic)
                             .payload(payloadBytes)
                             .build());
-                    MineQTT.LOGGER.debug("[Cyberdeck] Published to {} by {}", topic, context.getPlayer().getGameProfile().getName());
+                    MineQTT.LOGGER.debug("[Cyberdeck] Published to {} by {}", topic, context.getPlayer().getGameProfile().name());
                 } catch (Exception e) {
                     MineQTT.LOGGER.error("[Cyberdeck] Failed publishing to {}: {}", topic, e.getMessage());
                 }
@@ -90,7 +90,7 @@ public final class MineqttNetworking {
                         art.rehra.mineqtt.items.CyberdeckDataUtil.setListening(stack, listening);
                     }
 
-                    MineQTT.LOGGER.debug("[Cyberdeck] Player {} is now {}listening", player.getGameProfile().getName(), listening ? "" : "not ");
+                    MineQTT.LOGGER.debug("[Cyberdeck] Player {} is now {}listening", player.getGameProfile().name(), listening ? "" : "not ");
                 }
             });
         });
@@ -112,7 +112,7 @@ public final class MineqttNetworking {
                     if (posOpt.isPresent()) {
                         if (level.getBlockEntity(posOpt.get()) instanceof art.rehra.mineqtt.blocks.entities.LightRemoteBlockEntity lightRemote) {
                             lightRemote.publishLightCommand(jsonPayload);
-                            MineQTT.LOGGER.debug("[LightRemote] Player {} published light command to {}", serverPlayer.getGameProfile().getName(), posOpt.get());
+                            MineQTT.LOGGER.debug("[LightRemote] Player {} published light command to {}", serverPlayer.getGameProfile().name(), posOpt.get());
                         }
                     } else if (serverPlayer.containerMenu instanceof art.rehra.mineqtt.ui.CyberdeckMenu cyberdeckMenu) {
                         // For Cyberdeck (item-based GUI), publish directly via the shared MQTT client.
@@ -139,7 +139,7 @@ public final class MineqttNetworking {
                                     .payload(payloadBytes)
                                     .build());
                             MineQTT.LOGGER.debug("[LightRemote] Player {} published light command from Cyberdeck to {}: {}",
-                                    serverPlayer.getGameProfile().getName(), topic, jsonPayload);
+                                    serverPlayer.getGameProfile().name(), topic, jsonPayload);
                         } catch (Exception e) {
                             MineQTT.LOGGER.error("[LightRemote] Failed publishing from Cyberdeck to {}: {}", topic, e.getMessage());
                         }
@@ -185,7 +185,7 @@ public final class MineqttNetworking {
                     if (be instanceof art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity mqtt) {
                         // Only the owner (or anyone, if no owner recorded yet) may toggle private mode.
                         String owner = mqtt.getOwnerName();
-                        String playerName = sp.getGameProfile().getName();
+                        String playerName = sp.getGameProfile().name();
                         if (owner.isEmpty() || owner.equals(playerName)) {
                             if (owner.isEmpty()) {
                                 mqtt.setOwnerName(playerName);

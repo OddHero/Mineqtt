@@ -7,7 +7,7 @@ import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 
@@ -41,10 +41,10 @@ public class MineqttItems {
     }
 
     public static RegistrySupplier<Item> registerItem(String name, Supplier<Item> item) {
-        return ITEMS.register(ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, name), item);
+        return ITEMS.register(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, name), item);
     }
 
     public static Item.Properties baseProperties(String name) {
-        return new Item.Properties().setId(ResourceKey.create(Registries.ITEM, ResourceLocation.fromNamespaceAndPath(MineQTT.MOD_ID, name)));
+        return new Item.Properties().setId(ResourceKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, name)));
     }
 }

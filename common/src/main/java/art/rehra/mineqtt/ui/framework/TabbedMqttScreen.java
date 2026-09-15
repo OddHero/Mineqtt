@@ -3,7 +3,7 @@ package art.rehra.mineqtt.ui.framework;
 import art.rehra.mineqtt.network.MineqttNetworking;
 import dev.architectury.networking.NetworkManager;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -112,7 +112,7 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     // ===== Rendering =====
 
     @Override
-    protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
+    protected void renderBg(GuiGraphicsExtractor g, float partialTick, int mouseX, int mouseY) {
         // Tab bar (drawn before the main panel so the active tab can overlap)
         renderTabBar(g);
         // Main GUI panel
@@ -131,7 +131,7 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
         }
     }
 
-    private void renderTabBar(GuiGraphics g) {
+    private void renderTabBar(GuiGraphicsExtractor g) {
         for (int i = 0; i < this.menu.tabs.size(); i++) {
             MqttTab tab = this.menu.tabs.get(i);
             boolean active = tab.id().equals(this.menu.getActiveTabId());
@@ -158,21 +158,21 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     }
 
     @Override
-    protected void renderLabels(GuiGraphics g, int mouseX, int mouseY) {
+    protected void renderLabels(GuiGraphicsExtractor g, int mouseX, int mouseY) {
         MqttTab tab = this.menu.getActiveTab();
         Component title = tab != null ? tab.title() : this.title;
         // renderLabels is called inside a translated pose (origin = guiLeft,guiTop).
         // Convert the absolute mouse coords to the same local space so tooltips work.
         int localMX = lastMouseX == Integer.MIN_VALUE ? Integer.MIN_VALUE : lastMouseX - this.leftPos;
         int localMY = lastMouseY == Integer.MIN_VALUE ? Integer.MIN_VALUE : lastMouseY - this.topPos;
-        // Centered title — truncated so a long localized name can never overflow the GUI.
+        // Centered title â€” truncated so a long localized name can never overflow the GUI.
         GuiText.drawCentered(g, title, 0, 6, this.imageWidth, 0x404040, localMX, localMY);
-        // Inventory label — capped to the inventory width.
+        // Inventory label â€” capped to the inventory width.
         GuiText.drawTruncated(g, this.playerInventoryTitle, 8, this.inventoryLabelY, 9 * 18, 0x404040, localMX, localMY);
     }
 
     @Override
-    public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+    public void render(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
         this.lastMouseX = mouseX;
         this.lastMouseY = mouseY;
         this.renderBackground(g, mouseX, mouseY, partialTick);

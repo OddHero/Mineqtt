@@ -2,7 +2,7 @@ package art.rehra.mineqtt.neoforge.config;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.config.MineQTTConfig;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -103,7 +103,7 @@ public class MineQTTConfigScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         // Let super.render handle the background rendering to avoid double blur
         super.render(graphics, mouseX, mouseY, partialTick);
 

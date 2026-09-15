@@ -48,7 +48,7 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
         if (!level.isClientSide && placer instanceof Player p) {
             BlockEntity be = level.getBlockEntity(pos);
             if (be instanceof BaseMqttBlockEntity mqtt) {
-                mqtt.setOwnerName(p.getGameProfile().getName());
+                mqtt.setOwnerName(p.getGameProfile().name());
             }
         }
     }

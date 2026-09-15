@@ -588,7 +588,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
         if (this.level == null) {
             return worldPosition.toShortString();
         }
-        return level.dimension().location() + ":" + worldPosition.toShortString();
+        return level.dimension().identifier() + ":" + worldPosition.toShortString();
     }
 
     public static class Ticker<T extends BlockEntity> implements BlockEntityTicker<T> {
@@ -634,7 +634,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                         BlockStateManager.registerBlock(topic, level.dimension(), blockPos);
 
                         // Register with HomeAssistantDiscoveryManager
-                        String blockId = level.dimension().location() + ":" + blockPos.toShortString();
+                        String blockId = level.dimension().identifier() + ":" + blockPos.toShortString();
                         String suggestedArea = HomeAssistantDiscoveryManager.getSuggestedAreaFromBlockPosition(blockId);
 
                         HomeAssistantLight light = new HomeAssistantLight(topic)

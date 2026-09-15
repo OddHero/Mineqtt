@@ -5,7 +5,7 @@ import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 /**
  * Motion sensor status + filter description.
@@ -20,7 +20,7 @@ public class MotionSensorTabView implements MqttTabView {
     }
 
     @Override
-    public void renderContent(GuiGraphics g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
+    public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         TabbedMqttMenu menu = screen.getMenu();
         var be = menu.player.level().getBlockEntity(menu.blockPos);
         if (!(be instanceof MotionSensorBlockEntity sensor)) return;
@@ -30,7 +30,7 @@ public class MotionSensorTabView implements MqttTabView {
         int y = guiTop + 18;
 
         boolean detected = sensor.isMotionDetected();
-        // Reserve ~half the width for each — left for motion status, right for the mob count.
+        // Reserve ~half the width for each â€” left for motion status, right for the mob count.
         int half = CONTENT_W / 2;
         GuiText.drawTruncated(g, detected ? "Motion: YES" : "Motion: NO",
                 leftX, y, half, detected ? 0xFF00AA00 : 0xFF666666, mouseX, mouseY);

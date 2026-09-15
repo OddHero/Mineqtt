@@ -5,10 +5,10 @@ import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 /**
- * RGB LED status — shows lit state, RGB values, and the current colour swatch.
+ * RGB LED status â€” shows lit state, RGB values, and the current colour swatch.
  */
 public class RgbLedStatusTabView implements MqttTabView {
 
@@ -20,7 +20,7 @@ public class RgbLedStatusTabView implements MqttTabView {
     }
 
     @Override
-    public void renderContent(GuiGraphics g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
+    public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         TabbedMqttMenu menu = screen.getMenu();
         var be = menu.player.level().getBlockEntity(menu.blockPos);
         if (!(be instanceof RgbLedBlockEntity led)) return;

@@ -64,7 +64,7 @@ public class RgbLedBlock extends BaseSubscriberBlock {
             if (blockEntity instanceof RgbLedBlockEntity ledEntity) {
                 String topic = ledEntity.getCombinedTopic();
                 if (topic != null && !topic.isEmpty()) {
-                    String blockId = level.dimension().location() + ":" + pos.toShortString();
+                    String blockId = level.dimension().identifier() + ":" + pos.toShortString();
                     HomeAssistantDiscoveryManager.unregisterDevice(topic, blockId);
 
                     // Unregister block from topic (removes topic state if last block)

@@ -120,7 +120,7 @@ public class SubscriptionPersistence {
      * Format: "dimension:x:y:z"
      */
     private static String serializeBlockPosition(ResourceKey<Level> dimension, BlockPos pos) {
-        return dimension.location() + ":" + pos.getX() + ":" + pos.getY() + ":" + pos.getZ();
+        return dimension.identifier() + ":" + pos.getX() + ":" + pos.getY() + ":" + pos.getZ();
     }
 
     /**
