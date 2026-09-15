@@ -250,7 +250,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                 updateBlockLight();
 
                 // CRITICAL: Update topic state so other blocks inherit correct values
-                // Check if we're on server thread by thread name (level.isClientSide is unreliable in this context)
+                // Check if we're on server thread by thread name (level.isClientSide() is unreliable in this context)
                 String topic = getCombinedTopic();
                 boolean isServerThread = Thread.currentThread().getName().contains("Server thread");
 
@@ -298,7 +298,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
      * Save current state to persistence and publish to MQTT state topic.
      */
     private void saveStateAndPublish() {
-        if (this.level != null && !this.level.isClientSide) {
+        if (this.level != null && !this.level.isClientSide()) {
             String topic = getCombinedTopic();
             if (topic != null && !topic.isEmpty()) {
                 // Update topic state (shared by all blocks on this topic)
@@ -482,7 +482,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
             this.level.setBlock(this.worldPosition, newState, Block.UPDATE_ALL);
 
             // Force sync block entity data to client for color tinting
-            if (!this.level.isClientSide) {
+            if (!this.level.isClientSide()) {
                 this.level.sendBlockUpdated(this.worldPosition, currentState, newState, Block.UPDATE_CLIENTS);
             } else {
                 // On client, request chunk re-render to update color
@@ -597,7 +597,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
             if (blockEntity instanceof RgbLedBlockEntity rgbLedBlockEntity) {
 
                 // On first tick, restore from topic state and publish
-                if (!rgbLedBlockEntity.initialStateSynced && !level.isClientSide) {
+                if (!rgbLedBlockEntity.initialStateSynced && !level.isClientSide()) {
                     rgbLedBlockEntity.initialStateSynced = true;
 
                     String topic = rgbLedBlockEntity.getCombinedTopic();
@@ -706,7 +706,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
 
                         // Check if there's an existing state for this topic
                         BlockStatePersistence.TopicState topicState = BlockStateManager.getTopicState(newCombinedTopic);
-                        if (topicState != null && !level.isClientSide) {
+                        if (topicState != null && !level.isClientSide()) {
                             // Apply topic state (SINGLE SOURCE OF TRUTH)
                             rgbLedBlockEntity.targetRed = topicState.targetRed;
                             rgbLedBlockEntity.targetGreen = topicState.targetGreen;
@@ -740,7 +740,7 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
                         }
                     }
                 }
-                if (level.isClientSide && rgbLedBlockEntity.lit && rgbLedBlockEntity.getLightLevel() > 0) {
+                if (level.isClientSide() && rgbLedBlockEntity.lit && rgbLedBlockEntity.getLightLevel() > 0) {
                     // Spawn particles every 10 ticks (0.5 seconds)
                     if (level.getGameTime() % 10 == 0) {
                         spawnColoredParticles(level, blockPos, rgbLedBlockEntity);
@@ -767,14 +767,14 @@ public class RgbLedBlockEntity extends MqttSubscriberBlockEntity {
             double centerZ = pos.getZ() + 0.5;
 
             // Spawn 2-3 particles per tick in a small radius
-            int particleCount = level.random.nextInt(2) + 2;
+            int particleCount = level.getRandom().nextInt(2) + 2;
             for (int i = 0; i < particleCount; i++) {
-                double offsetX = (level.random.nextDouble() - 0.5) * 0.3;
-                double offsetY = (level.random.nextDouble() - 0.5) * 0.3;
-                double offsetZ = (level.random.nextDouble() - 0.5) * 0.3;
+                double offsetX = (level.getRandom().nextDouble() - 0.5) * 0.3;
+                double offsetY = (level.getRandom().nextDouble() - 0.5) * 0.3;
+                double offsetZ = (level.getRandom().nextDouble() - 0.5) * 0.3;
 
                 // Small upward velocity for glow effect
-                double velocityY = level.random.nextDouble() * 0.02;
+                double velocityY = level.getRandom().nextDouble() * 0.02;
 
                 level.addParticle(
                     new net.minecraft.core.particles.DustParticleOptions(

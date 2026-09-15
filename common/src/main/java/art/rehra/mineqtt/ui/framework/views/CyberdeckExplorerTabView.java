@@ -75,11 +75,11 @@ public class CyberdeckExplorerTabView implements MqttTabView {
         int x = guiLeft + 8;
         int y = guiTop + 40;
 
-        g.drawString(screen.getFont(), "Topic:", x, y, 0xFF555555, false);
+        g.text(screen.getFont(), "Topic:", x, y, 0xFF555555, false);
         GuiText.drawAutoScaled(g, topic, x + 40, y, contentW - 40, 10, 0xFF000000, mouseX, mouseY);
 
         y += 15;
-        g.drawString(screen.getFont(), "Payload:", x, y, 0xFF555555, false);
+        g.text(screen.getFont(), "Payload:", x, y, 0xFF555555, false);
         if (payload == null) {
             GuiText.drawTruncated(g, "<no data received>", x + 48, y, contentW - 48, 0xFF888888, mouseX, mouseY);
         } else {

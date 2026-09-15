@@ -32,7 +32,7 @@ public class CyberdeckMenu extends TabbedMqttMenu {
     @Override
     public void removed(Player player) {
         super.removed(player);
-        if (!player.level().isClientSide) {
+        if (!player.level().isClientSide()) {
             // Save back to the item using Data Components persistence
             CyberdeckDataUtil.saveFromContainer(itemStack, (SimpleContainer) container, player.registryAccess());
         }

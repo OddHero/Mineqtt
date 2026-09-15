@@ -43,7 +43,7 @@ public class RedstonePublisherBlock extends BaseMqttBlock {
 
     @Override
     protected void neighborChanged(BlockState state, Level level, BlockPos pos, Block neighborBlock, @Nullable Orientation orientation, boolean movedByPiston) {
-        if (!level.isClientSide) {
+        if (!level.isClientSide()) {
             boolean flag = state.getValue(POWERED);
             boolean flag1 = this.shouldTurnOn(level, pos, state);
             if (flag1 && !flag) {

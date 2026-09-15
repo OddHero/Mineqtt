@@ -136,11 +136,11 @@ public class SettingsTabView implements MqttTabView {
         }
 
         int x = guiLeft + 8;
-        // Slot labels â€” centered above each 16px slot (slots at y=36..52).
+        // Slot labels Ã¢â‚¬â€ centered above each 16px slot (slots at y=36..52).
         GuiText.drawCentered(g, "Base", guiLeft + 61, guiTop + 26, 24, 0xFF555555);
         GuiText.drawCentered(g, "Sub", guiLeft + 97, guiTop + 26, 24, 0xFF555555);
 
-        // Topic info â€” rendered BELOW the slots so it never overlaps them.
+        // Topic info Ã¢â‚¬â€ rendered BELOW the slots so it never overlaps them.
         int topicY = guiTop + 58;
 
         if (enabled && !topic.isEmpty()) {
@@ -197,7 +197,7 @@ public class SettingsTabView implements MqttTabView {
                 if (name == null || name.isEmpty()) {
                     g.fill(getX(), getY(), getX() + width, getY() + height, 0xFFAAAAAA);
                 } else {
-                    g.renderItem(headFor(name), getX(), getY());
+                    g.item(headFor(name), getX(), getY());
                 }
             } else {
                 // Flat grey when disabled.

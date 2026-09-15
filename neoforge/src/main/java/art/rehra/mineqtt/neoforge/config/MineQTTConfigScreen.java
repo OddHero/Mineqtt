@@ -108,13 +108,13 @@ public class MineQTTConfigScreen extends Screen {
         super.render(graphics, mouseX, mouseY, partialTick);
 
         // Draw title
-        graphics.drawCenteredString(this.font, this.title, this.width / 2, 20, 0xFFFFFF);
+        graphics.centeredText(this.font, this.title, this.width / 2, 20, 0xFFFFFF);
 
         // Draw field labels
-        graphics.drawString(this.font, "Broker URL:", this.brokerUrlField.getX(), this.brokerUrlField.getY() - 12, 0xFFFFFF);
-        graphics.drawString(this.font, "Client ID:", this.clientIdField.getX(), this.clientIdField.getY() - 12, 0xFFFFFF);
-        graphics.drawString(this.font, "Username:", this.usernameField.getX(), this.usernameField.getY() - 12, 0xFFFFFF);
-        graphics.drawString(this.font, "Password:", this.passwordField.getX(), this.passwordField.getY() - 12, 0xFFFFFF);
+        graphics.text(this.font, "Broker URL:", this.brokerUrlField.getX(), this.brokerUrlField.getY() - 12, 0xFFFFFF);
+        graphics.text(this.font, "Client ID:", this.clientIdField.getX(), this.clientIdField.getY() - 12, 0xFFFFFF);
+        graphics.text(this.font, "Username:", this.usernameField.getX(), this.usernameField.getY() - 12, 0xFFFFFF);
+        graphics.text(this.font, "Password:", this.passwordField.getX(), this.passwordField.getY() - 12, 0xFFFFFF);
     }
 
     private void onSave(Button button) {

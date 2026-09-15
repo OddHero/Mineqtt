@@ -65,22 +65,22 @@ public class LightRemoteTabView implements MqttTabView {
 
         int btnH = 14;
         int powerY = guiTop + 18;
-        widgets.add(Button.builder(Component.literal("Â§aâ¬¤ ON"), b -> {
+        widgets.add(Button.builder(Component.literal("Ã‚Â§aÃ¢Â¬Â¤ ON"), b -> {
                     lightOn = true;
                     sendCommand();
                 })
                 .bounds(guiLeft + 8, powerY, 78, btnH).build());
-        widgets.add(Button.builder(Component.literal("Â§câ¬¤ OFF"), b -> {
+        widgets.add(Button.builder(Component.literal("Ã‚Â§cÃ¢Â¬Â¤ OFF"), b -> {
                     lightOn = false;
                     sendCommand();
                 })
                 .bounds(guiLeft + 90, powerY, 78, btnH).build());
 
-        // Color presets â€” single row of 6 small buttons (R G B W Y + picker)
+        // Color presets Ã¢â‚¬â€ single row of 6 small buttons (R G B W Y + picker)
         int presetY = guiTop + 76;
         int presetH = 14;
         int[] presetColors = {0xCC0000, 0x00CC00, 0x0066CC, 0xFFFFFF, 0xFFCC00, 0x00CCCC, 0xCC00CC, 0xCC6600, 0x8000FF, 0xFFB464};
-        String[] presetLabels = {"Â§cR", "Â§aG", "Â§9B", "Â§fW", "Â§eY", "Â§bC", "Â§dM", "Â§6O", "Â§5P", "Â§eWW"};
+        String[] presetLabels = {"Ã‚Â§cR", "Ã‚Â§aG", "Ã‚Â§9B", "Ã‚Â§fW", "Ã‚Â§eY", "Ã‚Â§bC", "Ã‚Â§dM", "Ã‚Â§6O", "Ã‚Â§5P", "Ã‚Â§eWW"};
         int n = presetLabels.length;
         int sp = 1;
         int totalW = 176 - 16; // available width
@@ -154,10 +154,10 @@ public class LightRemoteTabView implements MqttTabView {
         previewX1 = sliderX + sliderW;
         previewY1 = swatchY + 12;
         g.fill(previewX0, previewY0, previewX1, previewY1, color);
-        g.renderOutline(previewX0, previewY0, sliderW, 12, 0xFF333333);
-        // Drawn directly (not via GuiText) because it uses dropShadow + Â§ color codes.
-        String state = lightOn ? "Â§aâ¬¤ ON" : "Â§câ¬¤ OFF";
-        g.drawString(font, state, previewX1 - font.width(state) - 4, previewY0 + 2, 0xFFFFFFFF, true);
+        g.outline(previewX0, previewY0, sliderW, 12, 0xFF333333);
+        // Drawn directly (not via GuiText) because it uses dropShadow + Ã‚Â§ color codes.
+        String state = lightOn ? "Ã‚Â§aÃ¢Â¬Â¤ ON" : "Ã‚Â§cÃ¢Â¬Â¤ OFF";
+        g.text(font, state, previewX1 - font.width(state) - 4, previewY0 + 2, 0xFFFFFFFF, true);
     }
 
     @Override
@@ -226,7 +226,7 @@ public class LightRemoteTabView implements MqttTabView {
         int prevY = pickSliderY(2) + PICK_SLIDER_H + 6;
         int cur = 0xFF000000 | (red << 16) | (green << 8) | blue;
         g.fill(x + PICKER_PAD, prevY, x + w - PICKER_PAD, prevY + 10, cur);
-        g.renderOutline(x + PICKER_PAD, prevY, w - PICKER_PAD * 2, 10, 0xFF333333);
+        g.outline(x + PICKER_PAD, prevY, w - PICKER_PAD * 2, 10, 0xFF333333);
         String close = "[X]";
         GuiText.drawRight(g, close, x + w - 3, y - 1, 20, 0xFF990000);
     }
@@ -312,7 +312,7 @@ public class LightRemoteTabView implements MqttTabView {
                 x + 6, y + 4, w - 12, 0xFF222222);
         int boxX = x + 6, boxY = y + 18, boxW = w - 12, boxH = 14;
         g.fill(boxX, boxY, boxX + boxW, boxY + boxH, 0xFFFFFFFF);
-        g.renderOutline(boxX, boxY, boxW, boxH, 0xFF333333);
+        g.outline(boxX, boxY, boxW, boxH, 0xFF333333);
         GuiText.drawTruncated(g, numInputBuf + "_", boxX + 3, boxY + 3, boxW - 6, 0xFF000000);
         GuiText.drawTruncated(g, "Enter=OK  ESC=Cancel", x + 6, y + h - 10, w - 12, 0xFF555555);
     }

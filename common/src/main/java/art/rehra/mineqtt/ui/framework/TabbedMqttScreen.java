@@ -7,6 +7,9 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
@@ -39,10 +42,7 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     private int lastMouseX = Integer.MIN_VALUE, lastMouseY = Integer.MIN_VALUE;
 
     public TabbedMqttScreen(TabbedMqttMenu menu, Inventory playerInventory, Component title) {
-        super(menu, playerInventory, title);
-        this.font = Minecraft.getInstance().font;
-        this.imageWidth = TabbedMqttMenu.GUI_WIDTH;
-        this.imageHeight = TabbedMqttMenu.GUI_HEIGHT;
+        super(menu, playerInventory, title, TabbedMqttMenu.GUI_WIDTH, TabbedMqttMenu.GUI_HEIGHT);
         this.inventoryLabelY = this.imageHeight - 94;
     }
 
@@ -112,7 +112,8 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     // ===== Rendering =====
 
     @Override
-    protected void renderBg(GuiGraphicsExtractor g, float partialTick, int mouseX, int mouseY) {
+    public void extractBackground(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
+        super.extractBackground(g, mouseX, mouseY, partialTick);
         // Tab bar (drawn before the main panel so the active tab can overlap)
         renderTabBar(g);
         // Main GUI panel
@@ -152,16 +153,16 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
             if (!icon.isEmpty()) {
                 int iconX = bx + (TAB_W - 16) / 2;
                 int iconY = by + (TAB_H - TAB_OVERLAP - 16) / 2 + 2;
-                g.renderItem(icon, iconX, iconY);
+                g.item(icon, iconX, iconY);
             }
         }
     }
 
     @Override
-    protected void renderLabels(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+    protected void extractLabels(GuiGraphicsExtractor g, int mouseX, int mouseY) {
         MqttTab tab = this.menu.getActiveTab();
         Component title = tab != null ? tab.title() : this.title;
-        // renderLabels is called inside a translated pose (origin = guiLeft,guiTop).
+        // extractLabels is called inside a translated pose (origin = guiLeft,guiTop).
         // Convert the absolute mouse coords to the same local space so tooltips work.
         int localMX = lastMouseX == Integer.MIN_VALUE ? Integer.MIN_VALUE : lastMouseX - this.leftPos;
         int localMY = lastMouseY == Integer.MIN_VALUE ? Integer.MIN_VALUE : lastMouseY - this.topPos;
@@ -172,11 +173,10 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     }
 
     @Override
-    public void render(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
+    public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
         this.lastMouseX = mouseX;
         this.lastMouseY = mouseY;
-        this.renderBackground(g, mouseX, mouseY, partialTick);
-        super.render(g, mouseX, mouseY, partialTick);
+        super.extractRenderState(g, mouseX, mouseY, partialTick);
         if (activeView != null) {
             activeView.renderContent(g, this.leftPos, this.topPos, mouseX, mouseY, partialTick);
             activeView.renderOverlay(g, this.leftPos, this.topPos, mouseX, mouseY, partialTick);
@@ -186,13 +186,15 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
         if (tabIdx >= 0) {
             g.setTooltipForNextFrame(this.font, this.menu.tabs.get(tabIdx).title(), mouseX, mouseY);
         }
-        this.renderTooltip(g, mouseX, mouseY);
     }
 
     // ===== Input =====
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        double mouseX = event.x();
+        double mouseY = event.y();
+        int button = event.button();
         if (activeView != null && activeView.isModal()) {
             // Modal views handle everything themselves
             activeView.mouseClicked(mouseX, mouseY, button);
@@ -207,7 +209,7 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
             }
         }
         if (activeView != null && activeView.mouseClicked(mouseX, mouseY, button)) return true;
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event, doubleClick);
     }
 
     private void playClickSound() {
@@ -217,15 +219,15 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (activeView != null && activeView.mouseReleased(mouseX, mouseY, button)) return true;
-        return super.mouseReleased(mouseX, mouseY, button);
+    public boolean mouseReleased(MouseButtonEvent event) {
+        if (activeView != null && activeView.mouseReleased(event.x(), event.y(), event.button())) return true;
+        return super.mouseReleased(event);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double dx, double dy) {
-        if (activeView != null && activeView.mouseDragged(mouseX, mouseY, button, dx, dy)) return true;
-        return super.mouseDragged(mouseX, mouseY, button, dx, dy);
+    public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
+        if (activeView != null && activeView.mouseDragged(event.x(), event.y(), event.button(), dx, dy)) return true;
+        return super.mouseDragged(event, dx, dy);
     }
 
     @Override
@@ -235,7 +237,10 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    public boolean keyPressed(KeyEvent event) {
+        int keyCode = event.key();
+        int scanCode = event.scancode();
+        int modifiers = event.modifiers();
         if (activeView != null && (activeView.isModal() || activeView.keyPressed(keyCode, scanCode, modifiers))) {
             if (activeView.isModal()) {
                 activeView.keyPressed(keyCode, scanCode, modifiers);
@@ -243,24 +248,24 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
             }
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.keyPressed(event);
     }
 
     @Override
-    public boolean charTyped(char c, int modifiers) {
-        if (activeView != null && activeView.charTyped(c, modifiers)) return true;
-        return super.charTyped(c, modifiers);
+    public boolean charTyped(CharacterEvent event) {
+        if (activeView != null && activeView.charTyped((char) event.codepoint(), 0)) return true;
+        return super.charTyped(event);
     }
 
     @Override
     protected void slotClicked(net.minecraft.world.inventory.Slot slot,
                                int slotId,
                                int mouseButton,
-                               net.minecraft.world.inventory.ClickType type) {
+                               net.minecraft.world.inventory.ContainerInput type) {
         // Let the active view intercept shift-clicks on player-inventory slots so
         // it can react to the picked item (e.g. fill a text field with its name)
         // instead of quick-moving the stack into a slot that may not exist.
-        if (type == net.minecraft.world.inventory.ClickType.QUICK_MOVE
+        if (type == net.minecraft.world.inventory.ContainerInput.QUICK_MOVE
                 && slot != null
                 && slot.container instanceof Inventory
                 && activeView != null) {

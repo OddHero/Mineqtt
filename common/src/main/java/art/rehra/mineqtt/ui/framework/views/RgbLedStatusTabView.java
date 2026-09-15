@@ -8,7 +8,7 @@ import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 /**
- * RGB LED status â€” shows lit state, RGB values, and the current colour swatch.
+ * RGB LED status Ã¢â‚¬â€ shows lit state, RGB values, and the current colour swatch.
  */
 public class RgbLedStatusTabView implements MqttTabView {
 
@@ -42,6 +42,6 @@ public class RgbLedStatusTabView implements MqttTabView {
 
         int color = 0xFF000000 | (r255 << 16) | (g255 << 8) | b255;
         g.fill(x, y, x + CONTENT_W, y + 22, color);
-        g.renderOutline(x, y, CONTENT_W, 22, 0xFF333333);
+        g.outline(x, y, CONTENT_W, 22, 0xFF333333);
     }
 }

@@ -4,6 +4,7 @@ import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.integrations.MineqttPermission;
 import com.mojang.serialization.MapCodec;
+import dev.architectury.event.EventResult;
 import dev.architectury.event.events.common.InteractionEvent;
 import dev.architectury.registry.menu.MenuRegistry;
 import net.minecraft.core.BlockPos;
@@ -36,7 +37,7 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
                 if (state.getBlock() instanceof BaseMqttBlock block) {
                     return block.click(player, hand, pos, face);
                 }
-                return InteractionResult.PASS;
+                return EventResult.pass();
             });
             eventsRegistered = true;
         }
@@ -45,7 +46,7 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
     @Override
     public void setPlacedBy(Level level, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack stack) {
         super.setPlacedBy(level, pos, state, placer, stack);
-        if (!level.isClientSide && placer instanceof Player p) {
+        if (!level.isClientSide() && placer instanceof Player p) {
             BlockEntity be = level.getBlockEntity(pos);
             if (be instanceof BaseMqttBlockEntity mqtt) {
                 mqtt.setOwnerName(p.getGameProfile().name());
@@ -68,29 +69,29 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
     }
 
     @Override
-    public InteractionResult click(Player player, InteractionHand hand, BlockPos pos, Direction face) {
+    public EventResult click(Player player, InteractionHand hand, BlockPos pos, Direction face) {
         if (player.level().getBlockEntity(pos) == null) {
-            return InteractionResult.PASS;
+            return EventResult.pass();
         }
 
         if (player.isShiftKeyDown()) {
-            return InteractionResult.PASS;
+            return EventResult.pass();
         }
 
         BlockEntity blockEntity = player.level().getBlockEntity(pos);
         if (blockEntity instanceof MenuProvider menuProvider) {
             if (player instanceof ServerPlayer serverPlayer) {
                 if (!MineQTT.permissionManager.canInteract(serverPlayer, pos, MineqttPermission.INTERACT)) {
-                    return InteractionResult.PASS;
+                    return EventResult.pass();
                 }
                 MenuRegistry.openExtendedMenu(serverPlayer, menuProvider, buf -> {
                     buf.writeBlockPos(pos);
                 });
             }
-            return InteractionResult.SUCCESS;
+            return EventResult.interruptTrue();
         }
 
-        return InteractionResult.PASS;
+        return EventResult.pass();
     }
 
     @Override

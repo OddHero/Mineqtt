@@ -121,9 +121,9 @@ public class MotionSensorBlockEntity extends MqttPublisherBlockEntity {
     }
 
     private boolean isMatching(ItemStack filterStack, LivingEntity entity) {
-        if (filterStack.getItem() instanceof SpawnEggItem spawnEgg) {
+        if (filterStack.getItem() instanceof SpawnEggItem) {
             if (this.level == null) return false;
-            EntityType<?> type = spawnEgg.getType(this.level.registryAccess(), filterStack);
+            EntityType<?> type = SpawnEggItem.getType(filterStack);
             return type != null && type.equals(entity.getType());
         }
         return false;
@@ -135,7 +135,7 @@ public class MotionSensorBlockEntity extends MqttPublisherBlockEntity {
     public static class Ticker<T extends BlockEntity> implements BlockEntityTicker<T> {
         @Override
         public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
-            if (level != null && !level.isClientSide && blockEntity instanceof MotionSensorBlockEntity sensor) {
+            if (level != null && !level.isClientSide() && blockEntity instanceof MotionSensorBlockEntity sensor) {
                 // Update topic if needed (common logic)
                 String oldTopic = sensor.topic;
                 String newCombinedTopic = sensor.getCombinedTopic();

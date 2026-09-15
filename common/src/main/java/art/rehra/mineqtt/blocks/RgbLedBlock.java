@@ -59,7 +59,7 @@ public class RgbLedBlock extends BaseSubscriberBlock {
     @Override
     public BlockState playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
         // Unregister from Home Assistant discovery and topic before the block is destroyed
-        if (!level.isClientSide) {
+        if (!level.isClientSide()) {
             BlockEntity blockEntity = level.getBlockEntity(pos);
             if (blockEntity instanceof RgbLedBlockEntity ledEntity) {
                 String topic = ledEntity.getCombinedTopic();

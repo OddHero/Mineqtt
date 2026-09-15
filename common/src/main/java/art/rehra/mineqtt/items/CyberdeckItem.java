@@ -23,7 +23,7 @@ public class CyberdeckItem extends Item {
 
     @Override
     public InteractionResult use(Level level, Player player, InteractionHand hand) {
-        if (!level.isClientSide && player instanceof ServerPlayer serverPlayer) {
+        if (!level.isClientSide() && player instanceof ServerPlayer serverPlayer) {
             MenuRegistry.openExtendedMenu(serverPlayer, new ExtendedMenuProvider() {
                 @Override
                 public Component getDisplayName() {

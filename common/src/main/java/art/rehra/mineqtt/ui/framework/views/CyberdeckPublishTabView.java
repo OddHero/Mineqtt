@@ -13,6 +13,8 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 
@@ -60,8 +62,8 @@ public class CyberdeckPublishTabView implements MqttTabView {
 
     @Override
     public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
-        g.drawString(screen.getFont(), "Topic:", guiLeft + 8, guiTop + 22, 0xFF555555, false);
-        g.drawString(screen.getFont(), "Payload:", guiLeft + 8, guiTop + 46, 0xFF555555, false);
+        g.text(screen.getFont(), "Topic:", guiLeft + 8, guiTop + 22, 0xFF555555, false);
+        g.text(screen.getFont(), "Payload:", guiLeft + 8, guiTop + 46, 0xFF555555, false);
     }
 
     @Override
@@ -102,14 +104,16 @@ public class CyberdeckPublishTabView implements MqttTabView {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (topicField.keyPressed(keyCode, scanCode, modifiers) || topicField.canConsumeInput()) return true;
-        return payloadField.keyPressed(keyCode, scanCode, modifiers) || payloadField.canConsumeInput();
+        KeyEvent event = new KeyEvent(keyCode, scanCode, modifiers);
+        if (topicField.keyPressed(event) || topicField.canConsumeInput()) return true;
+        return payloadField.keyPressed(event) || payloadField.canConsumeInput();
     }
 
     @Override
     public boolean charTyped(char c, int modifiers) {
-        if (topicField.charTyped(c, modifiers)) return true;
-        return payloadField.charTyped(c, modifiers);
+        CharacterEvent event = new CharacterEvent(c);
+        if (topicField.charTyped(event)) return true;
+        return payloadField.charTyped(event);
     }
 
     @Override
