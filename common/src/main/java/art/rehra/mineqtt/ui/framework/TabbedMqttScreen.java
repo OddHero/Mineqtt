@@ -166,9 +166,9 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
         // Convert the absolute mouse coords to the same local space so tooltips work.
         int localMX = lastMouseX == Integer.MIN_VALUE ? Integer.MIN_VALUE : lastMouseX - this.leftPos;
         int localMY = lastMouseY == Integer.MIN_VALUE ? Integer.MIN_VALUE : lastMouseY - this.topPos;
-        // Centered title â€” truncated so a long localized name can never overflow the GUI.
+        // Centered title — truncated so a long localized name can never overflow the GUI.
         GuiText.drawCentered(g, title, 0, 6, this.imageWidth, 0x404040, localMX, localMY);
-        // Inventory label â€” capped to the inventory width.
+        // Inventory label — capped to the inventory width.
         GuiText.drawTruncated(g, this.playerInventoryTitle, 8, this.inventoryLabelY, 9 * 18, 0x404040, localMX, localMY);
     }
 

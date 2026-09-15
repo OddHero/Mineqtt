@@ -65,22 +65,22 @@ public class LightRemoteTabView implements MqttTabView {
 
         int btnH = 14;
         int powerY = guiTop + 18;
-        widgets.add(Button.builder(Component.literal("Ã‚Â§aÃ¢Â¬Â¤ ON"), b -> {
+        widgets.add(Button.builder(Component.literal("§a⬤ ON"), b -> {
                     lightOn = true;
                     sendCommand();
                 })
                 .bounds(guiLeft + 8, powerY, 78, btnH).build());
-        widgets.add(Button.builder(Component.literal("Ã‚Â§cÃ¢Â¬Â¤ OFF"), b -> {
+        widgets.add(Button.builder(Component.literal("§c⬤ OFF"), b -> {
                     lightOn = false;
                     sendCommand();
                 })
                 .bounds(guiLeft + 90, powerY, 78, btnH).build());
 
-        // Color presets Ã¢â‚¬â€ single row of 6 small buttons (R G B W Y + picker)
+        // Color presets — single row of 6 small buttons (R G B W Y + picker)
         int presetY = guiTop + 76;
         int presetH = 14;
         int[] presetColors = {0xCC0000, 0x00CC00, 0x0066CC, 0xFFFFFF, 0xFFCC00, 0x00CCCC, 0xCC00CC, 0xCC6600, 0x8000FF, 0xFFB464};
-        String[] presetLabels = {"Ã‚Â§cR", "Ã‚Â§aG", "Ã‚Â§9B", "Ã‚Â§fW", "Ã‚Â§eY", "Ã‚Â§bC", "Ã‚Â§dM", "Ã‚Â§6O", "Ã‚Â§5P", "Ã‚Â§eWW"};
+        String[] presetLabels = {"§cR", "§aG", "§9B", "§fW", "§eY", "§bC", "§dM", "§6O", "§5P", "§eWW"};
         int n = presetLabels.length;
         int sp = 1;
         int totalW = 176 - 16; // available width
@@ -155,8 +155,8 @@ public class LightRemoteTabView implements MqttTabView {
         previewY1 = swatchY + 12;
         g.fill(previewX0, previewY0, previewX1, previewY1, color);
         g.outline(previewX0, previewY0, sliderW, 12, 0xFF333333);
-        // Drawn directly (not via GuiText) because it uses dropShadow + Ã‚Â§ color codes.
-        String state = lightOn ? "Ã‚Â§aÃ¢Â¬Â¤ ON" : "Ã‚Â§cÃ¢Â¬Â¤ OFF";
+        // Drawn directly (not via GuiText) because it uses dropShadow + § color codes.
+        String state = lightOn ? "§a⬤ ON" : "§c⬤ OFF";
         g.text(font, state, previewX1 - font.width(state) - 4, previewY0 + 2, 0xFFFFFFFF, true);
     }
 

@@ -30,7 +30,7 @@ public class MotionSensorTabView implements MqttTabView {
         int y = guiTop + 18;
 
         boolean detected = sensor.isMotionDetected();
-        // Reserve ~half the width for each â€” left for motion status, right for the mob count.
+        // Reserve ~half the width for each — left for motion status, right for the mob count.
         int half = CONTENT_W / 2;
         GuiText.drawTruncated(g, detected ? "Motion: YES" : "Motion: NO",
                 leftX, y, half, detected ? 0xFF00AA00 : 0xFF666666, mouseX, mouseY);

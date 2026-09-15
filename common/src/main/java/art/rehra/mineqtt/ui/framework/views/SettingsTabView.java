@@ -136,11 +136,11 @@ public class SettingsTabView implements MqttTabView {
         }
 
         int x = guiLeft + 8;
-        // Slot labels Ã¢â‚¬â€ centered above each 16px slot (slots at y=36..52).
+        // Slot labels — centered above each 16px slot (slots at y=36..52).
         GuiText.drawCentered(g, "Base", guiLeft + 61, guiTop + 26, 24, 0xFF555555);
         GuiText.drawCentered(g, "Sub", guiLeft + 97, guiTop + 26, 24, 0xFF555555);
 
-        // Topic info Ã¢â‚¬â€ rendered BELOW the slots so it never overlaps them.
+        // Topic info — rendered BELOW the slots so it never overlaps them.
         int topicY = guiTop + 58;
 
         if (enabled && !topic.isEmpty()) {

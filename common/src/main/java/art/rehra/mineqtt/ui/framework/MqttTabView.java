@@ -66,7 +66,7 @@ public interface MqttTabView {
     }
 
     /**
-     * Return true if this view is in a modal state (color picker, popup, â€¦) so that the screen swallows other input.
+     * Return true if this view is in a modal state (color picker, popup, …) so that the screen swallows other input.
      */
     default boolean isModal() {
         return false;

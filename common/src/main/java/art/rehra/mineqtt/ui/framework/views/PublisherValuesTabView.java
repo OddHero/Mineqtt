@@ -30,11 +30,11 @@ public class PublisherValuesTabView implements MqttTabView {
 
         int x = guiLeft + 8;
 
-        // Slot labels â€” centered above their 16px slots (slots at y=36..52).
+        // Slot labels — centered above their 16px slots (slots at y=36..52).
         GuiText.drawCentered(g, "ON", guiLeft + 61, guiTop + 26, 24, 0xFF555555);
         GuiText.drawCentered(g, "OFF", guiLeft + 97, guiTop + 26, 24, 0xFF555555);
 
-        // Status line â€” single row above the slot labels.
+        // Status line — single row above the slot labels.
         boolean isPowered = false;
         try {
             var state = level.getBlockState(menu.blockPos);
@@ -54,7 +54,7 @@ public class PublisherValuesTabView implements MqttTabView {
             ItemStack offStack = mqtt.getItem(3);
             String onValue = onStack.isEmpty() ? "true" : BaseMqttBlockEntity.parseItemStackTopic(onStack);
             String offValue = offStack.isEmpty() ? "false" : BaseMqttBlockEntity.parseItemStackTopic(offStack);
-            String signal = isPowered ? "ON â†’ '" + onValue + "'" : "OFF â†’ '" + offValue + "'";
+            String signal = isPowered ? "ON → '" + onValue + "'" : "OFF → '" + offValue + "'";
             // Render the signal + payload lines BELOW the slots (y=52) so they
             // never overlap the slot labels or the slot icons themselves.
             int by = guiTop + 58;

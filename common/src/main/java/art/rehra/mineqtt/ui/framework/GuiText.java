@@ -47,7 +47,7 @@ public final class GuiText {
     }
 
     /**
-     * Tooltip-aware overload Ã¢â‚¬â€ shows the full text when hovered if truncation occurred.
+     * Tooltip-aware overload — shows the full text when hovered if truncation occurred.
      */
     public static void drawTruncated(GuiGraphicsExtractor g, String text, int x, int y, int maxWidth, int color, int mouseX, int mouseY) {
         Font f = font();
@@ -121,7 +121,7 @@ public final class GuiText {
     // ===== Auto-scaled textbox =====
 
     /**
-     * Renders {@code text} so that it always fits inside a {@code maxWidth Ãƒâ€” maxHeight}
+     * Renders {@code text} so that it always fits inside a {@code maxWidth × maxHeight}
      * box. The text is rendered at scale 1.0 if possible; otherwise the font is shrunk
      * down (uniformly) until it fits, or until {@link #MIN_AUTO_SCALE} is reached, in
      * which case the text is truncated with an ellipsis.
@@ -150,7 +150,7 @@ public final class GuiText {
         String rendered = text;
 
         if (scale < MIN_AUTO_SCALE) {
-            // Even the smallest acceptable scale can't fit Ã¢â‚¬â€ clamp scale and truncate.
+            // Even the smallest acceptable scale can't fit — clamp scale and truncate.
             scale = MIN_AUTO_SCALE;
             int effectiveMaxW = (int) Math.floor(maxWidth / scale);
             rendered = truncate(f, text, effectiveMaxW);
