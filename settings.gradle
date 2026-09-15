@@ -7,6 +7,11 @@ pluginManagement {
     }
 }
 
+plugins {
+    // Allows Gradle to automatically download the JDK required by the build (Java 25).
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
 rootProject.name = 'mineqtt'
 
 include 'common'

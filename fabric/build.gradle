@@ -99,7 +99,7 @@ modrinth {
     projectId = "mineqtt" // This can be the project ID or the slug. Either will work!
     versionType = "release" // This is the default -- can also be `beta` or `alpha`
     uploadFile = remapJar // With Loom, this MUST be set to `remapJar` instead of `jar`!
-    gameVersions = ["1.21.8"] // Must be an array, even with only one version
+    gameVersions = ["26.2"] // Must be an array, even with only one version
     loaders = ["fabric"] // Must also be an array - no need to specify this if you're using Loom or ForgeGradle
     dependencies { // A special DSL for creating dependencies
         // scope.type
@@ -127,7 +127,7 @@ task publishCurseForge(type: net.darkhax.curseforgegradle.TaskPublishCurseForge)
     // the changelog.
     def mainFile = upload(projectId, remapJar)
     mainFile.changelog = 'See Description.'
-    mainFile.addGameVersion('1.21.8')
+    mainFile.addGameVersion('26.2')
     mainFile.addModLoader('Fabric')
     mainFile.releaseType = 'release'
 }
