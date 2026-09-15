@@ -14,6 +14,8 @@ import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 
+import java.util.List;
+
 @EventBusSubscriber(modid = MineQTT.MOD_ID, value = Dist.CLIENT)
 public class MineqttNeoForgeClient {
 
@@ -31,7 +33,7 @@ public class MineqttNeoForgeClient {
     }
 
     @SubscribeEvent
-    public static void registerBlockColors(RegisterColorHandlersEvent.Block event) {
-        event.register(new RgbLedBlockColor(), MineqttBlocks.RGB_LED_BLOCK.get());
+    public static void registerBlockColors(RegisterColorHandlersEvent.BlockTintSources event) {
+        event.register(List.of(new RgbLedBlockColor()), MineqttBlocks.RGB_LED_BLOCK.get());
     }
 }

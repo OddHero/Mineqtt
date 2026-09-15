@@ -6,12 +6,12 @@ import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
-import com.mojang.authlib.properties.PropertyMap;
 import dev.architectury.networking.NetworkManager;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.input.InputWithModifiers;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
@@ -174,8 +174,7 @@ public class SettingsTabView implements MqttTabView {
         private ItemStack headFor(String name) {
             if (!name.equals(cachedOwner) || cachedHead.isEmpty()) {
                 ItemStack head = new ItemStack(Items.PLAYER_HEAD);
-                head.set(DataComponents.PROFILE,
-                        new ResolvableProfile(Optional.of(name), Optional.empty(), new PropertyMap()));
+                head.set(DataComponents.PROFILE, ResolvableProfile.createUnresolved(name));
                 cachedHead = head;
                 cachedOwner = name;
             }
@@ -183,12 +182,12 @@ public class SettingsTabView implements MqttTabView {
         }
 
         @Override
-        public void onPress() {
+        public void onPress(InputWithModifiers input) {
             onToggle.run();
         }
 
         @Override
-        protected void renderWidget(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
+        protected void extractContents(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
             boolean on = isOn.getAsBoolean();
             // Background: subtle dark slot-like frame regardless of state, for visual consistency.
             g.fill(getX() - 1, getY() - 1, getX() + width + 1, getY() + height + 1, 0xFF373737);

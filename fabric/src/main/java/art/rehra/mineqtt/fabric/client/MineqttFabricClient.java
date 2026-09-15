@@ -8,8 +8,10 @@ import art.rehra.mineqtt.ui.MineqttMenuTypes;
 import art.rehra.mineqtt.ui.framework.MineqttClientTabs;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.rendering.v1.ColorProviderRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.BlockColorRegistry;
 import net.minecraft.client.gui.screens.MenuScreens;
+
+import java.util.List;
 
 public final class MineqttFabricClient implements ClientModInitializer {
     @Override
@@ -24,6 +26,6 @@ public final class MineqttFabricClient implements ClientModInitializer {
         MineqttClientTabs.registerAll();
 
         // RGB LED block color handler
-        ColorProviderRegistry.BLOCK.register(new RgbLedBlockColor(), MineqttBlocks.RGB_LED_BLOCK.get());
+        BlockColorRegistry.register(List.of(new RgbLedBlockColor()), MineqttBlocks.RGB_LED_BLOCK.get());
     }
 }

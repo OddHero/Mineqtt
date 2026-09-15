@@ -83,6 +83,10 @@ subprojects {
         it.options.compilerArgs += ['-Xmaxerrs', '2000']
     }
 
+    tasks.withType(AbstractArchiveTask).configureEach {
+        zip64 = true
+    }
+
     // Configure Maven publishing.
     publishing {
         publications {

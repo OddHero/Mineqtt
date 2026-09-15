@@ -103,9 +103,9 @@ public class MineQTTConfigScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-        // Let super.render handle the background rendering to avoid double blur
-        super.render(graphics, mouseX, mouseY, partialTick);
+    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        // Let super handle the background rendering to avoid double blur
+        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
 
         // Draw title
         graphics.centeredText(this.font, this.title, this.width / 2, 20, 0xFFFFFF);
@@ -132,12 +132,12 @@ public class MineQTTConfigScreen extends Screen {
         }
 
         // Close screen
-        this.minecraft.setScreen(this.parent);
+        this.minecraft.gui.setScreen(this.parent);
     }
 
     private void onCancel(Button button) {
         // Close without saving
-        this.minecraft.setScreen(this.parent);
+        this.minecraft.gui.setScreen(this.parent);
     }
 
     private void onReset(Button button) {
@@ -165,6 +165,6 @@ public class MineQTTConfigScreen extends Screen {
 
     @Override
     public void onClose() {
-        this.minecraft.setScreen(this.parent);
+        this.minecraft.gui.setScreen(this.parent);
     }
 }
