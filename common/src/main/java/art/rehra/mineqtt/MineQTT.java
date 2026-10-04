@@ -152,6 +152,9 @@ public class MineQTT {
                     // Force disconnect if publish fails
                     mqttClient.disconnect();
                 }
+            } else if (mqttClient != null) {
+                // Cancel an in-flight connection/reconnect when stopping an offline server.
+                mqttClient.disconnect();
             }
         });
 
@@ -212,7 +215,14 @@ public class MineQTT {
                                 art.rehra.mineqtt.mqtt.CyberdeckSessionManager.resubscribeIfNecessary();
                             })
                     .addDisconnectedListener(
-                            disconn -> LOGGER.warn("MQTT client disconnected from broker.", disconn.getCause()))
+                            disconn -> {
+                                if (currentServer == null) disconn.getReconnector().reconnect(false);
+                                if (disconn.getSource() == com.hivemq.client.mqtt.lifecycle.MqttDisconnectSource.USER) {
+                                    LOGGER.info("MQTT client disconnected from broker.");
+                                } else {
+                                    LOGGER.warn("MQTT client disconnected from broker.", disconn.getCause());
+                                }
+                            })
                     .buildAsync();
 
             mqttClient.connect().whenComplete((connAck, throwable) -> {

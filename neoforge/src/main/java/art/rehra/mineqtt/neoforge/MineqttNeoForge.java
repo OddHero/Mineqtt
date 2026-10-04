@@ -3,14 +3,13 @@ package art.rehra.mineqtt.neoforge;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.neoforge.blocks.entities.MineqttBlockEntityTypesNeoForge;
 import art.rehra.mineqtt.neoforge.config.NeoForgeConfigHandler;
-import art.rehra.mineqtt.neoforge.config.NeoForgeConfigScreenIntegration;
 import art.rehra.mineqtt.neoforge.integrations.NeoForgeModLoaderUtils;
-import net.neoforged.fml.common.Mod;
+import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.config.ModConfigEvent;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
 
 @Mod(MineQTT.MOD_ID)
 @EventBusSubscriber(modid = MineQTT.MOD_ID)
@@ -28,9 +27,6 @@ public final class MineqttNeoForge {
         // Register the config with NeoForge
         container.registerConfig(ModConfig.Type.COMMON, NeoForgeConfigHandler.SPEC, "mineqtt.toml");
 
-        // Register config screen with NeoForge's mod menu
-        NeoForgeConfigScreenIntegration.register(container);
-
         // Run our common setup
         MineQTT.init();
 
@@ -44,7 +40,7 @@ public final class MineqttNeoForge {
             MineQTT.LOGGER.info("Loading MineQTT config...");
             if (configHandler != null) {
                 configHandler.loadConfig();
-                MineQTT.initializeMqttClient();
+                if (MineQTT.currentServer != null) MineQTT.initializeMqttClient();
             }
         }
     }
@@ -55,7 +51,7 @@ public final class MineqttNeoForge {
             MineQTT.LOGGER.info("Reloading MineQTT config...");
             if (configHandler != null) {
                 configHandler.loadConfig();
-                MineQTT.initializeMqttClient();
+                if (MineQTT.currentServer != null) MineQTT.initializeMqttClient();
             }
         }
     }

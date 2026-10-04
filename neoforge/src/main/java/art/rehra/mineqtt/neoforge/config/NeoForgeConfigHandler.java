@@ -103,6 +103,9 @@ public class NeoForgeConfigHandler implements ConfigHandler {
 
     @Override
     public void loadConfig() {
+        // NeoForge loads COMMON configs after mod construction. Keep the shared
+        // defaults until ModConfigEvent.Loading applies the loaded values.
+        if (!SPEC.isLoaded()) return;
         MineQTTConfig.brokerUrl = BROKER_URL.get();
         MineQTTConfig.clientId = CLIENT_ID.get();
         MineQTTConfig.username = USERNAME.get();

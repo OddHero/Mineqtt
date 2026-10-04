@@ -71,6 +71,26 @@ For an in-game check, subscribe to the configured MQTT topic, replace the watche
 a lever in front, test each payload mode, change chest contents in full-data mode, then reload the
 world and reconnect the broker. Also check the sensing face when placing upward or downward.
 
+## Development launches
+
+Gradle generates IntelliJ run configurations grouped under **Fabric** and **NeoForge**.
+Each loader has four configurations:
+
+- `Server:<loader>` starts a dedicated server without a GUI.
+- `Client:<loader>` starts a client with DevAuth explicitly disabled.
+- `Client:<loader>:OddHero` enables DevAuth using the `main` account.
+- `Client:<loader>:Odd_Hero` enables DevAuth using the `alt` account.
+
+The login variants use the accounts in your existing DevAuth configuration. Account setup
+and tokens stay local; see the [DevAuth documentation](https://github.com/DJtheRedstoner/DevAuth#configuration-file).
+All four configurations for a loader share that loader's existing run directory.
+
+To regenerate the configurations, run `./gradlew :fabric:ideaSyncTask :neoforge:ideaSyncTask`.
+The matching Gradle launch tasks are `runServer`, `runClient`, `runClientDevMain`, and
+`runClientDevAlt` in each loader project. If an existing IntelliJ configuration retains old
+JVM arguments after a dependency upgrade, remove that configuration and regenerate it;
+Loom preserves JVM arguments in existing application configurations.
+
 ## Roadmap
 
 ### Implemented

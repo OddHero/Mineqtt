@@ -3,12 +3,14 @@ package art.rehra.mineqtt.neoforge.client;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.client.RgbLedBlockColor;
+import art.rehra.mineqtt.neoforge.config.NeoForgeConfigScreenIntegration;
 import art.rehra.mineqtt.ui.CyberdeckScreen;
 import art.rehra.mineqtt.ui.MineqttMenuTypes;
 import art.rehra.mineqtt.ui.framework.MineqttClientTabs;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
@@ -22,6 +24,7 @@ public class MineqttNeoForgeClient {
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
         MineQTT.LOGGER.info("MineQTT NeoForge Client initializing");
+        ModList.get().getModContainerById(MineQTT.MOD_ID).ifPresent(NeoForgeConfigScreenIntegration::register);
         // Wire tab-id -> client view implementations.
         MineqttClientTabs.registerAll();
     }

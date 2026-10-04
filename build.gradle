@@ -61,7 +61,42 @@ subprojects {
 
         implementation 'com.hivemq:hivemq-mqtt-client:1.3.7'
 
-        runtimeOnly("me.djtheredstoner:DevAuth-fabric:1.2.2")
+        if (project.name in ['fabric', 'neoforge']) {
+            runtimeOnly("me.djtheredstoner:DevAuth-${project.name}:1.2.2")
+        }
+    }
+
+    if (project.name in ['fabric', 'neoforge']) {
+        loom.runs {
+            configureEach {
+                generateRunConfig.set(true)
+                appendProjectPathToDisplayName.set(false)
+                ideConfigFolder.set(project.name == 'fabric' ? 'Fabric' : 'NeoForge')
+            }
+
+            def standardClient = getByName('client')
+            standardClient.displayName.set("Client:${project.name}")
+            standardClient.systemProperties.put('devauth.enabled', 'false')
+
+            named('server') {
+                displayName.set("Server:${project.name}")
+                systemProperties.put('devauth.enabled', 'false')
+            }
+
+            register('clientDevMain') {
+                inherit(standardClient)
+                displayName.set("Client:${project.name}:Main")
+                systemProperties.put('devauth.enabled', 'true')
+                systemProperties.put('devauth.account', 'main')
+            }
+
+            register('clientDevAlt') {
+                inherit(standardClient)
+                displayName.set("Client:${project.name}:Alt")
+                systemProperties.put('devauth.enabled', 'true')
+                systemProperties.put('devauth.account', 'alt')
+            }
+        }
     }
 
     java {
