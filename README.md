@@ -19,6 +19,58 @@ This Mod establishes a connection to a seperate MQTT Server (Configurable). Conn
 risk of someone else triggering your redstone or sending unfiltered Data to your server/world or receiving the signals
 you send via unsecured public mqtt servers. I suggest using a self hosted MQTT-Broker.
 
+## Features
+
+### Block Sensor
+
+The Block Sensor watches the adjacent block at its observer face. Place it like a vanilla observer;
+it supports all six directions. Configure its topic in **MQTT Settings** with the same base/sub-topic
+item slots and private mode as the other MineQTT blocks. In **Block Data**, select the payload:
+
+| Mode                      | MQTT payload                                                                                                   |
+|---------------------------|----------------------------------------------------------------------------------------------------------------|
+| Full block data (default) | JSON containing ID, display name, state properties, position, dimension and block entity NBT converted to JSON |
+| Block ID                  | Plain registry name, e.g. minecraft:stone                                                                      |
+| Display name              | Plain display name, e.g. Stone, using the server language                                                      |
+| State properties          | JSON object, e.g. {"facing":"north","powered":"true"}; {} for blocks without properties                        |
+
+Full data example (the position is the watched block's position):
+
+~~~json
+{
+  "id": "minecraft:stone",
+  "name": "Stone",
+  "properties": {},
+  "position": {
+    "x": 10,
+    "y": 64,
+    "z": 20
+  },
+  "dimension": "minecraft:overworld",
+  "block_entity": null
+}
+~~~
+
+The sensor publishes when the block in front updates, including replacement with air or changes to
+its state properties. Full-data mode also checks block entity data every 10 game ticks (normally
+0.5 seconds), so inventory changes can be published without replacing a chest. It sends a fresh
+snapshot when enabled, loaded, reconnected, or when its topic or data mode changes. The selected
+mode persists across world saves. A base-topic item or a valid private-mode owner is required;
+the sensor uses the configured server MQTT connection.
+
+Craft one with seven iron ingots around an observer, with redstone in the top-middle slot:
+
+~~~text
+Iron  Redstone  Iron
+Iron  Observer  Iron
+Iron  Iron      Iron
+~~~
+
+Run payload regression checks with ./gradlew :common:verifyBlockSensor (also included in check).
+For an in-game check, subscribe to the configured MQTT topic, replace the watched block, toggle
+a lever in front, test each payload mode, change chest contents in full-data mode, then reload the
+world and reconnect the broker. Also check the sensing face when placing upward or downward.
+
 ## Roadmap
 
 ### Implemented

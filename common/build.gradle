@@ -23,3 +23,21 @@ dependencies {
     // Common Flan API dependency
     compileOnly "io.github.flemmli97:flan:${minecraft_version}-${flan_version}-common:api"
 }
+
+// Keep the executable regression harness separate from framework-based unit tests.
+sourceSets {
+    sensorChecks {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    }
+}
+
+// Bootstrap real Minecraft blocks to verify MQTT payloads without a broker or running game.
+tasks.register('verifyBlockSensor', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.blocks.entities.BlockSensorPayloadTest'
+}
+tasks.named('check') {
+    dependsOn tasks.named('verifyBlockSensor')
+}

@@ -1,4 +1,4 @@
-﻿{
+{
   "config.mineqtt.title": "MineQTT Configuration",
   "config.mineqtt.category.connection": "MQTT Connection",
   "config.mineqtt.category.topics": "MQTT Topics",
@@ -53,6 +53,18 @@
   "mineqtt.tab.motion_filters": "Mob Filters",
   "mineqtt.tab.rgb_status": "Status",
   "mineqtt.tab.light_remote": "Remote",
-  "mineqtt.tab.settings.private.tooltip": "Private topic prefix"
+  "mineqtt.tab.settings.private.tooltip": "Private topic prefix",
+  "block.mineqtt.block_sensor_block": "Block Sensor",
+  "item.mineqtt.block_sensor_block": "Block Sensor",
+  "container.mineqtt.block_sensor": "Block Sensor",
+  "mineqtt.tab.block_sensor": "Block Data",
+  "mineqtt.block_sensor.send": "Send to MQTT:",
+  "mineqtt.block_sensor.mode.full_data": "Full block data (JSON)",
+  "mineqtt.block_sensor.mode.block_id": "Block ID",
+  "mineqtt.block_sensor.mode.name": "Display name",
+  "mineqtt.block_sensor.mode.properties": "State properties (JSON)",
+  "mineqtt.block_sensor.mode.full_data.tooltip": "ID, name, state properties, position, dimension and block entity data.",
+  "mineqtt.block_sensor.mode.block_id.tooltip": "Registry name only, for example minecraft:stone.",
+  "mineqtt.block_sensor.mode.name.tooltip": "Display name only, for example Stone (server language).",
+  "mineqtt.block_sensor.mode.properties.tooltip": "Block state properties only, for example {\"facing\":\"north\",\"powered\":\"true\"}."
 }
-

@@ -4,8 +4,8 @@ import art.rehra.mineqtt.MineQTT;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 
@@ -20,6 +20,7 @@ public class MineqttBlocks {
     public static RegistrySupplier<Block> REDSTONE_EMITTER_BLOCK;
     public static RegistrySupplier<Block> RGB_LED_BLOCK;
     public static RegistrySupplier<Block> MOTION_SENSOR_BLOCK;
+    public static RegistrySupplier<Block> BLOCK_SENSOR_BLOCK;
     public static RegistrySupplier<Block> LIGHT_REMOTE_BLOCK;
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Blocks");
@@ -31,6 +32,7 @@ public class MineqttBlocks {
         RGB_LED_BLOCK = registerBlock("rgb_led_block", () -> new RgbLedBlock(baseProperties("rgb_led_block").requiresCorrectToolForDrops().strength(3.5f)));
         MOTION_SENSOR_BLOCK = registerBlock("motion_sensor_block", () -> new MotionSensorBlock(baseProperties("motion_sensor_block").requiresCorrectToolForDrops().strength(3.5f)));
         LIGHT_REMOTE_BLOCK = registerBlock("light_remote_block", () -> new LightRemoteBlock(baseProperties("light_remote_block").requiresCorrectToolForDrops().strength(3.5f)));
+        BLOCK_SENSOR_BLOCK = registerBlock("block_sensor_block", () -> new BlockSensorBlock(baseProperties("block_sensor_block").requiresCorrectToolForDrops().strength(3.5f)));
         BLOCKS.register();
 
         // Register interaction events after blocks are initialized

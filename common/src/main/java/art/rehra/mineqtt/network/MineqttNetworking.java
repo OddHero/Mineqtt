@@ -15,6 +15,7 @@ public final class MineqttNetworking {
     public static final Identifier CYBERDECK_LISTEN_TOGGLE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_listen_toggle");
     public static final Identifier CYBERDECK_TOPIC_UPDATE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_topic_update");
     public static final Identifier LIGHT_REMOTE_COMMAND_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "light_remote_command");
+    public static final Identifier SET_BLOCK_SENSOR_MODE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_block_sensor_mode");
     public static final Identifier SET_ACTIVE_TAB_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_active_tab");
     public static final Identifier SET_PRIVATE_MODE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_private_mode");
 
@@ -143,6 +144,25 @@ public final class MineqttNetworking {
                         } catch (Exception e) {
                             MineQTT.LOGGER.error("[LightRemote] Failed publishing from Cyberdeck to {}: {}", topic, e.getMessage());
                         }
+                    }
+                }
+            });
+        });
+
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetBlockSensorModePayload.TYPE, SetBlockSensorModePayload.CODEC, (payload, context) -> {
+            context.queue(() -> {
+                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
+                if (!(player.containerMenu instanceof art.rehra.mineqtt.ui.framework.TabbedMqttMenu menu)
+                        || !payload.pos().equals(menu.blockPos) || !menu.stillValid(player)) return;
+                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
+                    return;
+                if (!(menu.container instanceof art.rehra.mineqtt.blocks.entities.BlockSensorBlockEntity sensor)
+                        || player.level().getBlockEntity(payload.pos()) != sensor) return;
+                // Reject unknown network values; missing/old save values still use the default.
+                for (var mode : art.rehra.mineqtt.blocks.entities.BlockSensorBlockEntity.DataMode.values()) {
+                    if (mode.id().equals(payload.mode())) {
+                        sensor.setDataMode(mode);
+                        return;
                     }
                 }
             });
@@ -284,6 +304,21 @@ public final class MineqttNetworking {
                 net.minecraft.network.codec.ByteBufCodecs.optional(net.minecraft.core.BlockPos.STREAM_CODEC), SetPrivateModePayload::pos,
                 net.minecraft.network.codec.ByteBufCodecs.BOOL, SetPrivateModePayload::enabled,
                 SetPrivateModePayload::new
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record SetBlockSensorModePayload(net.minecraft.core.BlockPos pos,
+                                            String mode) implements CustomPacketPayload {
+        public static final Type<SetBlockSensorModePayload> TYPE = new Type<>(SET_BLOCK_SENSOR_MODE_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, SetBlockSensorModePayload> CODEC = StreamCodec.composite(
+                net.minecraft.core.BlockPos.STREAM_CODEC, SetBlockSensorModePayload::pos,
+                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(32), SetBlockSensorModePayload::mode,
+                SetBlockSensorModePayload::new
         );
 
         @Override

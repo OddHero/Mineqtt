@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "pattern": [
+    "IRI",
+    "IOI",
+    "III"
+  ],
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "R": "minecraft:redstone",
+    "O": "minecraft:observer"
+  },
+  "result": {
+    "id": "mineqtt:block_sensor_block",
+    "count": 1
+  }
+}

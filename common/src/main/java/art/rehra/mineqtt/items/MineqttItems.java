@@ -6,8 +6,8 @@ import art.rehra.mineqtt.tabs.MineQTTTabs;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 
@@ -23,6 +23,7 @@ public class MineqttItems {
     public static RegistrySupplier<Item> RedstoneEmitterBlock;
     public static RegistrySupplier<Item> RgbLedBlock;
     public static RegistrySupplier<Item> MotionSensorBlock;
+    public static RegistrySupplier<Item> BlockSensorBlock;
     public static RegistrySupplier<Item> LightRemoteBlock;
     public static void init(){
         MineQTT.LOGGER.info("Registering MineQTT Items");
@@ -37,6 +38,7 @@ public class MineqttItems {
 
         LightRemoteBlock = registerItem("light_remote_block", () -> new BlockItem(MineqttBlocks.LIGHT_REMOTE_BLOCK.get(), baseProperties("light_remote_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
 
+        BlockSensorBlock = registerItem("block_sensor_block", () -> new BlockItem(MineqttBlocks.BLOCK_SENSOR_BLOCK.get(), baseProperties("block_sensor_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
         ITEMS.register();
     }
 
