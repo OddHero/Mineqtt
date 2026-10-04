@@ -1,6 +1,7 @@
 {
   "replace": false,
   "values": [
-    "mineqtt:block_sensor_block"
+    "mineqtt:block_sensor_block",
+    "mineqtt:block_emitter_block"
   ]
 }

@@ -21,6 +21,7 @@ public class MineqttBlocks {
     public static RegistrySupplier<Block> RGB_LED_BLOCK;
     public static RegistrySupplier<Block> MOTION_SENSOR_BLOCK;
     public static RegistrySupplier<Block> BLOCK_SENSOR_BLOCK;
+    public static RegistrySupplier<Block> BLOCK_EMITTER_BLOCK;
     public static RegistrySupplier<Block> LIGHT_REMOTE_BLOCK;
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Blocks");
@@ -33,6 +34,7 @@ public class MineqttBlocks {
         MOTION_SENSOR_BLOCK = registerBlock("motion_sensor_block", () -> new MotionSensorBlock(baseProperties("motion_sensor_block").requiresCorrectToolForDrops().strength(3.5f)));
         LIGHT_REMOTE_BLOCK = registerBlock("light_remote_block", () -> new LightRemoteBlock(baseProperties("light_remote_block").requiresCorrectToolForDrops().strength(3.5f)));
         BLOCK_SENSOR_BLOCK = registerBlock("block_sensor_block", () -> new BlockSensorBlock(baseProperties("block_sensor_block").requiresCorrectToolForDrops().strength(3.5f)));
+        BLOCK_EMITTER_BLOCK = registerBlock("block_emitter_block", () -> new BlockEmitterBlock(baseProperties("block_emitter_block").requiresCorrectToolForDrops().strength(3.5f)));
         BLOCKS.register();
 
         // Register interaction events after blocks are initialized

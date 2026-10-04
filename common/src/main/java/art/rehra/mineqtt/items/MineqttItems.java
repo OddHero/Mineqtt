@@ -24,6 +24,7 @@ public class MineqttItems {
     public static RegistrySupplier<Item> RgbLedBlock;
     public static RegistrySupplier<Item> MotionSensorBlock;
     public static RegistrySupplier<Item> BlockSensorBlock;
+    public static RegistrySupplier<Item> BlockEmitterBlock;
     public static RegistrySupplier<Item> LightRemoteBlock;
     public static void init(){
         MineQTT.LOGGER.info("Registering MineQTT Items");
@@ -39,6 +40,7 @@ public class MineqttItems {
         LightRemoteBlock = registerItem("light_remote_block", () -> new BlockItem(MineqttBlocks.LIGHT_REMOTE_BLOCK.get(), baseProperties("light_remote_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
 
         BlockSensorBlock = registerItem("block_sensor_block", () -> new BlockItem(MineqttBlocks.BLOCK_SENSOR_BLOCK.get(), baseProperties("block_sensor_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        BlockEmitterBlock = registerItem("block_emitter_block", () -> new BlockItem(MineqttBlocks.BLOCK_EMITTER_BLOCK.get(), baseProperties("block_emitter_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
         ITEMS.register();
     }
 
