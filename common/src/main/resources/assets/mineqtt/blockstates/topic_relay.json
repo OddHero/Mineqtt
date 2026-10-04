@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "powered=false": { "model": "mineqtt:block/topic_relay" },
+    "powered=true": { "model": "mineqtt:block/topic_relay_on" }
+  }
+}

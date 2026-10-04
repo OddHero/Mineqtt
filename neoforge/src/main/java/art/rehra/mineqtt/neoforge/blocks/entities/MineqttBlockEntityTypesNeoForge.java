@@ -15,6 +15,13 @@ public class MineqttBlockEntityTypesNeoForge extends MineqttBlockEntityTypes {
         LIGHT_REMOTE_BLOCK = registerBlockEntity("light_remote_block", () -> new BlockEntityType<>(LightRemoteBlockEntity::new, MineqttBlocks.LIGHT_REMOTE_BLOCK.get()));
         BLOCK_SENSOR_BLOCK = registerBlockEntity("block_sensor_block", () -> new BlockEntityType<>(BlockSensorBlockEntity::new, MineqttBlocks.BLOCK_SENSOR_BLOCK.get()));
         BLOCK_EMITTER_BLOCK = registerBlockEntity("block_emitter_block", () -> new BlockEntityType<>(BlockEmitterBlockEntity::new, MineqttBlocks.BLOCK_EMITTER_BLOCK.get()));
+        CRON_TIMER_BLOCK = registerBlockEntity("cron_timer", () -> new BlockEntityType<>(CronTimerBlockEntity::new, MineqttBlocks.CRON_TIMER_BLOCK.get()));
+        INTERVAL_TIMER_BLOCK = registerBlockEntity("interval_timer", () -> new BlockEntityType<>(IntervalTimerBlockEntity::new, MineqttBlocks.INTERVAL_TIMER_BLOCK.get()));
+        ALARM_CLOCK_BLOCK = registerBlockEntity("alarm_clock", () -> new BlockEntityType<>(AlarmClockBlockEntity::new, MineqttBlocks.ALARM_CLOCK_BLOCK.get()));
+        GAME_TIME_TIMER_BLOCK = registerBlockEntity("game_time_timer", () -> new BlockEntityType<>(GameTimeTimerBlockEntity::new, MineqttBlocks.GAME_TIME_TIMER_BLOCK.get()));
+        STATIC_PUBLISHER_BLOCK = registerBlockEntity("static_publisher", () -> new BlockEntityType<>(StaticPublisherBlockEntity::new, MineqttBlocks.STATIC_PUBLISHER_BLOCK.get()));
+        DYNAMIC_PUBLISHER_BLOCK = registerBlockEntity("dynamic_publisher", () -> new BlockEntityType<>(DynamicPublisherBlockEntity::new, MineqttBlocks.DYNAMIC_PUBLISHER_BLOCK.get()));
+        TOPIC_RELAY_BLOCK = registerBlockEntity("topic_relay", () -> new BlockEntityType<>(TopicRelayBlockEntity::new, MineqttBlocks.TOPIC_RELAY_BLOCK.get()));
         writeRegister();
     }
 }

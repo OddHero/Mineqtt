@@ -26,6 +26,13 @@ public class MineqttItems {
     public static RegistrySupplier<Item> BlockSensorBlock;
     public static RegistrySupplier<Item> BlockEmitterBlock;
     public static RegistrySupplier<Item> LightRemoteBlock;
+    public static RegistrySupplier<Item> CronTimerBlock;
+    public static RegistrySupplier<Item> IntervalTimerBlock;
+    public static RegistrySupplier<Item> AlarmClockBlock;
+    public static RegistrySupplier<Item> GameTimeTimerBlock;
+    public static RegistrySupplier<Item> StaticPublisherBlock;
+    public static RegistrySupplier<Item> DynamicPublisherBlock;
+    public static RegistrySupplier<Item> TopicRelayBlock;
     public static void init(){
         MineQTT.LOGGER.info("Registering MineQTT Items");
         Cyberdeck = registerItem("cyberdeck", () -> new CyberdeckItem(baseProperties("cyberdeck").arch$tab(MineQTTTabs.MINEQTT_TAB)));
@@ -41,6 +48,13 @@ public class MineqttItems {
 
         BlockSensorBlock = registerItem("block_sensor_block", () -> new BlockItem(MineqttBlocks.BLOCK_SENSOR_BLOCK.get(), baseProperties("block_sensor_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
         BlockEmitterBlock = registerItem("block_emitter_block", () -> new BlockItem(MineqttBlocks.BLOCK_EMITTER_BLOCK.get(), baseProperties("block_emitter_block").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        CronTimerBlock = registerItem("cron_timer", () -> new BlockItem(MineqttBlocks.CRON_TIMER_BLOCK.get(), baseProperties("cron_timer").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        IntervalTimerBlock = registerItem("interval_timer", () -> new BlockItem(MineqttBlocks.INTERVAL_TIMER_BLOCK.get(), baseProperties("interval_timer").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        AlarmClockBlock = registerItem("alarm_clock", () -> new BlockItem(MineqttBlocks.ALARM_CLOCK_BLOCK.get(), baseProperties("alarm_clock").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        GameTimeTimerBlock = registerItem("game_time_timer", () -> new BlockItem(MineqttBlocks.GAME_TIME_TIMER_BLOCK.get(), baseProperties("game_time_timer").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        StaticPublisherBlock = registerItem("static_publisher", () -> new BlockItem(MineqttBlocks.STATIC_PUBLISHER_BLOCK.get(), baseProperties("static_publisher").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        DynamicPublisherBlock = registerItem("dynamic_publisher", () -> new BlockItem(MineqttBlocks.DYNAMIC_PUBLISHER_BLOCK.get(), baseProperties("dynamic_publisher").arch$tab(MineQTTTabs.MINEQTT_TAB)));
+        TopicRelayBlock = registerItem("topic_relay", () -> new BlockItem(MineqttBlocks.TOPIC_RELAY_BLOCK.get(), baseProperties("topic_relay").arch$tab(MineQTTTabs.MINEQTT_TAB)));
         ITEMS.register();
     }
 

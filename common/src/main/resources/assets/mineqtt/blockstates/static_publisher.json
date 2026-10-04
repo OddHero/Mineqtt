@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "powered=false": { "model": "mineqtt:block/static_publisher" },
+    "powered=true": { "model": "mineqtt:block/static_publisher_on" }
+  }
+}

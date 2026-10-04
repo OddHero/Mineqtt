@@ -1,0 +1,6 @@
+{
+  "parent": "block/cube_all",
+  "textures": {
+    "all": "mineqtt:block/game_time_timer_on"
+  }
+}

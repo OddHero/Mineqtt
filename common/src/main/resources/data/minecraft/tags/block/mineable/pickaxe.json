@@ -2,6 +2,12 @@
   "replace": false,
   "values": [
     "mineqtt:block_sensor_block",
-    "mineqtt:block_emitter_block"
+    "mineqtt:block_emitter_block",
+    "mineqtt:cron_timer",
+    "mineqtt:interval_timer",
+    "mineqtt:alarm_clock",
+    "mineqtt:game_time_timer",
+    "mineqtt:topic_relay",
+    "mineqtt:dynamic_publisher"
   ]
 }

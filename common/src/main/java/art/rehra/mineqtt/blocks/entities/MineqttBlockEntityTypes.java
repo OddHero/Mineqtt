@@ -20,6 +20,13 @@ public class MineqttBlockEntityTypes {
     public static RegistrySupplier<BlockEntityType<BlockSensorBlockEntity>> BLOCK_SENSOR_BLOCK;
     public static RegistrySupplier<BlockEntityType<BlockEmitterBlockEntity>> BLOCK_EMITTER_BLOCK;
     public static RegistrySupplier<BlockEntityType<LightRemoteBlockEntity>> LIGHT_REMOTE_BLOCK;
+    public static RegistrySupplier<BlockEntityType<CronTimerBlockEntity>> CRON_TIMER_BLOCK;
+    public static RegistrySupplier<BlockEntityType<IntervalTimerBlockEntity>> INTERVAL_TIMER_BLOCK;
+    public static RegistrySupplier<BlockEntityType<AlarmClockBlockEntity>> ALARM_CLOCK_BLOCK;
+    public static RegistrySupplier<BlockEntityType<GameTimeTimerBlockEntity>> GAME_TIME_TIMER_BLOCK;
+    public static RegistrySupplier<BlockEntityType<StaticPublisherBlockEntity>> STATIC_PUBLISHER_BLOCK;
+    public static RegistrySupplier<BlockEntityType<DynamicPublisherBlockEntity>> DYNAMIC_PUBLISHER_BLOCK;
+    public static RegistrySupplier<BlockEntityType<TopicRelayBlockEntity>> TOPIC_RELAY_BLOCK;
 
     public static void writeRegister(){
         BLOCK_ENTITIES.register();

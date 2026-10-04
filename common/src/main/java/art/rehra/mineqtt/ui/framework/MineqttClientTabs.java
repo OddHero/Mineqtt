@@ -21,5 +21,12 @@ public final class MineqttClientTabs {
         MqttTabViews.register(LightRemoteTab.ID, LightRemoteTabView::new);
         MqttTabViews.register(CyberdeckExplorerTab.ID, CyberdeckExplorerTabView::new);
         MqttTabViews.register(CyberdeckPublishTab.ID, CyberdeckPublishTabView::new);
+        MqttTabViews.register(CronTimerTab.ID, CronTimerTabView::new);
+        MqttTabViews.register(IntervalTimerTab.ID, IntervalTimerTabView::new);
+        MqttTabViews.register(AlarmClockTab.ID, AlarmClockTabView::new);
+        MqttTabViews.register(GameTimeTimerTab.ID, GameTimeTimerTabView::new);
+        MqttTabViews.register(StaticPublisherTab.ID, StaticPublisherTabView::new);
+        MqttTabViews.register(DynamicPublisherTab.ID, DynamicPublisherTabView::new);
+        MqttTabViews.register(TopicRelayTab.ID, TopicRelayTabView::new);
     }
 }

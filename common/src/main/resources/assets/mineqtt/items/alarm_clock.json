@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "mineqtt:block/alarm_clock"
+  }
+}
