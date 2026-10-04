@@ -1,0 +1,217 @@
+{
+  "textures": {
+    "body": "mineqtt:block/temperature_sensor_block",
+    "display": "mineqtt:block/temperature_sensor_display",
+    "particle": "mineqtt:block/temperature_sensor_block"
+  },
+  "elements": [
+    {
+      "name": "base",
+      "from": [
+        5,
+        5,
+        14
+      ],
+      "to": [
+        11,
+        11,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            5,
+            5,
+            11,
+            11
+          ],
+          "texture": "#body"
+        },
+        "south": {
+          "uv": [
+            5,
+            5,
+            11,
+            11
+          ],
+          "texture": "#body",
+          "cullface": "south"
+        },
+        "west": {
+          "uv": [
+            0,
+            5,
+            2,
+            11
+          ],
+          "texture": "#body"
+        },
+        "east": {
+          "uv": [
+            14,
+            5,
+            16,
+            11
+          ],
+          "texture": "#body"
+        },
+        "up": {
+          "uv": [
+            5,
+            0,
+            11,
+            2
+          ],
+          "texture": "#body"
+        },
+        "down": {
+          "uv": [
+            5,
+            14,
+            11,
+            16
+          ],
+          "texture": "#body"
+        }
+      }
+    },
+    {
+      "name": "body",
+      "from": [
+        4,
+        4,
+        8
+      ],
+      "to": [
+        12,
+        12,
+        14
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            4,
+            4,
+            12,
+            12
+          ],
+          "texture": "#body"
+        },
+        "south": {
+          "uv": [
+            4,
+            4,
+            12,
+            12
+          ],
+          "texture": "#body"
+        },
+        "west": {
+          "uv": [
+            2,
+            4,
+            8,
+            12
+          ],
+          "texture": "#body"
+        },
+        "east": {
+          "uv": [
+            8,
+            4,
+            14,
+            12
+          ],
+          "texture": "#body"
+        },
+        "up": {
+          "uv": [
+            4,
+            2,
+            12,
+            8
+          ],
+          "texture": "#body"
+        },
+        "down": {
+          "uv": [
+            4,
+            8,
+            12,
+            14
+          ],
+          "texture": "#body"
+        }
+      }
+    },
+    {
+      "name": "display",
+      "from": [
+        5,
+        6,
+        7.5
+      ],
+      "to": [
+        11,
+        10,
+        8
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            5,
+            6,
+            11,
+            10
+          ],
+          "texture": "#display"
+        },
+        "south": {
+          "uv": [
+            5,
+            6,
+            11,
+            10
+          ],
+          "texture": "#display"
+        },
+        "west": {
+          "uv": [
+            0,
+            6,
+            0.5,
+            10
+          ],
+          "texture": "#display"
+        },
+        "east": {
+          "uv": [
+            15.5,
+            6,
+            16,
+            10
+          ],
+          "texture": "#display"
+        },
+        "up": {
+          "uv": [
+            5,
+            0,
+            11,
+            0.5
+          ],
+          "texture": "#display"
+        },
+        "down": {
+          "uv": [
+            5,
+            15.5,
+            11,
+            16
+          ],
+          "texture": "#display"
+        }
+      }
+    }
+  ]
+}

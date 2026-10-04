@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "mineqtt:item/humidity_sensor_block"
+  }
+}

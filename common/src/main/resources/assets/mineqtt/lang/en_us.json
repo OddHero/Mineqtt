@@ -180,5 +180,20 @@
   "mineqtt.dynamic_publisher.not_published": "Not published yet",
   "mineqtt.dynamic_publisher.test": "Test Publish",
   "mineqtt.dynamic_publisher.powered": "Powered",
-  "mineqtt.dynamic_publisher.unpowered": "Unpowered"
+  "mineqtt.dynamic_publisher.unpowered": "Unpowered",
+  "block.mineqtt.humidity_sensor_block": "Humidity Sensor",
+  "item.mineqtt.humidity_sensor_block": "Humidity Sensor",
+  "container.mineqtt.humidity_sensor": "Humidity Sensor",
+  "mineqtt.tab.humidity_sensor": "Humidity",
+  "mineqtt.humidity_sensor.current": "Current Humidity Reading",
+  "mineqtt.humidity_sensor.disabled": "Disabled (configure topic in MQTT Settings)",
+  "block.mineqtt.smart_plug": "Smart Plug",
+  "item.mineqtt.smart_plug": "Smart Plug",
+  "container.mineqtt.smart_plug": "Smart Plug",
+  "block.mineqtt.temperature_sensor_block": "Temperature Sensor",
+  "item.mineqtt.temperature_sensor_block": "Temperature Sensor",
+  "container.mineqtt.temperature_sensor": "Temperature Sensor",
+  "mineqtt.tab.temperature_sensor": "Temperature",
+  "mineqtt.temperature_sensor.current": "Current Temperature Reading",
+  "mineqtt.temperature_sensor.disabled": "Disabled (configure topic in MQTT Settings)"
 }

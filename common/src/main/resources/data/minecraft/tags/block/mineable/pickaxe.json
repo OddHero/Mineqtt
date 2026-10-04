@@ -1,13 +1,23 @@
 {
   "replace": false,
   "values": [
+    "mineqtt:terminal_block",
+    "mineqtt:redstone_publisher_block",
+    "mineqtt:redstone_emitter_block",
+    "mineqtt:rgb_led_block",
+    "mineqtt:motion_sensor_block",
+    "mineqtt:light_remote_block",
     "mineqtt:block_sensor_block",
     "mineqtt:block_emitter_block",
     "mineqtt:cron_timer",
     "mineqtt:interval_timer",
+    "mineqtt:temperature_sensor_block",
+    "mineqtt:humidity_sensor_block",
     "mineqtt:alarm_clock",
     "mineqtt:game_time_timer",
+    "mineqtt:static_publisher",
+    "mineqtt:dynamic_publisher",
     "mineqtt:topic_relay",
-    "mineqtt:dynamic_publisher"
+    "mineqtt:smart_plug"
   ]
 }

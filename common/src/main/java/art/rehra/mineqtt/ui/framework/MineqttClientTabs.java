@@ -28,5 +28,7 @@ public final class MineqttClientTabs {
         MqttTabViews.register(StaticPublisherTab.ID, StaticPublisherTabView::new);
         MqttTabViews.register(DynamicPublisherTab.ID, DynamicPublisherTabView::new);
         MqttTabViews.register(TopicRelayTab.ID, TopicRelayTabView::new);
+        MqttTabViews.register(TemperatureSensorTab.ID, TemperatureSensorTabView::new);
+        MqttTabViews.register(HumiditySensorTab.ID, HumiditySensorTabView::new);
     }
 }
