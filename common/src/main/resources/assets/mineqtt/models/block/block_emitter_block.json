@@ -1,6 +1,12 @@
 {
-  "parent": "block/cube_all",
+  "parent": "minecraft:block/cube",
   "textures": {
-    "all": "mineqtt:block/redstone_emitter_block"
+    "particle": "mineqtt:block/block_emitter_block_side",
+    "down": "mineqtt:block/block_emitter_block_top",
+    "up": "mineqtt:block/block_emitter_block_top",
+    "north": "mineqtt:block/block_emitter_block_front",
+    "south": "mineqtt:block/block_emitter_block_back",
+    "west": "mineqtt:block/block_emitter_block_side",
+    "east": "mineqtt:block/block_emitter_block_side"
   }
 }

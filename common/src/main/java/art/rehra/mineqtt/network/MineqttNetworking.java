@@ -31,6 +31,7 @@ public final class MineqttNetworking {
     public static final Identifier TEST_TOPIC_RELAY_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "test_topic_relay");
     public static final Identifier SET_DYNAMIC_DATA_TYPE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_dynamic_data_type");
     public static final Identifier TEST_DYNAMIC_PUBLISH_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "test_dynamic_publish");
+    public static final Identifier TRIGGER_BLOCK_EMITTER_TEST_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "trigger_block_emitter_test");
 
     @Deprecated
     public static final Identifier CYBERDECK_PUBLISH = CYBERDECK_PUBLISH_ID;
@@ -418,6 +419,20 @@ public final class MineqttNetworking {
             });
         });
 
+        // C2S: trigger test block emitter payload
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, TriggerBlockEmitterTestPayload.TYPE, TriggerBlockEmitterTestPayload.CODEC, (payload, context) -> {
+            context.queue(() -> {
+                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
+                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
+                    return;
+                var be = player.level().getBlockEntity(payload.pos());
+                if (be instanceof art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity blockEmitter) {
+                    blockEmitter.triggerTest(payload.payload());
+                    MineQTT.LOGGER.debug("[BlockEmitter] Player {} tested emitter payload '{}' at {}", player.getGameProfile().name(), payload.payload(), payload.pos());
+                }
+            });
+        });
+
         if (dev.architectury.platform.Platform.getEnv() == net.fabricmc.api.EnvType.CLIENT) {
             NetworkManager.registerReceiver(NetworkManager.Side.S2C, CyberdeckTopicUpdatePayload.TYPE, CyberdeckTopicUpdatePayload.CODEC, ClientPacketHandler::handleTopicUpdate);
         } else {
@@ -713,6 +728,21 @@ public final class MineqttNetworking {
         public static final StreamCodec<RegistryFriendlyByteBuf, TestDynamicPublishPayload> CODEC = StreamCodec.composite(
                 net.minecraft.core.BlockPos.STREAM_CODEC, TestDynamicPublishPayload::pos,
                 TestDynamicPublishPayload::new
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record TriggerBlockEmitterTestPayload(net.minecraft.core.BlockPos pos,
+                                                 String payload) implements CustomPacketPayload {
+        public static final Type<TriggerBlockEmitterTestPayload> TYPE = new Type<>(TRIGGER_BLOCK_EMITTER_TEST_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, TriggerBlockEmitterTestPayload> CODEC = StreamCodec.composite(
+                net.minecraft.core.BlockPos.STREAM_CODEC, TriggerBlockEmitterTestPayload::pos,
+                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(2048), TriggerBlockEmitterTestPayload::payload,
+                TriggerBlockEmitterTestPayload::new
         );
 
         @Override

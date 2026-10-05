@@ -17,6 +17,7 @@ public final class MineqttClientTabs {
         MqttTabViews.register(PublisherValuesTab.ID, PublisherValuesTabView::new);
         MqttTabViews.register(MotionSensorTab.ID, MotionSensorTabView::new);
         MqttTabViews.register(BlockSensorTab.ID, BlockSensorTabView::new);
+        MqttTabViews.register(BlockEmitterTab.ID, BlockEmitterTabView::new);
         MqttTabViews.register(RgbLedStatusTab.ID, RgbLedStatusTabView::new);
         MqttTabViews.register(LightRemoteTab.ID, LightRemoteTabView::new);
         MqttTabViews.register(CyberdeckExplorerTab.ID, CyberdeckExplorerTabView::new);

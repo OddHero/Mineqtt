@@ -2,6 +2,8 @@ package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.BlockEmitterBlock;
+import art.rehra.mineqtt.ui.framework.MqttTab;
+import art.rehra.mineqtt.ui.framework.tabs.BlockEmitterTab;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
@@ -22,33 +24,40 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
 
+    private String lastReceivedPayload = "";
+    private String lastStatus = "Ready";
+    private long lastExecutionTime = 0;
+
     public BlockEmitterBlockEntity(BlockPos pos, BlockState blockState) {
         super(MineqttBlockEntityTypes.BLOCK_EMITTER_BLOCK.get(), pos, blockState);
     }
 
-    public static void applyPayload(Level level, BlockPos targetPos, String message) {
+    public static boolean applyPayload(Level level, BlockPos targetPos, String message) {
         if (level == null || level.isClientSide()) {
-            return;
+            return false;
         }
         if (!level.hasChunkAt(targetPos)) {
             MineQTT.LOGGER.warn("Target chunk not loaded at {} for block emitter payload", targetPos);
-            return;
+            return false;
         }
         if (message == null || message.trim().isEmpty()) {
-            return;
+            return false;
         }
 
         try {
             BlockState currentState = level.getBlockState(targetPos);
             ParsedPayload parsed = parsePayload(message, currentState);
             if (parsed == null || parsed.newState() == null) {
-                return;
+                return false;
             }
 
             boolean stateChanged = currentState != parsed.newState();
@@ -71,8 +80,10 @@ public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
                     }
                 }
             }
+            return true;
         } catch (Exception e) {
             MineQTT.LOGGER.warn("Error processing block emitter payload: {}", e.getMessage());
+            return false;
         }
     }
 
@@ -210,20 +221,102 @@ public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
     }
 
     @Override
+    public List<MqttTab> getTabs() {
+        List<MqttTab> list = super.getTabs();
+        list.add(new BlockEmitterTab());
+        return list;
+    }
+
+    public String getLastReceivedPayload() {
+        return lastReceivedPayload != null ? lastReceivedPayload : "";
+    }
+
+    public void setLastReceivedPayload(String payload) {
+        this.lastReceivedPayload = payload != null ? payload : "";
+        markUpdated();
+    }
+
+    public String getLastStatus() {
+        return lastStatus != null ? lastStatus : "Ready";
+    }
+
+    public void setLastStatus(String status) {
+        this.lastStatus = status != null ? status : "Ready";
+        markUpdated();
+    }
+
+    public long getLastExecutionTime() {
+        return lastExecutionTime;
+    }
+
+    public void setLastExecutionTime(long time) {
+        this.lastExecutionTime = time;
+        markUpdated();
+    }
+
+    @Override
+    protected void saveAdditional(ValueOutput output) {
+        super.saveAdditional(output);
+        output.putString("lastReceivedPayload", this.lastReceivedPayload);
+        output.putString("lastStatus", this.lastStatus);
+        output.putLong("lastExecutionTime", this.lastExecutionTime);
+    }
+
+    @Override
+    protected void loadAdditional(ValueInput input) {
+        super.loadAdditional(input);
+        this.lastReceivedPayload = input.getString("lastReceivedPayload").orElse("");
+        this.lastStatus = input.getString("lastStatus").orElse("Ready");
+        this.lastExecutionTime = input.getLong("lastExecutionTime").orElse(0L);
+    }
+
+    public boolean triggerTest(String testPayload) {
+        if (this.level == null || this.level.isClientSide()) {
+            return false;
+        }
+        if (testPayload == null || testPayload.isBlank()) {
+            testPayload = !this.lastReceivedPayload.isBlank() ? this.lastReceivedPayload : "minecraft:stone";
+        }
+        this.lastReceivedPayload = testPayload;
+        this.lastExecutionTime = this.level.getGameTime();
+
+        BlockState state = this.getBlockState();
+        if (!state.hasProperty(BlockEmitterBlock.FACING)) {
+            this.lastStatus = "Error: Missing FACING";
+            markUpdated();
+            return false;
+        }
+
+        Direction facing = state.getValue(BlockEmitterBlock.FACING);
+        BlockPos targetPos = this.worldPosition.relative(facing);
+        boolean success = applyPayload(this.level, targetPos, testPayload);
+        this.lastStatus = success ? "Success: Emitted payload" : "Error: Invalid payload or target";
+        markUpdated();
+        return success;
+    }
+
+    @Override
     public void onMessageReceived(String topic, String message) {
         if (this.level == null || this.level.isClientSide()) {
             return;
         }
 
+        this.lastReceivedPayload = message != null ? message : "";
+        this.lastExecutionTime = this.level.getGameTime();
+
         BlockState state = this.getBlockState();
         if (!state.hasProperty(BlockEmitterBlock.FACING)) {
             MineQTT.LOGGER.warn("BlockEmitterBlockEntity at {} has no FACING property", this.worldPosition);
+            this.lastStatus = "Error: Missing FACING";
+            markUpdated();
             return;
         }
 
         Direction facing = state.getValue(BlockEmitterBlock.FACING);
         BlockPos targetPos = this.worldPosition.relative(facing);
-        applyPayload(this.level, targetPos, message);
+        boolean success = applyPayload(this.level, targetPos, message);
+        this.lastStatus = success ? "Success: Emitted payload" : "Error: Invalid payload or target";
+        markUpdated();
     }
 
     public record ParsedPayload(BlockState newState, CompoundTag blockEntityData, boolean isFullData) {
