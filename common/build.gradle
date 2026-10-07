@@ -43,7 +43,13 @@ tasks.register('verifyBlockEmitter', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.blocks.entities.BlockEmitterPayloadTest'
 }
+tasks.register('verifyAlarmClock', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.blocks.entities.AlarmClockBlockEntityTest'
+}
 tasks.named('check') {
     dependsOn tasks.named('verifyBlockSensor')
     dependsOn tasks.named('verifyBlockEmitter')
+    dependsOn tasks.named('verifyAlarmClock')
 }

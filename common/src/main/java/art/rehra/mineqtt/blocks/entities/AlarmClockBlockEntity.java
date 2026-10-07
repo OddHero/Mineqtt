@@ -5,6 +5,8 @@ import art.rehra.mineqtt.blocks.AlarmClockBlock;
 import art.rehra.mineqtt.ui.framework.MqttTab;
 import art.rehra.mineqtt.ui.framework.tabs.AlarmClockTab;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.clock.WorldClocks;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -20,9 +22,19 @@ import static art.rehra.mineqtt.blocks.AlarmClockBlock.POWER;
 
 /**
  * Block entity for the Alarm Clock: stores a single alarm time (in Minecraft ticks),
- * checks each tick for a match, and fires a 1-tick redstone pulse.
+ * checks each tick for a match, and fires a button-length (30-tick) redstone pulse.
  */
 public class AlarmClockBlockEntity extends BaseMqttBlockEntity {
+
+    /**
+     * Pulse duration in Minecraft ticks (30 ticks = 1.5s, standard wooden button pulse length).
+     */
+    public static final int PULSE_DURATION = 30;
+
+    /**
+     * Detection window in ticks around the alarm time (±20 ticks = 1s tolerance).
+     */
+    public static final int DETECTION_WINDOW = 20;
 
     /**
      * The alarm time in Minecraft ticks (0-23999). -1 means no alarm set.
@@ -95,8 +107,45 @@ public class AlarmClockBlockEntity extends BaseMqttBlockEntity {
     }
 
     /**
+     * Gets the global Minecraft day time, reading from overworld clock manager if available.
+     */
+    public static long getWorldDayTime(Level level) {
+        if (level == null) return 0;
+        try {
+            var registry = level.registryAccess().lookup(Registries.WORLD_CLOCK);
+            if (registry.isPresent()) {
+                var overworldClock = registry.get().get(WorldClocks.OVERWORLD);
+                if (overworldClock.isPresent()) {
+                    return level.clockManager().getTotalTicks(overworldClock.get());
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return level.getGameTime();
+    }
+
+    /**
+     * Returns the remaining ticks until the next alarm trigger, or 0 if no alarm is set.
+     */
+    public long getRemainingTicks(Level level) {
+        if (level == null || !hasAlarm()) return 0;
+        long dayTime = getWorldDayTime(level);
+        int timeOfDay = (int) (dayTime % 24000);
+        if (timeOfDay < 0) {
+            timeOfDay += 24000;
+        }
+        long diff = alarmTime - timeOfDay;
+        if (diff < 0) {
+            diff += 24000;
+        }
+        return diff;
+    }
+
+    /**
      * Converts an alarm time string (HH:MM) to Minecraft ticks.
-     * Example: "09:00" -> 9000, "12:30" -> 12500
+     * Minecraft daytime: 06:00 is tick 0 (sunrise), 12:00 is tick 6000 (noon),
+     * 18:00 is tick 12000 (sunset), 00:00 is tick 18000 (midnight).
+     * Example: "06:00" -> 0, "12:00" -> 6000, "18:00" -> 12000, "00:00" -> 18000
      */
     public static int parseAlarmTime(String timeStr) {
         String[] parts = timeStr.split(":");
@@ -111,20 +160,20 @@ public class AlarmClockBlockEntity extends BaseMqttBlockEntity {
         if (minutes < 0 || minutes > 59) {
             throw new IllegalArgumentException("Minutes must be 0-59, got " + minutes);
         }
-        // Map 24-hour time to Minecraft ticks: hour * 1000 + minute * (1000/60)
-        // Simplified: hour * 1000 + minute * 16 (approximate)
-        // More precise: (hours * 3600 + minutes * 60) * 24000 / 86400
-        return (hours * 3600 + minutes * 60) * 24000 / 86400;
+        int totalMinutes = hours * 60 + minutes;
+        int adjustedMinutes = (totalMinutes - 360 + 1440) % 1440;
+        return (int) Math.round(adjustedMinutes * 24000.0 / 1440.0) % 24000;
     }
 
     /**
-     * Converts Minecraft ticks to a human-readable HH:MM string.
+     * Converts Minecraft ticks to a human-readable HH:MM string matching standard Minecraft daytime.
+     * Tick 0 -> 06:00, Tick 6000 -> 12:00, Tick 12000 -> 18:00, Tick 18000 -> 00:00.
      */
     public static String formatAlarmTime(int minecraftTicks) {
-        // Convert Minecraft ticks to seconds of day, then to HH:MM
-        int totalSeconds = minecraftTicks * 86400 / 24000;
-        int hours = totalSeconds / 3600;
-        int minutes = (totalSeconds % 3600) / 60;
+        int adjustedMinutes = (int) Math.round(minecraftTicks * 1440.0 / 24000.0) % 1440;
+        int totalMinutes = (adjustedMinutes + 360) % 1440;
+        int hours = totalMinutes / 60;
+        int minutes = totalMinutes % 60;
         return String.format("%02d:%02d", hours, minutes);
     }
 
@@ -153,19 +202,23 @@ public class AlarmClockBlockEntity extends BaseMqttBlockEntity {
 
     /**
      * Server-side ticker: checks current Minecraft time against the configured alarm
-     * and fires a 1-tick redstone pulse when a match is found.
+     * and fires a button-length (30-tick) redstone pulse when a match is found.
      */
     public static class ServerTicker<T extends BlockEntity> implements BlockEntityTicker<T> {
         @Override
         public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
             if (!(blockEntity instanceof AlarmClockBlockEntity entity)) return;
 
-            // If currently powered, turn off (this is the delayed off-tick)
+            long gameTime = level.getGameTime();
+
+            // If currently powered, check if the pulse duration has elapsed
             if (state.hasProperty(POWER) && state.getValue(POWER) > 0) {
-                BlockState newState = state.setValue(POWER, 0);
-                level.setBlock(pos, newState, Block.UPDATE_ALL);
-                if (level.getBlockState(pos).getBlock() instanceof AlarmClockBlock block) {
-                    block.updateNeighbors(level, pos, newState);
+                if (gameTime - entity.lastTriggerTime >= PULSE_DURATION || gameTime < entity.lastTriggerTime) {
+                    BlockState newState = state.setValue(POWER, 0);
+                    level.setBlock(pos, newState, Block.UPDATE_ALL);
+                    if (level.getBlockState(pos).getBlock() instanceof AlarmClockBlock block) {
+                        block.updateNeighbors(level, pos, newState);
+                    }
                 }
                 return;
             }
@@ -173,22 +226,24 @@ public class AlarmClockBlockEntity extends BaseMqttBlockEntity {
             // No alarm configured
             if (!entity.hasAlarm()) return;
 
-            long gameTime = level.getGameTime();
-            int timeOfDay = (int) (gameTime % 24000);
-            long currentDay = gameTime / 24000;
-
-            // Reset triggered status at the start of a new day
-            if (currentDay != entity.lastAlarmDay) {
-                entity.lastAlarmDay = currentDay;
+            long dayTime = getWorldDayTime(level);
+            int timeOfDay = (int) (dayTime % 24000);
+            if (timeOfDay < 0) {
+                timeOfDay += 24000;
             }
-
+            long currentDay = dayTime / 24000;
             int alarmTime = entity.alarmTime;
 
-            // Allow a small window (±1 tick) for matching
-            if (Math.abs(timeOfDay - alarmTime) <= 1) {
+            int diff = timeOfDay - alarmTime;
+            // Handle wrap-around at midnight / day boundary
+            if (diff > 12000) diff -= 24000;
+            if (diff < -12000) diff += 24000;
+
+            // Allow matching within detection window
+            if (Math.abs(diff) <= DETECTION_WINDOW) {
                 // Check if we already triggered today
                 if (entity.lastAlarmDay != currentDay) {
-                    // Fire a 1-tick pulse at POWER=15
+                    // Fire a button-length pulse at POWER=15
                     BlockState newState = state.setValue(POWER, 15);
                     level.setBlock(pos, newState, Block.UPDATE_ALL);
                     if (level.getBlockState(pos).getBlock() instanceof AlarmClockBlock block) {
@@ -198,9 +253,6 @@ public class AlarmClockBlockEntity extends BaseMqttBlockEntity {
                     entity.lastTriggerTime = gameTime;
                     entity.lastAlarmDay = currentDay;
                     entity.setChanged();
-
-                    // Schedule the block entity to tick again next tick to turn off
-                    level.scheduleTick(pos, (AlarmClockBlock) state.getBlock(), 1);
                 }
             }
         }

@@ -4,6 +4,7 @@ import art.rehra.mineqtt.blocks.entities.AlarmClockBlockEntity;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -60,6 +61,13 @@ public class AlarmClockBlock extends BaseMqttBlock {
     @Override
     protected void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
         this.updateNeighbors(level, pos, state);
+    }
+
+    @Override
+    protected void affectNeighborsAfterRemoval(BlockState state, ServerLevel level, BlockPos pos, boolean movedByPiston) {
+        if (!movedByPiston) {
+            this.updateNeighbors(level, pos, state);
+        }
     }
 
     @Override

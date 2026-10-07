@@ -46,11 +46,26 @@ public class AlarmClockTabView implements MqttTabView {
         int inputW = 40;
         int inputH = 14;
 
+        // Read current alarm from block entity to pre-fill inputs
+        TabbedMqttMenu menu = screen.getMenu();
+        var level = menu.player.level();
+        var be = level.getBlockEntity(menu.blockPos);
+        String initialHour = "09";
+        String initialMinute = "00";
+        if (be instanceof AlarmClockBlockEntity alarmBe && alarmBe.hasAlarm()) {
+            String formatted = AlarmClockBlockEntity.formatAlarmTime(alarmBe.getAlarmTime());
+            String[] parts = formatted.split(":");
+            if (parts.length == 2) {
+                initialHour = parts[0];
+                initialMinute = parts[1];
+            }
+        }
+
         // Hour input
         hourInput = new EditBox(Minecraft.getInstance().font, inputX, inputY, inputW, inputH, Component.empty());
         hourInput.setHint(Component.literal("HH"));
         hourInput.setMaxLength(2);
-        hourInput.setValue("09");
+        hourInput.setValue(initialHour);
         hourInput.setResponder(text -> validateTime());
         widgets.add(hourInput);
 
@@ -58,7 +73,7 @@ public class AlarmClockTabView implements MqttTabView {
         minuteInput = new EditBox(Minecraft.getInstance().font, inputX + inputW + 6, inputY, inputW, inputH, Component.empty());
         minuteInput.setHint(Component.literal("MM"));
         minuteInput.setMaxLength(2);
-        minuteInput.setValue("00");
+        minuteInput.setValue(initialMinute);
         minuteInput.setResponder(text -> validateTime());
         widgets.add(minuteInput);
 
@@ -69,7 +84,7 @@ public class AlarmClockTabView implements MqttTabView {
         widgets.add(setButton);
 
         // Clear alarm button
-        clearButton = Button.builder(Component.translatable("mineqtt.cron_timer.clear"), b -> clearAlarm())
+        clearButton = Button.builder(Component.translatable("mineqtt.alarm_clock.clear"), b -> clearAlarm())
                 .bounds(inputX + (inputW + 6) * 2 + 58, inputY, 50, inputH)
                 .build();
         widgets.add(clearButton);
@@ -142,42 +157,78 @@ public class AlarmClockTabView implements MqttTabView {
 
         // Validation error
         if (!this.validationError.isEmpty()) {
-            GuiText.drawTruncated(g, "mineqtt.alarm_clock.error: " + this.validationError, x, y, CONTENT_W, 0xFFFF5555);
+            Component errorComp = Component.translatable("mineqtt.alarm_clock.error")
+                    .append(": ")
+                    .append(Component.translatable(this.validationError));
+            GuiText.drawTruncated(g, errorComp, x, y, CONTENT_W, 0xFFFF5555, mouseX, mouseY);
             y += 12;
         }
 
-        // Current Minecraft time
         TabbedMqttMenu menu = screen.getMenu();
         var level = menu.player.level();
         try {
-            long gameTime = level.getGameTime();
-            int timeOfDay = (int) (gameTime % 24000);
+            long dayTime = AlarmClockBlockEntity.getWorldDayTime(level);
+            int timeOfDay = (int) (dayTime % 24000);
+            if (timeOfDay < 0) {
+                timeOfDay += 24000;
+            }
             String timeStr = AlarmClockBlockEntity.formatAlarmTime(timeOfDay);
-            GuiText.drawTruncated(g, "mineqtt.alarm_clock.time: " + timeStr, x, y, CONTENT_W, 0xFFAAAAAA);
-            y += 14;
+            Component timeComp = Component.translatable("mineqtt.alarm_clock.time")
+                    .append(": " + timeStr + " (tick " + timeOfDay + ")");
+            GuiText.drawTruncated(g, timeComp, x, y, CONTENT_W, 0xFFAAAAAA, mouseX, mouseY);
+            y += 12;
 
-            // Display current alarm
+            // Display current alarm and countdown
             var be = level.getBlockEntity(menu.blockPos);
             if (be instanceof AlarmClockBlockEntity alarmBe) {
                 if (alarmBe.hasAlarm()) {
-                    String alarmTime = AlarmClockBlockEntity.formatAlarmTime(alarmBe.getAlarmTime());
-                    GuiText.drawTruncated(g, "mineqtt.alarm_clock.alarms: " + alarmTime, x, y, CONTENT_W, 0xFF55FF55);
+                    String alarmTimeStr = AlarmClockBlockEntity.formatAlarmTime(alarmBe.getAlarmTime());
+                    Component alarmComp = Component.translatable("mineqtt.alarm_clock.alarms")
+                            .append(": " + alarmTimeStr + " (tick " + alarmBe.getAlarmTime() + ")");
+                    GuiText.drawTruncated(g, alarmComp, x, y, CONTENT_W, 0xFF55FF55, mouseX, mouseY);
+                    y += 12;
+
+                    long remainingTicks = alarmBe.getRemainingTicks(level);
+                    String remainingStr = formatRemaining(remainingTicks);
+                    Component countdownComp = Component.translatable("mineqtt.alarm_clock.countdown")
+                            .append(": " + remainingStr + " (" + remainingTicks + " ticks)");
+                    GuiText.drawTruncated(g, countdownComp, x, y, CONTENT_W, 0xFF888888, mouseX, mouseY);
+                    y += 12;
                 } else {
-                    GuiText.drawTruncated(g, "mineqtt.alarm_clock.no_alarms", x, y, CONTENT_W, 0xFF666666);
+                    Component noAlarmsComp = Component.translatable("mineqtt.alarm_clock.no_alarms");
+                    GuiText.drawTruncated(g, noAlarmsComp, x, y, CONTENT_W, 0xFF666666, mouseX, mouseY);
+                    y += 12;
                 }
-                y += 14;
 
                 // Power status
                 var state = level.getBlockState(menu.blockPos);
                 if (state.hasProperty(art.rehra.mineqtt.blocks.AlarmClockBlock.POWER)) {
                     int power = state.getValue(art.rehra.mineqtt.blocks.AlarmClockBlock.POWER);
-                    String powerStr = power > 0 ? "mineqtt.alarm_clock.powered" : "mineqtt.alarm_clock.unpowered";
+                    String powerKey = power > 0 ? "mineqtt.alarm_clock.powered" : "mineqtt.alarm_clock.unpowered";
                     int color = power > 0 ? 0xFF55FF55 : 0xFF666666;
-                    GuiText.drawTruncated(g, "mineqtt.alarm_clock.status: " + powerStr, x, y, CONTENT_W, color);
+                    Component statusComp = Component.translatable("mineqtt.alarm_clock.status")
+                            .append(": ")
+                            .append(Component.translatable(powerKey));
+                    GuiText.drawTruncated(g, statusComp, x, y, CONTENT_W, color, mouseX, mouseY);
                 }
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    /**
+     * Formats remaining ticks to a human-readable countdown string.
+     */
+    private String formatRemaining(long ticks) {
+        long seconds = ticks / 20;
+        long minutes = seconds / 60;
+        long remainingSeconds = seconds % 60;
+        if (minutes >= 60) {
+            long hours = minutes / 60;
+            long remainingMinutes = minutes % 60;
+            return String.format("%dh %dm %ds", hours, remainingMinutes, remainingSeconds);
+        }
+        return String.format("%dm %ds", minutes, remainingSeconds);
     }
 
     @Override
