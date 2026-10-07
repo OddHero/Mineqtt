@@ -204,5 +204,8 @@
   "container.mineqtt.temperature_sensor": "Temperature Sensor",
   "mineqtt.tab.temperature_sensor": "Temperature",
   "mineqtt.temperature_sensor.current": "Current Temperature Reading",
-  "mineqtt.temperature_sensor.disabled": "Disabled (configure topic in MQTT Settings)"
+  "mineqtt.temperature_sensor.disabled": "Disabled (configure topic in MQTT Settings)",
+  "block.mineqtt.static_publisher": "Static Publisher",
+  "item.mineqtt.static_publisher": "Static Publisher",
+  "container.mineqtt.static_publisher": "Static Publisher"
 }

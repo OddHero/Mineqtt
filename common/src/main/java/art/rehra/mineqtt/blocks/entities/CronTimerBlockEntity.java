@@ -27,9 +27,9 @@ public class CronTimerBlockEntity extends BaseMqttBlockEntity {
     private String cronExpression = "";
     private CronSchedule parsedSchedule = null;
     /**
-     * The minute (as "HH:MM" string) when we last triggered, to avoid duplicate triggers within the same minute.
+     * The tick count when we last triggered, to avoid duplicate triggers within the same game tick.
      */
-    private String lastTriggerMinute = "";
+    private long lastTriggerTick = -1L;
 
     public CronTimerBlockEntity(BlockPos pos, BlockState blockState) {
         super(MineqttBlockEntityTypes.CRON_TIMER_BLOCK.get(), pos, blockState);
@@ -68,8 +68,8 @@ public class CronTimerBlockEntity extends BaseMqttBlockEntity {
         return parsedSchedule;
     }
 
-    public String getLastTriggerMinute() {
-        return lastTriggerMinute;
+    public long getLastTriggerTick() {
+        return lastTriggerTick;
     }
 
     @Override
@@ -83,14 +83,14 @@ public class CronTimerBlockEntity extends BaseMqttBlockEntity {
     protected void saveAdditional(ValueOutput output) {
         super.saveAdditional(output);
         output.putString("cronExpression", this.cronExpression);
-        output.putString("lastTriggerMinute", this.lastTriggerMinute);
+        output.putLong("lastTriggerTick", this.lastTriggerTick);
     }
 
     @Override
     protected void loadAdditional(ValueInput input) {
         super.loadAdditional(input);
         this.cronExpression = input.getString("cronExpression").orElse("");
-        this.lastTriggerMinute = input.getString("lastTriggerMinute").orElse("");
+        this.lastTriggerTick = input.getLong("lastTriggerTick").orElse(-1L);
         if (!this.cronExpression.isBlank()) {
             try {
                 this.parsedSchedule = CronSchedule.parse(this.cronExpression);
@@ -120,13 +120,16 @@ public class CronTimerBlockEntity extends BaseMqttBlockEntity {
                 return;
             }
 
+            long currentTick = level.getGameTime();
+
+            // Skip if we already triggered this game tick
+            if (entity.lastTriggerTick == currentTick) return;
+
             LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
-            String minuteKey = String.format("%02d:%02d", now.getHour(), now.getMinute());
+            // Use the tick within the second (0-19) derived from game time
+            int tickInSecond = (int) (currentTick % 20);
 
-            // Skip if we already triggered this minute
-            if (entity.lastTriggerMinute.equals(minuteKey)) return;
-
-            if (entity.parsedSchedule.matches(now)) {
+            if (entity.parsedSchedule.matches(now, tickInSecond)) {
                 // Fire a 1-tick pulse at POWER=15
                 BlockState newState = state.setValue(POWER, 15);
                 level.setBlock(pos, newState, Block.UPDATE_ALL);
@@ -134,7 +137,7 @@ public class CronTimerBlockEntity extends BaseMqttBlockEntity {
                     block.updateNeighbors(level, pos, newState);
                 }
 
-                entity.lastTriggerMinute = minuteKey;
+                entity.lastTriggerTick = currentTick;
                 entity.setChanged();
 
                 // Schedule the block entity to tick again next tick to turn off

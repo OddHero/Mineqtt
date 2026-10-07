@@ -58,7 +58,7 @@ public class IntervalTimerTabView implements MqttTabView {
 
         int inputX = guiLeft + 8;
         int inputY = guiTop + 18;
-        int inputW = CONTENT_W - 80;
+        int inputW = CONTENT_W - 76;
         int inputH = 14;
 
         // Interval value input field
@@ -71,14 +71,14 @@ public class IntervalTimerTabView implements MqttTabView {
 
         // Apply button
         applyButton = Button.builder(Component.translatable("mineqtt.interval_timer.apply"), b -> applyInterval())
-                .bounds(guiLeft + CONTENT_W - 68, inputY, 72, inputH)
+                .bounds(guiLeft + CONTENT_W - 72, inputY, 72, inputH)
                 .build();
         widgets.add(applyButton);
 
-        // Unit selector buttons
-        int btnY = inputY + 22;
+        // Unit selector buttons - compact, below input
+        int btnY = inputY + 18;
         int btnW = (CONTENT_W - 12) / 4;
-        int btnH = 20;
+        int btnH = 14;
 
         btnTicks = createUnitButton(0, guiLeft + 8, btnY, btnW, btnH);
         btnSeconds = createUnitButton(1, guiLeft + 8 + btnW + 3, btnY, btnW, btnH);
@@ -171,15 +171,13 @@ public class IntervalTimerTabView implements MqttTabView {
     @Override
     public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         int x = guiLeft + 8;
-        int y = guiTop + 70; // Below the unit selector buttons
+        int y = guiTop + 46; // Below the unit selector buttons
 
-        // Current interval display
+        // Current interval display - compact
         long intervalTicks = computeIntervalTicks(currentIntervalValue, currentUnitIndex);
         String unitLabel = UNIT_LABELS[currentUnitIndex];
-        GuiText.drawTruncated(g, "mineqtt.interval_timer.config: " + currentIntervalValue + " " + unitLabel.toLowerCase(), x, y, CONTENT_W, 0xFFAAAAAA);
+        GuiText.drawTruncated(g, "mineqtt.interval_timer.config: " + currentIntervalValue + " " + unitLabel.toLowerCase() + " (" + intervalTicks + " ticks)", x, y, CONTENT_W, 0xFFAAAAAA);
         y += 12;
-        GuiText.drawTruncated(g, "mineqtt.interval_timer.ticks: " + intervalTicks + " ticks", x, y, CONTENT_W, 0xFF888888);
-        y += 14;
 
         // Validation error
         if (!this.validationError.isEmpty()) {
@@ -187,7 +185,7 @@ public class IntervalTimerTabView implements MqttTabView {
             y += 12;
         }
 
-        // Timer progress info
+        // Timer progress info - compact
         TabbedMqttMenu menu = screen.getMenu();
         var level = menu.player.level();
         try {
@@ -197,39 +195,22 @@ public class IntervalTimerTabView implements MqttTabView {
                 long remaining = intervalBe.getRemainingTicks();
                 long interval = intervalBe.getIntervalTicks();
 
-                y += 4;
-                GuiText.drawTruncated(g, "mineqtt.interval_timer.progress: " + tickCounter + " / " + interval, x, y, CONTENT_W, 0xFFAAAAAA);
-                y += 12;
-
                 if (interval > 0) {
                     double progress = (double) tickCounter / interval * 100.0;
-                    GuiText.drawTruncated(g, "mineqtt.interval_timer.remaining: " + remaining + " ticks (" + String.format("%.1f", progress) + "%)", x, y, CONTENT_W, 0xFF888888);
-                    y += 12;
+                    GuiText.drawTruncated(g, "mineqtt.interval_timer.progress: " + tickCounter + "/" + interval + " (" + String.format("%.1f", progress) + "%)  mineqtt.interval_timer.remaining: " + remaining + " ticks", x, y, CONTENT_W, 0xFF888888);
+                } else {
+                    GuiText.drawTruncated(g, "mineqtt.interval_timer.progress: " + tickCounter, x, y, CONTENT_W, 0xFF888888);
                 }
+                y += 12;
 
-                // Draw a simple progress bar
-                y += 4;
-                int barWidth = CONTENT_W - 20;
-                int barHeight = 8;
-                int barX = x + 10;
-                g.fill(barX, y, barX + barWidth, y + barHeight, 0xFF333333);
-                if (interval > 0) {
-                    int filled = (int) (barWidth * (double) tickCounter / interval);
-                    g.fill(barX, y, barX + filled, y + barHeight, 0xFF44AA44);
+                // Power status
+                var state = level.getBlockState(menu.blockPos);
+                if (state.hasProperty(art.rehra.mineqtt.blocks.IntervalTimerBlock.POWER)) {
+                    int power = state.getValue(art.rehra.mineqtt.blocks.IntervalTimerBlock.POWER);
+                    String powerStr = power > 0 ? "mineqtt.interval_timer.powered" : "mineqtt.interval_timer.unpowered";
+                    int color = power > 0 ? 0xFF55FF55 : 0xFF666666;
+                    GuiText.drawTruncated(g, "mineqtt.interval_timer.status: " + powerStr, x, y, CONTENT_W, color);
                 }
-                y += barHeight + 10;
-            }
-        } catch (Throwable ignored) {
-        }
-
-        // Power status
-        try {
-            var state = level.getBlockState(menu.blockPos);
-            if (state.hasProperty(art.rehra.mineqtt.blocks.IntervalTimerBlock.POWER)) {
-                int power = state.getValue(art.rehra.mineqtt.blocks.IntervalTimerBlock.POWER);
-                String powerStr = power > 0 ? "mineqtt.interval_timer.powered" : "mineqtt.interval_timer.unpowered";
-                int color = power > 0 ? 0xFF55FF55 : 0xFF666666;
-                GuiText.drawTruncated(g, "mineqtt.interval_timer.status: " + powerStr, x, y, CONTENT_W, color);
             }
         } catch (Throwable ignored) {
         }

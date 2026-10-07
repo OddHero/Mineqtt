@@ -44,19 +44,17 @@ public class DynamicPublisherTabView implements MqttTabView {
             currentDataType = dynamicBe.getDataTypeOrdinal();
         }
 
-        int buttonW = 72;
         int buttonH = 14;
         int gap = 4;
         int totalButtons = DynamicDataType.values().length;
-        int totalWidth = totalButtons * buttonW + (totalButtons - 1) * gap;
-        int startX = guiLeft + (CONTENT_W - totalWidth) / 2;
+        int buttonW = (CONTENT_W - (totalButtons - 1) * gap) / totalButtons;
 
         // Data type selector buttons
         int rowY = guiTop + 18;
         for (int i = 0; i < DynamicDataType.values().length; i++) {
             final int index = i;
             DynamicDataType dataType = DynamicDataType.values()[i];
-            int btnX = startX + i * (buttonW + gap);
+            int btnX = guiLeft + 8 + i * (buttonW + gap);
 
             Button button = Button.builder(
                     Component.translatable(dataType.getTranslationKey()),
@@ -66,11 +64,10 @@ public class DynamicPublisherTabView implements MqttTabView {
             widgets.add(button);
         }
 
-        // Test publish button
-        int testBtnX = guiLeft + CONTENT_W - 72;
-        int testBtnY = guiTop + 18;
+        // Test publish button - below the data type buttons
+        int testBtnY = guiTop + 18 + buttonH + 4;
         Button testButton = Button.builder(Component.translatable("mineqtt.dynamic_publisher.test"), b -> testPublish())
-                .bounds(testBtnX, testBtnY, 72, 14)
+                .bounds(guiLeft + 8, testBtnY, CONTENT_W, 14)
                 .build();
         widgets.add(testButton);
     }

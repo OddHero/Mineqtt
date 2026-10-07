@@ -20,9 +20,7 @@ public final class MineqttNetworking {
     public static final Identifier SET_PRIVATE_MODE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_private_mode");
     public static final Identifier SET_CRON_EXPRESSION_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_cron_expression");
     public static final Identifier SET_INTERVAL_TIMER_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_interval_timer");
-    public static final Identifier ADD_ALARM_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "add_alarm");
-    public static final Identifier REMOVE_ALARM_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "remove_alarm");
-    public static final Identifier TOGGLE_ALARM_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "toggle_alarm");
+    public static final Identifier SET_SINGLE_ALARM_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_single_alarm");
     public static final Identifier SET_GAME_TIME_TIMER_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_game_time_timer");
     public static final Identifier SET_STATIC_MESSAGE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_static_message");
     public static final Identifier TEST_STATIC_PUBLISH_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "test_static_publish");
@@ -261,44 +259,16 @@ public final class MineqttNetworking {
             });
         });
 
-        // C2S: add alarm to an Alarm Clock block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, AddAlarmPayload.TYPE, AddAlarmPayload.CODEC, (payload, context) -> {
+        // C2S: set single alarm on an Alarm Clock block (minecraftTicks=-1 clears the alarm)
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetSingleAlarmPayload.TYPE, SetSingleAlarmPayload.CODEC, (payload, context) -> {
             context.queue(() -> {
                 if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
                 if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
                     return;
                 var be = player.level().getBlockEntity(payload.pos());
                 if (be instanceof art.rehra.mineqtt.blocks.entities.AlarmClockBlockEntity alarmClock) {
-                    alarmClock.addAlarm(payload.minecraftTicks());
-                    MineQTT.LOGGER.debug("[AlarmClock] Player {} added alarm at {} ticks", player.getGameProfile().name(), payload.minecraftTicks());
-                }
-            });
-        });
-
-        // C2S: remove alarm from an Alarm Clock block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, RemoveAlarmPayload.TYPE, RemoveAlarmPayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.AlarmClockBlockEntity alarmClock) {
-                    alarmClock.removeAlarm(payload.index());
-                    MineQTT.LOGGER.debug("[AlarmClock] Player {} removed alarm at index {}", player.getGameProfile().name(), payload.index());
-                }
-            });
-        });
-
-        // C2S: toggle alarm enabled state in an Alarm Clock block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, ToggleAlarmPayload.TYPE, ToggleAlarmPayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.AlarmClockBlockEntity alarmClock) {
-                    alarmClock.toggleAlarm(payload.index());
-                    MineQTT.LOGGER.debug("[AlarmClock] Player {} toggled alarm at index {}", player.getGameProfile().name(), payload.index());
+                    alarmClock.setAlarm(payload.minecraftTicks());
+                    MineQTT.LOGGER.debug("[AlarmClock] Player {} set alarm to {} ticks", player.getGameProfile().name(), payload.minecraftTicks());
                 }
             });
         });
@@ -546,7 +516,7 @@ public final class MineqttNetworking {
         public static final Type<SetCronExpressionPayload> TYPE = new Type<>(SET_CRON_EXPRESSION_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, SetCronExpressionPayload> CODEC = StreamCodec.composite(
                 net.minecraft.core.BlockPos.STREAM_CODEC, SetCronExpressionPayload::pos,
-                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(64), SetCronExpressionPayload::expression,
+                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(128), SetCronExpressionPayload::expression,
                 SetCronExpressionPayload::new
         );
 
@@ -573,43 +543,13 @@ public final class MineqttNetworking {
         }
     }
 
-    public record AddAlarmPayload(net.minecraft.core.BlockPos pos,
-                                  int minecraftTicks) implements CustomPacketPayload {
-        public static final Type<AddAlarmPayload> TYPE = new Type<>(ADD_ALARM_ID);
-        public static final StreamCodec<RegistryFriendlyByteBuf, AddAlarmPayload> CODEC = StreamCodec.composite(
-                net.minecraft.core.BlockPos.STREAM_CODEC, AddAlarmPayload::pos,
-                net.minecraft.network.codec.ByteBufCodecs.INT, AddAlarmPayload::minecraftTicks,
-                AddAlarmPayload::new
-        );
-
-        @Override
-        public Type<? extends CustomPacketPayload> type() {
-            return TYPE;
-        }
-    }
-
-    public record RemoveAlarmPayload(net.minecraft.core.BlockPos pos,
-                                     int index) implements CustomPacketPayload {
-        public static final Type<RemoveAlarmPayload> TYPE = new Type<>(REMOVE_ALARM_ID);
-        public static final StreamCodec<RegistryFriendlyByteBuf, RemoveAlarmPayload> CODEC = StreamCodec.composite(
-                net.minecraft.core.BlockPos.STREAM_CODEC, RemoveAlarmPayload::pos,
-                net.minecraft.network.codec.ByteBufCodecs.INT, RemoveAlarmPayload::index,
-                RemoveAlarmPayload::new
-        );
-
-        @Override
-        public Type<? extends CustomPacketPayload> type() {
-            return TYPE;
-        }
-    }
-
-    public record ToggleAlarmPayload(net.minecraft.core.BlockPos pos,
-                                     int index) implements CustomPacketPayload {
-        public static final Type<ToggleAlarmPayload> TYPE = new Type<>(TOGGLE_ALARM_ID);
-        public static final StreamCodec<RegistryFriendlyByteBuf, ToggleAlarmPayload> CODEC = StreamCodec.composite(
-                net.minecraft.core.BlockPos.STREAM_CODEC, ToggleAlarmPayload::pos,
-                net.minecraft.network.codec.ByteBufCodecs.INT, ToggleAlarmPayload::index,
-                ToggleAlarmPayload::new
+    public record SetSingleAlarmPayload(net.minecraft.core.BlockPos pos,
+                                        int minecraftTicks) implements CustomPacketPayload {
+        public static final Type<SetSingleAlarmPayload> TYPE = new Type<>(SET_SINGLE_ALARM_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, SetSingleAlarmPayload> CODEC = StreamCodec.composite(
+                net.minecraft.core.BlockPos.STREAM_CODEC, SetSingleAlarmPayload::pos,
+                net.minecraft.network.codec.ByteBufCodecs.INT, SetSingleAlarmPayload::minecraftTicks,
+                SetSingleAlarmPayload::new
         );
 
         @Override

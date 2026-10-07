@@ -92,7 +92,7 @@ public class BlockEmitterTabView implements MqttTabView {
     @Override
     public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         int x = guiLeft + 8;
-        int y = guiTop + 38;
+        int y = guiTop + 34;
 
         TabbedMqttMenu menu = screen.getMenu();
         Level level = menu.player.level();
@@ -106,34 +106,29 @@ public class BlockEmitterTabView implements MqttTabView {
         BlockState targetState = level.getBlockState(targetPos);
         String targetName = targetState.getBlock().getName().getString();
 
-        // Target and Facing preview
+        // Target and Facing preview - compact single line
         String facingName = facing.getName().toUpperCase();
-        String offsetStr = String.format("(%+d, %+d, %+d)", facing.getStepX(), facing.getStepY(), facing.getStepZ());
         String targetText = Component.translatable("mineqtt.block_emitter.facing").getString() + ": "
-                + facingName + " " + offsetStr + " -> " + targetName;
+                + facingName + " -> " + targetName;
         GuiText.drawTruncated(g, targetText, x, y, CONTENT_W, 0xFF333333, mouseX, mouseY);
-        y += 14;
+        y += 12;
 
         // Block Entity values
         BlockEmitterBlockEntity emitter = emitter();
         String lastPayload = emitter != null ? emitter.getLastReceivedPayload() : "";
         String lastStatus = emitter != null ? emitter.getLastStatus() : "Ready";
 
-        // Last Received Payload Header
-        GuiText.drawTruncated(g, Component.translatable("mineqtt.block_emitter.last_payload"), x, y, CONTENT_W, 0xFFAAAAAA);
-        y += 11;
-        if (lastPayload.isEmpty()) {
-            GuiText.drawTruncated(g, Component.translatable("mineqtt.block_emitter.no_payload"), x, y, CONTENT_W, 0xFF666666, mouseX, mouseY);
-        } else {
-            GuiText.drawAutoScaled(g, lastPayload, x, y, CONTENT_W, 40, 0xFF0088FF, mouseX, mouseY);
+        // Last Received Payload - compact, max 2 lines
+        if (!lastPayload.isEmpty()) {
+            GuiText.drawTruncated(g, Component.translatable("mineqtt.block_emitter.last_payload"), x, y, CONTENT_W, 0xFFAAAAAA);
+            y += 10;
+            GuiText.drawAutoScaled(g, lastPayload, x, y, CONTENT_W, 24, 0xFF0088FF, mouseX, mouseY);
+            y += 14;
         }
-        y += 15;
 
-        // Execution Status Header
-        GuiText.drawTruncated(g, Component.translatable("mineqtt.block_emitter.status"), x, y, CONTENT_W, 0xFFAAAAAA);
-        y += 11;
+        // Execution Status - combined with value
         int statusColor = (lastStatus.startsWith("Success") || lastStatus.equals("Ready")) ? 0xFF55FF55 : 0xFFFF5555;
-        GuiText.drawTruncated(g, lastStatus, x, y, CONTENT_W, statusColor, mouseX, mouseY);
+        GuiText.drawTruncated(g, Component.translatable("mineqtt.block_emitter.status") + ": " + lastStatus, x, y, CONTENT_W, statusColor);
     }
 
     @Override

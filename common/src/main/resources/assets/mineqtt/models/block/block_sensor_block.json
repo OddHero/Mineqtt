@@ -1,12 +1,12 @@
 {
   "parent": "minecraft:block/cube",
   "textures": {
-    "particle": "minecraft:block/observer_side",
-    "down": "minecraft:block/observer_top",
-    "up": "minecraft:block/observer_top",
-    "north": "minecraft:block/observer_front",
-    "south": "mineqtt:block/redstone_publisher_block",
-    "west": "minecraft:block/observer_side",
-    "east": "minecraft:block/observer_side"
+    "particle": "mineqtt:block/block_sensor_front",
+    "down": "mineqtt:block/block_sensor_bottom",
+    "up": "mineqtt:block/block_sensor_top",
+    "north": "mineqtt:block/block_sensor_front",
+    "south": "mineqtt:block/block_sensor_back",
+    "west": "mineqtt:block/block_sensor_side",
+    "east": "mineqtt:block/block_sensor_side"
   }
 }
