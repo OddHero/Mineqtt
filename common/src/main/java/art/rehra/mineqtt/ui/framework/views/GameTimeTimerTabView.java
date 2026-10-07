@@ -39,8 +39,6 @@ public class GameTimeTimerTabView implements MqttTabView {
     private int currentCustomTime = 6000;
     private String validationError = "";
 
-    private static final String[] MODE_LABELS = {"Sunrise", "Noon", "Sunset", "Midnight", "Custom"};
-
     public GameTimeTimerTabView(TabbedMqttScreen screen) {
         this.screen = screen;
     }
@@ -65,11 +63,11 @@ public class GameTimeTimerTabView implements MqttTabView {
         int btnW = (CONTENT_W - 12) / 5;
         int btnH = 20;
 
-        btnSunrise = createModeButton(0, guiLeft + 8, inputY, btnW, btnH);
-        btnNoon = createModeButton(1, guiLeft + 8 + btnW + 3, inputY, btnW, btnH);
-        btnSunset = createModeButton(2, guiLeft + 8 + (btnW + 3) * 2, inputY, btnW, btnH);
-        btnMidnight = createModeButton(3, guiLeft + 8 + (btnW + 3) * 3, inputY, btnW, btnH);
-        btnCustom = createModeButton(4, guiLeft + 8 + (btnW + 3) * 4, inputY, btnW, btnH);
+        btnSunrise = createModeButton(0, "mineqtt.game_time_timer.mode.sunrise", guiLeft + 8, inputY, btnW, btnH);
+        btnNoon = createModeButton(1, "mineqtt.game_time_timer.mode.noon", guiLeft + 8 + btnW + 3, inputY, btnW, btnH);
+        btnSunset = createModeButton(2, "mineqtt.game_time_timer.mode.sunset", guiLeft + 8 + (btnW + 3) * 2, inputY, btnW, btnH);
+        btnMidnight = createModeButton(3, "mineqtt.game_time_timer.mode.midnight", guiLeft + 8 + (btnW + 3) * 3, inputY, btnW, btnH);
+        btnCustom = createModeButton(4, "mineqtt.game_time_timer.mode.custom", guiLeft + 8 + (btnW + 3) * 4, inputY, btnW, btnH);
 
         widgets.add(btnSunrise);
         widgets.add(btnNoon);
@@ -102,9 +100,9 @@ public class GameTimeTimerTabView implements MqttTabView {
         this.validationError = "";
     }
 
-    private Button createModeButton(int modeIndex, int x, int y, int w, int h) {
+    private Button createModeButton(int modeIndex, String translationKey, int x, int y, int w, int h) {
         return Button.builder(
-                Component.literal(MODE_LABELS[modeIndex]),
+                Component.translatable(translationKey),
                 b -> {
                     this.currentTriggerModeIndex = modeIndex;
                     updateModeButtons();
@@ -129,10 +127,8 @@ public class GameTimeTimerTabView implements MqttTabView {
     }
 
     private void updateButtonStyle(Button button, int modeIndex) {
-        if (modeIndex == currentTriggerModeIndex) {
-            button.active = false;
-        } else {
-            button.active = true;
+        if (button != null) {
+            button.active = (modeIndex != currentTriggerModeIndex);
         }
     }
 
@@ -186,12 +182,17 @@ public class GameTimeTimerTabView implements MqttTabView {
         TabbedMqttMenu menu = screen.getMenu();
         var level = menu.player.level();
 
-        // Current game time display
         try {
-            long gameTime = level.getGameTime();
-            int timeOfDay = (int) (gameTime % 24000);
-            String timeStr = formatGameTime(timeOfDay);
-            GuiText.drawTruncated(g, "mineqtt.game_time_timer.time: " + timeStr + " (tick " + timeOfDay + ")", x, y, CONTENT_W, 0xFFAAAAAA);
+            // Current game time display
+            long dayTime = GameTimeTimerBlockEntity.getWorldDayTime(level);
+            int timeOfDay = (int) (dayTime % 24000);
+            if (timeOfDay < 0) {
+                timeOfDay += 24000;
+            }
+            String timeStr = GameTimeTimerBlockEntity.formatGameTime(timeOfDay);
+            Component timeComp = Component.translatable("mineqtt.game_time_timer.time")
+                    .append(": " + timeStr + " (tick " + timeOfDay + ")");
+            GuiText.drawTruncated(g, timeComp, x, y, CONTENT_W, 0xFFAAAAAA, mouseX, mouseY);
             y += 12;
 
             // Trigger mode display
@@ -199,21 +200,30 @@ public class GameTimeTimerTabView implements MqttTabView {
             if (be instanceof GameTimeTimerBlockEntity gameTimeBe) {
                 GameTimeTrigger mode = gameTimeBe.getTriggerMode();
                 int targetTicks = gameTimeBe.getTargetTicks();
-                String targetStr = formatGameTime(targetTicks);
+                String targetStr = GameTimeTimerBlockEntity.formatGameTime(targetTicks);
 
                 y += 4;
-                GuiText.drawTruncated(g, "mineqtt.game_time_timer.mode: " + MODE_LABELS[mode.ordinal()] + " (tick " + targetTicks + " / " + targetStr + ")", x, y, CONTENT_W, 0xFFAAAAAA);
+                Component modeComp = Component.translatable("mineqtt.game_time_timer.mode")
+                        .append(": ")
+                        .append(Component.translatable(getModeTranslationKey(mode)))
+                        .append(" (tick " + targetTicks + " / " + targetStr + ")");
+                GuiText.drawTruncated(g, modeComp, x, y, CONTENT_W, 0xFFAAAAAA, mouseX, mouseY);
                 y += 12;
 
                 // Next trigger countdown
                 long remaining = gameTimeBe.getRemainingTicks(level);
                 String remainingStr = formatRemaining(remaining);
-                GuiText.drawTruncated(g, "mineqtt.game_time_timer.countdown: " + remainingStr + " (" + remaining + " ticks)", x, y, CONTENT_W, 0xFF888888);
+                Component countdownComp = Component.translatable("mineqtt.game_time_timer.countdown")
+                        .append(": " + remainingStr + " (" + remaining + " ticks)");
+                GuiText.drawTruncated(g, countdownComp, x, y, CONTENT_W, 0xFF888888, mouseX, mouseY);
                 y += 12;
 
                 // Validation error
                 if (!this.validationError.isEmpty()) {
-                    GuiText.drawTruncated(g, "mineqtt.game_time_timer.error: " + this.validationError, x, y, CONTENT_W, 0xFFFF5555);
+                    Component errorComp = Component.translatable("mineqtt.game_time_timer.error")
+                            .append(": ")
+                            .append(Component.translatable(this.validationError));
+                    GuiText.drawTruncated(g, errorComp, x, y, CONTENT_W, 0xFFFF5555, mouseX, mouseY);
                     y += 12;
                 }
 
@@ -221,23 +231,26 @@ public class GameTimeTimerTabView implements MqttTabView {
                 var state = level.getBlockState(menu.blockPos);
                 if (state.hasProperty(art.rehra.mineqtt.blocks.GameTimeTimerBlock.POWER)) {
                     int power = state.getValue(art.rehra.mineqtt.blocks.GameTimeTimerBlock.POWER);
-                    String powerStr = power > 0 ? "mineqtt.game_time_timer.powered" : "mineqtt.game_time_timer.unpowered";
+                    String powerKey = power > 0 ? "mineqtt.game_time_timer.powered" : "mineqtt.game_time_timer.unpowered";
                     int color = power > 0 ? 0xFF55FF55 : 0xFF666666;
-                    GuiText.drawTruncated(g, "mineqtt.game_time_timer.status: " + powerStr, x, y, CONTENT_W, color);
+                    Component statusComp = Component.translatable("mineqtt.game_time_timer.status")
+                            .append(": ")
+                            .append(Component.translatable(powerKey));
+                    GuiText.drawTruncated(g, statusComp, x, y, CONTENT_W, color, mouseX, mouseY);
                 }
             }
         } catch (Throwable ignored) {
         }
     }
 
-    /**
-     * Formats Minecraft ticks to a human-readable HH:MM string.
-     */
-    private String formatGameTime(int minecraftTicks) {
-        int totalSeconds = minecraftTicks * 86400 / 24000;
-        int hours = totalSeconds / 3600;
-        int minutes = (totalSeconds % 3600) / 60;
-        return String.format("%02d:%02d", hours, minutes);
+    private String getModeTranslationKey(GameTimeTrigger mode) {
+        return switch (mode) {
+            case SUNRISE -> "mineqtt.game_time_timer.mode.sunrise";
+            case NOON -> "mineqtt.game_time_timer.mode.noon";
+            case SUNSET -> "mineqtt.game_time_timer.mode.sunset";
+            case MIDNIGHT -> "mineqtt.game_time_timer.mode.midnight";
+            case CUSTOM -> "mineqtt.game_time_timer.mode.custom";
+        };
     }
 
     /**

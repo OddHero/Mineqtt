@@ -5,6 +5,8 @@ import art.rehra.mineqtt.blocks.GameTimeTimerBlock;
 import art.rehra.mineqtt.ui.framework.MqttTab;
 import art.rehra.mineqtt.ui.framework.tabs.GameTimeTimerTab;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.clock.WorldClocks;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -20,12 +22,17 @@ import static art.rehra.mineqtt.blocks.GameTimeTimerBlock.POWER;
 
 /**
  * Block entity for the Game Time Timer: monitors Minecraft's day/night cycle
- * and fires a 1-tick redstone pulse at the configured trigger time.
+ * and fires a button-length (30-tick) redstone pulse at the configured trigger time.
  */
 public class GameTimeTimerBlockEntity extends BaseMqttBlockEntity {
 
     /**
-     * Detection window in ticks around the trigger time (±20 ticks).
+     * Output redstone pulse duration in game ticks (30 ticks = 1.5s, matching standard wooden button).
+     */
+    public static final int PULSE_DURATION = 30;
+
+    /**
+     * Detection window in ticks around the trigger time (±20 ticks = 1s tolerance).
      */
     public static final int DETECTION_WINDOW = 20;
 
@@ -40,7 +47,7 @@ public class GameTimeTimerBlockEntity extends BaseMqttBlockEntity {
     private int customTime = 6000;
 
     /**
-     * The last Minecraft day number (gameTime / 24000) when we triggered.
+     * The last Minecraft day number (dayTime / 24000) when we triggered.
      * Used to prevent duplicate triggers on the same day.
      */
     private long lastTriggerDay = -1;
@@ -124,6 +131,36 @@ public class GameTimeTimerBlockEntity extends BaseMqttBlockEntity {
     }
 
     /**
+     * Gets the global Minecraft day time, reading from overworld clock manager if available.
+     */
+    public static long getWorldDayTime(Level level) {
+        if (level == null) return 0;
+        try {
+            var registry = level.registryAccess().lookup(Registries.WORLD_CLOCK);
+            if (registry.isPresent()) {
+                var overworldClock = registry.get().get(WorldClocks.OVERWORLD);
+                if (overworldClock.isPresent()) {
+                    return level.clockManager().getTotalTicks(overworldClock.get());
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return level.getGameTime();
+    }
+
+    /**
+     * Converts Minecraft ticks to a human-readable HH:MM string matching standard Minecraft daylight schedule.
+     * Tick 0 -> 06:00, Tick 6000 -> 12:00, Tick 12000 -> 18:00, Tick 18000 -> 00:00.
+     */
+    public static String formatGameTime(int minecraftTicks) {
+        int adjustedMinutes = (int) Math.round(minecraftTicks * 1440.0 / 24000.0) % 1440;
+        int totalMinutes = (adjustedMinutes + 360) % 1440;
+        int hours = totalMinutes / 60;
+        int minutes = totalMinutes % 60;
+        return String.format("%02d:%02d", hours, minutes);
+    }
+
+    /**
      * Returns the target Minecraft tick for the current trigger configuration.
      */
     public int getTargetTicks() {
@@ -139,8 +176,11 @@ public class GameTimeTimerBlockEntity extends BaseMqttBlockEntity {
      */
     public long getRemainingTicks(Level level) {
         if (level == null) return 0;
-        long gameTime = level.getGameTime();
-        int timeOfDay = (int) (gameTime % 24000);
+        long dayTime = getWorldDayTime(level);
+        int timeOfDay = (int) (dayTime % 24000);
+        if (timeOfDay < 0) {
+            timeOfDay += 24000;
+        }
         int target = getTargetTicks();
 
         long diff = target - timeOfDay;
@@ -177,26 +217,33 @@ public class GameTimeTimerBlockEntity extends BaseMqttBlockEntity {
 
     /**
      * Server-side ticker: checks current Minecraft time against the configured trigger
-     * and fires a 1-tick redstone pulse when a match is found.
+     * and fires a button-length (30-tick) redstone pulse when a match is found.
      */
     public static class ServerTicker<T extends BlockEntity> implements BlockEntityTicker<T> {
         @Override
         public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
             if (!(blockEntity instanceof GameTimeTimerBlockEntity entity)) return;
 
-            // If currently powered, turn off (this is the delayed off-tick)
+            long gameTime = level.getGameTime();
+
+            // If currently powered, check if the pulse duration has elapsed
             if (state.hasProperty(POWER) && state.getValue(POWER) > 0) {
-                BlockState newState = state.setValue(POWER, 0);
-                level.setBlock(pos, newState, Block.UPDATE_ALL);
-                if (level.getBlockState(pos).getBlock() instanceof GameTimeTimerBlock block) {
-                    block.updateNeighbors(level, pos, newState);
+                if (gameTime - entity.lastTriggerTime >= PULSE_DURATION || gameTime < entity.lastTriggerTime) {
+                    BlockState newState = state.setValue(POWER, 0);
+                    level.setBlock(pos, newState, Block.UPDATE_ALL);
+                    if (level.getBlockState(pos).getBlock() instanceof GameTimeTimerBlock block) {
+                        block.updateNeighbors(level, pos, newState);
+                    }
                 }
                 return;
             }
 
-            long gameTime = level.getGameTime();
-            int timeOfDay = (int) (gameTime % 24000);
-            long currentDay = gameTime / 24000;
+            long dayTime = getWorldDayTime(level);
+            int timeOfDay = (int) (dayTime % 24000);
+            if (timeOfDay < 0) {
+                timeOfDay += 24000;
+            }
+            long currentDay = dayTime / 24000;
 
             int target = entity.getTargetTicks();
 
@@ -209,7 +256,7 @@ public class GameTimeTimerBlockEntity extends BaseMqttBlockEntity {
             if (Math.abs(diff) <= DETECTION_WINDOW) {
                 // Check if we already triggered today
                 if (entity.lastTriggerDay != currentDay) {
-                    // Fire a 1-tick pulse at POWER=15
+                    // Fire a button-length pulse at POWER=15
                     BlockState newState = state.setValue(POWER, 15);
                     level.setBlock(pos, newState, Block.UPDATE_ALL);
                     if (level.getBlockState(pos).getBlock() instanceof GameTimeTimerBlock block) {
@@ -219,9 +266,6 @@ public class GameTimeTimerBlockEntity extends BaseMqttBlockEntity {
                     entity.lastTriggerTime = gameTime;
                     entity.lastTriggerDay = currentDay;
                     entity.setChanged();
-
-                    // Schedule the block entity to tick again next tick to turn off
-                    level.scheduleTick(pos, (GameTimeTimerBlock) state.getBlock(), 1);
                 }
             }
         }
