@@ -3,6 +3,7 @@ package art.rehra.mineqtt.ui.framework;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.ui.MineqttMenuTypes;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
@@ -11,6 +12,7 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -22,6 +24,9 @@ import java.util.List;
  * <p>Player inventory occupies the bottom of the GUI; each {@link MqttTab} contributes
  * its own slots via {@link MqttTab#buildSlots(TabbedMqttMenu, Container)}. Slots
  * belonging to non-active tabs are hidden via {@link TabbedSlot#isActive()}.</p>
+ *
+ * <p>Opening the screen of a block needs the USE permission; its slots configure the block, so a player without
+ * CONFIGURE sees them but cannot change them ({@link #configurable()}).</p>
  */
 public class TabbedMqttMenu extends AbstractContainerMenu {
 
@@ -42,10 +47,31 @@ public class TabbedMqttMenu extends AbstractContainerMenu {
     public final List<MqttTab> tabs;
     private final int containerSlotStart;
     private final int containerSlotEnd;
+    private final boolean configurable;
+    private final @Nullable String deviceStatus;
     private String activeTabId;
 
-    public TabbedMqttMenu(int containerId, Inventory playerInventory, Player player, BlockPos blockPos, String initialTabId) {
-        this(MineqttMenuTypes.MQTT_TABBED_MENU.get(), containerId, playerInventory, resolveContainer(playerInventory, blockPos), resolveTabs(playerInventory, blockPos), player, blockPos, initialTabId);
+    public TabbedMqttMenu(int containerId, Inventory playerInventory, Player player, BlockPos blockPos, String initialTabId, boolean configurable) {
+        this(MineqttMenuTypes.MQTT_TABBED_MENU.get(), containerId, playerInventory, resolveContainer(playerInventory, blockPos), resolveTabs(playerInventory, blockPos), player, blockPos, initialTabId, configurable, null);
+    }
+
+    /** The client side of a block's screen, from what {@link #writeOpenData} sent. */
+    public static TabbedMqttMenu fromOpenData(int containerId, Inventory playerInventory, FriendlyByteBuf buf) {
+        BlockPos pos = buf.readBlockPos();
+        boolean configurable = buf.readBoolean();
+        String deviceStatus = buf.readNullable(FriendlyByteBuf::readUtf);
+        return new TabbedMqttMenu(MineqttMenuTypes.MQTT_TABBED_MENU.get(), containerId, playerInventory, resolveContainer(playerInventory, pos),
+                resolveTabs(playerInventory, pos), playerInventory.player, pos, null, configurable, deviceStatus);
+    }
+
+    /**
+     * What the client needs to build a block's screen: the position, whether the player may configure the block, and a
+     * device's status line (null for blocks that are no devices).
+     */
+    public static void writeOpenData(FriendlyByteBuf buf, BlockPos pos, boolean configurable, @Nullable String deviceStatus) {
+        buf.writeBlockPos(pos);
+        buf.writeBoolean(configurable);
+        buf.writeNullable(deviceStatus, FriendlyByteBuf::writeUtf);
     }
 
     public TabbedMqttMenu(MenuType<?> type,
@@ -55,11 +81,15 @@ public class TabbedMqttMenu extends AbstractContainerMenu {
                           List<MqttTab> tabs,
                           Player player,
                           BlockPos blockPos,
-                          String initialTabId) {
+                          String initialTabId,
+                          boolean configurable,
+                          @Nullable String deviceStatus) {
         super(type, containerId);
         this.player = player;
         this.container = container;
         this.blockPos = blockPos;
+        this.configurable = configurable;
+        this.deviceStatus = deviceStatus;
         this.tabs = tabs.isEmpty() ? List.of() : Collections.unmodifiableList(new ArrayList<>(tabs));
         this.activeTabId = pickInitialTabId(this.tabs, initialTabId);
 
@@ -98,6 +128,16 @@ public class TabbedMqttMenu extends AbstractContainerMenu {
             for (MqttTab t : tabs) if (t.id().equals(requested)) return requested;
         }
         return tabs.get(0).id();
+    }
+
+    /** Whether the player may change the slots; the server decides when the screen opens and enforces it. */
+    public boolean configurable() {
+        return configurable;
+    }
+
+    /** A device's status line as the server saw it when the screen opened; null for blocks that are no devices. */
+    public @Nullable String deviceStatus() {
+        return deviceStatus;
     }
 
     public String getActiveTabId() {

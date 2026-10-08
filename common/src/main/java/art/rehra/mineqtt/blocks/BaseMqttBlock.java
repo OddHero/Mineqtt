@@ -1,12 +1,12 @@
 package art.rehra.mineqtt.blocks;
 
-import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
+import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.integrations.MineqttPermission;
+import art.rehra.mineqtt.security.DeviceAccess;
 import com.mojang.serialization.MapCodec;
 import dev.architectury.event.EventResult;
 import dev.architectury.event.events.common.InteractionEvent;
-import dev.architectury.registry.menu.MenuRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
@@ -46,11 +46,15 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
     @Override
     public void setPlacedBy(Level level, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack stack) {
         super.setPlacedBy(level, pos, state, placer, stack);
-        if (!level.isClientSide() && placer instanceof Player p) {
-            BlockEntity be = level.getBlockEntity(pos);
-            if (be instanceof BaseMqttBlockEntity mqtt) {
-                mqtt.setOwnerName(p.getGameProfile().name());
-            }
+        if (level.isClientSide()) return;
+        BlockEntity be = level.getBlockEntity(pos);
+        // The item's block entity data is applied by now and is untrusted (design §8.6).
+        if (be instanceof DeviceHost host) {
+            host.deviceLink().onPlacedBy(be, placer);
+        }
+        if (be instanceof BaseMqttBlockEntity mqtt) {
+            // An owner copied with the item's data is forged; only a placing player becomes the owner.
+            mqtt.setOwnerName(placer instanceof Player p ? p.getGameProfile().name() : "");
         }
     }
 
@@ -79,14 +83,12 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
         }
 
         BlockEntity blockEntity = player.level().getBlockEntity(pos);
-        if (blockEntity instanceof MenuProvider menuProvider) {
+        if (blockEntity instanceof BaseMqttBlockEntity mqtt) {
             if (player instanceof ServerPlayer serverPlayer) {
-                if (!MineQTT.permissionManager.canInteract(serverPlayer, pos, MineqttPermission.INTERACT)) {
+                if (!DeviceAccess.check(serverPlayer, mqtt, MineqttPermission.USE)) {
                     return EventResult.pass();
                 }
-                MenuRegistry.openExtendedMenu(serverPlayer, menuProvider, buf -> {
-                    buf.writeBlockPos(pos);
-                });
+                mqtt.openScreen(serverPlayer);
             }
             return EventResult.interruptTrue();
         }

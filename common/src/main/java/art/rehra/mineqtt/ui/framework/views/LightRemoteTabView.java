@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.framework.views;
 
+import art.rehra.mineqtt.mqtt.CyberdeckSessionManager;
 import art.rehra.mineqtt.network.MineqttNetworking;
 import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
@@ -30,6 +31,10 @@ public class LightRemoteTabView implements MqttTabView {
     private static final int NUM_W = 120, NUM_H = 50;
     private static final int KELVIN_MIN = 2000, KELVIN_MAX = 6500;
     private static final float TRANS_MAX = 10.0f;
+    // Dragging a slider changes the light every frame; commands go out at most this often, and the one still pending
+    // when the view is left goes out at once (the server's burst allowance takes that one extra command).
+    private static final long BLOCK_COMMAND_INTERVAL_NANOS = 100_000_000L;
+    private static final long CYBERDECK_COMMAND_INTERVAL_NANOS = 1_000_000_000L / CyberdeckSessionManager.PUBLISHES_PER_SECOND;
     private final TabbedMqttScreen screen;
     private final List<AbstractWidget> widgets = new ArrayList<>();
     // ---- Light state ----
@@ -53,6 +58,10 @@ public class LightRemoteTabView implements MqttTabView {
     private int numInputTarget = -1; // 0=bright, 1=kelvin, 2=transition
     private String numInputBuf = "";
     private int numInputX, numInputY;
+    // ---- Command throttle ----
+    // Static: a view is rebuilt on every tab switch and resize, but the server's limit counts per player.
+    private static long lastCommandNanos = System.nanoTime() - CYBERDECK_COMMAND_INTERVAL_NANOS;
+    private boolean commandPending = false;
 
     public LightRemoteTabView(TabbedMqttScreen screen) {
         this.screen = screen;
@@ -106,7 +115,25 @@ public class LightRemoteTabView implements MqttTabView {
 
     // ---- Network ----
 
+    /** Queues a command with the current light state; {@link #flushCommand} sends it when the interval allows. */
     private void sendCommand() {
+        commandPending = true;
+        flushCommand(false);
+    }
+
+    @Override
+    public void removed() {
+        // A disconnect closes the screen after the connection is gone.
+        if (Minecraft.getInstance().getConnection() != null) flushCommand(true);
+    }
+
+    /** @param ignoreInterval send a pending command even inside the interval, because the view is being left */
+    private void flushCommand(boolean ignoreInterval) {
+        long now = System.nanoTime();
+        long interval = screen.getMenu().blockPos == null ? CYBERDECK_COMMAND_INTERVAL_NANOS : BLOCK_COMMAND_INTERVAL_NANOS;
+        if (!commandPending || !ignoreInterval && now - lastCommandNanos < interval) return;
+        commandPending = false;
+        lastCommandNanos = now;
         int brightnessPct = Math.round((brightness / 255.0f) * 100);
         String colorPart = "rgb".equals(lastColorMode)
                 ? String.format(java.util.Locale.US, ",\"rgb\":[%d,%d,%d]", red, green, blue)
@@ -121,6 +148,7 @@ public class LightRemoteTabView implements MqttTabView {
 
     @Override
     public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
+        flushCommand(false);
         this.guiLeft = guiLeft;
         this.guiTop = guiTop;
         var font = Minecraft.getInstance().font;

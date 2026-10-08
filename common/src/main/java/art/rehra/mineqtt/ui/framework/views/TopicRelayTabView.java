@@ -2,6 +2,7 @@ package art.rehra.mineqtt.ui.framework.views;
 
 import art.rehra.mineqtt.blocks.TopicRelayBlock;
 import art.rehra.mineqtt.blocks.entities.TopicRelayBlockEntity;
+import art.rehra.mineqtt.mqtt.core.TopicAcl;
 import art.rehra.mineqtt.network.MineqttNetworking;
 import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
@@ -61,7 +62,7 @@ public class TopicRelayTabView implements MqttTabView {
         int sourceY = guiTop + 18;
         sourceTopicInput = new EditBox(Minecraft.getInstance().font, inputX, sourceY, inputW, inputH, Component.empty());
         sourceTopicInput.setHint(Component.translatable("mineqtt.topic_relay.source_hint"));
-        sourceTopicInput.setMaxLength(512);
+        sourceTopicInput.setMaxLength(TopicAcl.MAX_TOPIC_BYTES);
         sourceTopicInput.setValue(currentSourceTopic);
         widgets.add(sourceTopicInput);
 
@@ -75,7 +76,7 @@ public class TopicRelayTabView implements MqttTabView {
         int targetY = guiTop + 40;
         targetTopicInput = new EditBox(Minecraft.getInstance().font, inputX, targetY, inputW, inputH, Component.empty());
         targetTopicInput.setHint(Component.translatable("mineqtt.topic_relay.target_hint"));
-        targetTopicInput.setMaxLength(512);
+        targetTopicInput.setMaxLength(TopicAcl.MAX_TOPIC_BYTES);
         targetTopicInput.setValue(currentTargetTopic);
         widgets.add(targetTopicInput);
 

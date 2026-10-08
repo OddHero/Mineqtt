@@ -1,14 +1,33 @@
 package art.rehra.mineqtt.network;
 
 import art.rehra.mineqtt.MineQTT;
-import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish;
+import art.rehra.mineqtt.blocks.entities.AlarmClockBlockEntity;
+import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
+import art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity;
+import art.rehra.mineqtt.blocks.entities.BlockSensorBlockEntity;
+import art.rehra.mineqtt.blocks.entities.CronTimerBlockEntity;
+import art.rehra.mineqtt.blocks.entities.DynamicPublisherBlockEntity;
+import art.rehra.mineqtt.blocks.entities.GameTimeTimerBlockEntity;
+import art.rehra.mineqtt.blocks.entities.IntervalTimerBlockEntity;
+import art.rehra.mineqtt.blocks.entities.LightRemoteBlockEntity;
+import art.rehra.mineqtt.blocks.entities.StaticPublisherBlockEntity;
+import art.rehra.mineqtt.blocks.entities.TopicRelayBlockEntity;
+import art.rehra.mineqtt.device.DeviceHost;
+import art.rehra.mineqtt.integrations.MineqttPermission;
+import art.rehra.mineqtt.items.CyberdeckDataUtil;
+import art.rehra.mineqtt.mqtt.CyberdeckSessionManager;
+import art.rehra.mineqtt.security.AclContext;
+import art.rehra.mineqtt.security.C2SGuard;
+import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import dev.architectury.networking.NetworkManager;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerPlayer;
 
-import java.nio.charset.StandardCharsets;
+import java.util.function.BiConsumer;
 
 public final class MineqttNetworking {
     public static final Identifier CYBERDECK_PUBLISH_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_publish");
@@ -42,372 +61,193 @@ public final class MineqttNetworking {
     }
 
     /**
-     * Prefixes {@code topic} with the player's username when the held cyberdeck
-     * has private-mode enabled. If the topic is empty, returns just the username.
-     * Returns {@code topic} unchanged when private-mode is off or no cyberdeck is held.
+     * Registers the payloads. Every client-to-server payload is handled on the server thread and passes
+     * {@link C2SGuard} first; the client is never trusted (design §8.5).
      */
-    private static String applyCyberdeckPrivatePrefix(net.minecraft.server.level.ServerPlayer sp, String topic) {
-        net.minecraft.world.item.ItemStack stack = sp.getMainHandItem();
-        if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) {
-            stack = sp.getOffhandItem();
-        }
-        if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) return topic;
-        if (!art.rehra.mineqtt.items.CyberdeckDataUtil.isPrivate(stack)) return topic;
-        String owner = sp.getGameProfile().name();
-        if (topic == null || topic.isBlank()) return owner;
-        return owner + "/" + topic;
-    }
-
     public static void init() {
-        // C2S: Cyberdeck manual publish (topic, payload)
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, CyberdeckPublishPayload.TYPE, CyberdeckPublishPayload.CODEC, (payload, context) -> {
-            String payloadStr = payload.payload();
+        // Cyberdeck manual publish (topic, payload): full topic ACL, rate-limited, never retained.
+        receive(CyberdeckPublishPayload.TYPE, CyberdeckPublishPayload.CODEC, (player, payload) ->
+                C2SGuard.requireCyberdeck(player, payload).ifPresent(menu ->
+                        CyberdeckSessionManager.publish(player, menu, payload.topic(), payload.payload())));
 
-            context.queue(() -> {
-                String topic = payload.topic();
-                if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer sp) {
-                    topic = applyCyberdeckPrivatePrefix(sp, topic);
-                }
-                if (MineQTT.mqttClient == null || !MineQTT.mqttClient.getState().isConnected()) {
-                    MineQTT.LOGGER.warn("[Cyberdeck] MQTT client not connected; cannot publish to {}", topic);
-                    return;
-                }
-                try {
-                    byte[] payloadBytes = payloadStr.getBytes(StandardCharsets.UTF_8);
-                    MineQTT.LOGGER.debug("[Cyberdeck] Publishing to {}: '{}' ({} bytes)", topic, payloadStr, payloadBytes.length);
+        // Cyberdeck explorer on/off, remembered on the Cyberdeck so it resumes when the player joins again.
+        receive(CyberdeckListenTogglePayload.TYPE, CyberdeckListenTogglePayload.CODEC, (player, payload) ->
+                C2SGuard.requireCyberdeck(player, payload).ifPresent(menu -> {
+                    CyberdeckSessionManager.toggleListening(player, payload.listening());
+                    CyberdeckDataUtil.setListening(menu.itemStack, payload.listening());
+                    MineQTT.LOGGER.debug("[Cyberdeck] Player {} is now {}listening", player.getGameProfile().name(), payload.listening() ? "" : "not ");
+                }));
 
-                    MineQTT.mqttClient.toAsync().publish(Mqtt3Publish.builder()
-                            .topic(topic)
-                            .payload(payloadBytes)
-                            .build());
-                    MineQTT.LOGGER.debug("[Cyberdeck] Published to {} by {}", topic, context.getPlayer().getGameProfile().name());
-                } catch (Exception e) {
-                    MineQTT.LOGGER.error("[Cyberdeck] Failed publishing to {}: {}", topic, e.getMessage());
-                }
-            });
+        // Light Remote command: from the block to its topic, or from the Cyberdeck to the topic of its two slots.
+        receive(LightRemoteCommandPayload.TYPE, LightRemoteCommandPayload.CODEC, (player, payload) -> {
+            if (payload.pos().isPresent()) {
+                C2SGuard.require(player, payload, payload.pos().get(), LightRemoteBlockEntity.class, MineqttPermission.USE)
+                        .filter(lightRemote -> C2SGuard.fitsPayload(payload.jsonPayload()))
+                        .ifPresent(lightRemote -> {
+                            lightRemote.publishLightCommand(payload.jsonPayload());
+                            MineQTT.LOGGER.debug("[LightRemote] Player {} published light command to {}", player.getGameProfile().name(), payload.pos().get());
+                        });
+            } else {
+                C2SGuard.requireCyberdeck(player, payload).ifPresent(menu -> {
+                    String base = menu.container.getItem(0).isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(menu.container.getItem(0));
+                    String sub = menu.container.getItem(1).isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(menu.container.getItem(1));
+                    CyberdeckSessionManager.publish(player, menu, sub.isEmpty() ? base : base + "/" + sub, payload.jsonPayload());
+                });
+            }
         });
 
-        // C2S: Cyberdeck listen toggle (boolean)
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, CyberdeckListenTogglePayload.TYPE, CyberdeckListenTogglePayload.CODEC, (payload, context) -> {
-            boolean listening = payload.listening();
-            context.queue(() -> {
-                if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player) {
-                    art.rehra.mineqtt.mqtt.CyberdeckSessionManager.toggleListening(player, listening);
-
-                    // Update the item data component so it persists
-                    net.minecraft.world.item.ItemStack stack = player.getMainHandItem();
-                    if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) {
-                        stack = player.getOffhandItem();
+        receive(SetBlockSensorModePayload.TYPE, SetBlockSensorModePayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), BlockSensorBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(sensor -> {
+                    // Reject unknown network values; missing/old save values still use the default.
+                    for (var mode : BlockSensorBlockEntity.DataMode.values()) {
+                        if (mode.id().equals(payload.mode())) {
+                            sensor.setDataMode(mode);
+                            return;
+                        }
                     }
-                    if (stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem) {
-                        art.rehra.mineqtt.items.CyberdeckDataUtil.setListening(stack, listening);
-                    }
+                }));
 
-                    MineQTT.LOGGER.debug("[Cyberdeck] Player {} is now {}listening", player.getGameProfile().name(), listening ? "" : "not ");
-                }
-            });
+        // Remember the last tab opened in a tabbed screen; only tabs the screen has are accepted.
+        receive(SetActiveTabPayload.TYPE, SetActiveTabPayload.CODEC, (player, payload) -> {
+            if (payload.pos().isPresent()) {
+                C2SGuard.require(player, payload, payload.pos().get(), BaseMqttBlockEntity.class, MineqttPermission.USE).ifPresent(mqtt -> {
+                    TabbedMqttMenu menu = (TabbedMqttMenu) player.containerMenu;
+                    if (menu.tabs.stream().noneMatch(tab -> tab.id().equals(payload.tabId()))) return;
+                    menu.setActiveTab(payload.tabId());
+                    mqtt.setLastTabId(payload.tabId());
+                });
+            } else {
+                C2SGuard.requireCyberdeck(player, payload).ifPresent(menu -> menu.setActiveTab(payload.tabId()));
+            }
         });
+
+        // Private mode (topic prefixed with the owner's username) of a block, or of the held Cyberdeck.
+        receive(SetPrivateModePayload.TYPE, SetPrivateModePayload.CODEC, (player, payload) -> {
+            if (payload.pos().isPresent()) {
+                C2SGuard.require(player, payload, payload.pos().get(), BaseMqttBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(mqtt -> {
+                    // A block without a recorded owner (world generation, pre-feature blocks) becomes the player's; a
+                    // device also gets them as its owner, which private mode needs.
+                    if (mqtt.getOwnerName().isEmpty()) {
+                        mqtt.setOwnerName(player.getGameProfile().name());
+                        if (mqtt instanceof DeviceHost host) host.deviceLink().claim(mqtt, player.getUUID(), player.getGameProfile().name());
+                    }
+                    mqtt.setPrivateMode(payload.enabled());
+                });
+            } else {
+                C2SGuard.requireCyberdeck(player, payload).ifPresent(menu -> CyberdeckDataUtil.setPrivate(menu.itemStack, payload.enabled()));
+            }
+        });
+
+        receive(SetCronExpressionPayload.TYPE, SetCronExpressionPayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), CronTimerBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(cronTimer -> {
+                    cronTimer.setCronExpression(payload.expression());
+                    MineQTT.LOGGER.debug("[CronTimer] Player {} set cron expression: {}", player.getGameProfile().name(), payload.expression());
+                }));
+
+        receive(SetIntervalTimerPayload.TYPE, SetIntervalTimerPayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), IntervalTimerBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(intervalTimer -> {
+                    intervalTimer.setInterval(payload.value(), payload.unitIndex());
+                    MineQTT.LOGGER.debug("[IntervalTimer] Player {} set interval: {} unit {}", player.getGameProfile().name(), payload.value(), payload.unitIndex());
+                }));
+
+        // minecraftTicks=-1 clears the alarm.
+        receive(SetSingleAlarmPayload.TYPE, SetSingleAlarmPayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), AlarmClockBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(alarmClock -> {
+                    alarmClock.setAlarm(payload.minecraftTicks());
+                    MineQTT.LOGGER.debug("[AlarmClock] Player {} set alarm to {} ticks", player.getGameProfile().name(), payload.minecraftTicks());
+                }));
+
+        receive(SetGameTimeTimerPayload.TYPE, SetGameTimeTimerPayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), GameTimeTimerBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(gameTimeTimer -> {
+                    gameTimeTimer.setTriggerModeIndex(payload.triggerModeIndex());
+                    gameTimeTimer.setCustomTime(payload.customTime());
+                    MineQTT.LOGGER.debug("[GameTimeTimer] Player {} set trigger mode: {} custom time: {}", player.getGameProfile().name(), payload.triggerModeIndex(), payload.customTime());
+                }));
+
+        receive(SetStaticMessagePayload.TYPE, SetStaticMessagePayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), StaticPublisherBlockEntity.class, MineqttPermission.CONFIGURE)
+                        .filter(staticPublisher -> C2SGuard.fitsPayload(payload.message()))
+                        .ifPresent(staticPublisher -> {
+                            staticPublisher.setStaticMessage(payload.message());
+                            MineQTT.LOGGER.debug("[StaticPublisher] Player {} set static message at {}", player.getGameProfile().name(), payload.pos());
+                        }));
+
+        // The test button saves the message it publishes.
+        receive(TestStaticPublishPayload.TYPE, TestStaticPublishPayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), StaticPublisherBlockEntity.class, MineqttPermission.CONFIGURE)
+                        .filter(staticPublisher -> C2SGuard.fitsPayload(payload.message()))
+                        .ifPresent(staticPublisher -> {
+                            staticPublisher.setStaticMessage(payload.message());
+                            staticPublisher.publishStaticMessage();
+                            MineQTT.LOGGER.debug("[StaticPublisher] Player {} test-published at {}", player.getGameProfile().name(), payload.pos());
+                        }));
+
+        receive(SetTopicRelaySourcePayload.TYPE, SetTopicRelaySourcePayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), TopicRelayBlockEntity.class, MineqttPermission.CONFIGURE)
+                        .filter(topicRelay -> C2SGuard.fitsTopic(payload.topic()))
+                        .ifPresent(topicRelay -> {
+                            topicRelay.setSourceTopic(payload.topic());
+                            MineQTT.LOGGER.debug("[TopicRelay] Player {} set source topic: {} at {}", player.getGameProfile().name(), payload.topic(), payload.pos());
+                        }));
+
+        receive(SetTopicRelayTargetPayload.TYPE, SetTopicRelayTargetPayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), TopicRelayBlockEntity.class, MineqttPermission.CONFIGURE)
+                        .filter(topicRelay -> C2SGuard.fitsTopic(payload.topic()))
+                        .ifPresent(topicRelay -> {
+                            topicRelay.setTopic(payload.topic());
+                            MineQTT.LOGGER.debug("[TopicRelay] Player {} set target topic: {} at {}", player.getGameProfile().name(), payload.topic(), payload.pos());
+                        }));
+
+        receive(TestTopicRelayPayload.TYPE, TestTopicRelayPayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), TopicRelayBlockEntity.class, MineqttPermission.USE).ifPresent(topicRelay -> {
+                    topicRelay.relayCachedMessage();
+                    MineQTT.LOGGER.debug("[TopicRelay] Player {} test-relayed at {}", player.getGameProfile().name(), payload.pos());
+                }));
+
+        receive(SetDynamicDataTypePayload.TYPE, SetDynamicDataTypePayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), DynamicPublisherBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(dynamicPublisher -> {
+                    dynamicPublisher.setDataTypeOrdinal(payload.dataTypeOrdinal());
+                    MineQTT.LOGGER.debug("[DynamicPublisher] Player {} set data type: {} at {}", player.getGameProfile().name(), payload.dataTypeOrdinal(), payload.pos());
+                }));
+
+        receive(TestDynamicPublishPayload.TYPE, TestDynamicPublishPayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), DynamicPublisherBlockEntity.class, MineqttPermission.USE).ifPresent(dynamicPublisher -> {
+                    dynamicPublisher.publishDynamicMessage();
+                    MineQTT.LOGGER.debug("[DynamicPublisher] Player {} test-published at {}", player.getGameProfile().name(), payload.pos());
+                }));
+
+        // The test places any block with any data, so beyond CONFIGURE it is for operators only.
+        receive(TriggerBlockEmitterTestPayload.TYPE, TriggerBlockEmitterTestPayload.CODEC, (player, payload) ->
+                C2SGuard.require(player, payload, payload.pos(), BlockEmitterBlockEntity.class, MineqttPermission.CONFIGURE)
+                        .filter(blockEmitter -> C2SGuard.fitsPayload(payload.payload()))
+                        .ifPresent(blockEmitter -> {
+                            if (!AclContext.isOp(player.permissions())) {
+                                player.sendSystemMessage(Component.translatable("mineqtt.block_emitter.test_ops_only"), true);
+                                return;
+                            }
+                            blockEmitter.triggerTest(payload.payload());
+                            MineQTT.LOGGER.debug("[BlockEmitter] Player {} tested emitter payload '{}' at {}", player.getGameProfile().name(), payload.payload(), payload.pos());
+                        }));
 
         // S2C: Cyberdeck topic update (topic, payload)
         // Architectury 17+ on Fabric requires the codec to be registered for S2C on the server
         // so that sendToPlayer can find it. registerReceiver with Side.S2C on the server
         // is NOT supported on Fabric (throws AbstractMethodError).
-        // We use registerS2CPayloadType on the server (which is safe on all loaders) 
+        // We use registerS2CPayloadType on the server (which is safe on all loaders)
         // and registerReceiver only on the client.
-        // C2S: Light Remote command (blockPos, jsonPayload)
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, LightRemoteCommandPayload.TYPE, LightRemoteCommandPayload.CODEC, (payload, context) -> {
-            var posOpt = payload.pos();
-            String jsonPayload = payload.jsonPayload();
-
-            context.queue(() -> {
-                if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
-                    var level = serverPlayer.level();
-                    if (posOpt.isPresent()) {
-                        if (level.getBlockEntity(posOpt.get()) instanceof art.rehra.mineqtt.blocks.entities.LightRemoteBlockEntity lightRemote) {
-                            lightRemote.publishLightCommand(jsonPayload);
-                            MineQTT.LOGGER.debug("[LightRemote] Player {} published light command to {}", serverPlayer.getGameProfile().name(), posOpt.get());
-                        }
-                    } else if (serverPlayer.containerMenu instanceof art.rehra.mineqtt.ui.CyberdeckMenu cyberdeckMenu) {
-                        // For Cyberdeck (item-based GUI), publish directly via the shared MQTT client.
-                        // The topic is derived from the two frequency slots (base + sub), matching
-                        // the convention used by BaseMqttBlockEntity and CyberdeckPublishPayload.
-                        var baseStack = cyberdeckMenu.container.getItem(0);
-                        var subStack = cyberdeckMenu.container.getItem(1);
-                        String base = baseStack.isEmpty() ? "" : art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(baseStack);
-                        String sub = subStack.isEmpty() ? "" : art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity.parseItemStackTopic(subStack);
-                        String topic = sub.isEmpty() ? base : base + "/" + sub;
-                        topic = applyCyberdeckPrivatePrefix(serverPlayer, topic);
-                        if (topic == null || topic.isBlank()) {
-                            MineQTT.LOGGER.warn("[LightRemote] Cyberdeck has no configured topic; cannot publish light command.");
-                            return;
-                        }
-                        if (MineQTT.mqttClient == null || !MineQTT.mqttClient.getState().isConnected()) {
-                            MineQTT.LOGGER.warn("[LightRemote] MQTT client not connected; cannot publish to {}", topic);
-                            return;
-                        }
-                        try {
-                            byte[] payloadBytes = jsonPayload.getBytes(StandardCharsets.UTF_8);
-                            MineQTT.mqttClient.toAsync().publish(Mqtt3Publish.builder()
-                                    .topic(topic)
-                                    .payload(payloadBytes)
-                                    .build());
-                            MineQTT.LOGGER.debug("[LightRemote] Player {} published light command from Cyberdeck to {}: {}",
-                                    serverPlayer.getGameProfile().name(), topic, jsonPayload);
-                        } catch (Exception e) {
-                            MineQTT.LOGGER.error("[LightRemote] Failed publishing from Cyberdeck to {}: {}", topic, e.getMessage());
-                        }
-                    }
-                }
-            });
-        });
-
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetBlockSensorModePayload.TYPE, SetBlockSensorModePayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!(player.containerMenu instanceof art.rehra.mineqtt.ui.framework.TabbedMqttMenu menu)
-                        || !payload.pos().equals(menu.blockPos) || !menu.stillValid(player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                if (!(menu.container instanceof art.rehra.mineqtt.blocks.entities.BlockSensorBlockEntity sensor)
-                        || player.level().getBlockEntity(payload.pos()) != sensor) return;
-                // Reject unknown network values; missing/old save values still use the default.
-                for (var mode : art.rehra.mineqtt.blocks.entities.BlockSensorBlockEntity.DataMode.values()) {
-                    if (mode.id().equals(payload.mode())) {
-                        sensor.setDataMode(mode);
-                        return;
-                    }
-                }
-            });
-        });
-
-        // C2S: remember the last tab opened in a tabbed MQTT-block screen
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetActiveTabPayload.TYPE, SetActiveTabPayload.CODEC, (payload, context) -> {
-            var posOpt = payload.pos();
-            String tabId = payload.tabId();
-            context.queue(() -> {
-                if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer sp) {
-                    if (posOpt.isPresent()) {
-                        var be = sp.level().getBlockEntity(posOpt.get());
-                        if (be instanceof art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity mqtt) {
-                            mqtt.setLastTabId(tabId);
-                        }
-                    } else if (sp.containerMenu instanceof art.rehra.mineqtt.ui.framework.TabbedMqttMenu menu) {
-                        menu.setActiveTab(tabId);
-                    }
-                }
-            });
-        });
-
-        // C2S: toggle private-mode (topic prefixed with owner username) for a tabbed MQTT block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetPrivateModePayload.TYPE, SetPrivateModePayload.CODEC, (payload, context) -> {
-            var posOpt = payload.pos();
-            boolean enabled = payload.enabled();
-            context.queue(() -> {
-                if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer sp && posOpt.isEmpty()) {
-                    // Cyberdeck (item-based): persist on the held cyberdeck stack.
-                    net.minecraft.world.item.ItemStack stack = sp.getMainHandItem();
-                    if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) {
-                        stack = sp.getOffhandItem();
-                    }
-                    if (stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem) {
-                        art.rehra.mineqtt.items.CyberdeckDataUtil.setPrivate(stack, enabled);
-                    }
-                } else if (context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer sp && posOpt.isPresent()) {
-                    var be = sp.level().getBlockEntity(posOpt.get());
-                    if (be instanceof art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity mqtt) {
-                        // Only the owner (or anyone, if no owner recorded yet) may toggle private mode.
-                        String owner = mqtt.getOwnerName();
-                        String playerName = sp.getGameProfile().name();
-                        if (owner.isEmpty() || owner.equals(playerName)) {
-                            if (owner.isEmpty()) {
-                                mqtt.setOwnerName(playerName);
-                            }
-                            mqtt.setPrivateMode(enabled);
-                        } else {
-                            MineQTT.LOGGER.debug("[PrivateMode] {} tried to toggle private mode on a block owned by {}", playerName, owner);
-                        }
-                    }
-                }
-            });
-        });
-
-        // C2S: set cron expression for a Cron Timer block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetCronExpressionPayload.TYPE, SetCronExpressionPayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.CronTimerBlockEntity cronTimer) {
-                    cronTimer.setCronExpression(payload.expression());
-                    MineQTT.LOGGER.debug("[CronTimer] Player {} set cron expression: {}", player.getGameProfile().name(), payload.expression());
-                }
-            });
-        });
-
-        // C2S: set interval for an Interval Timer block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetIntervalTimerPayload.TYPE, SetIntervalTimerPayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.IntervalTimerBlockEntity intervalTimer) {
-                    intervalTimer.setInterval(payload.value(), payload.unitIndex());
-                    MineQTT.LOGGER.debug("[IntervalTimer] Player {} set interval: {} unit {}", player.getGameProfile().name(), payload.value(), payload.unitIndex());
-                }
-            });
-        });
-
-        // C2S: set single alarm on an Alarm Clock block (minecraftTicks=-1 clears the alarm)
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetSingleAlarmPayload.TYPE, SetSingleAlarmPayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.AlarmClockBlockEntity alarmClock) {
-                    alarmClock.setAlarm(payload.minecraftTicks());
-                    MineQTT.LOGGER.debug("[AlarmClock] Player {} set alarm to {} ticks", player.getGameProfile().name(), payload.minecraftTicks());
-                }
-            });
-        });
-
-        // C2S: set trigger mode and custom time for a Game Time Timer block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetGameTimeTimerPayload.TYPE, SetGameTimeTimerPayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.GameTimeTimerBlockEntity gameTimeTimer) {
-                    gameTimeTimer.setTriggerModeIndex(payload.triggerModeIndex());
-                    gameTimeTimer.setCustomTime(payload.customTime());
-                    MineQTT.LOGGER.debug("[GameTimeTimer] Player {} set trigger mode: {} custom time: {}", player.getGameProfile().name(), payload.triggerModeIndex(), payload.customTime());
-                }
-            });
-        });
-
-        // C2S: set static message for a Static Publisher block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetStaticMessagePayload.TYPE, SetStaticMessagePayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.StaticPublisherBlockEntity staticPublisher) {
-                    staticPublisher.setStaticMessage(payload.message());
-                    MineQTT.LOGGER.debug("[StaticPublisher] Player {} set static message at {}", player.getGameProfile().name(), payload.pos());
-                }
-            });
-        });
-
-        // C2S: test publish for a Static Publisher block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, TestStaticPublishPayload.TYPE, TestStaticPublishPayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.StaticPublisherBlockEntity staticPublisher) {
-                    // Temporarily set the message and publish
-                    String prevMessage = staticPublisher.getStaticMessage();
-                    staticPublisher.setStaticMessage(payload.message());
-                    staticPublisher.publishStaticMessage();
-                    MineQTT.LOGGER.debug("[StaticPublisher] Player {} test-published at {}", player.getGameProfile().name(), payload.pos());
-                }
-            });
-        });
-
-        // C2S: set source topic for a Topic Relay block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetTopicRelaySourcePayload.TYPE, SetTopicRelaySourcePayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.TopicRelayBlockEntity topicRelay) {
-                    topicRelay.setSourceTopic(payload.topic());
-                    MineQTT.LOGGER.debug("[TopicRelay] Player {} set source topic: {} at {}", player.getGameProfile().name(), payload.topic(), payload.pos());
-                }
-            });
-        });
-
-        // C2S: set target topic for a Topic Relay block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetTopicRelayTargetPayload.TYPE, SetTopicRelayTargetPayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.TopicRelayBlockEntity topicRelay) {
-                    topicRelay.setTopic(payload.topic());
-                    MineQTT.LOGGER.debug("[TopicRelay] Player {} set target topic: {} at {}", player.getGameProfile().name(), payload.topic(), payload.pos());
-                }
-            });
-        });
-
-        // C2S: test relay for a Topic Relay block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, TestTopicRelayPayload.TYPE, TestTopicRelayPayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.TopicRelayBlockEntity topicRelay) {
-                    topicRelay.relayCachedMessage();
-                    MineQTT.LOGGER.debug("[TopicRelay] Player {} test-relayed at {}", player.getGameProfile().name(), payload.pos());
-                }
-            });
-        });
-
-        // C2S: set data type for a Dynamic Publisher block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, SetDynamicDataTypePayload.TYPE, SetDynamicDataTypePayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.DynamicPublisherBlockEntity dynamicPublisher) {
-                    dynamicPublisher.setDataTypeOrdinal(payload.dataTypeOrdinal());
-                    MineQTT.LOGGER.debug("[DynamicPublisher] Player {} set data type: {} at {}", player.getGameProfile().name(), payload.dataTypeOrdinal(), payload.pos());
-                }
-            });
-        });
-
-        // C2S: test publish for a Dynamic Publisher block
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, TestDynamicPublishPayload.TYPE, TestDynamicPublishPayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.DynamicPublisherBlockEntity dynamicPublisher) {
-                    dynamicPublisher.publishDynamicMessage();
-                    MineQTT.LOGGER.debug("[DynamicPublisher] Player {} test-published at {}", player.getGameProfile().name(), payload.pos());
-                }
-            });
-        });
-
-        // C2S: trigger test block emitter payload
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, TriggerBlockEmitterTestPayload.TYPE, TriggerBlockEmitterTestPayload.CODEC, (payload, context) -> {
-            context.queue(() -> {
-                if (!(context.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
-                if (!MineQTT.permissionManager.canInteract(player, payload.pos(), art.rehra.mineqtt.integrations.MineqttPermission.INTERACT))
-                    return;
-                var be = player.level().getBlockEntity(payload.pos());
-                if (be instanceof art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity blockEmitter) {
-                    blockEmitter.triggerTest(payload.payload());
-                    MineQTT.LOGGER.debug("[BlockEmitter] Player {} tested emitter payload '{}' at {}", player.getGameProfile().name(), payload.payload(), payload.pos());
-                }
-            });
-        });
-
         if (dev.architectury.platform.Platform.getEnv() == net.fabricmc.api.EnvType.CLIENT) {
             NetworkManager.registerReceiver(NetworkManager.Side.S2C, CyberdeckTopicUpdatePayload.TYPE, CyberdeckTopicUpdatePayload.CODEC, ClientPacketHandler::handleTopicUpdate);
         } else {
             NetworkManager.registerS2CPayloadType(CyberdeckTopicUpdatePayload.TYPE, CyberdeckTopicUpdatePayload.CODEC);
         }
+    }
+
+    /** A client-to-server payload, handled on the server thread for a player of this server. */
+    private static <T extends CustomPacketPayload> void receive(CustomPacketPayload.Type<T> type, StreamCodec<RegistryFriendlyByteBuf, T> codec,
+                                                                BiConsumer<ServerPlayer, T> handler) {
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, type, codec, (payload, context) -> context.queue(() -> {
+            if (context.getPlayer() instanceof ServerPlayer player) handler.accept(player, payload);
+        }));
     }
 
     public record CyberdeckPublishPayload(String topic, String payload) implements CustomPacketPayload {
@@ -438,10 +278,14 @@ public final class MineqttNetworking {
     }
 
     public record CyberdeckTopicUpdatePayload(String topic, String payload) implements CustomPacketPayload {
+        /** Longer topics cannot be sent; the server skips them. */
+        public static final int MAX_TOPIC_CHARS = 512;
+        /** Longer payloads are cut by the server. */
+        public static final int MAX_PAYLOAD_CHARS = 2048;
         public static final Type<CyberdeckTopicUpdatePayload> TYPE = new Type<>(CYBERDECK_TOPIC_UPDATE_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, CyberdeckTopicUpdatePayload> CODEC = StreamCodec.composite(
-                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(512), CyberdeckTopicUpdatePayload::topic,
-                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(2048), CyberdeckTopicUpdatePayload::payload,
+                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(MAX_TOPIC_CHARS), CyberdeckTopicUpdatePayload::topic,
+                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(MAX_PAYLOAD_CHARS), CyberdeckTopicUpdatePayload::payload,
                 CyberdeckTopicUpdatePayload::new
         );
 

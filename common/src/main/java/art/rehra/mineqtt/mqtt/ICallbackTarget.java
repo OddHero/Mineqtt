@@ -1,11 +1,16 @@
 package art.rehra.mineqtt.mqtt;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
+/** A block entity that receives the messages of its v1 topics; the first three methods are {@code BlockEntity}'s. */
 public interface ICallbackTarget {
-    BlockPos getPosition();
-    ResourceKey<Level> getDimension();
+    Level getLevel();
+
+    BlockPos getBlockPos();
+
+    boolean isRemoved();
+
+    /** Server thread: a message on {@code topic}, which matched one of the filters the block subscribed. */
     void onMessageReceived(String topic, String message);
 }

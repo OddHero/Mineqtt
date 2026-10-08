@@ -58,6 +58,7 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
             this.removeWidget(w);
         }
         tabViewWidgets.clear();
+        leaveActiveView();
 
         activeView = MqttTabViews.create(this.menu.getActiveTabId(), this);
         activeView.init(this, this.leftPos, this.topPos);
@@ -67,6 +68,25 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
                 tabViewWidgets.add(aw);
             }
         }
+    }
+
+    @Override
+    public void onClose() {
+        // Before the close packet, so the server still sees the open menu when the view's last payloads arrive.
+        leaveActiveView();
+        super.onClose();
+    }
+
+    @Override
+    public void removed() {
+        // Closed without onClose: by the server, or by another screen opening.
+        leaveActiveView();
+        super.removed();
+    }
+
+    private void leaveActiveView() {
+        if (activeView != null) activeView.removed();
+        activeView = null;
     }
 
     /**

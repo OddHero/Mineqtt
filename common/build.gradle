@@ -30,6 +30,20 @@ sourceSets {
         compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
         runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     }
+    // Minecraft-free checks of mqtt.core against a real broker. The classpath deliberately skips main's
+    // dependencies: Minecraft's Netty 4.2 must not replace the 4.1 line that HiveMQ and Moquette are built for.
+    brokerChecks {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+dependencies {
+    brokerChecksImplementation 'com.hivemq:hivemq-mqtt-client:1.3.7'
+    // Test-only in-process broker. Only the brokerChecks configurations see it, so it never reaches a shadowBundle.
+    brokerChecksImplementation 'io.moquette:moquette-broker:0.17'
+    // Must match the Gson that Minecraft 26.2 ships, which main gets from Minecraft itself.
+    brokerChecksImplementation 'com.google.code.gson:gson:2.14.0'
 }
 
 // Bootstrap real Minecraft blocks to verify MQTT payloads without a broker or running game.
@@ -53,9 +67,158 @@ tasks.register('verifyGameTimeTimer', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.blocks.entities.GameTimeTimerBlockEntityTest'
 }
+// Config v2 defaults, v1 migration, the JSON form and credential masking; plain Java, no game bootstrap needed.
+tasks.register('verifyConfigMigration', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.config.ConfigMigrationCheck'
+}
+// Bridge id generation, bridge topics and how the runtime's MQTT service survives a reconnect; no game bootstrap needed.
+tasks.register('verifyRuntimeWiring', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.runtime.RuntimeWiringCheck'
+}
+// The device registry file: read back twice, backup fallback, quarantine of unreadable files, bad entries.
+tasks.register('verifyRegistryRoundTrip', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.RegistryStoreTest'
+}
+// Raw grammar, HA light merge, colours, lenient field codecs, Locale.ROOT numbers and device type declarations.
+tasks.register('verifyValueCodecs', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.ValueCodecsTest'
+}
+// Server-only lifecycle predicates, the placement sanitiser, the mineqtt compound and the per-type publish limits.
+tasks.register('verifyLifecycleGuards', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.LifecycleGuardTest'
+}
+// Token buckets and rate limits, the C2S guard's order, field caps and the device access table; no game bootstrap needed.
+tasks.register('verifySecurityGuards', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.security.SecurityGuardsCheck'
+}
+// v1 block entity data and topic states: snapshots, the Smart Lamp's, the Redstone Output's and Input's and the Presence Sensor's v2 data, adopted Raw Links, records and legacy groups.
+tasks.register('verifyLegacyNbtMigration', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.legacy.LegacyNbtV1Test'
+}
+// Home Assistant discovery payloads: the bridge, the Smart Lamp, the Redstone Output and Input and the Presence Sensor against golden files, the §4.1 example, every entity kind.
+tasks.register('verifyDiscoveryPayloads', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.ha.DiscoveryGoldenTest'
+}
+// Discovery publishing: exposure and hashes, the rate limit, the v1 migration and status clear, birth and bridge requests.
+tasks.register('verifyDiscoveryPublisher', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.ha.DiscoveryPublisherCheck'
+}
+
+// Run mqtt.core checks against an in-process Moquette broker; the timeout keeps a stuck broker from hanging check.
+tasks.register('verifyBrokerSmoke', JavaExec) {
+    dependsOn brokerChecksClasses
+    classpath = sourceSets.brokerChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.mqtt.core.BrokerSmokeCheck'
+    timeout = java.time.Duration.ofMinutes(2)
+}
+
+// Minecraft-free unit checks of mqtt.core; they need no broker but share the isolated classpath.
+[
+        verifyTopicTrie     : 'TopicTrieCheck',
+        verifyBrokerUri     : 'BrokerUriCheck',
+        verifyInboundQueue  : 'InboundQueueCheck',
+        verifyOutboundBuffer: 'OutboundBufferCheck',
+        verifyTopicAcl      : 'TopicAclCheck',
+].each { taskName, checkClass ->
+    tasks.register(taskName, JavaExec) {
+        dependsOn brokerChecksClasses
+        classpath = sourceSets.brokerChecks.runtimeClasspath
+        mainClass = "art.rehra.mineqtt.mqtt.core.${checkClass}"
+        timeout = java.time.Duration.ofMinutes(2)
+    }
+}
+
+// HiveMqttService scenarios behind a TCP proxy: MQTT 3.1.1 against Moquette by default, both protocols against
+// -PexternalBroker=tcp://host:port (the Docker Mosquitto, E2E item 13), since Moquette refuses MQTT 5.
+tasks.register('verifyBrokerIntegration', JavaExec) {
+    dependsOn brokerChecksClasses
+    classpath = sourceSets.brokerChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.mqtt.core.BrokerIntegrationCheck'
+    def externalBroker = providers.gradleProperty('externalBroker')
+    argumentProviders.add({ externalBroker.isPresent() ? [externalBroker.get()] : [] } as CommandLineArgumentProvider)
+    timeout = java.time.Duration.ofMinutes(5)
+}
+
+// mqtt.core may only use the JDK, Gson, HiveMQ and itself, so it stays testable without Minecraft. This is an allowlist:
+// main's compile classpath also carries Netty 4.2, Guava, fastutil, slf4j and the loaders, which brokerChecks lacks.
+tasks.register('verifyMqttCoreIsolation') {
+    group = 'verification'
+    description = 'Fails if a mqtt.core source references a package outside the JDK, Gson, HiveMQ and mqtt.core.'
+    def mainSources = fileTree('src/main/java/art/rehra/mineqtt/mqtt/core') { include '**/*.java' }
+    def checkSources = fileTree('src/brokerChecks/java/art/rehra/mineqtt/mqtt/core') { include '**/*.java' }
+    def baseDir = projectDir
+    inputs.files(mainSources).withPropertyName('mqttCoreSources')
+    inputs.files(checkSources).withPropertyName('mqttCoreCheckSources')
+    doLast {
+        def allowed = ['java', 'javax', 'com.google.gson', 'com.hivemq.client', 'art.rehra.mineqtt.mqtt.core']
+        // The checks additionally drive the embedded broker.
+        def allowedInChecks = allowed + ['io.moquette']
+        // Comments and string literals are blanked (keeping newlines) so only code matches and line numbers stay exact.
+        def nonCode = ~/(?s)""".*?"""|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])+'|\/\/[^\n]*|\/\*.*?\*\//
+        // A package: two or more lowercase segments followed by a type or a wildcard. This catches imports, static
+        // imports and fully qualified references alike. A field chain ending in a constant (a.b.CONST) also matches.
+        def packageName = ~/(?<![\w.])[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)+(?=\.(?:[A-Z]|\*))/
+        def violations = []
+        def scan = { Set<File> files, List<String> roots ->
+            files.sort().each { File source ->
+                def code = source.getText('UTF-8').replaceAll(nonCode) { String literal -> literal.replaceAll(/[^\n]/, ' ') }
+                def matcher = packageName.matcher(code)
+                while (matcher.find()) {
+                    def name = matcher.group()
+                    if (roots.any { name == it || name.startsWith(it + '.') }) {
+                        continue
+                    }
+                    def line = code.substring(0, matcher.start()).count('\n') + 1
+                    violations << "${baseDir.toPath().relativize(source.toPath())}:${line}: ${source.readLines('UTF-8')[line - 1].trim()}"
+                }
+            }
+        }
+        scan(mainSources.files, allowed)
+        scan(checkSources.files, allowedInChecks)
+        if (!violations.isEmpty()) {
+            throw new GradleException("mqtt.core may only reference ${allowed.join(', ')} (and io.moquette in brokerChecks):\n" + violations.join('\n'))
+        }
+    }
+}
+
 tasks.named('check') {
     dependsOn tasks.named('verifyBlockSensor')
     dependsOn tasks.named('verifyBlockEmitter')
     dependsOn tasks.named('verifyAlarmClock')
     dependsOn tasks.named('verifyGameTimeTimer')
+    dependsOn tasks.named('verifyConfigMigration')
+    dependsOn tasks.named('verifyRuntimeWiring')
+    dependsOn tasks.named('verifyRegistryRoundTrip')
+    dependsOn tasks.named('verifyValueCodecs')
+    dependsOn tasks.named('verifyLifecycleGuards')
+    dependsOn tasks.named('verifySecurityGuards')
+    dependsOn tasks.named('verifyLegacyNbtMigration')
+    dependsOn tasks.named('verifyDiscoveryPayloads')
+    dependsOn tasks.named('verifyDiscoveryPublisher')
+    dependsOn tasks.named('verifyBrokerSmoke')
+    dependsOn tasks.named('verifyTopicTrie')
+    dependsOn tasks.named('verifyBrokerUri')
+    dependsOn tasks.named('verifyInboundQueue')
+    dependsOn tasks.named('verifyOutboundBuffer')
+    dependsOn tasks.named('verifyTopicAcl')
+    dependsOn tasks.named('verifyBrokerIntegration')
+    dependsOn tasks.named('verifyMqttCoreIsolation')
 }

@@ -16,19 +16,9 @@ public class RgbLedBlockColor implements BlockTintSource {
 
     @Override
     public int colorInWorld(BlockState state, BlockAndTintGetter level, BlockPos pos) {
-        // Query block entity for RGB values (now stored in block entity, not block state)
+        // The lamp's 8-bit colour, quantised to its light level (stored in the block entity, not the block state)
         if (level != null && pos != null && level.getBlockEntity(pos) instanceof RgbLedBlockEntity ledEntity) {
-            int red = ledEntity.getRed();
-            int green = ledEntity.getGreen();
-            int blue = ledEntity.getBlue();
-
-            // Convert from 0-15 range to 0-255 range
-            int r = (red * 255) / 15;
-            int g = (green * 255) / 15;
-            int b = (blue * 255) / 15;
-
-            // Return as packed ARGB integer (0xAARRGGBB)
-            return 0xFF000000 | (r << 16) | (g << 8) | b;
+            return 0xFF000000 | ledEntity.tint();
         }
 
         // Default to white if block entity not available

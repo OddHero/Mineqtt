@@ -1,0 +1,83 @@
+{
+  "dev": {
+    "ids": ["mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"],
+    "name": "world",
+    "mf": "MineQTT",
+    "mdl": "MineQTT Bridge",
+    "sw": "2.0.0"
+  },
+  "o": { "name": "MineQTT", "sw": "2.0.0", "url": "https://github.com/OddHero/Mineqtt" },
+  "qos": 1,
+  "cmps": {
+    "connectivity": {
+      "p": "binary_sensor",
+      "unique_id": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63_connectivity",
+      "name": "Connectivity",
+      "state_topic": "mineqtt/world_7f3a/bridge/state",
+      "device_class": "connectivity",
+      "payload_on": "online",
+      "payload_off": "offline",
+      "entity_category": "diagnostic"
+    },
+    "version": {
+      "p": "sensor",
+      "unique_id": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63_version",
+      "name": "Version",
+      "state_topic": "mineqtt/world_7f3a/bridge/info",
+      "availability": [{ "topic": "mineqtt/world_7f3a/bridge/state" }],
+      "value_template": "{{ value_json.version }}",
+      "entity_category": "diagnostic"
+    },
+    "device_count": {
+      "p": "sensor",
+      "unique_id": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63_device_count",
+      "name": "Device count",
+      "state_topic": "mineqtt/world_7f3a/bridge/info",
+      "availability": [{ "topic": "mineqtt/world_7f3a/bridge/state" }],
+      "value_template": "{{ value_json.devices }}",
+      "state_class": "measurement",
+      "entity_category": "diagnostic"
+    },
+    "players_online": {
+      "p": "sensor",
+      "unique_id": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63_players_online",
+      "name": "Players online",
+      "state_topic": "mineqtt/world_7f3a/bridge",
+      "availability": [{ "topic": "mineqtt/world_7f3a/bridge/state" }],
+      "value_template": "{{ value_json.players_online }}",
+      "state_class": "measurement"
+    },
+    "republish": {
+      "p": "button",
+      "unique_id": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63_republish",
+      "name": "Republish",
+      "availability": [{ "topic": "mineqtt/world_7f3a/bridge/state" }],
+      "command_topic": "mineqtt/world_7f3a/bridge/request/republish",
+      "payload_press": "republish",
+      "retain": false,
+      "entity_category": "config"
+    },
+    "dropped_inbound": {
+      "p": "sensor",
+      "unique_id": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63_dropped_inbound",
+      "name": "Dropped inbound",
+      "state_topic": "mineqtt/world_7f3a/bridge",
+      "availability": [{ "topic": "mineqtt/world_7f3a/bridge/state" }],
+      "value_template": "{{ value_json.dropped_inbound }}",
+      "state_class": "total_increasing",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    },
+    "dropped_outbound": {
+      "p": "sensor",
+      "unique_id": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63_dropped_outbound",
+      "name": "Dropped outbound",
+      "state_topic": "mineqtt/world_7f3a/bridge",
+      "availability": [{ "topic": "mineqtt/world_7f3a/bridge/state" }],
+      "value_template": "{{ value_json.dropped_outbound }}",
+      "state_class": "total_increasing",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  }
+}

@@ -16,7 +16,9 @@ public class PermissionManager {
     public PermissionManager() {
         if (IsFlanAvailable()) {
             MineQTT.LOGGER.info("Flan mod detected, enabling Flan claim permissions integration.");
-            flanPermissionMappings.put(MineqttPermission.INTERACT, BuiltinPermission.INTERACTBLOCK);
+            flanPermissionMappings.put(MineqttPermission.USE, BuiltinPermission.INTERACTBLOCK);
+            // The screen holds the block's items, so configuring a block is opening a container.
+            flanPermissionMappings.put(MineqttPermission.CONFIGURE, BuiltinPermission.OPENCONTAINER);
         }
     }
 
@@ -26,6 +28,10 @@ public class PermissionManager {
     }
 
 
+    /**
+     * Whether the claim at {@code pos}, in the player's own level, trusts the player with {@code permission}. Without
+     * a claim mod every player is trusted.
+     */
     public boolean canInteract(ServerPlayer player, BlockPos pos, MineqttPermission permission) {
         boolean canInteract = true;
 

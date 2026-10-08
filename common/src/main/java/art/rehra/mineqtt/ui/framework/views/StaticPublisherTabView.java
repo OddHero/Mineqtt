@@ -3,6 +3,7 @@ package art.rehra.mineqtt.ui.framework.views;
 import art.rehra.mineqtt.blocks.StaticPublisherBlock;
 import art.rehra.mineqtt.blocks.entities.StaticPublisherBlockEntity;
 import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.security.C2SGuard;
 import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
@@ -57,7 +58,7 @@ public class StaticPublisherTabView implements MqttTabView {
 
         messageInput = new EditBox(Minecraft.getInstance().font, inputX, inputY, inputW, inputH, Component.empty());
         messageInput.setHint(Component.literal("Enter message to publish"));
-        messageInput.setMaxLength(2048);
+        messageInput.setMaxLength(C2SGuard.MAX_PAYLOAD_BYTES);
         messageInput.setValue(currentMessage);
         widgets.add(messageInput);
 

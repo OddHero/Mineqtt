@@ -22,11 +22,17 @@ public class CyberdeckMenu extends TabbedMqttMenu {
                 new CyberdeckExplorerTab(),
                 new CyberdeckPublishTab(),
                 new LightRemoteTab()
-        ), playerInventory.player, null, SettingsTab.ID);
+        ), playerInventory.player, null, SettingsTab.ID, true, null);
         this.itemStack = itemStack;
 
         // Load inventory from Data Components
         CyberdeckDataUtil.loadToContainer(itemStack, (SimpleContainer) container, player.registryAccess());
+    }
+
+    /** Valid while the player holds this Cyberdeck; the server closes the screen once they no longer do. */
+    @Override
+    public boolean stillValid(Player player) {
+        return !itemStack.isEmpty() && (player.getMainHandItem() == itemStack || player.getOffhandItem() == itemStack);
     }
 
     @Override

@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.legacy.LegacySubscriptionFacade;
 import art.rehra.mineqtt.mqtt.SubscriptionManager;
 import art.rehra.mineqtt.ui.framework.MqttTab;
 import art.rehra.mineqtt.ui.framework.tabs.TopicRelayTab;
@@ -23,6 +24,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Block entity for the Topic Relay block.
@@ -130,30 +132,16 @@ public class TopicRelayBlockEntity extends MqttSubscriberBlockEntity {
             return false;
         }
 
-        try {
-            publishToTopic(targetTopic, message);
-            this.setLastRelayStatus("Relayed to " + targetTopic);
-            MineQTT.LOGGER.debug("[TopicRelay] Relayed '{}' to {} at {}", message, targetTopic, this.getBlockPos());
-            return true;
-        } catch (Exception e) {
-            this.setLastRelayStatus("Error – " + e.getMessage());
-            MineQTT.LOGGER.error("[TopicRelay] Failed to relay: {}", e.getMessage());
+        Optional<String> refusal = LegacySubscriptionFacade.publish(level, worldPosition, targetTopic, message);
+        if (refusal.isPresent()) {
+            this.setLastRelayStatus("Error – " + refusal.get());
             return false;
         }
-    }
-
-    /**
-     * Publish a message to a specific topic using the MQTT client.
-     */
-    private void publishToTopic(String topic, String message) {
-        if (MineQTT.mqttClient != null && MineQTT.mqttClient.getState().isConnected()) {
-            MineQTT.mqttClient.publishWith()
-                    .topic(topic)
-                    .payload(message.getBytes(java.nio.charset.StandardCharsets.UTF_8))
-                    .send();
-        } else {
-            throw new RuntimeException("MQTT client not connected");
-        }
+        // Blocks publish while the broker is down too, but then only this server's blocks receive it.
+        this.setLastRelayStatus(LegacySubscriptionFacade.isConnected() ? "Relayed to " + targetTopic
+                : "Relayed to " + targetTopic + " on this server only (not connected to the broker)");
+        MineQTT.LOGGER.debug("[TopicRelay] Relayed '{}' to {} at {}", message, targetTopic, this.getBlockPos());
+        return true;
     }
 
     /**
@@ -165,7 +153,6 @@ public class TopicRelayBlockEntity extends MqttSubscriberBlockEntity {
         if (!newSourceTopic.equals(currentSourceSubscribedTopic)) {
             // Unsubscribe from old source topic
             if (!currentSourceSubscribedTopic.isEmpty()) {
-                MineQTT.LOGGER.info("[TopicRelay] Unsubscribing from source: " + currentSourceSubscribedTopic);
                 SubscriptionManager.unsubscribe(currentSourceSubscribedTopic, this);
             }
 
@@ -174,17 +161,16 @@ public class TopicRelayBlockEntity extends MqttSubscriberBlockEntity {
 
             // Subscribe to new source topic if configured
             if (!newSourceTopic.isEmpty()) {
-                MineQTT.LOGGER.info("[TopicRelay] Subscribing to source: " + newSourceTopic);
                 SubscriptionManager.subscribe(newSourceTopic, this);
             }
         }
     }
 
-    protected void unsubscribeSource() {
+    @Override
+    protected void resubscribe() {
+        super.resubscribe();
         if (!currentSourceSubscribedTopic.isEmpty()) {
-            MineQTT.LOGGER.info("[TopicRelay] Unsubscribing from source: " + currentSourceSubscribedTopic);
-            SubscriptionManager.unsubscribe(currentSourceSubscribedTopic, this);
-            currentSourceSubscribedTopic = "";
+            SubscriptionManager.subscribe(currentSourceSubscribedTopic, this);
         }
     }
 
@@ -220,24 +206,20 @@ public class TopicRelayBlockEntity extends MqttSubscriberBlockEntity {
         this.wasPowered = input.getBooleanOr("wasPowered", false);
         this.hasReceivedMessage = input.getBooleanOr("hasReceivedMessage", false);
         this.lastRelayStatus = input.getString("lastRelayStatus").orElse("");
-        this.currentSourceSubscribedTopic = input.getString("currentSourceSubscribedTopic").orElse("");
 
         this.items = NonNullList.withSize(this.getContainerSize(), ItemStack.EMPTY);
         ContainerHelper.loadAllItems(input, this.items);
 
-        // Restore source subscription on load
-        if (!this.sourceTopic.isEmpty()) {
-            this.currentSourceSubscribedTopic = this.sourceTopic;
-            SubscriptionManager.subscribe(this.sourceTopic, this);
-            MineQTT.LOGGER.info("[TopicRelay] Restored source subscription: " + this.sourceTopic);
-        }
+        // Like the target topic: subscribed from setLevel when loading with the chunk, moved at once when live.
+        updateSourceSubscription();
     }
 
     @Override
     public void setRemoved() {
         super.setRemoved();
-        unsubscribeSource();
-        unsubscribeAll();
+        if (!currentSourceSubscribedTopic.isEmpty()) {
+            SubscriptionManager.unsubscribe(currentSourceSubscribedTopic, this);
+        }
     }
 
     @Nullable

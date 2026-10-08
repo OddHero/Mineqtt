@@ -1,7 +1,6 @@
 package art.rehra.mineqtt.blocks;
 
 import art.rehra.mineqtt.blocks.entities.RedstoneEmitterBlockEntity;
-import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -19,13 +18,11 @@ import net.minecraft.world.level.redstone.ExperimentalRedstoneUtils;
 import net.minecraft.world.level.redstone.Orientation;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.concurrent.ConcurrentHashMap;
-
-public class RedstoneEmitterBlock extends BaseSubscriberBlock {
+/** The Redstone Output block. Its level is the {@code power} property, which its block entity sets. */
+public class RedstoneEmitterBlock extends BaseMqttBlock {
 
     // Blocks internal State
     public static final IntegerProperty POWER;
-    private final ConcurrentHashMap<String, Mqtt3Publish> receivedMessages;
 
     static {
         POWER = BlockStateProperties.POWER;
@@ -35,8 +32,6 @@ public class RedstoneEmitterBlock extends BaseSubscriberBlock {
         super(properties, CODEC);
 
         this.registerDefaultState(this.getStateDefinition().any().setValue(POWER, 0));
-
-        receivedMessages = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -78,9 +73,10 @@ public class RedstoneEmitterBlock extends BaseSubscriberBlock {
         return new RedstoneEmitterBlockEntity(pos, state);
     }
 
+    /** The server follows slot edits and keeps the level in step; the client has nothing to tick. */
     @Override
     public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
-        return new RedstoneEmitterBlockEntity.Ticker<>();
+        return level.isClientSide() ? null : new RedstoneEmitterBlockEntity.ServerTicker<>();
     }
 
 

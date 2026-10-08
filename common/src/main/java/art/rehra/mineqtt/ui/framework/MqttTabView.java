@@ -23,6 +23,13 @@ public interface MqttTabView {
     }
 
     /**
+     * Called once when this view is left: the screen closes, switches tabs or rebuilds after a resize. Send whatever is
+     * still pending here; the view is discarded afterwards.
+     */
+    default void removed() {
+    }
+
+    /**
      * Widgets returned here are added to the screen via {@code addRenderableWidget}.
      */
     default List<? extends GuiEventListener> widgets() {

@@ -1,9 +1,15 @@
 package art.rehra.mineqtt.blocks;
 
 import art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity;
+import art.rehra.mineqtt.config.MineQTTConfig;
 import com.mojang.serialization.MapCodec;
+import dev.architectury.event.EventResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -46,6 +52,16 @@ public class BlockEmitterBlock extends BaseMqttBlock {
     @Override
     protected BlockState mirror(BlockState state, Mirror mirror) {
         return state.rotate(mirror.getRotation(state.getValue(FACING)));
+    }
+
+    /** The kill switch of design §8.3: while it is off, using the block says so. */
+    @Override
+    public EventResult click(Player player, InteractionHand hand, BlockPos pos, Direction face) {
+        if (!MineQTTConfig.blockPlacerEnabled && hand == InteractionHand.MAIN_HAND && !player.isShiftKeyDown()
+                && player instanceof ServerPlayer serverPlayer) {
+            serverPlayer.sendSystemMessage(Component.translatable("mineqtt.block_emitter.disabled"));
+        }
+        return super.click(player, hand, pos, face);
     }
 
     @Override

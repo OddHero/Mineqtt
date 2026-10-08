@@ -2,6 +2,8 @@ package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.BlockEmitterBlock;
+import art.rehra.mineqtt.config.MineQTTConfig;
+import art.rehra.mineqtt.mqtt.SubscriptionManager;
 import art.rehra.mineqtt.ui.framework.MqttTab;
 import art.rehra.mineqtt.ui.framework.tabs.BlockEmitterTab;
 import com.google.gson.JsonElement;
@@ -31,11 +33,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Places the block an MQTT message names in front of it. That accepts block ids, states and block entity data from
+ * the broker, so it is off unless the server enables {@code blockPlacer.enabled} (design §8.3): while off, the block
+ * neither subscribes nor decodes or places anything.
+ */
 public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
+    private static final String DISABLED_STATUS = "Disabled: blockPlacer.enabled is off on this server";
 
     private String lastReceivedPayload = "";
     private String lastStatus = "Ready";
     private long lastExecutionTime = 0;
+    // Whether the subscription follows an enabled placer; the ticker opens or closes it when the config changes.
+    private boolean placerEnabled = MineQTTConfig.blockPlacerEnabled;
 
     public BlockEmitterBlockEntity(BlockPos pos, BlockState blockState) {
         super(MineqttBlockEntityTypes.BLOCK_EMITTER_BLOCK.get(), pos, blockState);
@@ -87,8 +97,9 @@ public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
         }
     }
 
+    /** Decodes a payload; nothing is decoded while the block placer is disabled. */
     public static ParsedPayload parsePayload(String message, BlockState currentTargetState) {
-        if (message == null || message.trim().isEmpty()) {
+        if (!MineQTTConfig.blockPlacerEnabled || message == null || message.trim().isEmpty()) {
             return null;
         }
 
@@ -274,6 +285,10 @@ public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
         if (this.level == null || this.level.isClientSide()) {
             return false;
         }
+        if (!MineQTTConfig.blockPlacerEnabled) {
+            setLastStatus(DISABLED_STATUS);
+            return false;
+        }
         if (testPayload == null || testPayload.isBlank()) {
             testPayload = !this.lastReceivedPayload.isBlank() ? this.lastReceivedPayload : "minecraft:stone";
         }
@@ -296,8 +311,13 @@ public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
     }
 
     @Override
+    protected boolean listens() {
+        return MineQTTConfig.blockPlacerEnabled && super.listens();
+    }
+
+    @Override
     public void onMessageReceived(String topic, String message) {
-        if (this.level == null || this.level.isClientSide()) {
+        if (this.level == null || this.level.isClientSide() || !MineQTTConfig.blockPlacerEnabled) {
             return;
         }
 
@@ -319,6 +339,18 @@ public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
         markUpdated();
     }
 
+    /** Opens or closes the subscription when {@code blockPlacer.enabled} changed since the last tick. */
+    private void followPlacerConfig() {
+        if (placerEnabled == MineQTTConfig.blockPlacerEnabled) return;
+        placerEnabled = MineQTTConfig.blockPlacerEnabled;
+        if (placerEnabled) {
+            resubscribe();
+        } else if (!currentSubscribedTopic.isEmpty()) {
+            SubscriptionManager.unsubscribe(currentSubscribedTopic, this);
+        }
+        setLastStatus(placerEnabled ? "Ready" : DISABLED_STATUS);
+    }
+
     public record ParsedPayload(BlockState newState, CompoundTag blockEntityData, boolean isFullData) {
     }
 
@@ -333,6 +365,7 @@ public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
                     emitterBlockEntity.setTopic(newCombinedTopic);
                     emitterBlockEntity.updateSubscription(newCombinedTopic);
                 }
+                emitterBlockEntity.followPlacerConfig();
             }
         }
     }

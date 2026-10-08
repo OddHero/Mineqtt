@@ -1,11 +1,13 @@
 package art.rehra.mineqtt.config;
 
+import java.nio.file.Path;
+
 /**
  * Platform-agnostic interface for config management
  */
 public interface ConfigHandler {
     /**
-     * Load configuration values from platform-specific storage
+     * Load configuration values from platform-specific storage, migrating a v1 file to v2
      */
     void loadConfig();
 
@@ -15,7 +17,7 @@ public interface ConfigHandler {
     void saveConfig();
 
     /**
-     * Check if configuration is valid
+     * Check if configuration is valid: a blank broker is valid (MQTT disabled), a malformed one is not
      */
     boolean isConfigValid();
 
@@ -23,4 +25,9 @@ public interface ConfigHandler {
      * Reset configuration to default values
      */
     void resetToDefaults();
+
+    /**
+     * The config file, for log messages that tell the user where to change a setting
+     */
+    Path configPath();
 }

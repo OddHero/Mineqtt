@@ -1,7 +1,11 @@
 package art.rehra.mineqtt.integrations;
 
+/** What a player wants to do with a MineQTT block (design §8.7). */
 public enum MineqttPermission {
-    INTERACT("mineqtt:interact");
+    /** Toggle, press, send a command, open the screen. */
+    USE("mineqtt:use"),
+    /** Everything else: topics, settings and the items in the screen's slots. */
+    CONFIGURE("mineqtt:configure");
 
     private final String permissionKey;
 

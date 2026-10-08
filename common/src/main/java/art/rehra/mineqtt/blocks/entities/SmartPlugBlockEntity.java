@@ -2,6 +2,7 @@ package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.SmartPlugBlock;
+import art.rehra.mineqtt.legacy.LegacySubscriptionFacade;
 import art.rehra.mineqtt.ui.framework.MqttTab;
 import art.rehra.mineqtt.ui.framework.tabs.PublisherValuesTab;
 import net.minecraft.core.BlockPos;
@@ -120,18 +121,7 @@ public class SmartPlugBlockEntity extends MqttSubscriberBlockEntity {
             message = power > 0 ? "ON" : "OFF";
         }
 
-        sendMqttMessage(combinedTopic, message);
-    }
-
-    private void sendMqttMessage(String topic, String message) {
-        if (MineQTT.mqttClient != null && MineQTT.mqttClient.getState().isConnected()) {
-            MineQTT.mqttClient.publishWith()
-                    .topic(topic)
-                    .payload(message.getBytes())
-                    .send();
-        } else {
-            MineQTT.LOGGER.warn("MQTT client not connected, cannot send message to topic: " + topic);
-        }
+        LegacySubscriptionFacade.publish(level, worldPosition, combinedTopic, message);
     }
 
     public static class Ticker<T extends BlockEntity> implements BlockEntityTicker<T> {

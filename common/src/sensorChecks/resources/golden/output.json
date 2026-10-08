@@ -1,0 +1,77 @@
+{
+  "dev": {
+    "ids": ["mineqtt_7a1e0c552b3d4e6f8091a2b3c4d5e6f7"],
+    "name": "Garage Door",
+    "mf": "MineQTT",
+    "mdl": "Redstone Output",
+    "mdl_id": "mineqtt:redstone_output",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": { "name": "MineQTT", "sw": "2.0.0", "url": "https://github.com/OddHero/Mineqtt" },
+  "avty": [
+    { "t": "mineqtt/world_7f3a/bridge/state" },
+    { "t": "mineqtt/world_7f3a/garage_door/availability" }
+  ],
+  "avty_mode": "all",
+  "qos": 1,
+  "cmps": {
+    "output": {
+      "p": "switch",
+      "unique_id": "mineqtt_7a1e0c552b3d4e6f8091a2b3c4d5e6f7_output",
+      "name": null,
+      "state_topic": "mineqtt/world_7f3a/garage_door",
+      "command_topic": "mineqtt/world_7f3a/garage_door/set",
+      "value_template": "{{ 'OFF' if value_json.power == 0 else 'ON' }}",
+      "payload_on": "{\"state\":\"ON\"}",
+      "payload_off": "{\"state\":\"OFF\"}",
+      "state_on": "ON",
+      "state_off": "OFF",
+      "retain": false
+    },
+    "power_level": {
+      "p": "number",
+      "unique_id": "mineqtt_7a1e0c552b3d4e6f8091a2b3c4d5e6f7_power_level",
+      "name": "Power level",
+      "state_topic": "mineqtt/world_7f3a/garage_door",
+      "value_template": "{{ value_json.power }}",
+      "command_topic": "mineqtt/world_7f3a/garage_door/set/power",
+      "min": 0,
+      "max": 15,
+      "step": 1,
+      "mode": "slider",
+      "retain": false
+    },
+    "mode": {
+      "p": "select",
+      "unique_id": "mineqtt_7a1e0c552b3d4e6f8091a2b3c4d5e6f7_mode",
+      "name": "Mode",
+      "state_topic": "mineqtt/world_7f3a/garage_door",
+      "value_template": "{{ value_json.mode }}",
+      "command_topic": "mineqtt/world_7f3a/garage_door/set/mode",
+      "options": ["level", "switch"],
+      "retain": false,
+      "entity_category": "config"
+    },
+    "power_on_behaviour": {
+      "p": "select",
+      "unique_id": "mineqtt_7a1e0c552b3d4e6f8091a2b3c4d5e6f7_power_on_behaviour",
+      "name": "Power on behaviour",
+      "state_topic": "mineqtt/world_7f3a/garage_door",
+      "value_template": "{{ value_json.power_on_behaviour }}",
+      "command_topic": "mineqtt/world_7f3a/garage_door/set/power_on_behaviour",
+      "options": ["previous", "off", "on"],
+      "retain": false,
+      "entity_category": "config"
+    },
+    "location": {
+      "p": "sensor",
+      "unique_id": "mineqtt_7a1e0c552b3d4e6f8091a2b3c4d5e6f7_location",
+      "name": "Location",
+      "state_topic": "mineqtt/world_7f3a/garage_door",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  }
+}

@@ -59,7 +59,11 @@ subprojects {
         // Minecraft 26.1+ is unobfuscated, no mappings are needed anymore.
         minecraft "com.mojang:minecraft:$rootProject.minecraft_version"
 
-        implementation 'com.hivemq:hivemq-mqtt-client:1.3.7'
+        // Netty comes from Minecraft, as in the shipped jars (which leave io/netty out). HiveMQ's own Netty 4.1
+        // netty-codec would otherwise shadow Minecraft's 4.2 netty-codec-base and break WebSocket connections in dev.
+        implementation('com.hivemq:hivemq-mqtt-client:1.3.7') {
+            exclude group: 'io.netty'
+        }
 
         if (project.name in ['fabric', 'neoforge']) {
             runtimeOnly("me.djtheredstoner:DevAuth-${project.name}:1.2.2")

@@ -3,6 +3,7 @@ package art.rehra.mineqtt.ui.framework.views;
 import art.rehra.mineqtt.blocks.BlockEmitterBlock;
 import art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity;
 import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.security.C2SGuard;
 import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
@@ -64,7 +65,7 @@ public class BlockEmitterTabView implements MqttTabView {
 
         testPayloadInput = new EditBox(Minecraft.getInstance().font, inputX, inputY, inputW, inputH, Component.empty());
         testPayloadInput.setHint(Component.translatable("mineqtt.block_emitter.test_hint"));
-        testPayloadInput.setMaxLength(2048);
+        testPayloadInput.setMaxLength(C2SGuard.MAX_PAYLOAD_BYTES);
         testPayloadInput.setValue(currentPayload);
         widgets.add(testPayloadInput);
 

@@ -1,0 +1,56 @@
+# MineQTT end-to-end environment (design §10.3). Run from this folder:
+#
+#   sh certs/gen.sh                      # once: test CA and broker certificate for the TLS listeners
+#   docker compose up -d
+#
+# Every host port can be moved with an environment variable when the default is taken, for example
+# MQTT_PORT=1884 HA_PORT=18123 docker compose up -d. The containers talk to each other on the compose network
+# (Home Assistant reaches the broker as mosquitto:1883), so only the game server uses the host ports. They are bound
+# to loopback: the brokers allow anonymous clients and Home Assistant has a fixed test owner.
+name: mineqtt-e2e
+
+services:
+  # The main broker: MQTT 3.1.1 and 5 on 1883, TLS on 8883, WebSockets on 9001 and secure WebSockets on 9443.
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "127.0.0.1:${MQTT_PORT:-1883}:1883"
+      - "127.0.0.1:${MQTTS_PORT:-8883}:8883"
+      - "127.0.0.1:${WS_PORT:-9001}:9001"
+      - "127.0.0.1:${WSS_PORT:-9443}:9443"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./certs:/mosquitto/certs:ro
+
+  # A broker that only speaks MQTT 3.1.1 (checklist item 4). Its built-in defaults listen on 1883 without auth.
+  mosquitto-1.5:
+    image: eclipse-mosquitto:1.5
+    ports:
+      - "127.0.0.1:${MQTT15_PORT:-1885}:1883"
+
+  # Current stable Home Assistant.
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:2026.10.0
+    ports:
+      - "127.0.0.1:${HA_PORT:-8123}:8123"
+    volumes:
+      - ha-stable:/config
+      - ./homeassistant/configuration.yaml:/config/configuration.yaml:ro
+    depends_on:
+      - mosquitto
+
+  # The oldest Home Assistant MineQTT supports (README "Home Assistant"). Older releases ignore the lamp's
+  # color_temp_kelvin/min_kelvin/max_kelvin discovery keys and treat colour temperature as mireds.
+  homeassistant-floor:
+    image: ghcr.io/home-assistant/home-assistant:2025.2.5
+    ports:
+      - "127.0.0.1:${HA_FLOOR_PORT:-8124}:8123"
+    volumes:
+      - ha-floor:/config
+      - ./homeassistant/configuration.yaml:/config/configuration.yaml:ro
+    depends_on:
+      - mosquitto
+
+volumes:
+  ha-stable:
+  ha-floor:

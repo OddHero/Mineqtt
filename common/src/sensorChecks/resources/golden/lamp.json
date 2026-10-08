@@ -1,0 +1,54 @@
+{
+  "dev": {
+    "ids": ["mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566"],
+    "name": "Kitchen Lamp",
+    "mf": "MineQTT",
+    "mdl": "Smart Lamp",
+    "mdl_id": "mineqtt:smart_lamp",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": { "name": "MineQTT", "sw": "2.0.0", "url": "https://github.com/OddHero/Mineqtt" },
+  "avty": [
+    { "t": "mineqtt/world_7f3a/bridge/state" },
+    { "t": "mineqtt/world_7f3a/kitchen_lamp/availability" }
+  ],
+  "avty_mode": "all",
+  "qos": 1,
+  "cmps": {
+    "light": {
+      "p": "light",
+      "unique_id": "mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566_light",
+      "name": null,
+      "schema": "json",
+      "state_topic": "mineqtt/world_7f3a/kitchen_lamp",
+      "command_topic": "mineqtt/world_7f3a/kitchen_lamp/set",
+      "brightness": true,
+      "brightness_scale": 255,
+      "supported_color_modes": ["rgb", "color_temp"],
+      "color_temp_kelvin": true,
+      "min_kelvin": 2000,
+      "max_kelvin": 6500,
+      "retain": false
+    },
+    "light_level": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566_light_level",
+      "name": "Emitted light level",
+      "state_topic": "mineqtt/world_7f3a/kitchen_lamp",
+      "value_template": "{{ value_json.light_level }}",
+      "state_class": "measurement",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    },
+    "location": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566_location",
+      "name": "Location",
+      "state_topic": "mineqtt/world_7f3a/kitchen_lamp",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  }
+}

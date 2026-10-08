@@ -1,7 +1,7 @@
 package art.rehra.mineqtt.blocks.entities;
 
-import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.BlockSensorBlock;
+import art.rehra.mineqtt.legacy.LegacySubscriptionFacade;
 import art.rehra.mineqtt.ui.framework.MqttTab;
 import art.rehra.mineqtt.ui.framework.tabs.BlockSensorTab;
 import com.google.gson.JsonObject;
@@ -74,10 +74,12 @@ public class BlockSensorBlockEntity extends MqttPublisherBlockEntity {
         if (level.isClientSide()) return;
         String topic = sensor.getCombinedTopic();
         sensor.setTopic(topic);
-        boolean connected = MineQTT.mqttClient != null && MineQTT.mqttClient.getState().isConnected();
-        if (!sensor.isEnabled() || topic.isEmpty() || !connected) {
-            // Publish a fresh snapshot when enabled or reconnected, even if the block stayed the same.
-            sensor.wasConnected = false;
+        // Blocks on this server hear the sensor without a broker; a reconnect still sends the broker a fresh snapshot.
+        boolean connected = LegacySubscriptionFacade.isConnected();
+        if (connected && !sensor.wasConnected) sensor.requestObservation();
+        sensor.wasConnected = connected;
+        if (!sensor.isEnabled() || topic.isEmpty()) {
+            // Publish a fresh snapshot when enabled, even if the block stayed the same.
             sensor.requestObservation();
             return;
         }
@@ -88,7 +90,7 @@ public class BlockSensorBlockEntity extends MqttPublisherBlockEntity {
         BlockState target = level.getBlockState(targetPos);
         boolean stateChanged = target != sensor.observedState || !targetPos.equals(sensor.observedPos);
         boolean topicChanged = !topic.equals(sensor.lastPublishedTopic);
-        boolean force = sensor.observationRequested || !sensor.wasConnected || topicChanged;
+        boolean force = sensor.observationRequested || topicChanged;
         // State updates are checked each tick; block entity data is sampled twice per second.
         if (!force && !stateChanged && (sensor.dataMode != DataMode.FULL_DATA || level.getGameTime() % 10 != 0)) return;
 
@@ -101,7 +103,6 @@ public class BlockSensorBlockEntity extends MqttPublisherBlockEntity {
         sensor.observedState = target;
         sensor.observedPos = targetPos;
         sensor.observationRequested = false;
-        sensor.wasConnected = true;
     }
 
     @Override

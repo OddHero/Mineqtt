@@ -1,8 +1,6 @@
 package art.rehra.mineqtt.blocks;
 
 import art.rehra.mineqtt.blocks.entities.RgbLedBlockEntity;
-import art.rehra.mineqtt.mqtt.BlockStateManager;
-import art.rehra.mineqtt.mqtt.homeassistant.HomeAssistantDiscoveryManager;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -17,19 +15,18 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 
-public class RgbLedBlock extends BaseSubscriberBlock {
+/**
+ * The Smart Lamp block. Colour and state live in its block entity; only the light level is a block state property,
+ * because Minecraft's lighting needs it. {@code FACING} is unused and kept so existing block states stay valid.
+ */
+public class RgbLedBlock extends BaseMqttBlock {
 
     public static final EnumProperty<Direction> FACING = BlockStateProperties.FACING;
     public static final IntegerProperty LIGHT_LEVEL = IntegerProperty.create("light_level", 0, 15);
-    // Note: RGB and LIT moved to block entity data to reduce block states
-    // LIGHT_LEVEL is in block state because Minecraft's lighting system requires it
-    // This reduces state count from 49k to just 6 states (one per facing direction)
-    // Light emission and color are now stored in the block entity
 
     // Define the shape that matches our model (socket + bulb)
     // Socket base: 5,0,5 to 11,3,11 (6x3x6)
@@ -57,26 +54,6 @@ public class RgbLedBlock extends BaseSubscriberBlock {
     }
 
     @Override
-    public BlockState playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
-        // Unregister from Home Assistant discovery and topic before the block is destroyed
-        if (!level.isClientSide()) {
-            BlockEntity blockEntity = level.getBlockEntity(pos);
-            if (blockEntity instanceof RgbLedBlockEntity ledEntity) {
-                String topic = ledEntity.getCombinedTopic();
-                if (topic != null && !topic.isEmpty()) {
-                    String blockId = level.dimension().identifier() + ":" + pos.toShortString();
-                    HomeAssistantDiscoveryManager.unregisterDevice(topic, blockId);
-
-                    // Unregister block from topic (removes topic state if last block)
-                    BlockStateManager.unregisterBlock(topic, level.dimension(), pos);
-                }
-            }
-        }
-
-        return super.playerWillDestroy(level, pos, state, player);
-    }
-
-    @Override
     protected MapCodec<RgbLedBlock> codec() {
         return CODEC;
     }
@@ -86,9 +63,9 @@ public class RgbLedBlock extends BaseSubscriberBlock {
         return new RgbLedBlockEntity(pos, state);
     }
 
+    /** The server follows slot edits and the light level; the client only draws particles. */
     @Override
     public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
-        return new RgbLedBlockEntity.Ticker<>();
+        return level.isClientSide() ? new RgbLedBlockEntity.ClientTicker<>() : new RgbLedBlockEntity.ServerTicker<>();
     }
 }
-

@@ -1,15 +1,10 @@
 package art.rehra.mineqtt.blocks;
 
-import art.rehra.mineqtt.MineQTT;
-import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
-import art.rehra.mineqtt.config.MineQTTConfig;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -26,6 +21,7 @@ import net.minecraft.world.level.redstone.ExperimentalRedstoneUtils;
 import net.minecraft.world.level.redstone.Orientation;
 import org.jetbrains.annotations.Nullable;
 
+/** The Redstone Input block: {@code powered} while it receives a signal, which its block entity reports. */
 public class RedstonePublisherBlock extends BaseMqttBlock {
     public static final MapCodec<RedstonePublisherBlock> CODEC = simpleCodec(RedstonePublisherBlock::new);
 
@@ -41,71 +37,17 @@ public class RedstonePublisherBlock extends BaseMqttBlock {
         this.registerDefaultState(this.getStateDefinition().any().setValue(POWERED, false));
     }
 
+    /** The signal decides the block entity's state; a change of the {@code powered} property is an edge. */
     @Override
     protected void neighborChanged(BlockState state, Level level, BlockPos pos, Block neighborBlock, @Nullable Orientation orientation, boolean movedByPiston) {
-        if (!level.isClientSide()) {
-            boolean flag = state.getValue(POWERED);
-            boolean flag1 = this.shouldTurnOn(level, pos, state);
-            if (flag1 && !flag) {
-                level.setBlock(pos, state.setValue(POWERED, true), 3);
-                // Publish to combined topic if enabled
-                publishToCombinedTopic(level, pos, "true");
-            } else if (!flag1 && flag) {
-                level.setBlock(pos, state.setValue(POWERED, false), 3);
-                // Publish to combined topic if enabled
-                publishToCombinedTopic(level, pos, "false");
-            }
+        if (!level.isClientSide() && level.getBlockEntity(pos) instanceof PublisherBlockEntity input) {
+            input.signalChanged(inputSignal(level, pos));
         }
         super.neighborChanged(state, level, pos, neighborBlock, orientation, movedByPiston);
     }
 
-    private String getCombinedTopicFromBlockEntity(Level level, BlockPos pos) {
-        if (level.getBlockEntity(pos) instanceof PublisherBlockEntity publisherBlockEntity) {
-            return publisherBlockEntity.getCombinedTopic();
-        }
-        return MineQTTConfig.getTopicPath("switch"); // fallback to default
-    }
-
-    private boolean isPublisherEnabled(Level level, BlockPos pos) {
-        if (level.getBlockEntity(pos) instanceof PublisherBlockEntity publisherBlockEntity) {
-            return publisherBlockEntity.isEnabled();
-        }
-        return false;
-    }
-
-    private void publishToCombinedTopic(Level level, BlockPos pos, String defaultMessage) {
-        if (!isPublisherEnabled(level, pos)) {
-            MineQTT.LOGGER.debug("Publisher at " + pos + " is disabled (no base path item in first slot)");
-            return;
-        }
-
-        String combinedTopic = getCombinedTopicFromBlockEntity(level, pos);
-        String message = defaultMessage;
-
-        // Use custom ON/OFF value if item is present
-        if (level.getBlockEntity(pos) instanceof PublisherBlockEntity publisherBlockEntity) {
-            ItemStack onStack = publisherBlockEntity.getItem(2);
-            ItemStack offStack = publisherBlockEntity.getItem(3);
-
-            if (defaultMessage.equals("true") && !onStack.isEmpty()) {
-                message = BaseMqttBlockEntity.parseItemStackTopic(onStack);
-            } else if (defaultMessage.equals("false") && !offStack.isEmpty()) {
-                message = BaseMqttBlockEntity.parseItemStackTopic(offStack);
-            }
-        }
-
-        // Publish to combined topic if enabled
-        if (!combinedTopic.isEmpty()) {
-            sendMqttMessage(combinedTopic, message);
-        }
-    }
-
-    protected boolean shouldTurnOn(Level level, BlockPos pos, BlockState state) {
-        return this.getInputSignal(level, pos, state) > 0;
-    }
-
-
-    protected int getInputSignal(Level level, BlockPos pos, BlockState state) {
+    /** The strongest signal the block receives from any side, a redstone wire's level included. */
+    public static int inputSignal(Level level, BlockPos pos) {
         int maxSignal = 0;
         for (Direction direction : Direction.values()) {
             BlockPos blockpos = pos.relative(direction);
@@ -121,13 +63,6 @@ public class RedstonePublisherBlock extends BaseMqttBlock {
     }
 
     @Override
-    public void setPlacedBy(Level level, BlockPos pos, BlockState state, LivingEntity placer, ItemStack stack) {
-        super.setPlacedBy(level, pos, state, placer, stack);
-        if (this.shouldTurnOn(level, pos, state)) {
-            level.scheduleTick(pos, this, 1);
-        }
-    }
-
     protected void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
         this.updateNeighbors(level, pos, state);
     }
@@ -162,26 +97,15 @@ public class RedstonePublisherBlock extends BaseMqttBlock {
     @Override
     protected boolean isSignalSource(BlockState state) { return true; }
 
-    // Publishing MQTT message utility method
-    protected void sendMqttMessage(String topic, String message) {
-        if (MineQTT.mqttClient != null && MineQTT.mqttClient.getState().isConnected()) {
-            MineQTT.mqttClient.publishWith()
-                    .topic(topic)
-                    .payload(message.getBytes())
-                    .send();
-        }else {
-            MineQTT.LOGGER.warn("MQTT client not connected, cannot send message to topic: " + topic);
-        }
-    }
-
     @Override
     public @Nullable BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new PublisherBlockEntity(pos, state);
     }
 
+    /** The server follows slot edits and reads the signal once after loading; the client has nothing to tick. */
     @Override
     public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
-        return new PublisherBlockEntity.Ticker<>();
+        return level.isClientSide() ? null : new PublisherBlockEntity.ServerTicker<>();
     }
 
 }

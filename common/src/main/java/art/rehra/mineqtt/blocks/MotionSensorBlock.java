@@ -70,9 +70,10 @@ public class MotionSensorBlock extends BaseMqttBlock {
         return new MotionSensorBlockEntity(pos, state);
     }
 
+    /** The server follows slot edits and scans the area; the client has nothing to tick. */
     @Override
     public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
-        return new MotionSensorBlockEntity.Ticker<>();
+        return level.isClientSide() ? null : new MotionSensorBlockEntity.ServerTicker<>();
     }
 }
 

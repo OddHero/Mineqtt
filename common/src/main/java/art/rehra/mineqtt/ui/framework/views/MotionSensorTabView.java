@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.ui.framework.views;
 
 import art.rehra.mineqtt.blocks.entities.MotionSensorBlockEntity;
+import art.rehra.mineqtt.device.types.PresenceSensor.Presence;
 import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
@@ -8,7 +9,7 @@ import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 /**
- * Motion sensor status + filter description.
+ * Presence sensor status, its detection settings (set from Home Assistant or MQTT in M1) and the filter description.
  */
 public class MotionSensorTabView implements MqttTabView {
 
@@ -24,21 +25,22 @@ public class MotionSensorTabView implements MqttTabView {
         TabbedMqttMenu menu = screen.getMenu();
         var be = menu.player.level().getBlockEntity(menu.blockPos);
         if (!(be instanceof MotionSensorBlockEntity sensor)) return;
+        Presence presence = sensor.getPresence();
 
         int leftX = guiLeft + 8;
         int rightX = guiLeft + TabbedMqttMenu.GUI_WIDTH - 8; // right edge of content area
         int y = guiTop + 18;
 
-        boolean detected = sensor.isMotionDetected();
-        // Reserve ~half the width for each — left for motion status, right for the mob count.
+        // Reserve ~half the width for each — left for occupancy, right for the count.
         int half = CONTENT_W / 2;
-        GuiText.drawTruncated(g, detected ? "Motion: YES" : "Motion: NO",
-                leftX, y, half, detected ? 0xFF00AA00 : 0xFF666666, mouseX, mouseY);
-        int count = Math.max(0, sensor.getLastCount());
-        GuiText.drawRight(g, "Mobs: " + count, rightX, y, half, 0xFF555555, mouseX, mouseY);
+        GuiText.drawTruncated(g, presence.occupancy() ? "Occupied: YES" : "Occupied: NO",
+                leftX, y, half, presence.occupancy() ? 0xFF00AA00 : 0xFF666666, mouseX, mouseY);
+        GuiText.drawRight(g, "Count: " + presence.count(), rightX, y, half, 0xFF555555, mouseX, mouseY);
 
-        // Filter description rendered below the 5 slot row (slots at y=36, h=16).
-        GuiText.drawTruncated(g, "Spawn-egg filters (empty = all):",
+        // Filter description and settings rendered below the 5 slot row (slots at y=36, h=16).
+        GuiText.drawTruncated(g, "Spawn-egg filters for mobs (empty = all)",
                 leftX, guiTop + 56, CONTENT_W, 0xFF555555, mouseX, mouseY);
+        GuiText.drawAutoScaled(g, "Detects " + presence.detect().getSerializedName() + " | range " + presence.range()
+                + " | clear delay " + presence.clearDelay() + " s", leftX, guiTop + 70, CONTENT_W, 10, 0xFF888888, mouseX, mouseY);
     }
 }

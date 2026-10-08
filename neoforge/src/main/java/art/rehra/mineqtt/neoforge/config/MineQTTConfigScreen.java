@@ -1,170 +1,91 @@
 package art.rehra.mineqtt.neoforge.config;
 
-import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.client.PasswordMask;
+import art.rehra.mineqtt.config.ConfigValidation;
 import art.rehra.mineqtt.config.MineQTTConfig;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import com.electronwill.nightconfig.core.UnmodifiableConfig;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.neoforge.client.gui.ConfigurationScreen;
 
-public class MineQTTConfigScreen extends Screen {
-    private final Screen parent;
-    private EditBox brokerUrlField;
-    private EditBox clientIdField;
-    private EditBox usernameField;
-    private EditBox passwordField;
-    private Button allowItemPortalButton;
-    private boolean allowItemPortalValue;
-    private Button zombieGoalEnabledButton;
-    private boolean zombieGoalEnabledValue;
-    private Button saveButton;
-    private Button cancelButton;
-    private Button resetButton;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 
-    public MineQTTConfigScreen(Screen parent) {
-        super(Component.literal("MineQTT Configuration"));
-        this.parent = parent;
+/**
+ * NeoForge's generated config screen for {@code mineqtt.toml}, with the password masked, the broker URI checked while it
+ * is typed, and the keys MineQTT maintains itself hidden.
+ */
+public final class MineQTTConfigScreen {
+    private static final int MAX_PASSWORD_LENGTH = 256;
+
+    private MineQTTConfigScreen() {
     }
 
-    public static Screen createConfigScreen(Screen parent) {
-        return new MineQTTConfigScreen(parent);
+    public static Screen createConfigScreen(ModContainer container, Screen parent) {
+        return new ConfigurationScreen(container, parent, TopSection::new);
     }
 
-    @Override
-    protected void init() {
-        super.init();
-
-        int centerX = this.width / 2;
-        int startY = 50;
-        int fieldWidth = 200;
-        int fieldHeight = 20;
-        int spacing = 25;
-
-        // Broker URL field
-        this.brokerUrlField = new EditBox(this.font, centerX - fieldWidth / 2, startY, fieldWidth, fieldHeight, Component.literal("Broker URL"));
-        this.brokerUrlField.setValue(MineQTTConfig.brokerUrl);
-        this.brokerUrlField.setMaxLength(256);
-        this.addRenderableWidget(this.brokerUrlField);
-
-        // Client ID field
-        this.clientIdField = new EditBox(this.font, centerX - fieldWidth / 2, startY + spacing, fieldWidth, fieldHeight, Component.literal("Client ID"));
-        this.clientIdField.setValue(MineQTTConfig.clientId);
-        this.clientIdField.setMaxLength(64);
-        this.addRenderableWidget(this.clientIdField);
-
-        // Username field
-        this.usernameField = new EditBox(this.font, centerX - fieldWidth / 2, startY + spacing * 2, fieldWidth, fieldHeight, Component.literal("Username"));
-        this.usernameField.setValue(MineQTTConfig.username);
-        this.usernameField.setMaxLength(64);
-        this.addRenderableWidget(this.usernameField);
-
-        // Password field
-        this.passwordField = new EditBox(this.font, centerX - fieldWidth / 2, startY + spacing * 3, fieldWidth, fieldHeight, Component.literal("Password"));
-        this.passwordField.setValue(MineQTTConfig.password);
-        this.passwordField.setMaxLength(64);
-        this.addRenderableWidget(this.passwordField);
-
-        // Allow Item Portal Toggle
-        this.allowItemPortalValue = MineQTTConfig.allowItemNetherPortalTeleport;
-        this.allowItemPortalButton = Button.builder(getAllowItemPortalComponent(), (btn) -> {
-            this.allowItemPortalValue = !this.allowItemPortalValue;
-            btn.setMessage(getAllowItemPortalComponent());
-        }).bounds(centerX - fieldWidth / 2, startY + spacing * 4, fieldWidth, fieldHeight).build();
-        this.addRenderableWidget(this.allowItemPortalButton);
-
-        // Zombie Goal Enabled Toggle
-        this.zombieGoalEnabledValue = MineQTTConfig.zombieGoalEnabled;
-        this.zombieGoalEnabledButton = Button.builder(getZombieGoalEnabledComponent(), (btn) -> {
-            this.zombieGoalEnabledValue = !this.zombieGoalEnabledValue;
-            btn.setMessage(getZombieGoalEnabledComponent());
-        }).bounds(centerX - fieldWidth / 2, startY + spacing * 5, fieldWidth, fieldHeight).build();
-        this.addRenderableWidget(this.zombieGoalEnabledButton);
-
-        // Buttons
-        int buttonY = this.height - 40;
-        int buttonWidth = 60;
-        int buttonSpacing = 70;
-
-        this.saveButton = Button.builder(Component.literal("Save"), this::onSave)
-                .bounds(centerX - buttonSpacing, buttonY, buttonWidth, 20)
-                .build();
-        this.addRenderableWidget(this.saveButton);
-
-        this.cancelButton = Button.builder(Component.literal("Cancel"), this::onCancel)
-                .bounds(centerX - buttonWidth / 2, buttonY, buttonWidth, 20)
-                .build();
-        this.addRenderableWidget(this.cancelButton);
-
-        this.resetButton = Button.builder(Component.literal("Reset"), this::onReset)
-                .bounds(centerX + buttonSpacing - buttonWidth, buttonY, buttonWidth, 20)
-                .build();
-        this.addRenderableWidget(this.resetButton);
-    }
-
-    @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-        // Let super handle the background rendering to avoid double blur
-        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
-
-        // Draw title
-        graphics.centeredText(this.font, this.title, this.width / 2, 20, 0xFFFFFF);
-
-        // Draw field labels
-        graphics.text(this.font, "Broker URL:", this.brokerUrlField.getX(), this.brokerUrlField.getY() - 12, 0xFFFFFF);
-        graphics.text(this.font, "Client ID:", this.clientIdField.getX(), this.clientIdField.getY() - 12, 0xFFFFFF);
-        graphics.text(this.font, "Username:", this.usernameField.getX(), this.usernameField.getY() - 12, 0xFFFFFF);
-        graphics.text(this.font, "Password:", this.passwordField.getX(), this.passwordField.getY() - 12, 0xFFFFFF);
-    }
-
-    private void onSave(Button button) {
-        // Update config values
-        MineQTTConfig.brokerUrl = this.brokerUrlField.getValue();
-        MineQTTConfig.clientId = this.clientIdField.getValue();
-        MineQTTConfig.username = this.usernameField.getValue();
-        MineQTTConfig.password = this.passwordField.getValue();
-        MineQTTConfig.allowItemNetherPortalTeleport = this.allowItemPortalValue;
-        MineQTTConfig.zombieGoalEnabled = this.zombieGoalEnabledValue;
-
-        // Save config through handler
-        if (MineQTT.getConfigHandler() != null) {
-            MineQTT.getConfigHandler().saveConfig();
+    /** The top level of the file. Nested sections use NeoForge's own section screen, so the overrides stay up here. */
+    private static final class TopSection extends ConfigurationScreen.ConfigurationSectionScreen {
+        TopSection(ConfigurationScreen parent, ModConfig.Type type, ModConfig modConfig, Component title) {
+            super(parent, type, modConfig, title, (context, key, original) -> key.equals("configVersion") ? null : original);
         }
 
-        // Close screen
-        this.minecraft.gui.setScreen(this.parent);
+        @Override
+        protected Element createSection(String key, UnmodifiableConfig subconfig, UnmodifiableConfig subsection) {
+            return key.equals("legacy") ? null : super.createSection(key, subconfig, subsection);
+        }
+
+        @Override
+        protected Element createStringValue(String key, Predicate<String> tester, Supplier<String> source, Consumer<String> target) {
+            return switch (key) {
+                // The spec accepts any broker so a typo in the file is kept and reported; here it must parse.
+                case "broker" -> super.createStringValue(key, ConfigValidation::isValidBroker, source, target);
+                case "password" -> createPasswordValue(key, source, target);
+                default -> super.createStringValue(key, tester, source, target);
+            };
+        }
+
+        private Element createPasswordValue(String key, Supplier<String> source, Consumer<String> target) {
+            EditBox box = new PasswordEditBox(font, getTranslationComponent(key));
+            box.setMaxLength(MAX_PASSWORD_LENGTH);
+            box.setValue(source.get());
+            box.setTooltip(Tooltip.create(getTooltipComponent(key, null)));
+            // The environment variable wins, so editing the stored password would have no effect.
+            box.setEditable(!MineQTTConfig.passwordFromEnvironment());
+            box.setResponder(newValue -> {
+                if (!newValue.equals(source.get())) {
+                    undoManager.add(value -> {
+                        target.accept(value);
+                        onChanged(key);
+                    }, newValue, value -> {
+                        target.accept(value);
+                        onChanged(key);
+                    }, source.get());
+                }
+            });
+            return new Element(getTranslationComponent(key), getTooltipComponent(key, null), box);
+        }
     }
 
-    private void onCancel(Button button) {
-        // Close without saving
-        this.minecraft.gui.setScreen(this.parent);
-    }
+    /** Shows asterisks and keeps the value out of the narration. */
+    private static final class PasswordEditBox extends EditBox {
+        PasswordEditBox(Font font, Component message) {
+            super(font, Button.DEFAULT_WIDTH, Button.DEFAULT_HEIGHT, message);
+            addFormatter(PasswordMask.FORMATTER);
+        }
 
-    private void onReset(Button button) {
-        // Reset to defaults
-        MineQTTConfig.resetToDefaults();
-
-        // Update field values
-        this.brokerUrlField.setValue(MineQTTConfig.brokerUrl);
-        this.clientIdField.setValue(MineQTTConfig.clientId);
-        this.usernameField.setValue(MineQTTConfig.username);
-        this.passwordField.setValue(MineQTTConfig.password);
-        this.allowItemPortalValue = MineQTTConfig.allowItemNetherPortalTeleport;
-        this.allowItemPortalButton.setMessage(getAllowItemPortalComponent());
-        this.zombieGoalEnabledValue = MineQTTConfig.zombieGoalEnabled;
-        this.zombieGoalEnabledButton.setMessage(getZombieGoalEnabledComponent());
-    }
-
-    private Component getAllowItemPortalComponent() {
-        return Component.literal("Allow Items Thru Portals: " + (allowItemPortalValue ? "Enabled" : "Disabled"));
-    }
-
-    private Component getZombieGoalEnabledComponent() {
-        return Component.literal("Zombie Goal: " + (zombieGoalEnabledValue ? "Enabled" : "Disabled"));
-    }
-
-    @Override
-    public void onClose() {
-        this.minecraft.gui.setScreen(this.parent);
+        @Override
+        protected MutableComponent createNarrationMessage() {
+            return Component.translatable("gui.narrate.editBox", getMessage(), "");
+        }
     }
 }

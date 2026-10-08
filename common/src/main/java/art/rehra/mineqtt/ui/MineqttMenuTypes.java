@@ -32,8 +32,7 @@ public class MineqttMenuTypes {
         MineQTT.LOGGER.info("Registering MineQTT Menu Types");
 
         MQTT_TABBED_MENU = MENU_TYPES.register("mqtt_tabbed",
-                () -> MenuRegistry.ofExtended((id, inventory, buf) ->
-                        new TabbedMqttMenu(id, inventory, inventory.player, buf.readBlockPos(), null)));
+                () -> MenuRegistry.ofExtended(TabbedMqttMenu::fromOpenData));
 
         CYBERDECK_MENU = MENU_TYPES.register("cyberdeck",
                 () -> MenuRegistry.ofExtended((id, inventory, buf) -> {

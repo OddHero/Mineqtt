@@ -2,6 +2,7 @@ package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity.ParsedPayload;
 import art.rehra.mineqtt.blocks.entities.BlockSensorBlockEntity.DataMode;
+import art.rehra.mineqtt.config.MineQTTConfig;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -15,13 +16,19 @@ import net.minecraft.world.level.block.ObserverBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * Dependency-free regression checks, run by Gradle's verifyBlockEmitter task.
+ * Dependency-free regression checks, run by Gradle's verifyBlockEmitter task. They enable the block placer through the
+ * {@link MineQTTConfig} static first.
  */
 public final class BlockEmitterPayloadTest {
 
     static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
+
+        // The block placer is off by default (design §8.3) and then decodes nothing; the checks below need it on.
+        check(!MineQTTConfig.blockPlacerEnabled, "The block placer is disabled by default");
+        check(BlockEmitterBlockEntity.parsePayload("minecraft:stone", null) == null, "A disabled block placer decodes nothing");
+        MineQTTConfig.blockPlacerEnabled = true;
 
         BlockPos pos = new BlockPos(-5, 64, 12);
         BlockState stone = Blocks.STONE.defaultBlockState();

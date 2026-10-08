@@ -10,6 +10,7 @@ import net.minecraft.world.item.Items;
 /**
  * The default tab present on every MQTT block: shows the topic configuration
  * via the two "frequency" slots (base topic + sub topic, container indices 0 and 1).
+ * On a device block the slots edit its Raw Link, and the view adds the device's status line.
  *
  * <p>Subclassed BlockEntities inherit this tab automatically through
  * {@code BaseMqttBlockEntity#getTabs()}.</p>

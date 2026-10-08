@@ -1,0 +1,22 @@
+# Home Assistant configuration for the MineQTT end-to-end checklist (both pinned versions use this file).
+# The MQTT broker cannot be configured in YAML: add it with the MQTT integration flow (broker "mosquitto",
+# port 1883), by hand in the UI or with `python ha.py mqtt` (see README.md).
+default_config:
+
+# Debug logging of discovery and state handling is the evidence for checklist items 1 and 5-8.
+logger:
+  default: warning
+  logs:
+    homeassistant.components.mqtt: debug
+
+# Coming in M3 (HA -> Minecraft mirror mode). Left commented out until then, so the broker is not flooded with
+# statestream messages while the checklist is observed with mosquitto_sub.
+# mqtt_statestream:
+#   base_topic: ha_statestream
+#   publish_attributes: true
+#   publish_timestamps: true
+#   include:
+#     domains:
+#       - light
+#       - switch
+#       - input_boolean

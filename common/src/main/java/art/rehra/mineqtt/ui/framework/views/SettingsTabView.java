@@ -28,6 +28,9 @@ import java.util.Optional;
  * <p>The toggle is rendered as a 16x16 slot-sized icon: when ON, it shows the
  * owner's player head; when OFF, it shows a flat grey square. The button is
  * shown for both block-backed menus and the cyberdeck.</p>
+ *
+ * <p>A device block also shows its read-only status line: slug, Home Assistant exposure, availability and what its
+ * Raw Link does, as the server saw them when the screen opened.</p>
  */
 public class SettingsTabView implements MqttTabView {
 
@@ -64,6 +67,8 @@ public class SettingsTabView implements MqttTabView {
         int y = guiTop + 36;
 
         privateBtn = new PrivateModeButton(x, y, () -> currentPrivate(menu), () -> currentOwner(menu), this::togglePrivate);
+        // The server refuses the toggle from a player who may not configure the block.
+        privateBtn.active = menu.configurable();
     }
 
     private boolean currentPrivate(TabbedMqttMenu menu) {
@@ -136,6 +141,10 @@ public class SettingsTabView implements MqttTabView {
         }
 
         int x = guiLeft + 8;
+        // A device's read-only status line between the title and the slot labels; the full text on hover.
+        if (menu.deviceStatus() != null) {
+            GuiText.drawTruncated(g, menu.deviceStatus(), x, guiTop + 16, CONTENT_W, 0xFF555555, mouseX, mouseY);
+        }
         // Slot labels — centered above each 16px slot (slots at y=36..52).
         GuiText.drawCentered(g, "Base", guiLeft + 61, guiTop + 26, 24, 0xFF555555);
         GuiText.drawCentered(g, "Sub", guiLeft + 97, guiTop + 26, 24, 0xFF555555);
