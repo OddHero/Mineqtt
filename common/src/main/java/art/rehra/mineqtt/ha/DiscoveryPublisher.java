@@ -45,11 +45,15 @@ import java.util.function.Supplier;
  *     group membership, exposure) is published only when the payload's hash differs from the one last published; a
  *     republish (connect, Home Assistant's birth, a request) sends every payload again.</li>
  *     <li>Exposure (§8.8): nothing with {@code ha.expose} NONE; otherwise a device's own {@code expose} wins, else
- *     ALL exposes and OPT_IN does not. Members of a group are hidden unless the group exposes them. A device that is no
- *     longer exposed gets its retained message cleared.</li>
+ *     ALL exposes and OPT_IN does not. Members of a group are hidden unless the group exposes them. Under OPT_IN a group
+ *     is discovered only for a member someone exposed, or as the light of the v1 topic it replaces, so no player without
+ *     {@code mayExpose} makes a new Home Assistant device by making a group. A device or group that is no longer exposed
+ *     gets its retained message cleared.</li>
  *     <li>A device or group that still has a v1 discovery message (its {@code legacyUniqueId} is not migrated yet) is
  *     left to {@link LegacyDiscoveryMigration}: publishing the new message before {@code migrate_discovery} would
  *     give Home Assistant the same unique_id twice.</li>
+ *     <li>A migrated v1 lamp or legacy group keeps its v1 unique_id on its primary entity and, for good, as its second
+ *     device identifier (§4.1).</li>
  *     <li>Records of a type this MineQTT does not know are never published nor cleared.</li>
  * </ul>
  */
@@ -171,7 +175,9 @@ public final class DiscoveryPublisher {
                                      List<String> availability, List<HaEntity<?>> entities, EntityTopics entityTopics,
                                      @Nullable String legacyUniqueId) {
         JsonObject device = new JsonObject();
-        device.add("ids", strings(List.of(objectId)));
+        // v1 named its light's device after the unique_id: carrying it makes Home Assistant reuse that device entry
+        // (device id, area, device automations) instead of leaving it empty. HA never drops a merged identifier.
+        device.add("ids", strings(legacyUniqueId == null ? List.of(objectId) : List.of(objectId, legacyUniqueId)));
         device.addProperty("name", name);
         device.addProperty("mf", MANUFACTURER);
         device.addProperty("mdl", model);
@@ -221,6 +227,13 @@ public final class DiscoveryPublisher {
                     component.addProperty("min_kelvin", light.minKelvin());
                     component.addProperty("max_kelvin", light.maxKelvin());
                 }
+                if (!light.effects().isEmpty()) {
+                    component.addProperty("effect", true);
+                    component.add("effect_list", strings(light.effects()));
+                }
+                // No MineQTT light flashes. Home Assistant 2026.10 assumes a JSON light does unless told, 2025.2 knows no
+                // such key and drops it. Both assume transitions, which the lamp fades.
+                component.addProperty("flash", false);
             }
             case HaEntity.Switch<?> switchEntity -> {
                 // Switch commands use the state key (z2m style); the type maps ON and OFF onto its field.
@@ -283,8 +296,8 @@ public final class DiscoveryPublisher {
                 component.addProperty("topic", topics.action());
                 component.addProperty("type", trigger.type());
                 component.addProperty("subtype", trigger.subtype());
-                component.addProperty("payload", trigger.type() + "_" + trigger.subtype());
-                component.addProperty("value_template", "{{ value_json.event_type }}_{{ value_json.subtype }}");
+                component.addProperty("payload", trigger.payload());
+                component.addProperty("value_template", "{{ value_json.event_type }}_{{ " + jsonPath(trigger.attribute()) + " }}");
             }
         }
         // Commands are never retained (design D3).
@@ -379,6 +392,13 @@ public final class DiscoveryPublisher {
         process(Target.device(record.id()), false);
     }
 
+    /** A renamed group (M2-17): published at once, between the clear of its old state and the state on its new topic. */
+    public void publishNow(DeviceGroup group) {
+        if (stopped) return;
+        queue.remove(Target.group(group.id()));
+        process(Target.group(group.id()), false);
+    }
+
     /** A device is gone: its retained discovery, and a v1 message still waiting for its migration, are cleared. */
     public void removed(DeviceRecord record) {
         queue.remove(Target.device(record.id()));
@@ -462,6 +482,11 @@ public final class DiscoveryPublisher {
         return queue.isEmpty();
     }
 
+    /** Whether queued messages or v1 migration steps wait for the next tick. */
+    public boolean hasPendingWork() {
+        return !stopped && (!queue.isEmpty() || migration.hasPendingWork());
+    }
+
     /** {@code SERVER_STOPPING}: nothing is published any more. */
     public void stop() {
         stopped = true;
@@ -478,18 +503,24 @@ public final class DiscoveryPublisher {
         return migration;
     }
 
-    /** Whether the device with this record would be discovered now. */
+    /** Whether the device with this record would be discovered now; never when its type is unknown to this MineQTT. */
     public boolean exposed(DeviceRecord record) {
-        if (exposure() == HaExpose.NONE) return false;
+        if (exposure() == HaExpose.NONE || DeviceTypes.get(record.type()) == null) return false;
         DeviceGroup group = record.group() == null ? null : registry.group(record.group());
         if (group != null && !group.exposeMembers()) return false;
         return record.expose() != null ? record.expose() : exposure() == HaExpose.ALL;
     }
 
-    /** Whether the group would be discovered now: it has members of a known type with something to command. */
+    /**
+     * Whether the group would be discovered now: it has members of a known type with something to command, and under
+     * OPT_IN a member whose own exposure is on (a player with {@code mayExpose} or a command turned it on) or a v1 topic
+     * it replaces, whose light v1 discovered.
+     */
     public boolean exposed(DeviceGroup group) {
         DeviceType type = group.memberType() == null ? null : DeviceTypes.get(group.memberType());
-        return exposure() != HaExpose.NONE && type != null && !groupEntities(type).isEmpty();
+        if (exposure() == HaExpose.NONE || type == null || groupEntities(type).isEmpty()) return false;
+        return exposure() == HaExpose.ALL || group.legacyTopic() != null || group.members().stream()
+                .map(registry::record).anyMatch(member -> member != null && Boolean.TRUE.equals(member.expose()));
     }
 
     // ---- for the migration ----
@@ -516,8 +547,11 @@ public final class DiscoveryPublisher {
         enqueue(target, false);
     }
 
-    /** Takes one message from the rate limit; false when the second's budget is spent. */
-    boolean tryTakeToken() {
+    /**
+     * Takes one message from the rate limit, which the v1 migrations and the ghost cleanup share; false when the second's
+     * budget is spent.
+     */
+    public boolean tryTakeToken() {
         if (!hasToken()) return false;
         takeToken();
         return true;

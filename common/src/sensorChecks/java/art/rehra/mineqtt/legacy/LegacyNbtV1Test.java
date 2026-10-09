@@ -1,28 +1,39 @@
 package art.rehra.mineqtt.legacy;
 
-import art.rehra.mineqtt.blocks.entities.MotionSensorBlockEntity;
+import art.rehra.mineqtt.blocks.HumiditySensorBlock;
+import art.rehra.mineqtt.blocks.StaticPublisherBlock;
+import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
+import art.rehra.mineqtt.blocks.entities.RgbLedBlockEntity;
 import art.rehra.mineqtt.device.CommandReader;
 import art.rehra.mineqtt.device.CommonFields;
 import art.rehra.mineqtt.device.DeviceGroup;
+import art.rehra.mineqtt.device.DeviceLink;
 import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.device.DeviceRegistry;
 import art.rehra.mineqtt.device.DeviceTypes;
 import art.rehra.mineqtt.device.LegacyAdoptionCheck;
 import art.rehra.mineqtt.device.LinkAdoptionCheck;
 import art.rehra.mineqtt.device.RawLinkSpec;
+import art.rehra.mineqtt.device.RenderTag;
 import art.rehra.mineqtt.device.StateWriter;
 import art.rehra.mineqtt.device.UnloadedPolicy;
 import art.rehra.mineqtt.device.ValueCodecs;
 import art.rehra.mineqtt.device.ValueCodecs.LightState;
+import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.PresenceSensor.Presence;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.RedstoneOutput.Output;
 import art.rehra.mineqtt.device.types.SmartLamp;
+import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.WallSwitch;
+import art.rehra.mineqtt.device.types.SmartPlug.Plug;
 import art.rehra.mineqtt.mqtt.BlockStatePersistence;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -30,16 +41,21 @@ import net.minecraft.core.GlobalPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.TagParser;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.ContainerHelper;
+import net.minecraft.world.ItemStackWithSlot;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.item.Item;
@@ -47,13 +63,21 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.TypedEntityData;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BlockEntityTypes;
 import net.minecraft.world.level.storage.TagValueInput;
 import net.minecraft.world.level.storage.TagValueOutput;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.phys.AABB;
+import org.jetbrains.annotations.Nullable;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -69,15 +93,26 @@ import java.util.stream.Collectors;
  *     placed copies that lose both (through the vanilla item-data merge), and v1 lamps without an owner;</li>
  *     <li>the Redstone Output and Input: state JSON, commands and previews, and the adopted links of an emitter with
  *     custom payload slots and of a publisher in private mode, also from placed items;</li>
+ *     <li>the Smart Plug (M2-18): state JSON, commands, previews, power-on and group toggles, and the adopted link of a v1
+ *     plug and of one the M2 legacy layer saved with its owner's UUID, also from a placed item;</li>
  *     <li>the Presence Sensor: state JSON, settings, occupancy with its clear delay, v1's area and spawn-egg filters,
  *     and the adopted link of a v1 motion sensor with eggs in its filter slots 2 and 3, also from a placed item;</li>
  *     <li>the per-topic states of {@code mineqtt_topic_states.json} as records and legacy groups, and the attach-time
- *     decisions on them: which record a lamp takes over, which v1 light it keeps, which legacy group it joins.</li>
+ *     decisions on them: which record a lamp takes over, which v1 light it keeps, which legacy group it joins;</li>
+ *     <li>the render-only update tag (M2-7): its key set, the dispatch of v2, render and v1 data, and the lamp's light
+ *     through it;</li>
+ *     <li>devices without containers (M2-12): v1 data written back as read until its adoption, M1 data captured from an
+ *     M1 world migrated to version 3 (legacy items, private mode, last tab, the sensor's egg filter) idempotently, the mob
+ *     filter, and placed copies that reset what they did and carry no legacy items;</li>
+ *     <li>the decommissioned Dynamic Publisher and Topic Relay (M2-21): their v1 slots as legacy items, alone in their
+ *     saved data.</li>
  * </ul>
  */
 public final class LegacyNbtV1Test {
     // The built-in registries, which the item codecs need; set once Minecraft is bootstrapped.
     private static HolderLookup.Provider REGISTRIES;
+    // The UUID the M2 legacy layer resolved a legacy block's owner name to (F11).
+    private static final UUID STEVE = UUID.fromString("8667ba71-b85a-4004-af54-457a9734eed7");
 
     static void main(String[] args) {
         SharedConstants.tryDetectVersion();
@@ -85,24 +120,33 @@ public final class LegacyNbtV1Test {
         REGISTRIES = RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
         // Item stacks need their items' default components, which a server binds when it loads its data packs; the
         // common ones are enough for the items the slots hold here.
-        for (Item item : List.of(Items.PAPER, Items.STONE, Items.REDSTONE_LAMP, Items.ZOMBIE_SPAWN_EGG, Items.PIG_SPAWN_EGG)) {
+        for (Item item : List.of(Items.PAPER, Items.STONE, Items.DIRT, Items.REDSTONE_LAMP)) {
             item.builtInRegistryHolder().bindComponents(DataComponents.COMMON_ITEM_COMPONENTS);
         }
+        // A spawn egg's mob is its default entity data, as the captured M1 eggs have no components of their own.
+        bindEgg(Items.ZOMBIE_SPAWN_EGG, EntityTypes.ZOMBIE);
+        bindEgg(Items.PIG_SPAWN_EGG, EntityTypes.PIG);
         DeviceTypes.register(SmartLamp.TYPE);
         DeviceTypes.register(RedstoneOutput.TYPE);
         DeviceTypes.register(RedstoneInput.TYPE);
         DeviceTypes.register(PresenceSensor.TYPE);
+        DeviceTypes.register(SmartPlug.TYPE);
+        DeviceTypes.register(ClimateSensor.TYPE);
+        DeviceTypes.register(WallSwitch.TYPE);
         combinedTopics();
         lampKeys();
         smartLampState();
         redstoneOutputState();
+        smartPlugState();
         redstoneInputState();
         presenceState();
         presenceFilters();
         adoption();
+        m1Data();
         positionKeys();
         topicNames();
         topicStates();
+        renderTags();
         System.out.println("Legacy NBT migration checks passed.");
     }
 
@@ -153,19 +197,29 @@ public final class LegacyNbtV1Test {
         LightState red = new LightState(true, 200, new ValueCodecs.Rgb(255, 120, 0), null);
         JsonObject state = SmartLamp.state(red, GlobalPos.of(Level.OVERWORLD, new BlockPos(120, 64, -35)));
         check(state.equals(JsonParser.parseString("""
-                {"state":"ON","brightness":200,"color_mode":"rgb","color":{"r":255,"g":120,"b":0},"light_level":12,
+                {"state":"ON","brightness":200,"color_mode":"rgb","color":{"r":255,"g":120,"b":0},"effect":"off","light_level":12,
                  "location":{"dimension":"minecraft:overworld","pos":[120,64,-35]}}""")), "§3.3 lamp state: " + state);
         LightState warm = red.merge(JsonParser.parseString("{\"color_temp_kelvin\":2700}").getAsJsonObject());
         JsonObject warmState = SmartLamp.command(warm);
         check(warmState.get("color_mode").getAsString().equals("color_temp") && warmState.get("color_temp").getAsInt() == 2700
                 && warmState.get("color_temp_kelvin").getAsInt() == 2700, "Kelvin as Home Assistant reads it and as documented: " + warmState);
 
-        for (LightState light : List.of(red, warm, LightState.DEFAULT)) {
+        LightState pulsing = warm.merge(JsonParser.parseString("{\"effect\":\"pulse\"}").getAsJsonObject());
+        for (LightState light : List.of(red, warm, pulsing, LightState.DEFAULT)) {
             TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
             output.store("state", SmartLamp.LIGHT.codec(), light);
             Optional<LightState> read = input(output.buildResult()).read("state", SmartLamp.LIGHT.codec());
             check(read.equals(Optional.of(light)), "The lamp state round-trips through NBT: " + light + " -> " + read);
         }
+
+        // A lamp saved before effects existed (M1, M2 up to M2-25) has none.
+        CompoundTag m1;
+        try {
+            m1 = TagParser.parseCompoundFully("{state:{state:\"ON\",brightness:200,color_mode:\"rgb\",color:{r:255,g:120,b:0}}}");
+        } catch (CommandSyntaxException e) {
+            throw new AssertionError(e);
+        }
+        check(input(m1).read("state", SmartLamp.LIGHT.codec()).equals(Optional.of(red)), "A lamp saved without an effect loads without one");
 
         check(SmartLamp.lightLevel(red) == 12, "Brightness 200 gives light level 12");
         check(SmartLamp.lightLevel(new LightState(true, 128, ValueCodecs.Rgb.WHITE, null)) == 8, "Brightness 128 gives light level 8");
@@ -180,7 +234,13 @@ public final class LegacyNbtV1Test {
         JsonObject back = SmartLamp.TYPE.preview(tempered, JsonParser.parseString("{\"color\":{\"r\":0,\"g\":0,\"b\":255}}").getAsJsonObject());
         check(!back.has("color_temp") && !back.has("color_temp_kelvin") && back.get("color_mode").getAsString().equals("rgb"),
                 "A preview back to rgb drops the temperature: " + back);
-        check(SmartLamp.TYPE.writableState(state).keySet().equals(Set.of("state", "brightness", "color_mode", "color")),
+        JsonObject faded = SmartLamp.TYPE.preview(state, JsonParser.parseString("{\"state\":\"OFF\",\"transition\":5}").getAsJsonObject());
+        check(faded.get("state").getAsString().equals("OFF") && faded.get("light_level").getAsInt() == 0 && !faded.has("transition"),
+                "A queued preview ignores the transition: the target at once, and no transition in the state: " + faded);
+        JsonObject flickering = SmartLamp.TYPE.preview(state, JsonParser.parseString("{\"effect\":\"Candle\"}").getAsJsonObject());
+        check(flickering.get("effect").getAsString().equals("candle") && flickering.get("brightness").getAsInt() == 200,
+                "A preview takes an effect: " + flickering);
+        check(SmartLamp.TYPE.writableState(state).keySet().equals(Set.of("state", "brightness", "color_mode", "color", "effect")),
                 "A group shares the light's keys only: " + SmartLamp.TYPE.writableState(state));
 
         JsonObject echo = SmartLamp.TYPE.rawLink().orElseThrow().echo(state);
@@ -201,13 +261,133 @@ public final class LegacyNbtV1Test {
         CompoundTag publisher = v1Device(paper("garage"), paper("bell"), paper("RING"), ItemStack.EMPTY, "Steve", true);
         LinkAdoptionCheck.publisherAdopted(REGISTRIES, publisher, "Steve/garage/bell", "RING");
         LinkAdoptionCheck.redstonePlacedFromItem(REGISTRIES, emitter, publisher);
+        CompoundTag plug = v1Plug(v1Device(paper("kitchen/coffee"), ItemStack.EMPTY, paper("BREW"), paper("STOP"), "Steve", false), null);
+        LinkAdoptionCheck.plugAdopted(REGISTRIES, plug, "kitchen/coffee", "BREW", "STOP", null);
+        CompoundTag legacyLayerPlug = v1Plug(v1Device(paper("kitchen"), paper("kettle"), ItemStack.EMPTY, ItemStack.EMPTY, "Steve", false), STEVE);
+        LinkAdoptionCheck.plugAdopted(REGISTRIES, legacyLayerPlug, "kitchen/kettle", null, null, STEVE);
+        LinkAdoptionCheck.plugPlacedFromItem(REGISTRIES, legacyLayerPlug);
         CompoundTag motion = v1Motion(v1Device(paper("home/hall"), ItemStack.EMPTY, spawnEgg(Items.ZOMBIE_SPAWN_EGG, EntityTypes.ZOMBIE),
                 spawnEgg(Items.PIG_SPAWN_EGG, EntityTypes.PIG), "Steve", false), true, 2);
         LinkAdoptionCheck.motionAdopted(REGISTRIES, motion, "home/hall",
-                new ValueCodecs.CustomPayloads("minecraft/zombie_spawn_egg", "minecraft/pig_spawn_egg"));
+                new ValueCodecs.CustomPayloads("minecraft/zombie_spawn_egg", "minecraft/pig_spawn_egg"),
+                List.of(Identifier.withDefaultNamespace("zombie"), Identifier.withDefaultNamespace("pig")));
         LinkAdoptionCheck.motionPlacedFromItem(REGISTRIES, motion);
-        LinkAdoptionCheck.slotsFollowed(REGISTRIES, motion, emitter, "OPEN", "CLOSE");
+        climateSensors();
+        staticPublishers();
+        decommissioned();
+        lightRemotes();
         LegacyAdoptionCheck.run();
+    }
+
+    /**
+     * The Climate Sensor (M2-19): a v1 temperature sensor adopted in place, and a v1 humidity sensor converted by the pure
+     * converter into Climate Sensor data that keeps publishing its humidity on its v1 topic, with its owner UUID (saved
+     * by the M2 legacy layer) and its anvil name.
+     */
+    private static void climateSensors() {
+        CompoundTag temperature = v1Climate(v1Device(paper("greenhouse"), paper("temp"), ItemStack.EMPTY, ItemStack.EMPTY, "Steve", false),
+                "Temperature", 23.4, 100, 4_000L);
+        LinkAdoptionCheck.climateAdopted(REGISTRIES, temperature, "greenhouse/temp",
+                new ClimateSensor.Climate(5, ClimateSensor.RawValue.TEMPERATURE, new ClimateSensor.Reading(23.4, 50.0, 0, ""), 4_000L), null, "");
+
+        CompoundTag humidity = v1Climate(v1Device(paper("greenhouse"), paper("humidity"), paper("on"), ItemStack.EMPTY, "Steve", true),
+                "Humidity", 61.5, 200, 8_000L);
+        humidity.store("ownerUuid", UUIDUtil.CODEC, STEVE);
+        humidity.store("CustomName", ComponentSerialization.CODEC, Component.literal("Greenhouse Air"));
+        CompoundTag converted = HumiditySensorBlock.toClimateSensor(humidity);
+        check(converted.equals(humidity) && converted != humidity, "A v1 humidity sensor's data is the Climate Sensor's v1 data as it stands, copied");
+        check(HumiditySensorBlock.toClimateSensor(humidity).equals(converted), "The converter is pure");
+        LinkAdoptionCheck.climateAdopted(REGISTRIES, converted, "Steve/greenhouse/humidity",
+                new ClimateSensor.Climate(10, ClimateSensor.RawValue.HUMIDITY, new ClimateSensor.Reading(20.0, 61.5, 0, ""), 8_000L), STEVE, "Greenhouse Air");
+        CompoundTag both = humidity.copy();
+        both.putDouble("Temperature", 30.0);
+        check(!HumiditySensorBlock.toClimateSensor(both).contains("Temperature"), "A converted humidity sensor never reads as a temperature sensor");
+        check(!LegacyNbtV1.hasClimateKeys(input(new CompoundTag())) && LegacyNbtV1.hasClimateKeys(input(converted)) && LegacyNbtV1.hasClimateKeys(input(temperature)),
+                "v1 sensors are told by their own keys");
+    }
+
+    /**
+     * The Static Publisher (M2-20): v1 data as v1 saved it, converted by the pure converter into Redstone Input data that
+     * keeps publishing its message on rising edges only, non-retained; once with the owner UUID the M2 legacy layer saved
+     * and an anvil name, once with an empty message, which v1 published as {@code true}.
+     */
+    private static void staticPublishers() {
+        CompoundTag bell = v1Static(v1Device(paper("home"), paper("doorbell"), paper("stray"), ItemStack.EMPTY, "Steve", false), "DING", true);
+        bell.store("ownerUuid", UUIDUtil.CODEC, STEVE);
+        bell.store("CustomName", ComponentSerialization.CODEC, Component.literal("Front Door"));
+        CompoundTag converted = StaticPublisherBlock.toRedstoneInput(bell);
+        check(!converted.contains("wasPowered") && !converted.contains("lastPublishStatus") && converted.getStringOr("staticMessage", "").equals("DING"),
+                "The converter keeps the message and drops v1's edge record and status line: " + converted);
+        CompoundTag expected = bell.copy();
+        expected.remove("wasPowered");
+        expected.remove("lastPublishStatus");
+        check(converted.equals(expected) && bell.contains("wasPowered") && StaticPublisherBlock.toRedstoneInput(bell).equals(converted),
+                "Everything else stays, and the converter is pure");
+        LinkAdoptionCheck.staticPublisherAdopted(REGISTRIES, converted, "home/doorbell", "DING", "DING", STEVE, "Front Door");
+
+        CompoundTag plain = StaticPublisherBlock.toRedstoneInput(v1Static(v1Device(paper("alarm"), ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY,
+                "Steve", true), "", false));
+        LinkAdoptionCheck.staticPublisherAdopted(REGISTRIES, plain, "Steve/alarm", null, "true", null, "");
+    }
+
+    /**
+     * v1 Light Remotes, which became Wall Switches (M2-22): their topic slots (two, of the four every v1 device saved) and
+     * owner, a private one with its owner prefix. What their topic commanded is {@code LegacyAdoptionCheck}'s.
+     */
+    private static void lightRemotes() {
+        LinkAdoptionCheck.remoteAdopted(REGISTRIES, v1Device(paper("home"), paper("kitchen"), ItemStack.EMPTY, ItemStack.EMPTY, "Steve", false), "home/kitchen");
+        LinkAdoptionCheck.remoteAdopted(REGISTRIES, v1Device(paper("lamp"), ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY, "Steve", true), "Steve/lamp");
+    }
+
+    /**
+     * The decommissioned Dynamic Publisher and Topic Relay (M2-21): their v1 data as v1 saved it keeps only the items of
+     * its slots, each in its slot, which the block entity saves as {@code legacyItems} alone and reads back the same.
+     */
+    private static void decommissioned() {
+        CompoundTag relay = v1Relay(v1Device(paper("home/out"), paper("relay"), paper("stray"), ItemStack.EMPTY, "Steve", false),
+                "home/in", "last message");
+        relay.store("CustomName", ComponentSerialization.CODEC, Component.literal("Hall Relay"));
+        retiredItems(relay, List.of(0, 1, 2), List.of("home/out", "relay", "stray"));
+
+        CompoundTag dynamic = v1Dynamic(v1Device(ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY, "Alex", true),
+                ItemStack.EMPTY, paper("server/players"), 2);
+        retiredItems(dynamic, List.of(1), List.of("server/players"));
+
+        CompoundTag empty = v1Dynamic(v1Device(ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY, "", false),
+                ItemStack.EMPTY, ItemStack.EMPTY, 0);
+        DecommissionedBlockEntity nothing = retired(empty);
+        check(nothing.legacyItems().isEmpty(), "A retired block whose slots were empty keeps nothing");
+        check(nothing.saveCustomOnly(REGISTRIES).isEmpty(), "and saves nothing");
+    }
+
+    /**
+     * The items of retired v1 data, by slot and paper name, through the block entity's own load and save: saved, none of
+     * the v1 keys is left besides the items as legacyItems, which read back the same.
+     */
+    private static void retiredItems(CompoundTag v1, List<Integer> slots, List<String> names) {
+        DecommissionedBlockEntity loaded = retired(v1);
+        List<ItemStackWithSlot> items = loaded.legacyItems();
+        check(items.stream().map(ItemStackWithSlot::slot).toList().equals(slots)
+                        && items.stream().map(item -> item.stack().getHoverName().getString()).toList().equals(names)
+                        && items.stream().allMatch(item -> item.stack().is(Items.PAPER) && item.stack().getCount() == 1),
+                "The v1 slots become legacy items in their slots, empty ones left out: " + items);
+        CompoundTag saved = loaded.saveCustomOnly(REGISTRIES);
+        check(saved.keySet().equals(Set.of(DeviceLink.LEGACY_ITEMS)), "Saved, only legacyItems is left of the v1 keys " + v1.keySet() + ": " + saved.keySet());
+        List<ItemStackWithSlot> again = retired(saved).legacyItems();
+        boolean same = again.size() == items.size();
+        for (int i = 0; same && i < items.size(); i++) {
+            same = again.get(i).slot() == items.get(i).slot() && ItemStack.matches(again.get(i).stack(), items.get(i).stack());
+        }
+        check(same, "Loaded again, the same items in the same slots: " + again);
+    }
+
+    // A retired block's entity loaded from saved data. Mod block entity types are registered by the loaders, so it borrows
+    // a vanilla type, as LinkAdoptionCheck's block entities do.
+    private static DecommissionedBlockEntity retired(CompoundTag data) {
+        DecommissionedBlockEntity blockEntity = new DecommissionedBlockEntity(BlockEntityTypes.DAYLIGHT_DETECTOR, BlockPos.ZERO,
+                Blocks.DAYLIGHT_DETECTOR.defaultBlockState());
+        blockEntity.loadCustomOnly(input(data));
+        return blockEntity;
     }
 
     /**
@@ -277,6 +457,66 @@ public final class LegacyNbtV1Test {
     }
 
     /**
+     * The Smart Plug (M2-18): its state JSON, switching (ON, OFF, TOGGLE, a level, boolean spellings), its power-on
+     * behaviour, the preview and difference of a queued command, a group toggle, and its state in NBT.
+     */
+    private static void smartPlugState() {
+        GlobalPos pos = GlobalPos.of(Level.OVERWORLD, new BlockPos(10, 64, 2));
+        Plug off = Plug.DEFAULT;
+        Plug on = off.apply(command("{\"state\":\"ON\"}")).orElseThrow();
+        JsonObject state = plugState(on, pos);
+        check(state.equals(json("""
+                {"state":"ON","power":15,"power_on_behaviour":"previous","location":{"dimension":"minecraft:overworld","pos":[10,64,2]}}""")),
+                "Plug state: " + state);
+        check(plugState(off, pos).get("power").getAsInt() == 0 && plugState(off, pos).get("state").getAsString().equals("OFF"), "Off is power 0");
+        check(on.apply(command("{\"state\":\"TOGGLE\"}")).orElseThrow().equals(off) && off.apply(command("{\"state\":\"toggle\"}")).orElseThrow().equals(on),
+                "TOGGLE switches it");
+        check(off.apply(command("{\"power\":7}")).orElseThrow().equals(on) && on.apply(command("{\"power\":0}")).orElseThrow().equals(off)
+                && off.apply(command("{\"power\":99}")).orElseThrow().power() == SmartPlug.ON_POWER, "Any level above 0 is full power, 0 is off");
+        check(on.apply(command("{\"state\":\"OFF\",\"power\":15}")).orElseThrow().equals(off), "The state wins over a level");
+        check(off.apply(command("{\"state\":true}")).orElseThrow().equals(on) && on.apply(command("{\"state\":\"0\"}")).orElseThrow().equals(off),
+                "Boolean spellings of the state");
+        check(on.apply(command("{\"mode\":\"level\"}")).isEmpty() && on.apply(command("{\"brightness\":7}")).isEmpty()
+                && on.apply(command("{\"state\":\"maybe\"}")).isEmpty(), "A command for something else, the Output's mode among them, is no plug command");
+
+        Plug startsOff = on.apply(command("{\"power_on_behaviour\":\"off\"}")).orElseThrow();
+        check(startsOff.on() && !startsOff.poweredOn().on(), "Power-on off starts off");
+        Plug startsOn = off.apply(command("{\"power_on_behaviour\":\"on\"}")).orElseThrow();
+        check(startsOn.poweredOn().on() && on.poweredOn().equals(on) && off.poweredOn().equals(off), "Power-on on starts on, previous keeps the state");
+        check(startsOn.placed().equals(new Plug(false, RedstoneOutput.PowerOn.ON)), "A placed copy is off and keeps its power-on behaviour");
+        check(Plug.ofPower(15).equals(on) && Plug.ofPower(3).on() && Plug.ofPower(0).equals(off), "A v1 plug is on while its block is powered");
+
+        JsonObject unloaded = plugState(off, pos);
+        JsonObject switchedOn = SmartPlug.TYPE.preview(unloaded, json("{\"state\":\"ON\"}"));
+        check(switchedOn.equals(plugState(on, pos)), "An unloaded plug previews ON, keys in order: " + switchedOn);
+        check(SmartPlug.TYPE.difference(unloaded, switchedOn).equals(json("{\"power\":15}")), "A queued ON is kept as the level it sets");
+        check(SmartPlug.TYPE.preview(plugState(on, pos), json("{\"state\":\"TOGGLE\"}")).equals(unloaded), "and a toggle");
+        check(SmartPlug.TYPE.preview(unloaded, json("{\"color\":\"red\"}")).equals(unloaded), "A preview ignores what is no plug command");
+        check(SmartPlug.TYPE.writableState(state).keySet().equals(Set.of("power", "power_on_behaviour")), "A group shares the writable keys only");
+        JsonObject started = SmartPlug.TYPE.poweredOn(plugState(startsOff, pos));
+        check(started.get("power").getAsInt() == 0 && started.get("state").getAsString().equals("OFF") && started.has("location"),
+                "An unloaded plug with power-on off starts off: " + started);
+        check(SmartPlug.TYPE.poweredOn(state).equals(state), "Power-on previous keeps the record");
+        JsonObject toggle = json("{\"state\":\"TOGGLE\"}");
+        check(SmartPlug.TYPE.resolveToggles(toggle, SmartPlug.TYPE.writableState(state)).equals(json("{\"state\":\"OFF\"}"))
+                && SmartPlug.TYPE.resolveToggles(toggle, SmartPlug.TYPE.writableState(unloaded)).equals(json("{\"state\":\"ON\"}")),
+                "A plug group toggles on its power, as its outlet switch reads it");
+
+        for (Plug plug : List.of(off, on, startsOff, startsOn)) {
+            TagValueOutput nbt = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
+            nbt.store("state", Plug.CODEC, plug);
+            Optional<Plug> read = input(nbt.buildResult()).read("state", Plug.CODEC);
+            check(read.equals(Optional.of(plug)), "The plug round-trips through NBT: " + plug + " -> " + read);
+        }
+        CompoundTag garbage = new CompoundTag();
+        CompoundTag garbageState = new CompoundTag();
+        garbageState.putString("power_on_behaviour", "sometimes");
+        garbageState.putInt("power", 15);
+        garbage.put("state", garbageState);
+        check(input(garbage).read("state", Plug.CODEC).equals(Optional.of(on)), "An unreadable value keeps its default, the rest is read");
+    }
+
+    /**
      * An unloaded output starts with its server too (§7.2): its record is powered on at server start, and a command
      * queued afterwards is diffed against that, so it survives the block entity's own power-on at attach.
      */
@@ -343,13 +583,15 @@ public final class LegacyNbtV1Test {
         Presence two = Presence.DEFAULT.scanned(2, 1000);
         JsonObject state = presenceState(two, pos);
         check(state.equals(JsonParser.parseString("""
-                {"occupancy":true,"count":2,"detect":"players","range":5,"clear_delay":10,
+                {"occupancy":true,"count":2,"detect":"players","range":5,"clear_delay":10,"filter":"",
                  "location":{"dimension":"minecraft:overworld","pos":[8,64,2]}}""")), "§3.3 presence state: " + state);
         check(!state.has("last_seen"), "The time of the last detection is no state");
 
         check(two.apply(command("{\"detect\":\"mobs\"}")).orElseThrow().detect() == PresenceSensor.Detect.MOBS, "detect is set");
         check(two.apply(command("{\"detect\":\"ALL\",\"range\":3,\"clear_delay\":30}")).orElseThrow()
-                .equals(new Presence(PresenceSensor.Detect.ALL, 3, 30, 2, true, 1000)), "All settings at once, the readings stay");
+                .equals(new Presence(PresenceSensor.Detect.ALL, 3, 30, List.of(), 2, true, 1000)), "All settings at once, the readings stay");
+        check(two.apply(command("{\"filter\":\"minecraft:zombie,minecraft:pig\"}")).orElseThrow().filter()
+                .equals(List.of(Identifier.withDefaultNamespace("zombie"), Identifier.withDefaultNamespace("pig"))), "filter is set");
         check(two.apply(command("{\"range\":99}")).orElseThrow().range() == PresenceSensor.MAX_RANGE
                 && two.apply(command("{\"range\":\"0\"}")).orElseThrow().range() == PresenceSensor.MIN_RANGE, "The range is clamped to 1-8");
         check(two.apply(command("{\"clear_delay\":-5}")).orElseThrow().clearDelay() == 0
@@ -360,10 +602,10 @@ public final class LegacyNbtV1Test {
         Presence held = two.scanned(0, 1000 + 199);
         check(held.occupancy() && held.count() == 0 && held.lastSeen() == 1000, "Occupancy holds for the clear delay, the count does not: " + held);
         check(!held.scanned(0, 1000 + 200).occupancy(), "and clears after it");
-        check(held.scanned(1, 1150).equals(new Presence(PresenceSensor.Detect.PLAYERS, 5, 10, 1, true, 1150)), "A new detection restarts the delay");
+        check(held.scanned(1, 1150).equals(new Presence(PresenceSensor.Detect.PLAYERS, 5, 10, List.of(), 1, true, 1150)), "A new detection restarts the delay");
         Presence instant = two.apply(command("{\"clear_delay\":0}")).orElseThrow();
         check(!instant.scanned(0, 1001).occupancy(), "Without a clear delay occupancy follows the count");
-        check(!new Presence(PresenceSensor.Detect.PLAYERS, 5, 10, 1, true, 50_000).scanned(0, 1000).occupancy(),
+        check(!new Presence(PresenceSensor.Detect.PLAYERS, 5, 10, List.of(), 1, true, 50_000).scanned(0, 1000).occupancy(),
                 "A last detection in the future (data from another world) has expired");
         check(!Presence.DEFAULT.scanned(0, 5).occupancy(), "Nothing seen, not occupied");
 
@@ -373,7 +615,9 @@ public final class LegacyNbtV1Test {
         check(!Presence.ofV1(3, true).scanned(0, 24000).occupancy(), "v1 had no clear delay: its motion ends at the first empty scan");
         check(Presence.DEFAULT.detect() == PresenceSensor.Detect.PLAYERS, "New sensors count players");
 
-        for (Presence presence : List.of(Presence.DEFAULT, two, held, v1, instant)) {
+        Presence filtered = two.withFilter(List.of(Identifier.withDefaultNamespace("zombie")));
+        Presence modded = two.withFilter(List.of(Identifier.withDefaultNamespace("zombie"), Identifier.fromNamespaceAndPath("othermod", "wisp")));
+        for (Presence presence : List.of(Presence.DEFAULT, two, held, v1, instant, filtered, modded)) {
             TagValueOutput nbt = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
             nbt.store("state", Presence.CODEC, presence);
             Optional<Presence> read = input(nbt.buildResult()).read("state", Presence.CODEC);
@@ -384,8 +628,23 @@ public final class LegacyNbtV1Test {
         garbageState.putString("detect", "ghosts");
         garbageState.putInt("range", 3);
         garbage.put("state", garbageState);
-        check(input(garbage).read("state", Presence.CODEC).equals(Optional.of(new Presence(PresenceSensor.Detect.PLAYERS, 3, 10, 0, false, 0))),
+        garbageState.putInt("filter", 7);
+        check(input(garbage).read("state", Presence.CODEC).equals(Optional.of(new Presence(PresenceSensor.Detect.PLAYERS, 3, 10, List.of(), 0, false, 0))),
                 "An unreadable value keeps its default, the rest is read");
+        // A removed mod's mob, a hand-written token that is no id and the player, whom detect counts.
+        CompoundTag unknown = new CompoundTag();
+        CompoundTag unknownState = new CompoundTag();
+        unknownState.putString("detect", "mobs");
+        unknownState.putString("filter", "zombie, othermod:wisp Zombie! player zombie");
+        unknown.put("state", unknownState);
+        Presence kept = input(unknown).read("state", Presence.CODEC).orElseThrow();
+        check(kept.filter().equals(List.of(Identifier.withDefaultNamespace("zombie"), Identifier.fromNamespaceAndPath("othermod", "wisp"))),
+                "A saved filter keeps the ids of mobs not registered now and drops only what is no id or the player: " + kept.filter());
+        check(kept.counts(EntityTypes.ZOMBIE) && !kept.counts(EntityTypes.PIG), "and still counts only its mobs");
+        TagValueOutput keptNbt = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
+        keptNbt.store("state", Presence.CODEC, kept);
+        check(keptNbt.buildResult().getCompound("state").orElseThrow().getStringOr("filter", "").equals("zombie, othermod:wisp"),
+                "and saves them again, so a reinstalled mod's mob counts once more");
 
         BlockPos sensor = new BlockPos(10, 64, -3);
         for (Direction facing : Direction.values()) {
@@ -402,17 +661,61 @@ public final class LegacyNbtV1Test {
                 "Redstone links keep theirs");
     }
 
-    /** Spawn-egg filters choose the mobs a sensor counts; without eggs it counts every mob. */
+    /**
+     * The mob filter (M2-12): the ids it takes and refuses, its text, which mobs it counts, and the filter v1's and M1's
+     * spawn eggs in the filter slots (2 to 6) give: every egg's mob once, other items and other slots nothing.
+     */
     private static void presenceFilters() {
-        ItemStack zombie = spawnEgg(Items.ZOMBIE_SPAWN_EGG, EntityTypes.ZOMBIE);
-        check(MotionSensorBlockEntity.matchesFilters(List.of(ItemStack.EMPTY, ItemStack.EMPTY), EntityTypes.PIG), "No filter, every mob");
-        check(MotionSensorBlockEntity.matchesFilters(List.of(ItemStack.EMPTY, zombie), EntityTypes.ZOMBIE)
-                && !MotionSensorBlockEntity.matchesFilters(List.of(ItemStack.EMPTY, zombie), EntityTypes.PIG), "An egg counts its mob only");
-        check(MotionSensorBlockEntity.matchesFilters(List.of(zombie, spawnEgg(Items.PIG_SPAWN_EGG, EntityTypes.PIG)), EntityTypes.PIG), "Several eggs, any of them");
-        check(MotionSensorBlockEntity.matchesFilters(List.of(paper("pig")), EntityTypes.PIG)
-                && !MotionSensorBlockEntity.matchesFilters(List.of(paper("pig"), zombie), EntityTypes.PIG), "Other items filter nothing");
-        check(MotionSensorBlockEntity.FIRST_FILTER == 2 && MotionSensorBlockEntity.NUM_FILTERS == 5,
-                "The sensor reads the slots v1's filter tab showed, 2 to 6");
+        Identifier zombieId = Identifier.withDefaultNamespace("zombie");
+        Identifier pigId = Identifier.withDefaultNamespace("pig");
+        check(PresenceSensor.parseFilter(" zombie,  minecraft:pig zombie ").result().equals(Optional.of(List.of(zombieId, pigId))),
+                "Commas or spaces, minecraft: by default, each mob once");
+        check(PresenceSensor.parseFilter("").result().equals(Optional.of(List.of())), "Empty: no filter");
+        check(PresenceSensor.parseFilter("minecraft:ghost").error().isPresent() && PresenceSensor.parseFilter("Zombie!").error().isPresent()
+                && PresenceSensor.parseFilter("player").error().isPresent(), "Unknown mobs, no ids and players are refused");
+        String nine = "zombie pig cow sheep chicken horse wolf cat fox";
+        check(PresenceSensor.parseFilter(nine).error().isPresent(), "At most " + PresenceSensor.MAX_FILTER + " mobs");
+        Identifier modded = Identifier.fromNamespaceAndPath("othermod", "wisp");
+        check(PresenceSensor.filterText(List.of(zombieId, pigId, modded)).equals("zombie, pig, othermod:wisp"), "The text of a filter: vanilla mobs without namespace");
+        check(PresenceSensor.parseFilter(PresenceSensor.filterText(List.of(zombieId, pigId))).result().equals(Optional.of(List.of(zombieId, pigId))),
+                "and reads back as the same filter");
+        check(PresenceSensor.FILTER.encode(List.of(zombieId)).getAsString().equals("zombie")
+                && PresenceSensor.TYPE.setting("filter").orElseThrow().parse(new JsonPrimitive("cow")).result()
+                .equals(Optional.of(List.of(Identifier.withDefaultNamespace("cow")))), "The setting reads and writes the text");
+
+        Presence any = Presence.DEFAULT;
+        Presence zombies = any.withFilter(List.of(zombieId));
+        check(any.counts(EntityTypes.PIG) && zombies.counts(EntityTypes.ZOMBIE) && !zombies.counts(EntityTypes.PIG), "A filter counts its mobs only");
+
+        List<ItemStackWithSlot> slots = List.of(new ItemStackWithSlot(0, paper("pig")), new ItemStackWithSlot(2, spawnEgg(Items.ZOMBIE_SPAWN_EGG, EntityTypes.ZOMBIE)),
+                new ItemStackWithSlot(3, paper("cow")), new ItemStackWithSlot(4, spawnEgg(Items.PIG_SPAWN_EGG, EntityTypes.PIG)),
+                new ItemStackWithSlot(6, spawnEgg(Items.ZOMBIE_SPAWN_EGG, EntityTypes.ZOMBIE)), new ItemStackWithSlot(7, spawnEgg(Items.PIG_SPAWN_EGG, EntityTypes.PIG)));
+        check(LegacyNbtV1.eggFilter(slots).equals(List.of(zombieId, pigId)), "The eggs of slots 2 to 6 give the filter: " + LegacyNbtV1.eggFilter(slots));
+        check(LegacyNbtV1.eggFilter(List.of(new ItemStackWithSlot(2, paper("pig")))).isEmpty(), "Without an egg every mob counts, as before");
+        check(LegacyNbtV1.eggFilter(List.of(new ItemStackWithSlot(2, spawnEgg(Items.ZOMBIE_SPAWN_EGG, EntityTypes.PLAYER)))).isEmpty(),
+                "A hand-made egg of the player filters nothing, as detect counts players");
+    }
+
+    /**
+     * M1 data captured with {@code data get block} from an M1 world ({@code e2e/tools/buildm1.sh}, resources {@code m1/})
+     * before M2-12 changed the code: migrated without loss, idempotent, and a placed copy resets what it did.
+     */
+    private static void m1Data() {
+        Map<String, CompoundTag> m1 = new HashMap<>();
+        for (String name : List.of("input", "output", "lamp", "presence", "private_output", "adopted_output")) {
+            m1.put(name, fixture("/m1/" + name + ".snbt"));
+        }
+        LinkAdoptionCheck.m1Migrated(REGISTRIES, m1);
+        LinkAdoptionCheck.placedCopies(REGISTRIES, m1.get("output"), m1.get("presence"));
+    }
+
+    private static CompoundTag fixture(String path) {
+        try (InputStream in = LegacyNbtV1Test.class.getResourceAsStream(path)) {
+            if (in == null) throw new AssertionError("Missing fixture " + path);
+            return TagParser.parseCompoundFully(new String(in.readAllBytes(), StandardCharsets.UTF_8).strip());
+        } catch (IOException | CommandSyntaxException e) {
+            throw new AssertionError("Unreadable fixture " + path + ": " + e.getMessage(), e);
+        }
     }
 
     // The state JSON the motion sensor's writeState publishes.
@@ -423,6 +726,11 @@ public final class LegacyNbtV1Test {
     // The state JSON the emitter's writeState publishes.
     private static JsonObject outputState(Output output, GlobalPos pos) {
         return output.write(new StateWriter()).put(CommonFields.LOCATION, pos).json();
+    }
+
+    // The state JSON the plug's writeState publishes.
+    private static JsonObject plugState(Plug plug, GlobalPos pos) {
+        return plug.write(new StateWriter()).put(CommonFields.LOCATION, pos).json();
     }
 
     // The state JSON the publisher's writeState publishes.
@@ -527,6 +835,63 @@ public final class LegacyNbtV1Test {
         return state;
     }
 
+    /**
+     * The render-only update tag (M2-7): a device's clients get exactly one {@code mineqtt_render} compound, built by a
+     * pure helper, with no owner, topic, Raw Link or slots; loading tells v2, render and v1 data apart, so a render update
+     * never reaches {@code DeviceLink.load} and its v1 migrator.
+     */
+    private static void renderTags() {
+        LightState red = new LightState(true, 128, new ValueCodecs.Rgb(255, 0, 0), null);
+        LightState blue = red.merge(JsonParser.parseString("{\"color\":{\"r\":0,\"g\":0,\"b\":255}}").getAsJsonObject());
+        CompoundTag lamp = RenderTag.updateTag(RenderTag.lamp(red));
+        CompoundTag nothing = RenderTag.updateTag(new CompoundTag());
+        check(lamp.keySet().equals(Set.of(RenderTag.KEY)) && nothing.keySet().equals(Set.of(RenderTag.KEY)),
+                "An update tag holds the render compound alone: " + lamp + ", " + nothing);
+        check(lamp.getCompoundOrEmpty(RenderTag.KEY).keySet().equals(Set.of("rgb", "brightness", "on")), "A lamp renders {rgb, brightness, on}: " + lamp);
+        check(nothing.getCompoundOrEmpty(RenderTag.KEY).isEmpty(), "The other devices render nothing: " + nothing);
+        // M2-25: the effect, which the client animates, only while the lamp has one.
+        LightState candle = red.merge(JsonParser.parseString("{\"effect\":\"candle\"}").getAsJsonObject());
+        CompoundTag candleTag = RenderTag.updateTag(RenderTag.lamp(candle));
+        check(candleTag.getCompoundOrEmpty(RenderTag.KEY).keySet().equals(Set.of("rgb", "brightness", "on", "effect"))
+                && candleTag.getCompoundOrEmpty(RenderTag.KEY).getStringOr("effect", "").equals("candle"), "A lamp with an effect renders it too: " + candleTag);
+        check(RenderTag.lamp(input(candleTag)).equals(candle) && RenderTag.lamp(input(lamp)).effect() == ValueCodecs.LightEffect.NONE,
+                "The client reads the effect back, and none from a tag without one");
+
+        // The dispatch table, then real data of each kind.
+        check(RenderTag.dispatch(true, false) == RenderTag.Data.DEVICE && RenderTag.dispatch(true, true) == RenderTag.Data.DEVICE
+                && RenderTag.dispatch(false, true) == RenderTag.Data.RENDER && RenderTag.dispatch(false, false) == RenderTag.Data.V1,
+                "A mineqtt compound is v2 data, a render compound alone a render update, neither v1 data");
+        check(RenderTag.dispatch(input(lamp)) == RenderTag.Data.RENDER && RenderTag.dispatch(input(nothing)) == RenderTag.Data.RENDER,
+                "A render-only tag dispatches to the render update, so it never adopts, also when it is empty");
+        TagValueOutput saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
+        RgbLedBlockEntity.saveLamp(new DeviceLink(SmartLamp.TYPE), red, saved);
+        CompoundTag v2 = saved.buildResult();
+        check(RenderTag.dispatch(input(v2)) == RenderTag.Data.DEVICE, "A saved v2 lamp is v2 data: " + v2);
+        CompoundTag v2WithRender = v2.copy();
+        v2WithRender.merge(lamp);
+        check(RenderTag.dispatch(input(v2WithRender)) == RenderTag.Data.DEVICE, "v2 data stays v2 data next to a render compound");
+        TagValueOutput input = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
+        PublisherBlockEntity.saveInput(new DeviceLink(RedstoneInput.TYPE), 15, input);
+        check(RenderTag.dispatch(input(input.buildResult())) == RenderTag.Data.DEVICE,
+                "An input's compound without an id is left to DeviceLink.load, which tells a placed v1 item by it");
+        check(RenderTag.dispatch(input(v1Lamp(paper("home/kitchen"), 15, 0, 0, 15, 0, 0, 200, true))) == RenderTag.Data.V1
+                        && RenderTag.dispatch(input(v1Emitter(v1Device(paper("garage"), ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY, "Steve", false)))) == RenderTag.Data.V1
+                        && RenderTag.dispatch(input(new CompoundTag())) == RenderTag.Data.V1,
+                "v1 data and an empty tag are v1 data");
+
+        // What the client draws: red to blue at the same brightness re-tints without another light level.
+        LightState shownRed = RenderTag.lamp(input(lamp));
+        LightState shownBlue = RenderTag.lamp(input(RenderTag.updateTag(RenderTag.lamp(blue))));
+        check(shownRed.equals(red) && shownBlue.equals(blue), "The lamp's light survives its render update: " + shownRed + ", " + shownBlue);
+        check(SmartLamp.lightLevel(shownRed) == SmartLamp.lightLevel(shownBlue) && shownRed.color().packed() != shownBlue.color().packed(),
+                "Red to blue keeps the light level, so only the render update re-tints the lamp");
+        LightState warm = red.merge(JsonParser.parseString("{\"color_temp_kelvin\":2700}").getAsJsonObject());
+        LightState shownWarm = RenderTag.lamp(input(RenderTag.updateTag(RenderTag.lamp(warm))));
+        check(shownWarm.color().equals(warm.color()) && shownWarm.kelvin() == null && shownWarm.brightness() == warm.brightness(),
+                "A colour temperature renders as the colour it shows: " + shownWarm);
+        check(RenderTag.lamp(input(nothing)).equals(new LightState(false, 255, ValueCodecs.Rgb.WHITE, null)), "A lamp missing render keys keeps the defaults");
+    }
+
     // ---- v1 data, as the main branch's saveAdditional wrote it ----
 
     /** BaseMqttBlockEntity: topic, lastTabId, ownerName, privateMode and the four slots. */
@@ -552,6 +917,16 @@ public final class LegacyNbtV1Test {
     }
 
     /**
+     * SmartPlugBlockEntity, an MqttSubscriberBlockEntity like the emitter: the device keys and the subscribed topic; it
+     * saved no power, which only its block had. The M2 legacy layer saved the owner's UUID beside them since F11.
+     */
+    private static CompoundTag v1Plug(CompoundTag device, @Nullable UUID ownerUuid) {
+        CompoundTag plug = v1Emitter(device);
+        if (ownerUuid != null) plug.store("ownerUuid", UUIDUtil.CODEC, ownerUuid);
+        return plug;
+    }
+
+    /**
      * MotionSensorBlockEntity, an MqttPublisherBlockEntity with nine slots: the device keys and the five filter slots
      * its tab showed (2 to 6, of which v1 read only 4 to 6), then MotionDetected, LastMotionTime (wall-clock) and
      * LastCount.
@@ -568,6 +943,61 @@ public final class LegacyNbtV1Test {
         sensor.putLong("LastMotionTime", 1_759_917_600_000L);
         sensor.putInt("LastCount", lastCount);
         return sensor;
+    }
+
+    /**
+     * TemperatureSensorBlockEntity or HumiditySensorBlockEntity, MqttPublisherBlockEntities: the device keys and the
+     * reading ({@code Temperature} or {@code Humidity}), the game time of the last publish and the interval in ticks.
+     */
+    private static CompoundTag v1Climate(CompoundTag device, String readingKey, double reading, int intervalTicks, long lastPublish) {
+        CompoundTag sensor = device.copy();
+        sensor.putDouble(readingKey, reading);
+        sensor.putLong("LastPublishTime", lastPublish);
+        sensor.putInt("UpdateIntervalTicks", intervalTicks);
+        return sensor;
+    }
+
+    /**
+     * StaticPublisherBlockEntity: the device keys with three slots (topic base and sub, and a third that no screen
+     * showed), its message, the state of its last edge and its screen's status line.
+     */
+    private static CompoundTag v1Static(CompoundTag device, String message, boolean powered) {
+        CompoundTag publisher = device.copy();
+        publisher.putString("staticMessage", message);
+        publisher.putBoolean("wasPowered", powered);
+        publisher.putString("lastPublishStatus", powered ? "Published to " + device.getStringOr("topic", "") : "");
+        return publisher;
+    }
+
+    /**
+     * TopicRelayBlockEntity, an MqttSubscriberBlockEntity with four slots (the target topic's base and sub): the device
+     * keys, the subscribed target topic, and its source topic, cached message, last edge, status line and subscribed
+     * source.
+     */
+    private static CompoundTag v1Relay(CompoundTag device, String source, String cached) {
+        CompoundTag relay = v1Emitter(device);
+        relay.putString("sourceTopic", source);
+        relay.putString("cachedMessage", cached);
+        relay.putBoolean("wasPowered", false);
+        relay.putBoolean("hasReceivedMessage", !cached.isEmpty());
+        relay.putString("lastRelayStatus", "Received from " + source);
+        relay.putString("currentSourceSubscribedTopic", source);
+        return relay;
+    }
+
+    /**
+     * DynamicPublisherBlockEntity, an MqttPublisherBlockEntity with two slots (topic base and sub): the device keys with
+     * those slots, the data type's ordinal, its last edge and its status line.
+     */
+    private static CompoundTag v1Dynamic(CompoundTag device, ItemStack base, ItemStack sub, int dataType) {
+        CompoundTag publisher = device.copy();
+        TagValueOutput slots = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
+        ContainerHelper.saveAllItems(slots, NonNullList.of(ItemStack.EMPTY, base, sub));
+        publisher.merge(slots.buildResult());
+        publisher.putInt("dataType", dataType);
+        publisher.putBoolean("wasPowered", false);
+        publisher.putString("lastPublishStatus", "");
+        return publisher;
     }
 
     /** RgbLedBlockEntity: two slots, the displayed and the target colour (0–15), Lit and Brightness. */
@@ -599,6 +1029,11 @@ public final class LegacyNbtV1Test {
         ItemStack stack = new ItemStack(Items.PAPER);
         stack.set(DataComponents.CUSTOM_NAME, Component.literal(name));
         return stack;
+    }
+
+    private static void bindEgg(Item egg, EntityType<?> type) {
+        egg.builtInRegistryHolder().bindComponents(DataComponentMap.builder().addAll(DataComponents.COMMON_ITEM_COMPONENTS)
+                .set(DataComponents.ENTITY_DATA, TypedEntityData.of(type, new CompoundTag())).build());
     }
 
     // A spawn egg as a server has it: its mob is the default entity data of the item.

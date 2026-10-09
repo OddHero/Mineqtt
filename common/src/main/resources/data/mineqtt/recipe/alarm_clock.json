@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "group": "mineqtt_timer",
+  "key": {
+    "C": "minecraft:clock",
+    "N": "mineqtt:network_chip",
+    "R": "minecraft:redstone",
+    "S": "minecraft:smooth_stone"
+  },
+  "pattern": [
+    "SCS",
+    "RNR",
+    "SSS"
+  ],
+  "result": {
+    "id": "mineqtt:alarm_clock"
+  }
+}

@@ -2,6 +2,7 @@ package art.rehra.mineqtt.ui.framework.views;
 
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.ui.CyberdeckMenu;
 import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
@@ -29,8 +30,9 @@ import java.util.Optional;
  * owner's player head; when OFF, it shows a flat grey square. The button is
  * shown for both block-backed menus and the cyberdeck.</p>
  *
- * <p>A device block also shows its read-only status line: slug, Home Assistant exposure, availability and what its
- * Raw Link does, as the server saw them when the screen opened.</p>
+ * <p>The tab of the blocks that are no devices and of the Cyberdeck; devices have the generated screen (M2-12). It
+ * shows the slots' topic by v1's rules, a status line when the server sent one (an owner name not verified yet) and,
+ * in red in place of the topic, why the server refuses the topic.</p>
  */
 public class SettingsTabView implements MqttTabView {
 
@@ -48,14 +50,6 @@ public class SettingsTabView implements MqttTabView {
 
     public SettingsTabView(TabbedMqttScreen screen) {
         this.screen = screen;
-    }
-
-    private static ItemStack cyberdeckStack(TabbedMqttMenu menu) {
-        ItemStack main = menu.player.getMainHandItem();
-        if (main.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem) return main;
-        ItemStack off = menu.player.getOffhandItem();
-        if (off.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem) return off;
-        return ItemStack.EMPTY;
     }
 
     @Override
@@ -76,16 +70,13 @@ public class SettingsTabView implements MqttTabView {
             var be = menu.player.level().getBlockEntity(menu.blockPos);
             return be instanceof BaseMqttBlockEntity m && m.isPrivateMode();
         }
-        return art.rehra.mineqtt.items.CyberdeckDataUtil.isPrivate(cyberdeckStack(menu));
+        return menu instanceof CyberdeckMenu explorer && explorer.privateMode();
     }
 
     private String currentOwner(TabbedMqttMenu menu) {
-        if (menu.blockPos != null) {
-            var be = menu.player.level().getBlockEntity(menu.blockPos);
-            if (be instanceof BaseMqttBlockEntity m && !m.getOwnerName().isEmpty()) return m.getOwnerName();
-        }
+        String owner = menu.blockPos != null && menu.player.level().getBlockEntity(menu.blockPos) instanceof BaseMqttBlockEntity m ? m.getOwnerName() : "";
         // Fallback to the viewing player (used for cyberdeck and pre-feature blocks).
-        return menu.player.getGameProfile().name();
+        return owner.isEmpty() ? menu.player.getGameProfile().name() : owner;
     }
 
     private void togglePrivate() {
@@ -97,12 +88,10 @@ public class SettingsTabView implements MqttTabView {
             // Optimistic client-side update so the topic preview reflects the new state immediately.
             m.setPrivateMode(newState);
             NetworkManager.sendToServer(new MineqttNetworking.SetPrivateModePayload(Optional.of(menu.blockPos), newState));
-        } else {
-            // Cyberdeck: persist on the held cyberdeck item via a DataComponent.
-            ItemStack stack = cyberdeckStack(menu);
-            boolean newState = !art.rehra.mineqtt.items.CyberdeckDataUtil.isPrivate(stack);
-            // Optimistic client-side update so the preview reflects immediately.
-            art.rehra.mineqtt.items.CyberdeckDataUtil.setPrivate(stack, newState);
+        } else if (menu instanceof CyberdeckMenu explorer) {
+            // The explorer: the server keeps it for the player; optimistic here so the preview follows at once.
+            boolean newState = !explorer.privateMode();
+            explorer.setPrivateMode(newState);
             NetworkManager.sendToServer(new MineqttNetworking.SetPrivateModePayload(Optional.empty(), newState));
         }
     }
@@ -130,7 +119,7 @@ public class SettingsTabView implements MqttTabView {
             String base = baseStack.isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(baseStack);
             String sub = subStack.isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(subStack);
             String combined = sub.isEmpty() ? base : base + "/" + sub;
-            if (art.rehra.mineqtt.items.CyberdeckDataUtil.isPrivate(cyberdeckStack(menu))) {
+            if (currentPrivate(menu)) {
                 String owner = menu.player.getGameProfile().name();
                 combined = combined.isEmpty() ? owner : owner + "/" + combined;
                 enabled = true;
@@ -141,7 +130,7 @@ public class SettingsTabView implements MqttTabView {
         }
 
         int x = guiLeft + 8;
-        // A device's read-only status line between the title and the slot labels; the full text on hover.
+        // The read-only status line between the title and the slot labels; the full text on hover.
         if (menu.deviceStatus() != null) {
             GuiText.drawTruncated(g, menu.deviceStatus(), x, guiTop + 16, CONTENT_W, 0xFF555555, mouseX, mouseY);
         }
@@ -152,7 +141,11 @@ public class SettingsTabView implements MqttTabView {
         // Topic info — rendered BELOW the slots so it never overlaps them.
         int topicY = guiTop + 58;
 
-        if (enabled && !topic.isEmpty()) {
+        if (menu.rawProblem() != null) {
+            // A refused topic says why where it would be; the server refreshes it while the screen is open.
+            GuiText.drawTruncated(g, Component.translatable("mineqtt.tab.settings.raw_refused"), x, topicY, CONTENT_W, 0xFFAA0000);
+            GuiText.drawWrappedScaled(g, menu.rawProblem(), x + 4, topicY + 10, CONTENT_W - 4, 30, 0xFFCC2222, mouseX, mouseY);
+        } else if (enabled && !topic.isEmpty()) {
             GuiText.drawTruncated(g, "Topic:", x, topicY, CONTENT_W, 0xFF555555);
             GuiText.drawAutoScaled(g, topic, x + 4, topicY + 10, CONTENT_W - 4, 30, 0xFF0088FF, mouseX, mouseY);
         } else {

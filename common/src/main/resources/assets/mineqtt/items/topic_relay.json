@@ -1,6 +1,6 @@
 {
   "model": {
     "type": "minecraft:model",
-    "model": "mineqtt:block/topic_relay_on"
+    "model": "mineqtt:block/topic_relay"
   }
 }

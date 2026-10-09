@@ -24,11 +24,11 @@ public final class ConfigMigration {
 
     /**
      * The v1 keys that carry over. A null component was absent from the v1 file. {@code autoReconnect},
-     * {@code connectionTimeout} and the other v1 keys have no v2 counterpart and are not read.
+     * {@code connectionTimeout}, the zombie goal and item portal keys (their features are gone) and the other v1 keys
+     * have no v2 counterpart and are not read.
      */
     public record V1(String brokerUrl, String clientId, String username, String password, Integer keepAlive,
-                     String baseTopic, String statusTopic, Boolean allowItemNetherPortalTeleport,
-                     Integer goalX, Integer goalY, Integer goalZ, Boolean zombieGoalEnabled) {
+                     String baseTopic, String statusTopic) {
     }
 
     /**
@@ -88,12 +88,6 @@ public final class ConfigMigration {
         String v1Status = v1.statusTopic() == null || v1.statusTopic().isBlank() ? V1_STATUS_TOPIC : v1.statusTopic().strip();
         String v1StatusTopic = v1Base + "/" + v1Status;
         if (ConfigValidation.isValidConfigTopic(v1StatusTopic)) MineQTTConfig.legacyV1StatusTopic = v1StatusTopic;
-
-        if (v1.allowItemNetherPortalTeleport() != null) MineQTTConfig.allowItemNetherPortalTeleport = v1.allowItemNetherPortalTeleport();
-        if (v1.goalX() != null) MineQTTConfig.goalX = v1.goalX();
-        if (v1.goalY() != null) MineQTTConfig.goalY = v1.goalY();
-        if (v1.goalZ() != null) MineQTTConfig.goalZ = v1.goalZ();
-        if (v1.zombieGoalEnabled() != null) MineQTTConfig.zombieGoalEnabled = v1.zombieGoalEnabled();
 
         if (v1.clientId() != null) notes.add("clientId is no longer used: the client id is now mineqtt_<bridgeId>");
         return notes;

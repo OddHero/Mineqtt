@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "C": "minecraft:comparator",
+    "G": "minecraft:glass",
+    "I": "minecraft:iron_ingot",
+    "N": "mineqtt:network_chip"
+  },
+  "pattern": [
+    "IGI",
+    "NCN",
+    "III"
+  ],
+  "result": {
+    "id": "mineqtt:terminal_block"
+  }
+}

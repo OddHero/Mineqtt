@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.config;
 
+import art.rehra.mineqtt.device.RawTopics;
 import art.rehra.mineqtt.mqtt.core.BrokerConfig;
 import art.rehra.mineqtt.mqtt.core.BrokerSettings;
 import art.rehra.mineqtt.mqtt.core.ProtocolVersion;
@@ -58,6 +59,31 @@ public final class ConfigValidation {
     /** Empty (generate one per world) or 1-64 of {@code a-z 0-9 _ -}. */
     public static boolean isValidBridgeId(Object value) {
         return value instanceof String id && (id.isEmpty() || BRIDGE_ID.matcher(id).matches());
+    }
+
+    /**
+     * Why a base topic cannot be used, or empty when it can: every bridge namespace under a base topic in the shared
+     * namespace {@code mineqtt/shared}, where item and paper topics of every server meet, would lie in it, so another
+     * server's item and paper topics would reach this server's device topics.
+     */
+    public static Optional<String> baseTopicNamespaceError(String baseTopic) {
+        if (!inSharedNamespace(baseTopic)) return Optional.empty();
+        return Optional.of("'" + baseTopic + "' lies in the shared namespace " + RawTopics.SHARED_ROOT + " of every server");
+    }
+
+    /**
+     * Why a bridge id cannot be used under the base topic, or empty when it can: the bridge namespace
+     * {@code <baseTopic>/<bridgeId>} must not lie in the shared namespace ({@link #baseTopicNamespaceError}). The bridge
+     * id {@code shared} under the base {@code mineqtt} would make it this server's own reserved namespace.
+     */
+    public static Optional<String> bridgeNamespaceError(String bridgeId, String baseTopic) {
+        if (!inSharedNamespace(baseTopic + "/" + bridgeId)) return Optional.empty();
+        return Optional.of("'" + bridgeId + "' under the base topic '" + baseTopic + "' lies in the shared namespace " + RawTopics.SHARED_ROOT
+                + " of every server");
+    }
+
+    private static boolean inSharedNamespace(String topic) {
+        return TopicFilters.covers(RawTopics.SHARED_ROOT + "/#", topic);
     }
 
     /**

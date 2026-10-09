@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "B": "minecraft:stone_button",
+    "N": "mineqtt:network_chip",
+    "S": "minecraft:smooth_stone"
+  },
+  "pattern": [
+    "B B",
+    "SNS"
+  ],
+  "result": {
+    "id": "mineqtt:light_remote_block"
+  }
+}

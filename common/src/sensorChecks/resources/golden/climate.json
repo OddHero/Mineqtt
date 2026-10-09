@@ -1,0 +1,81 @@
+{
+  "dev": {
+    "ids": ["mineqtt_c1a7e0004d2b4f3a9e8d7c6b5a493821"],
+    "name": "Greenhouse Climate",
+    "mf": "MineQTT",
+    "mdl": "Climate Sensor",
+    "mdl_id": "mineqtt:climate_sensor",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": { "name": "MineQTT", "sw": "2.0.0", "url": "https://github.com/OddHero/Mineqtt" },
+  "avty": [
+    { "t": "mineqtt/world_7f3a/bridge/state" },
+    { "t": "mineqtt/world_7f3a/greenhouse_climate/availability" }
+  ],
+  "avty_mode": "all",
+  "qos": 1,
+  "cmps": {
+    "temperature": {
+      "p": "sensor",
+      "unique_id": "mineqtt_c1a7e0004d2b4f3a9e8d7c6b5a493821_temperature",
+      "name": "Temperature",
+      "state_topic": "mineqtt/world_7f3a/greenhouse_climate",
+      "value_template": "{{ value_json.temperature }}",
+      "unit_of_measurement": "°C",
+      "device_class": "temperature",
+      "state_class": "measurement"
+    },
+    "humidity": {
+      "p": "sensor",
+      "unique_id": "mineqtt_c1a7e0004d2b4f3a9e8d7c6b5a493821_humidity",
+      "name": "Humidity",
+      "state_topic": "mineqtt/world_7f3a/greenhouse_climate",
+      "value_template": "{{ value_json.humidity }}",
+      "unit_of_measurement": "%",
+      "device_class": "humidity",
+      "state_class": "measurement"
+    },
+    "illuminance": {
+      "p": "sensor",
+      "unique_id": "mineqtt_c1a7e0004d2b4f3a9e8d7c6b5a493821_illuminance",
+      "name": "Illuminance",
+      "state_topic": "mineqtt/world_7f3a/greenhouse_climate",
+      "value_template": "{{ value_json.illuminance }}",
+      "unit_of_measurement": "lx",
+      "device_class": "illuminance",
+      "state_class": "measurement"
+    },
+    "interval": {
+      "p": "number",
+      "unique_id": "mineqtt_c1a7e0004d2b4f3a9e8d7c6b5a493821_interval",
+      "name": "Interval",
+      "state_topic": "mineqtt/world_7f3a/greenhouse_climate",
+      "value_template": "{{ value_json.interval }}",
+      "command_topic": "mineqtt/world_7f3a/greenhouse_climate/set/interval",
+      "min": 1,
+      "max": 3600,
+      "step": 1,
+      "unit_of_measurement": "s",
+      "retain": false,
+      "entity_category": "config"
+    },
+    "biome": {
+      "p": "sensor",
+      "unique_id": "mineqtt_c1a7e0004d2b4f3a9e8d7c6b5a493821_biome",
+      "name": "Biome",
+      "state_topic": "mineqtt/world_7f3a/greenhouse_climate",
+      "value_template": "{{ value_json.biome }}",
+      "entity_category": "diagnostic"
+    },
+    "location": {
+      "p": "sensor",
+      "unique_id": "mineqtt_c1a7e0004d2b4f3a9e8d7c6b5a493821_location",
+      "name": "Location",
+      "state_topic": "mineqtt/world_7f3a/greenhouse_climate",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  }
+}

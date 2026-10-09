@@ -1,27 +1,27 @@
 {
   "variants": {
     "facing=north": {
+      "model": "mineqtt:block/humidity_sensor_block"
+    },
+    "facing=south": {
       "model": "mineqtt:block/humidity_sensor_block",
       "y": 180
     },
-    "facing=south": {
-      "model": "mineqtt:block/humidity_sensor_block"
-    },
     "facing=west": {
       "model": "mineqtt:block/humidity_sensor_block",
-      "y": 90
+      "y": 270
     },
     "facing=east": {
       "model": "mineqtt:block/humidity_sensor_block",
-      "y": -90
+      "y": 90
     },
     "facing=up": {
       "model": "mineqtt:block/humidity_sensor_block",
-      "x": 90
+      "x": 270
     },
     "facing=down": {
       "model": "mineqtt:block/humidity_sensor_block",
-      "x": -90
+      "x": 90
     }
   }
 }

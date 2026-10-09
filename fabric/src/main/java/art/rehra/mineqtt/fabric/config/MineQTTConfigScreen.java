@@ -27,6 +27,8 @@ public class MineQTTConfigScreen {
                 .setParentScreen(parent)
                 .setTitle(Component.translatable("config.mineqtt.title"))
                 .setSavingRunnable(() -> {
+                    // The entries check each value alone; rules across values (the bridge id under the base topic) apply here.
+                    MineQTTConfig.sanitize().forEach(problem -> MineQTT.LOGGER.warn("Config: {}", problem));
                     MineQTT.getConfigHandler().saveConfig();
                     // An integrated server reconnects when the connection settings changed.
                     MineqttRuntime.configChanged();
@@ -161,40 +163,20 @@ public class MineQTTConfigScreen {
                 .setSaveConsumer(value -> MineQTTConfig.limitsMaxDevicesPerPlayer = value)
                 .build());
 
-        // General Settings Category
-        ConfigCategory generalCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.general"));
-
-        generalCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.allow_item_nether_portal_teleport"), MineQTTConfig.allowItemNetherPortalTeleport)
-                .setDefaultValue(StaticDefaults.DEFAULT_ALLOW_ITEM_NETHER_PORTAL_TELEPORT)
-                .setTooltip(Component.translatable("config.mineqtt.allow_item_nether_portal_teleport.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.allowItemNetherPortalTeleport = value)
+        securityCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.limits_max_wires_per_player"), MineQTTConfig.limitsMaxWiresPerPlayer)
+                .setDefaultValue(StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER)
+                .setTooltip(Component.translatable("config.mineqtt.limits_max_wires_per_player.tooltip"))
+                .setMin(0)
+                .setSaveConsumer(value -> MineQTTConfig.limitsMaxWiresPerPlayer = value)
                 .build());
 
-        // Goal Settings Category
-        ConfigCategory goalCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.goal"));
+        // Dedicated Server Category
+        ConfigCategory serverCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.server"));
 
-        goalCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.zombie_goal_enabled"), MineQTTConfig.zombieGoalEnabled)
-                .setDefaultValue(StaticDefaults.DEFAULT_ZOMBIE_GOAL_ENABLED)
-                .setTooltip(Component.translatable("config.mineqtt.zombie_goal_enabled.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.zombieGoalEnabled = value)
-                .build());
-
-        goalCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.goal_x"), MineQTTConfig.goalX)
-                .setDefaultValue(StaticDefaults.DEFAULT_GOAL_X)
-                .setTooltip(Component.translatable("config.mineqtt.goal_x.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.goalX = value)
-                .build());
-
-        goalCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.goal_y"), MineQTTConfig.goalY)
-                .setDefaultValue(StaticDefaults.DEFAULT_GOAL_Y)
-                .setTooltip(Component.translatable("config.mineqtt.goal_y.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.goalY = value)
-                .build());
-
-        goalCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.goal_z"), MineQTTConfig.goalZ)
-                .setDefaultValue(StaticDefaults.DEFAULT_GOAL_Z)
-                .setTooltip(Component.translatable("config.mineqtt.goal_z.tooltip"))
-                .setSaveConsumer(value -> MineQTTConfig.goalZ = value)
+        serverCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.server_keep_ticking_when_empty"), MineQTTConfig.serverKeepTickingWhenEmpty)
+                .setDefaultValue(StaticDefaults.DEFAULT_SERVER_KEEP_TICKING_WHEN_EMPTY)
+                .setTooltip(Component.translatable("config.mineqtt.server_keep_ticking_when_empty.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.serverKeepTickingWhenEmpty = value)
                 .build());
 
         return builder.build();

@@ -5,8 +5,9 @@ package art.rehra.mineqtt.mqtt.core;
  * ordered delivery on the owner (server) thread, and the local loopback that makes same-server links work with the
  * broker down.
  * <p>
- * Threading: {@link #publish} may be called from any thread. Everything else belongs to the owner thread, which
- * calls {@link #drainInbound} and {@link #flushOutbound} once per tick; handlers and connect listeners run there.
+ * Threading: {@link #publish}, {@link #onInboundAvailable} and {@link #hasPendingWork} may be called from any thread.
+ * Everything else belongs to the owner thread, which calls {@link #drainInbound} and {@link #flushOutbound} once per
+ * tick; handlers and connect listeners run there.
  */
 public interface MqttService extends AutoCloseable {
     /** Default per-tick drain budget: 5 ms. */
@@ -32,6 +33,22 @@ public interface MqttService extends AutoCloseable {
 
     /** Runs {@code listener} on the owner thread, during the first drain after each CONNACK. */
     void onConnected(Runnable listener);
+
+    /**
+     * Any thread: sets the listener told that {@link #drainInbound} has something to do, so an owner whose ticks stopped
+     * (an empty dedicated server that paused) can drain anyway. It runs on the thread that queued the work, usually a
+     * client thread: once per burst when an inbound message, a CONNACK or an acknowledgement is queued, and not again
+     * until the next {@link #drainInbound} starts. It must be quick and must not call back into the service. Work that
+     * is already queued when it is set calls it at once. A later call replaces the listener.
+     */
+    void onInboundAvailable(Runnable listener);
+
+    /**
+     * Any thread: whether a drain or a flush would do something now: queued inbound messages, connect or
+     * acknowledgement listeners, or outbound messages a flush could release (the outbox only while connected, since it
+     * waits for the next CONNACK otherwise).
+     */
+    boolean hasPendingWork();
 
     /**
      * Runs the connect listeners after a CONNACK, then the {@link Outbound#onAcknowledged() acknowledgement listeners}

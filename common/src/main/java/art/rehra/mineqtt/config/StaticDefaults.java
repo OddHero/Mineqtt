@@ -44,16 +44,14 @@ public final class StaticDefaults {
     public static final boolean DEFAULT_BLOCK_PLACER_ENABLED = false;
     /** 0 means unlimited. */
     public static final int DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER = 0;
+    /** The wires one player may own (M2 plan D9); 0 means unlimited. Wires made from the console count for nobody. */
+    public static final int DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER = 256;
+
+    /** Off: an empty dedicated server pauses as {@code pause-when-empty-seconds} says, and MQTT is pumped between ticks. */
+    public static final boolean DEFAULT_SERVER_KEEP_TICKING_WHEN_EMPTY = false;
 
     /** The v1 status topic recorded by the config migration; empty when there was no v1 config. */
     public static final String DEFAULT_LEGACY_V1_STATUS_TOPIC = "";
-
-    // Leftover experiments, kept until they are removed together with their features.
-    public static final boolean DEFAULT_ALLOW_ITEM_NETHER_PORTAL_TELEPORT = true;
-    public static final int DEFAULT_GOAL_X = 7;
-    public static final int DEFAULT_GOAL_Y = -35;
-    public static final int DEFAULT_GOAL_Z = 4;
-    public static final boolean DEFAULT_ZOMBIE_GOAL_ENABLED = false;
 
     private StaticDefaults() {
     }

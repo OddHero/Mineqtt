@@ -11,6 +11,7 @@ import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.mqtt.core.ConnectionState;
 import art.rehra.mineqtt.mqtt.core.Inbound;
 import art.rehra.mineqtt.mqtt.core.InboundHandler;
+import art.rehra.mineqtt.mqtt.core.MqttLog;
 import art.rehra.mineqtt.mqtt.core.MqttService;
 import art.rehra.mineqtt.mqtt.core.OfflinePolicy;
 import art.rehra.mineqtt.mqtt.core.Outbound;
@@ -34,14 +35,16 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * How discovery is published (design §4.2, §8.8, §9.3), run by Gradle's verifyDiscoveryPublisher task against a
  * recording MQTT service and a hand-driven clock: exposure and hashes, the rate limit, the v1 discovery migration with
- * its acknowledgements, the v1 status clear, a changed prefix, Home Assistant's birth and the bridge's requests and
- * telemetry.
+ * its acknowledgements, the v1 status clear, a changed prefix, Home Assistant's birth, the bridge's requests and
+ * telemetry, and the ghost cleanup (§4.5).
  */
 public final class DiscoveryPublisherCheck {
     private static final String PREFIX = "homeassistant";
@@ -61,6 +64,8 @@ public final class DiscoveryPublisherCheck {
         prefixChange();
         birth();
         bridgeRequestsAndTelemetry();
+        ghostVerdicts();
+        ghostScan();
         System.out.println("Discovery publisher checks passed.");
     }
 
@@ -160,6 +165,31 @@ public final class DiscoveryPublisherCheck {
         fixture.publisher.refresh(member);
         fixture.publisher.tick();
         check(fixture.mqtt.single().payload().length > 0, "A member that leaves is discovered again");
+
+        // OPT_IN: any player may make a group, but only an exposed member, which a player with mayExpose turned on, or
+        // the v1 light of a legacy group puts it into Home Assistant.
+        MineQTTConfig.haExpose = HaExpose.OPT_IN;
+        DeviceRecord porch = fixture.lamp("porch_1");
+        DeviceGroup porchGroup = fixture.registry.createGroup(UUID.randomUUID(), "Porch");
+        fixture.registry.joinGroup(porchGroup, porch);
+        fixture.publisher.refresh(porchGroup);
+        fixture.publisher.tick();
+        check(!fixture.publisher.exposed(porchGroup) && fixture.mqtt.take().isEmpty(), "OPT_IN does not discover a group whose members nobody exposed");
+        porch.setExpose(true);
+        fixture.publisher.refresh(porchGroup);
+        fixture.publisher.tick();
+        Outbound exposedGroup = fixture.mqtt.single();
+        check(fixture.publisher.exposed(porchGroup) && exposedGroup.topic().equals(config(porchGroup.objectId())) && exposedGroup.payload().length > 0,
+                "OPT_IN discovers a group with an exposed member");
+        porch.setExpose(null);
+        fixture.publisher.refresh(porchGroup);
+        fixture.publisher.tick();
+        check(fixture.mqtt.single().payload().length == 0, "and clears it once no member is exposed any more");
+        porchGroup.setLegacyTopic("home/porch");
+        check(fixture.publisher.exposed(porchGroup), "A group that replaces a v1 topic stays discovered, as v1's light was");
+        MineQTTConfig.haExpose = HaExpose.ALL;
+        porchGroup.setLegacyTopic(null);
+        check(fixture.publisher.exposed(porchGroup), "ALL discovers every group with members");
     }
 
     private static void rateLimit() {
@@ -171,10 +201,11 @@ public final class DiscoveryPublisherCheck {
         fixture.clock.addAndGet(500);
         fixture.publisher.tick();
         check(fixture.mqtt.take().size() == 25, "25 more after half a second");
-        check(!fixture.publisher.idle(), "The rest still waits");
+        check(!fixture.publisher.idle() && fixture.publisher.hasPendingWork(), "The rest still waits, which keeps a paused server pumped");
         fixture.clock.addAndGet(1_000);
         fixture.publisher.tick();
         check(fixture.mqtt.take().size() == 46 && fixture.publisher.idle(), "The bridge and 120 devices are out after 1.5 s");
+        check(!fixture.publisher.hasPendingWork(), "Nothing is left for a pump");
     }
 
     private static void legacyMigration() {
@@ -201,9 +232,12 @@ public final class DiscoveryPublisherCheck {
         fixture.clock.addAndGet(1);
         fixture.publisher.tick();
         Outbound discovery = fixture.mqtt.single();
-        JsonObject light = JsonParser.parseString(discovery.text()).getAsJsonObject().getAsJsonObject("cmps").getAsJsonObject("light");
+        JsonObject migrated = JsonParser.parseString(discovery.text()).getAsJsonObject();
+        JsonObject light = migrated.getAsJsonObject("cmps").getAsJsonObject("light");
         check(discovery.topic().equals(config(lamp.objectId())) && light.get("unique_id").getAsString().equals("home_kitchen"),
                 "Step 2: the device discovery with the v1 unique_id");
+        check(DiscoveryGoldenTest.ids(migrated).equals(List.of(lamp.objectId(), "home_kitchen")),
+                "Step 2: Home Assistant reuses v1's device through its identifier, got " + DiscoveryGoldenTest.ids(migrated));
         fixture.clock.addAndGet(LegacyDiscoveryMigration.STEP_MILLIS);
         fixture.publisher.tick();
         Outbound clear = fixture.mqtt.single();
@@ -217,7 +251,10 @@ public final class DiscoveryPublisherCheck {
 
         fixture.publisher.republishAll();
         fixture.publisher.tick();
-        check(topics(fixture.mqtt.take()).contains(config(lamp.objectId())), "A migrated device is republished like any other");
+        Outbound republished = fixture.mqtt.take().stream().filter(message -> message.topic().equals(config(lamp.objectId())))
+                .findFirst().orElseThrow(() -> new AssertionError("A migrated device is republished like any other"));
+        check(DiscoveryGoldenTest.ids(JsonParser.parseString(republished.text()).getAsJsonObject()).equals(List.of(lamp.objectId(), "home_kitchen")),
+                "A migrated device keeps v1's device identifier for good");
 
         // A connection lost before the acknowledgement: the late acknowledgement must not mark the new attempt.
         DeviceRecord second = fixture.lamp("hall_lamp");
@@ -341,21 +378,29 @@ public final class DiscoveryPublisherCheck {
         AtomicLong clock = new AtomicLong(1_000);
         AtomicInteger republished = new AtomicInteger();
         BirthWatcher watcher = new BirthWatcher(mqtt, republished::incrementAndGet, clock::get, new Random(3));
+        check(watcher.heard().equals(BirthWatcher.Heard.NOTHING), "Nothing is heard before Home Assistant speaks");
         mqtt.deliver("homeassistant/status", "offline");
         watcher.tick();
         check(!watcher.pending(), "offline is no birth");
+        check(watcher.heard().equals(new BirthWatcher.Heard(BirthWatcher.Status.WILL, 1_000)), "Its last will is heard: " + watcher.heard());
         mqtt.deliver("homeassistant/status", "online");
+        clock.addAndGet(10);
         mqtt.deliver("homeassistant/status", "online");
         check(watcher.pending(), "online schedules a republish");
+        check(watcher.heard().equals(new BirthWatcher.Heard(BirthWatcher.Status.BIRTH, 1_010)),
+                "The Bridge Console hears the last birth, also one folded into a pending republish: " + watcher.heard());
         clock.addAndGet(BirthWatcher.MAX_JITTER_MILLIS);
         watcher.tick();
         watcher.tick();
         check(republished.get() == 1, "Births while one is pending fold into one republish, got " + republished.get());
+        mqtt.deliver("homeassistant/status", "restarting");
+        check(watcher.heard().status() == BirthWatcher.Status.BIRTH, "Another word changes nothing it heard");
 
         MineQTTConfig.haBirthTopic = "ha/status";
         try {
             watcher.configChanged();
             check(mqtt.handlers.keySet().equals(Set.of("ha/status")), "A changed birth topic moves the subscription");
+            check(watcher.heard().equals(BirthWatcher.Heard.NOTHING), "and forgets what the old topic said");
         } finally {
             MineQTTConfig.haBirthTopic = "homeassistant/status";
         }
@@ -401,6 +446,164 @@ public final class DiscoveryPublisherCheck {
         check(mqtt.handlers.isEmpty(), "Stopping unsubscribes");
     }
 
+    /** Design §4.5: which configs the ghost cleanup clears, as the pure decision. */
+    private static void ghostVerdicts() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        DeviceRecord lamp = fixture.lamp("kitchen_lamp");
+        DeviceGroup group = fixture.registry.createGroup(UUID.randomUUID(), "Hallway");
+        String bridge = DiscoveryGoldenTest.IDENTITY.bridgeObjectId();
+        String ghost = config(DeviceRecord.objectId(UUID.randomUUID()));
+        String ours = ghostConfig("dev", "\"" + bridge + "\"", 0);
+
+        check(GhostCleanup.deviceId(PREFIX, config(lamp.objectId())).equals(lamp.id()), "The device id is read back from the object id");
+        check(verdict(fixture, ghost, ours, true) == GhostCleanup.Verdict.GHOST, "This bridge's config of an unknown id is a ghost");
+        check(verdict(fixture, ghost, ghostConfig("device", "\"" + bridge + "\"", 0), true) == GhostCleanup.Verdict.GHOST,
+                "also with the device block spelled out");
+        check(verdict(fixture, ghost, ours, false) == GhostCleanup.Verdict.LIVE, "A live message is no ghost");
+        check(verdict(fixture, config(lamp.objectId()), ours, true) == GhostCleanup.Verdict.KNOWN, "A device of the registry is kept");
+        check(verdict(fixture, config(group.objectId()), ours, true) == GhostCleanup.Verdict.KNOWN, "A group of the registry is kept");
+        String otherBridge = "\"" + BridgeDevice.objectId(UUID.randomUUID()) + "\"";
+        check(verdict(fixture, ghost, ghostConfig("dev", otherBridge, 0), true) == GhostCleanup.Verdict.OTHER_BRIDGE, "Another bridge's device is kept");
+        check(verdict(fixture, ghost, "{\"dev\":{\"name\":\"Lamp\"}}", true) == GhostCleanup.Verdict.OTHER_BRIDGE, "A device without via_device is kept");
+        check(verdict(fixture, ghost, ghostConfig("dev", "7", 0), true) == GhostCleanup.Verdict.OTHER_BRIDGE, "A via_device that is no string is kept");
+        check(verdict(fixture, ghost, "{\"dev\":\"" + bridge + "\"}", true) == GhostCleanup.Verdict.OTHER_BRIDGE, "A device block that is no object is kept");
+        check(verdict(fixture, ghost, "{\"dev\":", true) == GhostCleanup.Verdict.MALFORMED, "Broken JSON is kept");
+        check(verdict(fixture, ghost, "[\"" + bridge + "\"]", true) == GhostCleanup.Verdict.MALFORMED, "JSON that is no object is kept");
+        String largest = ghostConfig("dev", "\"" + bridge + "\"", GhostCleanup.MAX_CONFIG_BYTES);
+        check(largest.length() == GhostCleanup.MAX_CONFIG_BYTES && verdict(fixture, ghost, largest, true) == GhostCleanup.Verdict.GHOST,
+                "A config of exactly 16 KiB is judged");
+        check(verdict(fixture, ghost, ghostConfig("dev", "\"" + bridge + "\"", GhostCleanup.MAX_CONFIG_BYTES + 1), true) == GhostCleanup.Verdict.TOO_LARGE,
+                "One byte more is skipped before parsing");
+        String hex = lamp.objectId().substring("mineqtt_".length());
+        for (String foreign : List.of(PREFIX + "/device/zigbee_" + hex + "/config", config(bridge), config("mineqtt_" + hex.toUpperCase()),
+                config("mineqtt_" + hex.substring(1)), config("mineqtt_" + hex + "0"), config("mineqtt_" + hex.substring(1) + "g"),
+                "ha2/device/mineqtt_" + hex + "/config", PREFIX + "/light/mineqtt_" + hex + "/config", PREFIX + "/device/mineqtt_" + hex + "/state")) {
+            check(verdict(fixture, foreign, ours, true) == GhostCleanup.Verdict.FOREIGN, "Not a MineQTT device config: " + foreign);
+        }
+    }
+
+    /** The scan after a connect: its subscription and window, the clears and their rate limit, reconnects and stop. */
+    private static void ghostScan() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        FakeMqtt mqtt = fixture.mqtt;
+        DeviceRecord lamp = fixture.lamp("kitchen_lamp");
+        String bridge = DiscoveryGoldenTest.IDENTITY.bridgeObjectId();
+        String ours = ghostConfig("dev", "\"" + bridge + "\"", 0);
+        AtomicReference<String> prefix = new AtomicReference<>(PREFIX);
+        AtomicBoolean tokens = new AtomicBoolean(true);
+        List<String> logged = new ArrayList<>();
+        GhostCleanup cleanup = new GhostCleanup(mqtt, prefix::get, bridge, fixture.registry::contains, tokens::get, fixture.clock::get, recording(logged));
+        check(!cleanup.pending() && mqtt.handlers.isEmpty(), "Nothing is scanned before a connect");
+
+        cleanup.connected();
+        String filter = PREFIX + "/device/+/config";
+        SubOptions scan = mqtt.options.get(filter);
+        check(mqtt.handlers.keySet().equals(Set.of(filter)) && cleanup.pending(), "A connect subscribes to every device config");
+        check(scan.acceptRetained() && !scan.noLocal() && scan.qos() == 0 && scan.maxPayloadBytes() > GhostCleanup.MAX_CONFIG_BYTES,
+                "The scan takes retained messages at QoS 0, also its own client id's, and caps the size itself: " + scan);
+        String ghost = config(DeviceRecord.objectId(UUID.randomUUID()));
+        String otherBridge = config(DeviceRecord.objectId(UUID.randomUUID()));
+        mqtt.deliver(ghost, ours, true);
+        mqtt.deliver(ghost, ours, true);
+        mqtt.deliver(config(lamp.objectId()), ours, true);
+        mqtt.deliver(otherBridge, ghostConfig("dev", "\"" + BridgeDevice.objectId(UUID.randomUUID()) + "\"", 0), true);
+        mqtt.deliver(config(DeviceRecord.objectId(UUID.randomUUID())), ours, false);
+        tokens.set(false);
+        cleanup.tick();
+        check(mqtt.take().isEmpty() && cleanup.pending(), "A clear waits for the discovery rate limit");
+        tokens.set(true);
+        cleanup.tick();
+        Outbound clear = mqtt.single();
+        check(clear.topic().equals(ghost) && clear.retain() && clear.payload().length == 0 && clear.offline() == OfflinePolicy.KEEP,
+                "Only the ghost is cleared, once, with an empty retained message: " + clear.topic());
+        check(logged.stream().filter(line -> line.contains(ghost)).count() == 1, "The ghost is logged once: " + logged);
+
+        UUID adopted = UUID.randomUUID();
+        mqtt.deliver(config(DeviceRecord.objectId(adopted)), ours, true);
+        tokens.set(false);
+        cleanup.tick();
+        fixture.registry.add(new DeviceRecord(adopted, fixture.lampType.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(nextX++, 64, 0)), "Porch", "porch"));
+        tokens.set(true);
+        cleanup.tick();
+        check(mqtt.take().isEmpty(), "A ghost whose id became a device before its clear is left alone");
+
+        fixture.clock.addAndGet(GhostCleanup.WINDOW_MILLIS - 1);
+        cleanup.tick();
+        check(cleanup.pending() && !mqtt.handlers.isEmpty(), "The scan listens for 5 s");
+        fixture.clock.incrementAndGet();
+        cleanup.tick();
+        check(!cleanup.pending() && mqtt.handlers.isEmpty(), "then it unsubscribes");
+        check(logged.getLast().equals("Home Assistant ghost cleanup: 6 discovery configs looked at, 2 ghosts found"), "The scan is summed up: " + logged.getLast());
+
+        cleanup.connected();
+        fixture.clock.addAndGet(4_000);
+        cleanup.connected();
+        fixture.clock.addAndGet(4_000);
+        cleanup.tick();
+        check(cleanup.pending() && mqtt.handlers.size() == 1, "A connect during a scan restarts its window on the same subscription");
+        mqtt.deliver(config(DeviceRecord.objectId(UUID.randomUUID())), ours, true);
+        mqtt.state = ConnectionState.reconnecting("connection lost");
+        cleanup.tick();
+        check(!cleanup.pending() && mqtt.handlers.isEmpty(), "A lost connection ends the scan");
+        mqtt.state = ConnectionState.CONNECTED;
+        cleanup.tick();
+        check(mqtt.take().isEmpty(), "and drops its clears; the next connect finds the ghost again");
+
+        prefix.set("ha2");
+        cleanup.connected();
+        cleanup.connected();
+        check(mqtt.handlers.keySet().equals(Set.of("ha2/device/+/config")), "A connect scans under the prefix of that moment");
+        String moved = "ha2/device/" + DeviceRecord.objectId(UUID.randomUUID()) + "/config";
+        mqtt.deliver(moved, ours, true);
+        cleanup.tick();
+        check(mqtt.single().topic().equals(moved), "and judges the topics under it");
+        prefix.set(PREFIX);
+        cleanup.connected();
+        check(mqtt.handlers.keySet().equals(Set.of(filter)), "A changed prefix moves a running scan");
+
+        mqtt.deliver(config(DeviceRecord.objectId(UUID.randomUUID())), ours, true);
+        cleanup.stop();
+        cleanup.tick();
+        check(!cleanup.pending() && mqtt.handlers.isEmpty() && mqtt.take().isEmpty(), "Stopping unsubscribes and clears nothing more");
+        cleanup.connected();
+        check(mqtt.handlers.isEmpty(), "A stopped cleanup never scans again");
+    }
+
+    private static GhostCleanup.Verdict verdict(Fixture fixture, String topic, String payload, boolean retained) {
+        Inbound message = new Inbound(topic, payload.getBytes(StandardCharsets.UTF_8), retained, false, null, 0);
+        return GhostCleanup.judge(PREFIX, message, DiscoveryGoldenTest.IDENTITY.bridgeObjectId(), fixture.registry::contains);
+    }
+
+    /** A device config whose via_device is the JSON {@code via}, padded to {@code size} characters when not 0. */
+    private static String ghostConfig(String deviceKey, String via, int size) {
+        String config = "{\"" + deviceKey + "\":{\"name\":\"Lamp\",\"via_device\":" + via + "},\"padding\":\"";
+        return config + "x".repeat(Math.max(0, size - config.length() - 2)) + "\"}";
+    }
+
+    private static MqttLog recording(List<String> lines) {
+        return new MqttLog() {
+            @Override
+            public void debug(String message) {
+                lines.add(message);
+            }
+
+            @Override
+            public void info(String message) {
+                lines.add(message);
+            }
+
+            @Override
+            public void warn(String message, Throwable cause) {
+                lines.add(message);
+            }
+
+            @Override
+            public void error(String message, Throwable cause) {
+                lines.add(message);
+            }
+        };
+    }
+
     private static String config(String objectId) {
         return PREFIX + "/device/" + objectId + "/config";
     }
@@ -437,6 +640,8 @@ public final class DiscoveryPublisherCheck {
     private static final class FakeMqtt implements MqttService {
         final List<Outbound> published = new ArrayList<>();
         final Map<String, InboundHandler> handlers = new LinkedHashMap<>();
+        // The options of the latest subscription per filter.
+        final Map<String, SubOptions> options = new LinkedHashMap<>();
         ConnectionState state = ConnectionState.CONNECTED;
         private long seq;
 
@@ -453,7 +658,12 @@ public final class DiscoveryPublisherCheck {
         }
 
         void deliver(String topic, String payload) {
-            Inbound message = new Inbound(topic, payload.getBytes(StandardCharsets.UTF_8), false, false, null, seq++);
+            deliver(topic, payload, false);
+        }
+
+        /** A message as the broker sends it; {@code retained}: a stored one, sent on SUBSCRIBE. */
+        void deliver(String topic, String payload, boolean retained) {
+            Inbound message = new Inbound(topic, payload.getBytes(StandardCharsets.UTF_8), retained, false, null, seq++);
             List.copyOf(handlers.entrySet()).stream().filter(entry -> TopicFilters.matches(entry.getKey(), topic))
                     .forEach(entry -> entry.getValue().handle(message));
         }
@@ -471,6 +681,7 @@ public final class DiscoveryPublisherCheck {
         @Override
         public Subscription subscribe(String filter, SubOptions opts, InboundHandler handler) {
             handlers.put(filter, handler);
+            options.put(filter, opts);
             return new Subscription() {
                 @Override
                 public String filter() {
@@ -486,6 +697,15 @@ public final class DiscoveryPublisherCheck {
 
         @Override
         public void onConnected(Runnable listener) {
+        }
+
+        @Override
+        public void onInboundAvailable(Runnable listener) {
+        }
+
+        @Override
+        public boolean hasPendingWork() {
+            return false;
         }
 
         @Override

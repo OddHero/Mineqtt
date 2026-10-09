@@ -30,7 +30,7 @@ public final class BrokerSmokeCheck {
     private static final MqttQos QOS = MqttQos.AT_LEAST_ONCE;
 
     private record Capabilities(boolean retainFlagAtQos0, boolean retainFlagAtQos1, boolean retainsWill,
-                                boolean mqtt5, boolean noLocal, boolean retainHandling) {}
+                                boolean mqtt5, boolean noLocal, boolean retainHandling, boolean ownRetainedOnNoLocal) {}
 
     static void main(String[] args) throws Exception {
         int separator = args.length == 1 ? args[0].lastIndexOf(':') : -1;
@@ -53,6 +53,8 @@ public final class BrokerSmokeCheck {
             expect("MQTT 5", capabilities.mqtt5(), EmbeddedMoquette.SUPPORTS_MQTT_5);
             expect("MQTT 5 no-local", capabilities.noLocal(), EmbeddedMoquette.SUPPORTS_NO_LOCAL);
             expect("MQTT 5 retain-handling", capabilities.retainHandling(), EmbeddedMoquette.SUPPORTS_RETAIN_HANDLING);
+            expect("MQTT 5 own retained message on a no-local subscribe", capabilities.ownRetainedOnNoLocal(),
+                    EmbeddedMoquette.SENDS_OWN_RETAINED_ON_NO_LOCAL);
         }
         System.out.println("Broker smoke checks passed.");
     }
@@ -65,10 +67,10 @@ public final class BrokerSmokeCheck {
         boolean retainFlagAtQos1 = retainFlagOnSubscribe(host, port, root, MqttQos.AT_LEAST_ONCE);
         boolean retainsWill = retainsWill(host, port, root);
         if (!connectsWithMqtt5(host, port)) {
-            return new Capabilities(retainFlagAtQos0, retainFlagAtQos1, retainsWill, false, false, false);
+            return new Capabilities(retainFlagAtQos0, retainFlagAtQos1, retainsWill, false, false, false, false);
         }
-        return new Capabilities(retainFlagAtQos0, retainFlagAtQos1, retainsWill,
-                true, honoursNoLocal(host, port, root), honoursRetainHandling(host, port, root));
+        return new Capabilities(retainFlagAtQos0, retainFlagAtQos1, retainsWill, true, honoursNoLocal(host, port, root),
+                honoursRetainHandling(host, port, root), sendsOwnRetainedOnNoLocal(host, port, root));
     }
 
     /**
@@ -227,6 +229,32 @@ public final class BrokerSmokeCheck {
         }
     }
 
+    /**
+     * The client stores a retained message and then subscribes to its topic with no-local; a second client publishes a
+     * marker on another topic the client subscribed first. The retained message arrives right after the SUBACK, so it
+     * comes before the marker only if the broker sends a client its own retained message despite no-local, which a
+     * MineQTT Raw Link input that loads after this server's own retained level depends on (M2 plan D4).
+     */
+    private static boolean sendsOwnRetainedOnNoLocal(String host, int port, String root) throws InterruptedException {
+        String topic = root + "/v5/own-retained";
+        String marker = root + "/v5/own-retained-marker";
+        Mqtt5BlockingClient origin = mqtt5Client(host, port, "v5o");
+        Mqtt5BlockingClient remote = mqtt5Client(host, port, "v5r");
+        origin.connect();
+        remote.connect();
+        try (Mqtt5BlockingClient.Mqtt5Publishes received = origin.publishes(MqttGlobalPublishFilter.ALL)) {
+            origin.publishWith().topic(topic).qos(QOS).retain(true).payload(utf8("own")).send();
+            origin.subscribeWith().topicFilter(marker).qos(QOS).send();
+            origin.subscribeWith().topicFilter(topic).noLocal(true).qos(QOS).send();
+            remote.publishWith().topic(marker).qos(QOS).payload(utf8("marker")).send();
+            return "own".equals(firstPayload(received, topic));
+        } finally {
+            origin.publishWith().topic(topic).qos(QOS).retain(true).send();
+            origin.disconnect();
+            remote.disconnect();
+        }
+    }
+
     private static String firstPayload(Mqtt5BlockingClient.Mqtt5Publishes received, String topic) throws InterruptedException {
         Mqtt5Publish first = received.receive(TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .orElseThrow(() -> new AssertionError("No MQTT 5 delivery on " + topic));
@@ -269,6 +297,7 @@ public final class BrokerSmokeCheck {
         String needsMqtt5 = capabilities.mqtt5() ? "" : " (requires MQTT 5)";
         System.out.println("  MQTT 5 no-local: " + yesNo(capabilities.noLocal()) + needsMqtt5);
         System.out.println("  MQTT 5 retain-handling DO_NOT_SEND: " + yesNo(capabilities.retainHandling()) + needsMqtt5);
+        System.out.println("  MQTT 5 own retained message on a no-local subscribe: " + yesNo(capabilities.ownRetainedOnNoLocal()) + needsMqtt5);
     }
 
     private static String yesNo(boolean value) {

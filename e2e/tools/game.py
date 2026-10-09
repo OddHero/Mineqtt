@@ -5,8 +5,12 @@
   game.py rcon <command...>                  RCON to the dev server
   game.py pid                                PID of this checkout's dev server JVM (Windows, PowerShell)
   game.py v1lamp x y z topic r g b bright lit   turn a placed lamp into v1 data (keys as v1 wrote them)
-  game.py v1 x y z emitter|publisher topic   turn a placed emitter/publisher into v1 data
+  game.py v1 x y z emitter|plug|publisher topic   turn a placed emitter/plug/publisher into v1 data
   game.py v1motion x y z topic count         turn a placed motion sensor into v1 data
+  game.py v1climate x y z temperature|humidity topic [facing]   set a v1 temperature or humidity sensor (setblock)
+  game.py v1static x y z topic message [powered]   set a v1 Static Publisher (setblock)
+  game.py v1retired x y z relay|dynamic topic [source]   set a v1 Topic Relay or Dynamic Publisher (setblock)
+  game.py v1remote x y z topic [owner]       set a v1 Light Remote (setblock), which becomes a Wall Switch
   game.py v1disc topic area                  publish v1's retained light discovery for a topic
   game.py retained <filter...>               list retained topics
   game.py clear <filter...>                  clear retained topics under the filters
@@ -111,7 +115,7 @@ def v1lamp(args):
 def v1(args):
     x, y, z, kind, topic = args[:5]
     nbt = '{topic:"%s",lastTabId:"settings",ownerName:"Steve",privateMode:0b,Items:[%s]' % (topic, item(0, topic))
-    if kind == "emitter":
+    if kind in ("emitter", "plug"):
         nbt += ',currentSubscribedTopic:"%s"' % topic
     data(x, y, z, nbt + "}")
 
@@ -122,6 +126,50 @@ def v1motion(args):
            'MotionDetected:%db,LastMotionTime:1759917600000L,LastCount:%s}') % (
         topic, item(0, topic), 1 if int(count) > 0 else 0, count)
     data(x, y, z, nbt)
+
+
+def v1climate(args):
+    """A v1 sensor as setblock places it, so a humidity sensor converts from its v1 data (M2-19)."""
+    x, y, z, kind, topic = args[:5]
+    facing = args[5] if len(args) > 5 else "north"
+    block, reading = ("humidity_sensor_block", "Humidity:55.0d") if kind == "humidity" else ("temperature_sensor_block", "Temperature:21.0d")
+    nbt = ('{topic:"%s",lastTabId:"settings",ownerName:"Steve",privateMode:0b,Items:[%s],%s,'
+           'LastPublishTime:0L,UpdateIntervalTicks:40}') % (topic, item(0, topic), reading)
+    rcon([f"setblock {x} {y} {z} mineqtt:{block}[facing={facing}]{nbt}"])
+
+
+def v1static(args):
+    """A v1 Static Publisher as setblock places it, with the keys v1 wrote, so it converts into a Redstone Input (M2-20)."""
+    x, y, z, topic, message = args[:5]
+    powered = len(args) > 5 and args[5] == "powered"
+    nbt = ('{topic:"%s",lastTabId:"static_publisher",ownerName:"Steve",privateMode:0b,Items:[%s],'
+           'staticMessage:"%s",wasPowered:%db,lastPublishStatus:""}') % (topic, item(0, topic), message, 1 if powered else 0)
+    rcon([f"setblock {x} {y} {z} mineqtt:static_publisher[powered={'true' if powered else 'false'}]{nbt}"])
+
+
+def v1remote(args):
+    """A v1 Light Remote as setblock places it, with the keys v1 wrote and its topic paper in slot 0, so it loads as a Wall
+    Switch that is wired to the lamps of its owner on the topic (M2-22, M2 plan D15). The owner defaults to Steve."""
+    x, y, z, topic = args[:4]
+    owner = args[4] if len(args) > 4 else "Steve"
+    nbt = '{topic:"%s",lastTabId:"light_remote",ownerName:"%s",privateMode:0b,Items:[%s]}' % (topic, owner, item(0, topic))
+    rcon([f"setblock {x} {y} {z} mineqtt:light_remote_block{nbt}"])
+
+
+def v1retired(args):
+    """A v1 Topic Relay (relay) or Dynamic Publisher (dynamic) as setblock places it, with the keys v1 wrote and the topic
+    paper in slot 0, so it loads as a decommissioned block (M2-21). A relay's source topic is the last argument."""
+    x, y, z, kind, topic = args[:5]
+    if kind == "relay":
+        source = args[5]
+        nbt = ('{topic:"%s",lastTabId:"topic_relay",ownerName:"Steve",privateMode:0b,Items:[%s],currentSubscribedTopic:"%s",'
+               'sourceTopic:"%s",cachedMessage:"",wasPowered:0b,hasReceivedMessage:0b,lastRelayStatus:"",currentSourceSubscribedTopic:"%s"}'
+               ) % (topic, item(0, topic), topic, source, source)
+        rcon([f"setblock {x} {y} {z} mineqtt:topic_relay[powered=false]{nbt}"])
+    else:
+        nbt = ('{topic:"%s",lastTabId:"dynamic_publisher",ownerName:"Steve",privateMode:0b,Items:[%s],dataType:2,wasPowered:0b,'
+               'lastPublishStatus:""}') % (topic, item(0, topic))
+        rcon([f"setblock {x} {y} {z} mineqtt:dynamic_publisher[powered=false]{nbt}"])
 
 
 def v1disc(args):
@@ -163,5 +211,5 @@ def clear(args):
 
 
 if __name__ == "__main__":
-    {"cfg": cfg, "pub": pub, "sub": sub, "rcon": rcon, "pid": pid, "v1lamp": v1lamp, "v1": v1, "v1motion": v1motion,
-     "v1disc": v1disc, "retained": retained, "clear": clear}[sys.argv[1]](sys.argv[2:])
+    {"cfg": cfg, "pub": pub, "sub": sub, "rcon": rcon, "pid": pid, "v1lamp": v1lamp, "v1": v1, "v1motion": v1motion, "v1climate": v1climate, "v1static": v1static,
+     "v1remote": v1remote, "v1retired": v1retired, "v1disc": v1disc, "retained": retained, "clear": clear}[sys.argv[1]](sys.argv[2:])

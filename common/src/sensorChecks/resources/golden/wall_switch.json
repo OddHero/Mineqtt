@@ -1,0 +1,91 @@
+{
+  "dev": {
+    "ids": ["mineqtt_a11c5e7d2b4f4a6e8c1d0f9e8d7c6b5a"],
+    "name": "Hall Switch",
+    "mf": "MineQTT",
+    "mdl": "Wall Switch",
+    "mdl_id": "mineqtt:wall_switch",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": { "name": "MineQTT", "sw": "2.0.0", "url": "https://github.com/OddHero/Mineqtt" },
+  "avty": [
+    { "t": "mineqtt/world_7f3a/bridge/state" },
+    { "t": "mineqtt/world_7f3a/hall_switch/availability" }
+  ],
+  "avty_mode": "all",
+  "qos": 1,
+  "cmps": {
+    "action": {
+      "p": "event",
+      "unique_id": "mineqtt_a11c5e7d2b4f4a6e8c1d0f9e8d7c6b5a_action",
+      "name": null,
+      "state_topic": "mineqtt/world_7f3a/hall_switch/action",
+      "event_types": ["press", "double_press", "hold"],
+      "device_class": "button"
+    },
+    "button_short_press_left": {
+      "p": "device_automation",
+      "automation_type": "trigger",
+      "topic": "mineqtt/world_7f3a/hall_switch/action",
+      "type": "button_short_press",
+      "subtype": "left",
+      "payload": "press_left",
+      "value_template": "{{ value_json.event_type }}_{{ value_json.button }}"
+    },
+    "button_short_press_right": {
+      "p": "device_automation",
+      "automation_type": "trigger",
+      "topic": "mineqtt/world_7f3a/hall_switch/action",
+      "type": "button_short_press",
+      "subtype": "right",
+      "payload": "press_right",
+      "value_template": "{{ value_json.event_type }}_{{ value_json.button }}"
+    },
+    "button_double_press_left": {
+      "p": "device_automation",
+      "automation_type": "trigger",
+      "topic": "mineqtt/world_7f3a/hall_switch/action",
+      "type": "button_double_press",
+      "subtype": "left",
+      "payload": "double_press_left",
+      "value_template": "{{ value_json.event_type }}_{{ value_json.button }}"
+    },
+    "button_double_press_right": {
+      "p": "device_automation",
+      "automation_type": "trigger",
+      "topic": "mineqtt/world_7f3a/hall_switch/action",
+      "type": "button_double_press",
+      "subtype": "right",
+      "payload": "double_press_right",
+      "value_template": "{{ value_json.event_type }}_{{ value_json.button }}"
+    },
+    "button_long_press_left": {
+      "p": "device_automation",
+      "automation_type": "trigger",
+      "topic": "mineqtt/world_7f3a/hall_switch/action",
+      "type": "button_long_press",
+      "subtype": "left",
+      "payload": "hold_left",
+      "value_template": "{{ value_json.event_type }}_{{ value_json.button }}"
+    },
+    "button_long_press_right": {
+      "p": "device_automation",
+      "automation_type": "trigger",
+      "topic": "mineqtt/world_7f3a/hall_switch/action",
+      "type": "button_long_press",
+      "subtype": "right",
+      "payload": "hold_right",
+      "value_template": "{{ value_json.event_type }}_{{ value_json.button }}"
+    },
+    "location": {
+      "p": "sensor",
+      "unique_id": "mineqtt_a11c5e7d2b4f4a6e8c1d0f9e8d7c6b5a_location",
+      "name": "Location",
+      "state_topic": "mineqtt/world_7f3a/hall_switch",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  }
+}

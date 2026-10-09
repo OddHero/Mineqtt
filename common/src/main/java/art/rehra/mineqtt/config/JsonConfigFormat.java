@@ -13,7 +13,8 @@ import java.util.Locale;
 /**
  * The JSON form of the config (Fabric's {@code mineqtt.json}). Dotted v2 keys such as {@code tls.caFile} are nested
  * objects. Reading is per key: a value of the wrong type falls back to its default with a message instead of
- * discarding the whole file.
+ * discarding the whole file. Keys MineQTT no longer has, such as the zombie goal and item portal keys of v1 and
+ * Milestone 1, are not read and disappear on the next save.
  */
 public final class JsonConfigFormat {
     /** Keys only a v1 file has. A file with none of them and no configVersion is a hand-written v2 file. */
@@ -77,24 +78,21 @@ public final class JsonConfigFormat {
         root.add("blockPlacer", blockPlacer);
         JsonObject limits = new JsonObject();
         limits.addProperty("maxDevicesPerPlayer", MineQTTConfig.limitsMaxDevicesPerPlayer);
+        limits.addProperty("maxWiresPerPlayer", MineQTTConfig.limitsMaxWiresPerPlayer);
         root.add("limits", limits);
+        JsonObject server = new JsonObject();
+        server.addProperty("keepTickingWhenEmpty", MineQTTConfig.serverKeepTickingWhenEmpty);
+        root.add("server", server);
         JsonObject legacy = new JsonObject();
         legacy.addProperty("v1StatusTopic", MineQTTConfig.legacyV1StatusTopic);
         root.add("legacy", legacy);
-        root.addProperty("allowItemNetherPortalTeleport", MineQTTConfig.allowItemNetherPortalTeleport);
-        root.addProperty("goalX", MineQTTConfig.goalX);
-        root.addProperty("goalY", MineQTTConfig.goalY);
-        root.addProperty("goalZ", MineQTTConfig.goalZ);
-        root.addProperty("zombieGoalEnabled", MineQTTConfig.zombieGoalEnabled);
         return root;
     }
 
     private static ConfigMigration.V1 readV1(JsonObject root, Reader in) {
         return new ConfigMigration.V1(in.string(root, "brokerUrl", null), in.string(root, "clientId", null),
                 in.secret(root, "username", null), in.secret(root, "password", null), in.integer(root, "keepAlive", null),
-                in.string(root, "baseTopic", null), in.string(root, "statusTopic", null),
-                in.bool(root, "allowItemNetherPortalTeleport", null), in.integer(root, "goalX", null),
-                in.integer(root, "goalY", null), in.integer(root, "goalZ", null), in.bool(root, "zombieGoalEnabled", null));
+                in.string(root, "baseTopic", null), in.string(root, "statusTopic", null));
     }
 
     private static void readV2(JsonObject root, Reader in) {
@@ -125,13 +123,11 @@ public final class JsonConfigFormat {
         MineQTTConfig.blockPlacerEnabled = in.bool(blockPlacer, "blockPlacer.enabled", StaticDefaults.DEFAULT_BLOCK_PLACER_ENABLED);
         JsonObject limits = in.section(root, "limits");
         MineQTTConfig.limitsMaxDevicesPerPlayer = in.integer(limits, "limits.maxDevicesPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER);
+        MineQTTConfig.limitsMaxWiresPerPlayer = in.integer(limits, "limits.maxWiresPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER);
+        JsonObject server = in.section(root, "server");
+        MineQTTConfig.serverKeepTickingWhenEmpty = in.bool(server, "server.keepTickingWhenEmpty", StaticDefaults.DEFAULT_SERVER_KEEP_TICKING_WHEN_EMPTY);
         JsonObject legacy = in.section(root, "legacy");
         MineQTTConfig.legacyV1StatusTopic = in.string(legacy, "legacy.v1StatusTopic", StaticDefaults.DEFAULT_LEGACY_V1_STATUS_TOPIC);
-        MineQTTConfig.allowItemNetherPortalTeleport = in.bool(root, "allowItemNetherPortalTeleport", StaticDefaults.DEFAULT_ALLOW_ITEM_NETHER_PORTAL_TELEPORT);
-        MineQTTConfig.goalX = in.integer(root, "goalX", StaticDefaults.DEFAULT_GOAL_X);
-        MineQTTConfig.goalY = in.integer(root, "goalY", StaticDefaults.DEFAULT_GOAL_Y);
-        MineQTTConfig.goalZ = in.integer(root, "goalZ", StaticDefaults.DEFAULT_GOAL_Z);
-        MineQTTConfig.zombieGoalEnabled = in.bool(root, "zombieGoalEnabled", StaticDefaults.DEFAULT_ZOMBIE_GOAL_ENABLED);
     }
 
     /**

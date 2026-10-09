@@ -8,6 +8,8 @@
   python ha.py [--url URL] call DOMAIN.SERVICE JSON call a service, e.g. light.turn_on '{"entity_id":"light.x"}'
   python ha.py [--url URL] restart                  restart Home Assistant and wait until it answers again
   python ha.py [--url URL] dump FILE                write both registries and all states to FILE
+  python ha.py [--url URL] triggers DEVICE          the device automation triggers of the device with that name
+  python ha.py [--url URL] watch DEVICE [SECONDS]   print each MQTT device trigger of the device that fires (default 30 s)
 
 URL defaults to $HA_URL or http://localhost:8123. The token is kept in e2e/.state/ (ignored by git). The test owner
 is "mineqtt" with the password "mineqtt-e2e": this is a throwaway instance, never use this against a real one.
@@ -77,6 +79,42 @@ class HomeAssistant:
 
     def ws_commands(self, *commands):
         """Authenticates on /api/websocket, sends each command dict and returns their results in order."""
+        sock, send, receive = self.ws_connect()
+        results = [self.ws_result(send, receive, number, command) for number, command in enumerate(commands, start=1)]
+        sock.close()
+        return results
+
+    def ws_events(self, commands, seconds):
+        """Sends each subscribing command dict, then returns every event they deliver within the given seconds."""
+        sock, send, receive = self.ws_connect()
+        for number, command in enumerate(commands, start=1):
+            self.ws_result(send, receive, number, command)
+        events = []
+        deadline = time.time() + seconds
+        while (left := deadline - time.time()) > 0:
+            sock.settimeout(left)
+            try:
+                reply = receive()
+            except (socket.timeout, TimeoutError):
+                break
+            if reply.get("type") == "event":
+                events.append(reply)
+        sock.close()
+        return events
+
+    @staticmethod
+    def ws_result(send, receive, number, command):
+        send(dict(command, id=number))
+        while True:
+            reply = receive()
+            if reply.get("id") == number and reply.get("type") == "result":
+                break
+        if not reply.get("success"):
+            sys.exit(f"{command['type']} failed: {reply.get('error')}")
+        return reply.get("result")
+
+    def ws_connect(self):
+        """An authenticated /api/websocket connection: the socket and its send and receive functions."""
         sock = socket.create_connection((self.host, self.port), timeout=30)
         key = base64.b64encode(os.urandom(16)).decode()
         sock.sendall((f"GET /api/websocket HTTP/1.1\r\nHost: {self.host}:{self.port}\r\nUpgrade: websocket\r\n"
@@ -124,18 +162,7 @@ class HomeAssistant:
         send({"type": "auth", "access_token": self.token})
         if receive().get("type") != "auth_ok":
             sys.exit("WebSocket authentication failed")
-        results = []
-        for number, command in enumerate(commands, start=1):
-            send(dict(command, id=number))
-            while True:
-                reply = receive()
-                if reply.get("id") == number and reply.get("type") == "result":
-                    break
-            if not reply.get("success"):
-                sys.exit(f"{command['type']} failed: {reply.get('error')}")
-            results.append(reply.get("result"))
-        sock.close()
-        return results
+        return sock, send, receive
 
 
 def onboard(ha, _args):
@@ -264,6 +291,35 @@ def restart(ha, _args):
     sys.exit("Home Assistant did not reach RUNNING after the restart")
 
 
+def device_named(ha, name):
+    for d in ha.ws_commands({"type": "config/device_registry/list"})[0]:
+        if (d.get("name_by_user") or d.get("name")) == name:
+            return d
+    sys.exit(f"No device named {name!r}")
+
+
+def triggers(ha, args):
+    """The device automation triggers Home Assistant offers for a device (its MQTT device triggers among them)."""
+    device = device_named(ha, args[0])
+    for trigger in ha.ws_commands({"type": "device_automation/trigger/list", "device_id": device["id"]})[0]:
+        print(json.dumps(trigger, sort_keys=True))
+
+
+def watch(ha, args):
+    """Subscribes to every MQTT device trigger of a device for SECONDS and prints each that fires, with its payload."""
+    device = device_named(ha, args[0])
+    seconds = float(args[1]) if len(args) > 1 else 30
+    offered = [t for t in ha.ws_commands({"type": "device_automation/trigger/list", "device_id": device["id"]})[0]
+               if t.get("domain") == "mqtt"]
+    commands = [{"type": "subscribe_trigger", "trigger": {k: v for k, v in t.items() if k != "metadata"}} for t in offered]
+    print(f"watching {len(commands)} triggers of {args[0]!r} for {seconds:g} s", flush=True)
+    for event in ha.ws_events(commands, seconds):
+        # The event carries the id of the subscription it answers, the trigger's position in the list.
+        fired = offered[event["id"] - 1]
+        payload = event["event"]["variables"]["trigger"].get("payload")
+        print(f"fired {fired['type']} {fired['subtype']} payload={payload!r}", flush=True)
+
+
 def dump(ha, args):
     device_list, entity_list = registries(ha)
     with open(args[0], "w", encoding="utf-8") as f:
@@ -272,7 +328,7 @@ def dump(ha, args):
 
 
 COMMANDS = {"onboard": onboard, "mqtt": mqtt, "devices": devices, "entities": entities, "state": state,
-            "call": call, "restart": restart, "dump": dump}
+            "call": call, "restart": restart, "dump": dump, "triggers": triggers, "watch": watch}
 
 
 def main(argv):

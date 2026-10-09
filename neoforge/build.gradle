@@ -39,7 +39,7 @@ dependencies {
     compileOnly "io.github.flemmli97:flan:${minecraft_version}-${flan_version}-neoforge:api"
     runtimeOnly "io.github.flemmli97:flan:${minecraft_version}-${flan_version}-neoforge"
 
-    common(project(path: ':common')) { transitive false }
+    common(project(path: ':common')) { transitive = false }
     shadowBundle project(path: ':common', configuration: 'transformProductionNeoForge')
 
     forgeRuntimeLibrary("com.hivemq:hivemq-mqtt-client:1.3.7") {
@@ -49,10 +49,12 @@ dependencies {
 }
 
 processResources {
-    inputs.property 'version', project.version
+    // Read at configuration time: the filesMatching action runs during execution, where Task.project is deprecated.
+    def modVersion = project.version
+    inputs.property 'version', modVersion
 
     filesMatching('META-INF/neoforge.mods.toml') {
-        expand version: project.version
+        expand version: modVersion
     }
 }
 

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "mineqtt-gametest",
+  "version": "1.0.0",
+  "name": "MineQTT client game tests",
+  "description": "Client acceptance tests for MineQTT, run by :fabric:runClientGameTest.",
+  "license": "LGPL-3.0",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-client-gametest": [
+      "art.rehra.mineqtt.fabric.gametest.ScreensGameTest",
+      "art.rehra.mineqtt.fabric.gametest.PlacementSecurityGameTest",
+      "art.rehra.mineqtt.fabric.gametest.RawLinkNoticesGameTest",
+      "art.rehra.mineqtt.fabric.gametest.OwnerUuidGameTest",
+      "art.rehra.mineqtt.fabric.gametest.RecipesGameTest",
+      "art.rehra.mineqtt.fabric.gametest.DeviceConfigGameTest",
+      "art.rehra.mineqtt.fabric.gametest.RenderTagGameTest",
+      "art.rehra.mineqtt.fabric.gametest.DeviceScreenGameTest",
+      "art.rehra.mineqtt.fabric.gametest.ControlsGameTest",
+      "art.rehra.mineqtt.fabric.gametest.AdvancedGameTest",
+      "art.rehra.mineqtt.fabric.gametest.AccessDiagnosticsGameTest",
+      "art.rehra.mineqtt.fabric.gametest.InteractionGameTest",
+      "art.rehra.mineqtt.fabric.gametest.WiresGameTest",
+      "art.rehra.mineqtt.fabric.gametest.LinkGameTest",
+      "art.rehra.mineqtt.fabric.gametest.GroupGameTest",
+      "art.rehra.mineqtt.fabric.gametest.ClimateGameTest",
+      "art.rehra.mineqtt.fabric.gametest.StaticPublisherGameTest",
+      "art.rehra.mineqtt.fabric.gametest.DecommissionedGameTest",
+      "art.rehra.mineqtt.fabric.gametest.WallSwitchGameTest",
+      "art.rehra.mineqtt.fabric.gametest.ConsoleGameTest",
+      "art.rehra.mineqtt.fabric.gametest.LampEffectsGameTest",
+      "art.rehra.mineqtt.fabric.gametest.DeviceLimitGameTest"
+    ]
+  },
+  "depends": {
+    "mineqtt": "*",
+    "fabric-client-gametest-api-v1": "*",
+    "fabric-message-api-v1": "*"
+  }
+}

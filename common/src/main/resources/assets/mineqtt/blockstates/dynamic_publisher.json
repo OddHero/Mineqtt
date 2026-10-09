@@ -1,6 +1,6 @@
 {
   "variants": {
     "powered=false": { "model": "mineqtt:block/dynamic_publisher" },
-    "powered=true": { "model": "mineqtt:block/dynamic_publisher_on" }
+    "powered=true": { "model": "mineqtt:block/dynamic_publisher" }
   }
 }

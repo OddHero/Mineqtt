@@ -5,20 +5,22 @@ import art.rehra.mineqtt.device.CommandReader;
 import art.rehra.mineqtt.device.CommandResult;
 import art.rehra.mineqtt.device.CommandSource;
 import art.rehra.mineqtt.device.CommonFields;
-import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceLink;
 import art.rehra.mineqtt.device.DeviceType;
+import art.rehra.mineqtt.device.RenderTag;
 import art.rehra.mineqtt.device.StateWriter;
+import art.rehra.mineqtt.device.ValueCodecs;
+import art.rehra.mineqtt.device.ValueCodecs.LightEffect;
 import art.rehra.mineqtt.device.ValueCodecs.LightState;
+import art.rehra.mineqtt.device.ValueCodecs.LightTransition;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.legacy.LegacyNbtV1;
-import art.rehra.mineqtt.ui.framework.MqttTab;
-import art.rehra.mineqtt.ui.framework.tabs.RgbLedStatusTab;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.particles.DustParticleOptions;
-import net.minecraft.network.chat.Component;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -26,45 +28,53 @@ import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
 import java.util.Set;
 
 /**
  * The Smart Lamp ({@link SmartLamp}): an 8-bit colour or colour temperature with a brightness, which also sets the
  * block light. Its state is in the {@code mineqtt} compound; v1 data is read on load and adopted when the device
- * attaches. The two item slots edit the Raw Link with v1 topic rules (design §6.9).
+ * attaches.
  * <p>
- * The server ticker follows slot edits and keeps the {@code light_level} block state in step; the client ticker only
- * spawns particles. Nothing here touches MQTT on the client.
+ * A command's {@code transition} fades the lamp: its state, saved and published, is the target at once, while the block
+ * shows the way there ({@link LightTransition}), stepped by the server ticker at most every
+ * {@value SmartLamp#TRANSITION_STEP_TICKS} ticks, which also keeps the {@code light_level} block state in step. Clients
+ * get what the block shows alone ({@link RenderTag#lamp}), for the tint, the particles and the effect, which the client
+ * ticker animates. Nothing here touches MQTT on the client.
  */
-public class RgbLedBlockEntity extends BaseMqttBlockEntity implements DeviceHost {
+public class RgbLedBlockEntity extends DeviceBlockEntity {
     // A lamp that is off still shows its colour, dimmed to this share.
     private static final float OFF_TINT = 0.3f;
-    private static final Set<String> LIGHT_KEYS = Set.of("state", "brightness", "color", "color_temp", "color_temp_kelvin");
+    private static final Set<String> LIGHT_KEYS = Set.of("state", "brightness", "color", "color_temp", "color_temp_kelvin", "effect", "transition");
 
     private final DeviceLink link = new DeviceLink(SmartLamp.TYPE);
+    // The lamp's state: saved, published and shown to screens.
     private LightState light = LightState.DEFAULT;
+    // What the block shows: the light, or a step of the transition towards it. Never saved: a lamp loads as its light.
+    private LightState shown = LightState.DEFAULT;
+    private @Nullable LightTransition transition;
+    private long lastStep;
+    // Client only: the share of the tint the effect shows now.
+    private float effectFactor = 1;
 
     public RgbLedBlockEntity(BlockPos pos, BlockState blockState) {
         super(MineqttBlockEntityTypes.RGB_LED_BLOCK.get(), pos, blockState);
     }
 
-    public LightState light() {
-        return light;
-    }
-
+    /** The block light the lamp gives now; during a transition a step on the way to its state's. */
     public int getLightLevel() {
-        return SmartLamp.lightLevel(light);
+        return SmartLamp.lightLevel(shown);
     }
 
     /**
      * The colour the block is tinted with: the colour scaled by the emitted light level, so the tint changes in the
-     * same 16 steps as the light; dimmed while off.
+     * same 16 steps as the light, and by the effect's share on a client; dimmed while off.
      */
     public int tint() {
-        float factor = light.on() ? getLightLevel() / 15.0f : OFF_TINT;
-        return (scale(light.color().r(), factor) << 16) | (scale(light.color().g(), factor) << 8) | scale(light.color().b(), factor);
+        float effect = shown.effect() == LightEffect.NONE ? 1 : effectFactor;
+        float factor = shown.on() ? getLightLevel() / 15.0f * effect : OFF_TINT;
+        return (scale(shown.color().r(), factor) << 16) | (scale(shown.color().g(), factor) << 8) | scale(shown.color().b(), factor);
     }
 
     @Override
@@ -79,66 +89,136 @@ public class RgbLedBlockEntity extends BaseMqttBlockEntity implements DeviceHost
 
     @Override
     public void writeState(StateWriter out) {
+        // The target's light level, also while the block fades towards it: one state per command.
         out.put(SmartLamp.LIGHT, light)
-                .put(SmartLamp.LIGHT_LEVEL, getLightLevel())
+                .put(SmartLamp.LIGHT_LEVEL, SmartLamp.lightLevel(light))
                 .put(CommonFields.LOCATION, GlobalPos.of(level.dimension(), worldPosition));
     }
 
+    /**
+     * Merges a light command. With a {@code transition} the block fades from what it shows now to the new light; a new
+     * command during a fade starts its own from where the fade stands, and one without a transition ends it at once,
+     * also when it names the light the fade is heading for (no state changes then, so nothing is published).
+     */
     @Override
     public CommandResult applyCommand(CommandReader in, CommandSource source) {
         if (in.keys().stream().noneMatch(LIGHT_KEYS::contains)) return CommandResult.rejected("not a light command: " + in.keys());
         LightState next = light.merge(in.json());
-        if (next.equals(light)) return CommandResult.unchanged();
+        boolean changed = !next.equals(light);
+        if (!changed && transition == null) return CommandResult.unchanged();
         light = next;
+        fadeTo(ValueCodecs.transitionTicks(in.json()));
+        if (!changed) return CommandResult.unchanged();
         setChanged();
-        updateLightLevel();
         return CommandResult.applied();
     }
 
     @Override
-    protected void saveAdditional(ValueOutput output) {
-        super.saveAdditional(output);
+    protected void saveDevice(ValueOutput output) {
         saveLamp(link, light, output);
+    }
+
+    @Override
+    protected void loadDevice(ValueInput input) {
+        light = loadLamp(link, input);
+        showLight();
+    }
+
+    /** A client's render update: what the block shows. */
+    @Override
+    protected void loadRender(ValueInput input) {
+        light = RenderTag.lamp(input);
+        showLight();
     }
 
     @Override
     protected void loadAdditional(ValueInput input) {
         super.loadAdditional(input);
-        light = loadLamp(link, input);
-        // v1 synced the topic to the slots only in its ticker; the adopted link is the slots' topic, not an edit.
-        if (link.awaitingAdoption()) topic = getCombinedTopic();
         // A new colour at the same light level changes no block state; the client redraws the tint itself.
         if (level != null && level.isClientSide()) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_ALL);
     }
 
+    /** Colour, brightness, on and effect as the block shows them: the tint, the particles and the animation. */
     @Override
-    protected String getDefaultTopic() {
-        return "";
+    protected CompoundTag renderData() {
+        return RenderTag.lamp(shown);
     }
 
+    /** A placed copy keeps its colour, brightness and effect, switched off. */
     @Override
-    protected Component getDefaultName() {
-        return Component.translatable("container.mineqtt.rgb_led");
+    protected void placedCopy() {
+        light = light.placed();
+        showLight();
+        updateLightLevel();
     }
 
-    @Override
-    public List<MqttTab> getTabs() {
-        List<MqttTab> tabs = super.getTabs();
-        tabs.add(new RgbLedStatusTab());
-        return tabs;
-    }
-
-    @Override
-    public int getContainerSize() {
-        return 2;
+    // The block shows the light itself, without a transition.
+    private void showLight() {
+        shown = light;
+        transition = null;
     }
 
     /**
-     * A lamp's keys besides the slots: the link with the light as its {@code state}, or the v1 keys while its v1 data
-     * waits for adoption, so it is still v1 data when it loads again.
+     * Shows the light, over {@code ticks} from what the block shows now, or at once. Only where the ticker runs, in a
+     * block-ticking chunk with its entities loaded (the rule of {@code LevelChunk#isTicking}): elsewhere, as between the
+     * simulation and the view distance, a fade would stand still at its start, so the block shows the light at once.
+     */
+    private void fadeTo(int ticks) {
+        if (ticks > 0 && level instanceof ServerLevel server && server.isPositionTickingWithEntitiesLoaded(ChunkPos.pack(worldPosition))) {
+            transition = new LightTransition(shown, light, server.getGameTime(), ticks);
+            lastStep = transition.start();
+            shown = transition.at(lastStep);
+        } else {
+            showLight();
+        }
+        updateLightLevel();
+    }
+
+    /**
+     * Moves the transition on, at most every {@value SmartLamp#TRANSITION_STEP_TICKS} ticks; its last step shows the
+     * light itself. Clients are sent a step only when they would draw it differently, and always the last.
+     */
+    private void stepTransition(long now) {
+        if (transition == null || now - lastStep < SmartLamp.TRANSITION_STEP_TICKS && !transition.done(now)) return;
+        lastStep = now;
+        LightState next;
+        boolean done = transition.done(now);
+        if (done) {
+            next = light;
+            transition = null;
+        } else {
+            next = transition.at(now);
+        }
+        boolean redraw = done || drawnDifferently(next, shown);
+        shown = next;
+        if (redraw) updateLightLevel();
+    }
+
+    // The tint follows the light level, not every step of the brightness.
+    private static boolean drawnDifferently(LightState a, LightState b) {
+        return SmartLamp.lightLevel(a) != SmartLamp.lightLevel(b) || a.on() != b.on() || !a.color().equals(b.color()) || a.effect() != b.effect();
+    }
+
+    /**
+     * On a client: moves the effect's share of the tint on every {@value SmartLamp#EFFECT_STEP_TICKS} ticks, and redraws
+     * the block when it changed a step, since the tint is part of the chunk's mesh.
+     */
+    private void animateEffect(long time) {
+        if (level == null || shown.effect() == LightEffect.NONE || getLightLevel() == 0 || time % SmartLamp.EFFECT_STEP_TICKS != 0) return;
+        float factor = SmartLamp.effectFactor(shown.effect(), time, worldPosition.asLong());
+        if (factor == effectFactor) return;
+        effectFactor = factor;
+        level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_ALL);
+    }
+
+    /**
+     * A lamp's data: the link with the light as its {@code state}, or the v1 keys while its v1 data waits for adoption,
+     * so it is still v1 data when it loads again.
      */
     public static void saveLamp(DeviceLink link, LightState light, ValueOutput output) {
         if (link.awaitingAdoption()) {
+            link.saveV1(output);
+            LegacyNbtV1.writeSubscribed(output, link.pendingV1().combinedTopic());
             LegacyNbtV1.writeLamp(output, light);
         } else {
             link.save(output).store("state", SmartLamp.LIGHT.codec(), light);
@@ -169,22 +249,24 @@ public class RgbLedBlockEntity extends BaseMqttBlockEntity implements DeviceHost
         return Math.round(channel * factor);
     }
 
-    /** Slot edits and the block light. */
+    /** The transition and the block light. */
     public static class ServerTicker<T extends BlockEntity> implements BlockEntityTicker<T> {
         @Override
         public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
-            if (!(blockEntity instanceof RgbLedBlockEntity lamp) || !(level instanceof ServerLevel serverLevel)) return;
-            lamp.followSlots(serverLevel, lamp.link);
+            if (!(blockEntity instanceof RgbLedBlockEntity lamp) || level.isClientSide()) return;
+            lamp.stepTransition(level.getGameTime());
             // v1 lamps derived the light level from the colour; the brightness decides it now.
             if (state.getValue(RgbLedBlock.LIGHT_LEVEL) != lamp.getLightLevel()) lamp.updateLightLevel();
         }
     }
 
-    /** Coloured particles around a lit bulb; never MQTT. */
+    /** The effect, and coloured particles around a lit bulb; never MQTT. */
     public static class ClientTicker<T extends BlockEntity> implements BlockEntityTicker<T> {
         @Override
         public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
-            if (!(blockEntity instanceof RgbLedBlockEntity lamp) || lamp.getLightLevel() == 0) return;
+            if (!(blockEntity instanceof RgbLedBlockEntity lamp)) return;
+            lamp.animateEffect(level.getGameTime());
+            if (lamp.getLightLevel() == 0) return;
             // Every 10 ticks (0.5 seconds), unless the colour is black.
             int color = lamp.tint();
             if (level.getGameTime() % 10 != 0 || color == 0) return;

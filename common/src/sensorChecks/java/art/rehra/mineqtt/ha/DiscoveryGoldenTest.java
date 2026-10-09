@@ -1,15 +1,21 @@
 package art.rehra.mineqtt.ha;
 
 import art.rehra.mineqtt.device.Access;
+import art.rehra.mineqtt.device.Action;
 import art.rehra.mineqtt.device.CommonFields;
 import art.rehra.mineqtt.device.DeviceGroup;
 import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.device.DeviceType;
+import art.rehra.mineqtt.device.EventSpec;
 import art.rehra.mineqtt.device.Field;
+import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
+import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.WallSwitch;
+import art.rehra.mineqtt.flow.core.PortType;
 import art.rehra.mineqtt.runtime.TopicScheme;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -28,6 +34,7 @@ import net.minecraft.world.level.Level;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -63,6 +70,9 @@ public final class DiscoveryGoldenTest {
         smartLamp();
         redstone();
         presence();
+        smartPlug();
+        climate();
+        wallSwitch();
         everyEntityKind();
         System.out.println("Discovery payload checks passed.");
     }
@@ -95,6 +105,10 @@ public final class DiscoveryGoldenTest {
                 "A migrated v1 lamp's light keeps the v1 unique_id");
         check(components.getAsJsonObject("light_level").get("unique_id").getAsString().equals("mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566_light_level"),
                 "Only the primary entity takes the v1 unique_id");
+        check(ids(legacyConfig).equals(List.of("mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566", "home_kitchen")),
+                "A migrated v1 lamp names v1's device identifier after its own, got " + ids(legacyConfig));
+        check(ids(DiscoveryPublisher.deviceConfig(SmartLamp.TYPE, lamp, TOPICS, IDENTITY)).equals(List.of("mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566")),
+                "A lamp without a v1 unique_id has only its own identifier");
 
         DeviceGroup group = new DeviceGroup(UUID.fromString("00000000-0000-4000-8000-0000000000aa"), "Hallway", "hallway");
         group.setLegacyUniqueId("home_hallway");
@@ -110,8 +124,11 @@ public final class DiscoveryGoldenTest {
         JsonArray avty = config.getAsJsonArray("avty");
         check(avty.size() == 1 && avty.get(0).getAsJsonObject().get("t").getAsString().equals("mineqtt/world_7f3a/bridge/state"),
                 "A group has only the bridge's availability, got " + avty);
-        check(config.getAsJsonObject("dev").get("ids").getAsJsonArray().get(0).getAsString().equals("mineqtt_000000000000400080000000000000aa"),
-                "A group is a device of its own, named after its UUID");
+        check(ids(config).equals(List.of("mineqtt_000000000000400080000000000000aa", "home_hallway")),
+                "A legacy group is a device of its own, named after its UUID and then v1's device identifier, got " + ids(config));
+        DeviceGroup plain = new DeviceGroup(UUID.fromString("00000000-0000-4000-8000-0000000000bb"), "Porch", "porch");
+        check(ids(DiscoveryPublisher.groupConfig(SmartLamp.TYPE, plain, TOPICS, IDENTITY)).equals(List.of("mineqtt_000000000000400080000000000000bb")),
+                "A group without a v1 unique_id has only its own identifier");
         check(config.getAsJsonObject("dev").get("mdl").getAsString().equals("Smart Lamp group"), "The group's model names the member type");
     }
 
@@ -137,6 +154,25 @@ public final class DiscoveryGoldenTest {
                 "An output group has the output's command entities: " + group.getAsJsonObject("cmps").keySet());
     }
 
+    /**
+     * The Smart Plug (§4.4, M2-18) against its golden file: an outlet switch as its primary entity, its power-on
+     * behaviour, and a plug group with the plug's command entities.
+     */
+    private static void smartPlug() throws IOException {
+        UUID plugId = UUID.fromString("9b2c4d6e-8f1a-4b3c-8d5e-6f708192a3b4");
+        DeviceRecord plug = new DeviceRecord(plugId, SmartPlug.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(10, 64, 2)), "Coffee Maker", "coffee_maker");
+        JsonObject config = DiscoveryPublisher.deviceConfig(SmartPlug.TYPE, plug, TOPICS, IDENTITY);
+        assertGolden("plug", config);
+        JsonObject outlet = config.getAsJsonObject("cmps").getAsJsonObject("plug");
+        check(outlet.get("name").isJsonNull() && outlet.get("device_class").getAsString().equals("outlet"), "The plug's outlet switch is its primary entity");
+        check(config.getAsJsonObject("cmps").keySet().equals(Set.of("plug", "power_on_behaviour", "location")), "Plug entities: " + config.getAsJsonObject("cmps").keySet());
+
+        JsonObject group = DiscoveryPublisher.groupConfig(SmartPlug.TYPE, new DeviceGroup(UUID.randomUUID(), "Kitchen Plugs", "kitchen_plugs"), TOPICS, IDENTITY);
+        check(group.getAsJsonObject("cmps").keySet().equals(Set.of("plug", "power_on_behaviour"))
+                        && group.getAsJsonObject("cmps").getAsJsonObject("plug").get("device_class").getAsString().equals("outlet"),
+                "A plug group has the plug's command entities, the outlet among them: " + group.getAsJsonObject("cmps").keySet());
+    }
+
     /** The Presence Sensor (§4.4) against its golden file: occupancy, count and its three settings. */
     private static void presence() throws IOException {
         UUID sensorId = UUID.fromString("5e6f7a8b-9c0d-4e1f-a2b3-c4d5e6f70812");
@@ -148,6 +184,46 @@ public final class DiscoveryGoldenTest {
         check(components.getAsJsonObject("detect").getAsJsonArray("options").toString().equals("[\"players\",\"mobs\",\"all\"]"), "detect selects players, mobs or all");
         check(components.getAsJsonObject("range").get("command_topic").getAsString().equals("mineqtt/world_7f3a/hallway_sensor/set/range")
                 && components.getAsJsonObject("clear_delay").get("entity_category").getAsString().equals("config"), "The settings are config entities with commands");
+    }
+
+    /**
+     * The Climate Sensor (§4.4, M2-19) against its golden file: temperature, humidity and illuminance with their device
+     * classes and units, its interval, and the biome as a diagnostic. The Raw Link's reading is no Home Assistant entity.
+     */
+    private static void climate() throws IOException {
+        UUID sensorId = UUID.fromString("c1a7e000-4d2b-4f3a-9e8d-7c6b5a493821");
+        DeviceRecord sensor = new DeviceRecord(sensorId, ClimateSensor.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(6, 64, 2)), "Greenhouse Climate",
+                "greenhouse_climate");
+        JsonObject config = DiscoveryPublisher.deviceConfig(ClimateSensor.TYPE, sensor, TOPICS, IDENTITY);
+        assertGolden("climate", config);
+        JsonObject components = config.getAsJsonObject("cmps");
+        check(components.keySet().equals(Set.of("temperature", "humidity", "illuminance", "interval", "biome", "location")), "Climate entities: " + components.keySet());
+        check(components.getAsJsonObject("temperature").get("unit_of_measurement").getAsString().equals("°C")
+                && components.getAsJsonObject("humidity").get("device_class").getAsString().equals("humidity")
+                && components.getAsJsonObject("illuminance").get("unit_of_measurement").getAsString().equals("lx"), "Device classes and units");
+    }
+
+    /**
+     * The Wall Switch (§4.4, M2-22) against its golden file: its event entity as the primary entity, and a device trigger
+     * per gesture and button whose template reads the event's {@code button}.
+     */
+    private static void wallSwitch() throws IOException {
+        UUID switchId = UUID.fromString("a11c5e7d-2b4f-4a6e-8c1d-0f9e8d7c6b5a");
+        DeviceRecord record = new DeviceRecord(switchId, WallSwitch.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(4, 64, 2)), "Hall Switch", "hall_switch");
+        JsonObject config = DiscoveryPublisher.deviceConfig(WallSwitch.TYPE, record, TOPICS, IDENTITY);
+        assertGolden("wall_switch", config);
+        JsonObject components = config.getAsJsonObject("cmps");
+        check(components.keySet().equals(Set.of("action", "button_short_press_left", "button_short_press_right", "button_double_press_left",
+                "button_double_press_right", "button_long_press_left", "button_long_press_right", "location")), "Wall Switch entities: " + components.keySet());
+        JsonObject action = components.getAsJsonObject("action");
+        check(action.get("name").isJsonNull() && action.get("device_class").getAsString().equals("button")
+                && action.getAsJsonArray("event_types").toString().equals("[\"press\",\"double_press\",\"hold\"]"), "The event entity is the primary entity");
+        JsonObject hold = components.getAsJsonObject("button_long_press_right");
+        expect(hold, "topic", "mineqtt/world_7f3a/hall_switch/action");
+        expect(hold, "payload", "hold_right");
+        expect(hold, "value_template", "{{ value_json.event_type }}_{{ value_json.button }}");
+        check(DiscoveryPublisher.groupConfig(WallSwitch.TYPE, new DeviceGroup(UUID.randomUUID(), "G", "g"), TOPICS, IDENTITY).getAsJsonObject("cmps").isEmpty(),
+                "A Wall Switch has no command entity a group could carry");
     }
 
     /** Every entity kind: the generated templates, command topics and categories. */
@@ -170,7 +246,10 @@ public final class DiscoveryGoldenTest {
                 .entity(Ha.button("trigger_now"))
                 .entity(Ha.text("label", label))
                 .entity(Ha.notify("message"))
-                .entity(Ha.deviceTrigger("button_short_press", "left"))
+                .entity(Ha.deviceTrigger("button_short_press", "left", "press", "button"))
+                // Every command and event entity has its declaration (M2-4): no discovery key depends on them.
+                .action(Action.state()).action(Action.press("trigger_now")).action(new Action("message", PortType.text(255), false))
+                .event(EventSpec.of("pulse")).event(EventSpec.of("press").attribute("button", PortType.enumOf(List.of("left"))))
                 .build();
         DeviceRecord record = new DeviceRecord(LAMP_ID, type.id(), GlobalPos.of(Level.OVERWORLD, BlockPos.ZERO), "All", "all");
         JsonObject config = DiscoveryPublisher.deviceConfig(type, record, TOPICS, IDENTITY);
@@ -219,7 +298,10 @@ public final class DiscoveryGoldenTest {
         expect(trigger, "p", "device_automation");
         expect(trigger, "automation_type", "trigger");
         expect(trigger, "topic", state + "/action");
-        expect(trigger, "payload", "button_short_press_left");
+        expect(trigger, "type", "button_short_press");
+        expect(trigger, "subtype", "left");
+        expect(trigger, "payload", "press_left");
+        expect(trigger, "value_template", "{{ value_json.event_type }}_{{ value_json.button }}");
         check(!trigger.has("unique_id") && !trigger.has("name"), "A device trigger is no entity");
 
         JsonArray avty = config.getAsJsonArray("avty");
@@ -265,6 +347,9 @@ public final class DiscoveryGoldenTest {
                   "color_temp_kelvin": true,
                   "min_kelvin": 2000,
                   "max_kelvin": 6500,
+                  "effect": true,
+                  "effect_list": ["off", "pulse", "candle"],
+                  "flash": false,
                   "retain": false
                 },
                 "light_level": {
@@ -319,6 +404,10 @@ public final class DiscoveryGoldenTest {
             return array;
         }
         return element;
+    }
+
+    static List<String> ids(JsonObject config) {
+        return config.getAsJsonObject("dev").getAsJsonArray("ids").asList().stream().map(JsonElement::getAsString).toList();
     }
 
     private static void expect(JsonObject object, String key, String value) {

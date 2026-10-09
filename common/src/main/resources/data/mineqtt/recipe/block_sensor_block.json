@@ -1,18 +1,17 @@
 {
   "type": "minecraft:crafting_shaped",
   "category": "redstone",
-  "pattern": [
-    "IRI",
-    "IOI",
-    "III"
-  ],
   "key": {
-    "I": "minecraft:iron_ingot",
-    "R": "minecraft:redstone",
-    "O": "minecraft:observer"
+    "N": "mineqtt:network_chip",
+    "O": "minecraft:observer",
+    "S": "minecraft:smooth_stone"
   },
+  "pattern": [
+    "SOS",
+    "ONO",
+    "SSS"
+  ],
   "result": {
-    "id": "mineqtt:block_sensor_block",
-    "count": 1
+    "id": "mineqtt:block_sensor_block"
   }
 }

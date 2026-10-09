@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_humidity_sensor_block": {
+      "conditions": {
+        "items": [
+          {
+            "items": "mineqtt:humidity_sensor_block"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "mineqtt:temperature_sensor_block_from_humidity_sensor_block"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_humidity_sensor_block"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "mineqtt:temperature_sensor_block_from_humidity_sensor_block"
+    ]
+  }
+}

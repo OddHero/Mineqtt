@@ -1,6 +1,6 @@
 {
   "parent": "item/generated",
   "textures": {
-    "layer0": "mineqtt:block/light_remote_block"
+    "layer0": "mineqtt:item/light_remote_block"
   }
 }

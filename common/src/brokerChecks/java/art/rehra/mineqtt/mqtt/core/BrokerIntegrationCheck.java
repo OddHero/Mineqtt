@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.mqtt.core;
 
+import art.rehra.mineqtt.ha.GhostCleanup;
 import com.google.gson.JsonObject;
 import com.hivemq.client.mqtt.MqttClient;
 import com.hivemq.client.mqtt.MqttClientBuilder;
@@ -15,21 +16,26 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 
 /**
  * {@link HiveMqttService} against a real broker behind a {@link TcpProxy}, design §10.2 scenarios 1-8 plus inbound
- * payload limits, overlapping and refused filters, retained replays and acknowledgement listeners. Without arguments it runs against
- * {@link EmbeddedMoquette}, which refuses MQTT 5, so only MQTT 3.1.1 runs there and the MQTT 5 half is reported as
- * skipped (it is E2E item 13). Given a broker URI ({@code tcp://} or {@code ws://}, via {@code -PexternalBroker}) it
- * runs both protocols against that broker, except the scenario that needs the embedded broker's ACL. The remote peer
- * is always a plain MQTT 3.1.1 client.
+ * payload limits, overlapping and refused filters, retained replays, acknowledgement listeners, retained raw levels, an own retained level for a late input,
+ * the wake of a paused server and the Home Assistant ghost cleanup.
+ * Without arguments it runs against {@link EmbeddedMoquette}, which refuses MQTT 5, so only MQTT 3.1.1 runs there and
+ * the MQTT 5 half is reported as skipped (it is E2E item 13). Given a broker URI ({@code tcp://} or {@code ws://}, via
+ * {@code -PexternalBroker}) it runs both protocols against that broker, except the scenario that needs the embedded
+ * broker's ACL. The remote peer is always a plain MQTT 3.1.1 client.
  */
 public final class BrokerIntegrationCheck {
     private static final long TIMEOUT_MILLIS = 15_000;
@@ -68,7 +74,11 @@ public final class BrokerIntegrationCheck {
             new NamedScenario("10 Overlapping filters", BrokerIntegrationCheck::overlappingFilters),
             new NamedScenario("11 Refused covering filter", BrokerIntegrationCheck::refusedCoveringFilter),
             new NamedScenario("12 Retained replay", BrokerIntegrationCheck::retainedReplay),
-            new NamedScenario("13 Acknowledgements", BrokerIntegrationCheck::acknowledgements));
+            new NamedScenario("13 Acknowledgements", BrokerIntegrationCheck::acknowledgements),
+            new NamedScenario("14 Retained raw loopback", BrokerIntegrationCheck::retainedRawLoopback),
+            new NamedScenario("15 Own retained, late input", BrokerIntegrationCheck::ownRetainedForLateInput),
+            new NamedScenario("16 Wake per burst", BrokerIntegrationCheck::wakePerBurst),
+            new NamedScenario("17 Ghost cleanup", BrokerIntegrationCheck::ghostCleanup));
 
     static void main(String[] args) {
         try {
@@ -228,7 +238,7 @@ public final class BrokerIntegrationCheck {
                 service.subscribe(topic, SubOptions.raw(false, deviceB), b);
                 connect(service);
 
-                service.publish(Outbound.raw(topic, utf8("ON"), 1, false, deviceA));
+                service.publish(Outbound.raw(topic, utf8("ON"), 1, deviceA));
                 tickUntil(service, () -> b.payloads().contains("ON") && remote.payloads(topic).contains("ON"), "the raw publish to arrive");
                 tickFor(service, 500);
                 check(a.payloads().isEmpty(), "The origin never hears its own publish, got " + a.payloads());
@@ -244,7 +254,7 @@ public final class BrokerIntegrationCheck {
                 Recorder listener = new Recorder();
                 service.subscribe(topic, PLAIN, listener);
                 awaitBrokerOperations(service);
-                service.publish(Outbound.raw(topic, utf8("OFF"), 1, false, deviceA));
+                service.publish(Outbound.raw(topic, utf8("OFF"), 1, deviceA));
                 tickUntil(service, () -> b.payloads().contains("OFF") && listener.payloads().contains("OFF")
                         && remote.payloads(topic).contains("OFF"), "the second raw publish");
                 tickFor(service, 500);
@@ -255,7 +265,7 @@ public final class BrokerIntegrationCheck {
 
                 proxy.cut();
                 tickUntil(service, () -> !service.state().isConnected(), "the connection to drop");
-                service.publish(Outbound.raw(topic, utf8("LOCAL"), 1, false, deviceB));
+                service.publish(Outbound.raw(topic, utf8("LOCAL"), 1, deviceB));
                 tickUntil(service, () -> a.payloads().contains("LOCAL"), "the loopback with the broker down");
                 check(!b.payloads().contains("LOCAL"), "The origin is excluded with the broker down too");
                 check(!listener.payloads().contains("LOCAL"), "A plain handler only hears own publishes through the broker");
@@ -659,6 +669,100 @@ public final class BrokerIntegrationCheck {
     }
 
     /**
+     * Retained wireless redstone (M2 plan D2): the retained levels of one device reach the other local Raw Link input and
+     * the remote exactly once each, in order, never the device itself, also when the broker's copy carries the retain
+     * flag; the broker holds the last level.
+     */
+    private static void retainedRawLoopback(Target target, ProtocolVersion protocol, String root) throws Exception {
+        String topic = root + "/shared/garage";
+        UUID deviceA = UUID.randomUUID();
+        UUID deviceB = UUID.randomUUID();
+        List<String> levels = List.of("true", "false", "true");
+        try (TcpProxy proxy = new TcpProxy(target.host(), target.port()); Remote remote = new Remote(target)) {
+            remote.subscribe(topic, 1);
+            HiveMqttService service = service(target, proxy, protocol, root, BrokerSettings.DEFAULT_MAX_INBOUND_BYTES);
+            try {
+                Recorder a = new Recorder();
+                Recorder b = new Recorder();
+                service.subscribe(topic, SubOptions.raw(true, deviceA), a);
+                service.subscribe(topic, SubOptions.raw(true, deviceB), b);
+                connect(service);
+
+                // QoS 2, because Moquette acknowledges QoS 1 before it stores the retained message.
+                for (String level : levels) service.publish(Outbound.rawRetained(topic, utf8(level), 2, deviceA));
+                tickUntil(service, () -> b.payloads().size() == 3 && remote.payloads(topic).size() == 3, "the three retained levels");
+                tickFor(service, 500);
+                check(a.payloads().isEmpty(), "The origin never hears its own levels, got " + a.payloads());
+                check(b.payloads().equals(levels), "The other local input hears each level once, in order, got " + b.payloads());
+                check(b.received.stream().allMatch(message -> message.local() && !message.retained()), "The local copies are live, not retained");
+                check(remote.payloads(topic).equals(levels), "The remote hears each level once, in order, got " + remote.payloads(topic));
+                awaitRetained(target, topic, "true");
+            } finally {
+                service.close();
+                remote.clearRetained(topic);
+            }
+        }
+    }
+
+    /**
+     * A Raw Link input that subscribes after this server stored a retained level gets that level from the broker
+     * through its no-local subscription, also after a restart under the same client id, which is the stored message's
+     * publisher (M2 plan D4). It arrives once, flagged retained, and the next level is the live loopback copy.
+     */
+    private static void ownRetainedForLateInput(Target target, ProtocolVersion protocol, String root) throws Exception {
+        String topic = root + "/shared/door";
+        String clientId = "it-" + shortId();
+        UUID publisher = UUID.randomUUID();
+        // Moquette keeps the retain flag only at QoS 0, and the input must be able to tell the stored level apart.
+        SubOptions input = new SubOptions(target.retainFlagAtQos1() ? 1 : 0, true, true, 16 * 1024, UUID.randomUUID());
+        try (TcpProxy proxy = new TcpProxy(target.host(), target.port()); Remote remote = new Remote(target)) {
+            try {
+                HiveMqttService service = service(target, proxy, protocol, root, clientId, BrokerSettings.DEFAULT_MAX_INBOUND_BYTES);
+                try {
+                    connect(service);
+                    // QoS 2, because Moquette acknowledges QoS 1 before it stores the retained message.
+                    service.publish(Outbound.rawRetained(topic, utf8("true"), 2, publisher));
+                    tickFor(service, 100);
+                    awaitRetained(target, topic, "true");
+
+                    Recorder late = new Recorder();
+                    service.subscribe(topic, input, late);
+                    tickUntil(service, () -> !late.received.isEmpty(), "the own retained level for a late input");
+                    tickFor(service, 300);
+                    check(late.payloads().equals(List.of("true")), "The late input gets the stored level once, got " + late.payloads());
+                    check(late.received.getFirst().retained(), "The stored level arrives flagged retained");
+
+                    service.publish(Outbound.rawRetained(topic, utf8("false"), 2, publisher));
+                    tickUntil(service, () -> late.payloads().size() == 2, "the next live level");
+                    tickFor(service, 300);
+                    check(late.payloads().equals(List.of("true", "false")), "The next level arrives once, got " + late.payloads());
+                    check(late.received.getLast().local() && !late.received.getLast().retained(), "The next level is the live loopback copy");
+                    awaitRetained(target, topic, "false");
+                } finally {
+                    service.close();
+                }
+
+                HiveMqttService restarted = service(target, proxy, protocol, root, clientId, BrokerSettings.DEFAULT_MAX_INBOUND_BYTES);
+                try {
+                    Recorder reloaded = new Recorder();
+                    restarted.subscribe(topic, input, reloaded);
+                    connect(restarted);
+                    tickUntil(restarted, () -> !reloaded.received.isEmpty(), "the own retained level after a restart");
+                    tickFor(restarted, 300);
+                    check(reloaded.payloads().equals(List.of("false")), "After a restart the input gets the stored level once, got "
+                            + reloaded.payloads());
+                    check(reloaded.received.getFirst().retained(), "The stored level arrives flagged retained after a restart");
+                } finally {
+                    restarted.close();
+                }
+            } finally {
+                // Also when a check fails, so a broker that withholds the level keeps no retained test topic.
+                remote.clearRetained(topic);
+            }
+        }
+    }
+
+    /**
      * An acknowledgement listener runs on the ticking thread once the broker acknowledged its message, also when the
      * message waited in the outbox through a disconnect; never for a message coalesced into a newer one, and never
      * after close().
@@ -706,6 +810,121 @@ public final class BrokerIntegrationCheck {
         }
     }
 
+    /**
+     * The inbound listener that pumps a paused server (M2 plan D5): with nothing draining, the CONNACK wakes it once
+     * from a client thread, a burst of broker messages wakes it once until the next drain starts, and the drain re-arms it.
+     */
+    private static void wakePerBurst(Target target, ProtocolVersion protocol, String root) throws Exception {
+        String topic = root + "/wake/state";
+        Thread owner = Thread.currentThread();
+        List<Thread> wakes = new CopyOnWriteArrayList<>();
+        try (TcpProxy proxy = new TcpProxy(target.host(), target.port()); Remote remote = new Remote(target)) {
+            proxy.cut();
+            HiveMqttService service = service(target, proxy, protocol, root, BrokerSettings.DEFAULT_MAX_INBOUND_BYTES);
+            try {
+                Recorder recorder = new Recorder();
+                service.subscribe(topic, PLAIN, recorder);
+                service.onInboundAvailable(() -> wakes.add(Thread.currentThread()));
+                proxy.restore();
+                waitUntil(() -> !wakes.isEmpty(), "the wake of the CONNACK");
+                check(service.state().isConnected() && !wakes.contains(owner), "The CONNACK wakes from a client thread, got " + wakes);
+                check(service.hasPendingWork(), "The connect listeners wait for a drain");
+                service.drainInbound(MqttService.DEFAULT_DRAIN_BUDGET_NANOS, MqttService.DEFAULT_MAX_MESSAGES_PER_TICK);
+                check(wakes.size() == 1, "The CONNACK wakes once, got " + wakes.size());
+                awaitBrokerOperations(service);
+
+                for (int i = 0; i < 5; i++) remote.publish(topic, "m" + i, 1, false);
+                waitUntil(() -> service.stats().queuedInbound() == 5, "the burst to be queued");
+                check(wakes.size() == 2 && service.hasPendingWork(), "A burst of five messages wakes once, got " + wakes.size());
+                service.drainInbound(MqttService.DEFAULT_DRAIN_BUDGET_NANOS, MqttService.DEFAULT_MAX_MESSAGES_PER_TICK);
+                check(recorder.payloads().equals(List.of("m0", "m1", "m2", "m3", "m4")), "The pump drains the burst, got " + recorder.payloads());
+                check(!service.hasPendingWork(), "Nothing is pending after the drain");
+
+                remote.publish(topic, "after", 1, false);
+                waitUntil(() -> wakes.size() == 3, "the wake after the drain");
+                check(!wakes.contains(owner), "Every wake comes from a client thread, got " + wakes);
+            } finally {
+                service.close();
+            }
+        }
+    }
+
+    /**
+     * The Home Assistant ghost cleanup (design §4.5, M2-24) on its service: the scan after each connect clears exactly
+     * the retained configs that name this bridge and a device id it does not know. A known device or group, another
+     * bridge's device, an oversized or malformed config, another object id and the bridge's own config stay. The scan
+     * ends with its window, so a ghost left after it waits for the next connect, which finds it.
+     */
+    private static void ghostCleanup(Target target, ProtocolVersion protocol, String root) throws Exception {
+        String prefix = root + "/ha";
+        String bridge = "mineqtt_bridge_" + hex32();
+        UUID device = UUID.randomUUID();
+        UUID group = UUID.randomUUID();
+        Set<UUID> known = Set.of(device, group);
+        Map<String, String> kept = new LinkedHashMap<>();
+        kept.put(discoveryTopic(prefix, device), deviceConfig(device, "dev", bridge, ""));
+        kept.put(discoveryTopic(prefix, group), deviceConfig(group, "dev", bridge, ""));
+        UUID foreignDevice = UUID.randomUUID();
+        kept.put(discoveryTopic(prefix, foreignDevice), deviceConfig(foreignDevice, "dev", "mineqtt_bridge_" + hex32(), ""));
+        UUID oversized = UUID.randomUUID();
+        kept.put(discoveryTopic(prefix, oversized), deviceConfig(oversized, "dev", bridge, "x".repeat(GhostCleanup.MAX_CONFIG_BYTES)));
+        kept.put(discoveryTopic(prefix, UUID.randomUUID()), "[\"" + bridge + "\"]");
+        kept.put(prefix + "/device/zigbee_" + hex32() + "/config", deviceConfig(UUID.randomUUID(), "dev", bridge, ""));
+        kept.put(prefix + "/device/" + bridge + "/config", "{\"dev\":{\"ids\":[\"" + bridge + "\"]}}");
+        UUID ghost = UUID.randomUUID();
+        UUID spelledOut = UUID.randomUUID();
+        List<String> ghosts = List.of(discoveryTopic(prefix, ghost), discoveryTopic(prefix, spelledOut));
+        UUID late = UUID.randomUUID();
+        String lateTopic = discoveryTopic(prefix, late);
+        try (TcpProxy proxy = new TcpProxy(target.host(), target.port()); Remote remote = new Remote(target)) {
+            // QoS 2, because Moquette acknowledges QoS 1 before it stores the retained message.
+            for (Map.Entry<String, String> config : kept.entrySet()) remote.publish(config.getKey(), config.getValue(), 2, true);
+            remote.publish(ghosts.get(0), deviceConfig(ghost, "dev", bridge, ""), 2, true);
+            remote.publish(ghosts.get(1), deviceConfig(spelledOut, "device", bridge, ""), 2, true);
+            remote.subscribe(prefix + "/device/+/config", 1);
+            HiveMqttService service = service(target, proxy, protocol, root, BrokerSettings.DEFAULT_MAX_INBOUND_BYTES);
+            AtomicLong clock = new AtomicLong();
+            GhostCleanup cleanup = new GhostCleanup(service, () -> prefix, bridge, known::contains, () -> true, clock::get, LOG);
+            try {
+                service.onConnected(cleanup::connected);
+                tickUntil(service, () -> {
+                    cleanup.tick();
+                    return ghosts.stream().allMatch(topic -> remote.payloads(topic).contains(""));
+                }, "the clears of both ghosts");
+                check(cleanup.pending(), "The scan listens for its whole window");
+                clock.addAndGet(GhostCleanup.WINDOW_MILLIS);
+                cleanup.tick();
+                check(!cleanup.pending(), "The scan ends with its window");
+                awaitBrokerOperations(service);
+                for (String topic : ghosts) awaitRetained(target, topic, null);
+                for (Map.Entry<String, String> config : kept.entrySet()) awaitRetained(target, config.getKey(), config.getValue());
+                long clears = kept.keySet().stream().filter(topic -> remote.payloads(topic).contains("")).count();
+                check(clears == 0, "Nothing but the ghosts is cleared, got " + clears + " other clears");
+
+                remote.publish(lateTopic, deviceConfig(late, "dev", bridge, ""), 2, true);
+                tickFor(service, 300);
+                cleanup.tick();
+                check(!remote.payloads(lateTopic).contains(""), "A ghost published after the window waits for the next connect");
+                proxy.cut();
+                tickUntil(service, () -> !service.state().isConnected(), "the connection to drop");
+                cleanup.tick();
+                proxy.restore();
+                tickUntil(service, () -> {
+                    cleanup.tick();
+                    return remote.payloads(lateTopic).contains("");
+                }, "the clear of the late ghost after the reconnect");
+                awaitRetained(target, lateTopic, null);
+            } finally {
+                cleanup.stop();
+                service.close();
+                // A failed run must not leave its configs on a shared broker.
+                for (String topic : kept.keySet()) remote.clearRetained(topic);
+                for (String topic : ghosts) remote.clearRetained(topic);
+                remote.clearRetained(lateTopic);
+            }
+        }
+    }
+
     /** Without a broker the service still routes local publishes, so links on one server keep working. */
     private static void mqttDisabled() throws InterruptedException {
         HiveMqttService service = HiveMqttService.disabled(HiveMqttService.Options.defaults(null), LOG);
@@ -719,7 +938,7 @@ public final class BrokerIntegrationCheck {
             service.subscribe("mineqtt/shared/door", SubOptions.raw(true, deviceA), a);
             service.subscribe("mineqtt/shared/+", SubOptions.raw(false, deviceB), b);
             service.subscribe("mineqtt/shared/door", PLAIN, plain);
-            service.publish(Outbound.raw("mineqtt/shared/door", utf8("ON"), 0, false, deviceA));
+            service.publish(Outbound.raw("mineqtt/shared/door", utf8("ON"), 0, deviceA));
             service.publish(Outbound.state("mineqtt/shared/door", "STATE"));
             tickUntil(service, () -> b.payloads().size() == 2, "the loopback without a broker");
             check(a.payloads().equals(List.of("STATE")), "The origin hears only the other publish, got " + a.payloads());
@@ -797,9 +1016,14 @@ public final class BrokerIntegrationCheck {
     // ---- helpers ----
 
     private static HiveMqttService service(Target target, TcpProxy proxy, ProtocolVersion protocol, String root, int maxInboundBytes) {
+        return service(target, proxy, protocol, root, "it-" + shortId(), maxInboundBytes);
+    }
+
+    private static HiveMqttService service(Target target, TcpProxy proxy, ProtocolVersion protocol, String root, String clientId,
+                                           int maxInboundBytes) {
         String uri = (target.wsPath() == null ? "tcp://" : "ws://") + proxy.host() + ":" + proxy.port()
                 + (target.wsPath() == null ? "" : target.wsPath());
-        BrokerSettings settings = new BrokerSettings("it-" + shortId(), null, null, null, false, 30, protocol, maxInboundBytes);
+        BrokerSettings settings = new BrokerSettings(clientId, null, null, null, false, 30, protocol, maxInboundBytes);
         BrokerConfig config = BrokerConfig.parse(uri, settings).orElseThrow();
         HiveMqttService.Options options = HiveMqttService.Options.defaults(Outbound.state(root + "/bridge/state", "offline"))
                 .withReconnectDelays(100, 400);
@@ -875,6 +1099,25 @@ public final class BrokerIntegrationCheck {
             List<String> retained = probe.payloads(topic);
             return retained.isEmpty() ? Optional.empty() : Optional.of(retained.getFirst());
         }
+    }
+
+    private static String discoveryTopic(String prefix, UUID id) {
+        return prefix + "/device/mineqtt_" + id.toString().replace("-", "") + "/config";
+    }
+
+    /** A device discovery config naming {@code via} as its bridge under {@code deviceKey}, with {@code padding} added. */
+    private static String deviceConfig(UUID id, String deviceKey, String via, String padding) {
+        JsonObject device = new JsonObject();
+        device.addProperty("name", "Lamp " + id.toString().substring(0, 4));
+        device.addProperty("via_device", via);
+        JsonObject config = new JsonObject();
+        config.add(deviceKey, device);
+        if (!padding.isEmpty()) config.addProperty("padding", padding);
+        return config.toString();
+    }
+
+    private static String hex32() {
+        return UUID.randomUUID().toString().replace("-", "");
     }
 
     private static void publishAll(Remote remote, String root, String payload) throws Exception {

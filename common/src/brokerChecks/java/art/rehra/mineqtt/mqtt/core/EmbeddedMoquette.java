@@ -18,8 +18,9 @@ import java.util.Properties;
  * <ul>
  *     <li>MQTT 3.1 and 3.1.1 only. {@code MQTTConnection} answers an MQTT 5 CONNECT with the 3.1.1 return code
  *     {@code CONNECTION_REFUSED_UNACCEPTABLE_PROTOCOL_VERSION}, so no MQTT 5 session ever exists.</li>
- *     <li>Hence neither MQTT 5 no-local nor retain-handling ({@code DO_NOT_SEND}) can be exercised here. 0.17 is the
- *     newest release on Maven Central, so scenarios that need them run against the Docker Mosquitto instead.</li>
+ *     <li>Hence neither MQTT 5 no-local nor retain-handling ({@code DO_NOT_SEND}) can be exercised here, nor whether
+ *     no-local withholds a client's own retained message on subscribe. 0.17 is the newest release on Maven Central, so
+ *     scenarios that need them run against the Docker Mosquitto instead.</li>
  *     <li>3.1.1 subscribers receive their own publishes, so the 3.1.1 loopback digest window is testable here.</li>
  *     <li>A retained message sent on subscribe keeps the retain flag only when delivered at QoS 0. The QoS 1 and 2
  *     paths build it with {@code createNotRetainedPublishMessage}, against MQTT 3.1.1 §3.3.1.3. The
@@ -46,7 +47,10 @@ final class EmbeddedMoquette implements AutoCloseable {
     static final boolean SUPPORTS_MQTT_5 = false;
     static final boolean SUPPORTS_NO_LOCAL = false;
     static final boolean SUPPORTS_RETAIN_HANDLING = false;
+    static final boolean SENDS_OWN_RETAINED_ON_NO_LOCAL = false;
     static final String REFUSED_LEVEL = "acl-refused";
+    /** The largest packet the broker takes; Moquette's own default is 8092 bytes. */
+    static final int MAX_PACKET_BYTES = 256 * 1024;
 
     private final Server server;
     private final int port;
@@ -69,6 +73,9 @@ final class EmbeddedMoquette implements AutoCloseable {
         properties.setProperty(IConfig.PERSISTENCE_ENABLED_PROPERTY_NAME, "false");
         // The default contacts telemetry.moquette.io and an IP lookup service on every start.
         properties.setProperty(IConfig.ENABLE_TELEMETRY_NAME, "false");
+        // The default of 8092 bytes per packet closes the connection of a client that publishes a larger message, so
+        // a check could not send one above the 16 KiB limits.
+        properties.setProperty(IConfig.NETTY_MAX_BYTES_PROPERTY_NAME, Integer.toString(MAX_PACKET_BYTES));
 
         Server server = new Server();
         RefusingAcl acl = new RefusingAcl();

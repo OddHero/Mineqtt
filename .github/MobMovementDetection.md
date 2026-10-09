@@ -55,7 +55,7 @@ Simulate a PIR (Passive Infrared) sensor by detecting "heat" changes.
 With the new `BaseMqttBlock` and `BaseMqttBlockEntity` architecture, adding new specialized sensors or actuators becomes
 easier:
 
-- **Inheritance**: New sensors can extend `MqttPublisherBlockEntity`.
+- **Inheritance**: New sensors are devices: a `DeviceBlockEntity` with a `DeviceType` (the Motion Sensor is one since MineQTT 2).
 - **Composition**: Use specific "DetectionComponents" that can be plugged into any block entity to give it sensing
   capabilities.
 - **Events**: Use a common event system to notify when MQTT messages are received or need to be sent, decoupling the

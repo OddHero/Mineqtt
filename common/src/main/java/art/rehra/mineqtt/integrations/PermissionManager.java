@@ -27,6 +27,11 @@ public class PermissionManager {
         return MineQTT.modLoaderUtils.isModLoaded("flan");
     }
 
+    /** Whether a claim mod decides who a claim trusts; without one {@link #canInteract} trusts every player. */
+    public boolean hasClaimMod() {
+        return IsFlanAvailable();
+    }
+
 
     /**
      * Whether the claim at {@code pos}, in the player's own level, trusts the player with {@code permission}. Without

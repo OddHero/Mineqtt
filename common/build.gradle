@@ -79,7 +79,7 @@ tasks.register('verifyRuntimeWiring', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.runtime.RuntimeWiringCheck'
 }
-// The device registry file: read back twice, backup fallback, quarantine of unreadable files, bad entries.
+// The device registry file: read back twice, backup fallback, quarantine of unreadable files, bad entries, the wire codec.
 tasks.register('verifyRegistryRoundTrip', JavaExec) {
     dependsOn sensorChecksClasses
     classpath = sourceSets.sensorChecks.runtimeClasspath
@@ -91,17 +91,43 @@ tasks.register('verifyValueCodecs', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.device.ValueCodecsTest'
 }
-// Server-only lifecycle predicates, the placement sanitiser, the mineqtt compound and the per-type publish limits.
+// Server-only lifecycle predicates, the placement sanitiser, the mineqtt compound, the command routing table and the per-type publish limits.
 tasks.register('verifyLifecycleGuards', JavaExec) {
     dependsOn sensorChecksClasses
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.device.LifecycleGuardTest'
 }
-// Token buckets and rate limits, the C2S guard's order, field caps and the device access table; no game bootstrap needed.
+// Token buckets and rate limits, the C2S guard's order, field caps, the device access table, who may change the access mode and claim a device, what Diagnostics shows of a device's traffic to whom, the owner match by UUID and the ownerUuid key, who may expose devices, the Bridge Console's access and list scoping and the slots' closed automation faces (bootstrapped).
 tasks.register('verifySecurityGuards', JavaExec) {
     dependsOn sensorChecksClasses
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.security.SecurityGuardsCheck'
+}
+// Device declarations (bootstrapped): ports derived and frozen, HA events and commands declared, strict settings and link
+// settings, which port pairs a wire may join and the device view's stream codec and 32 KiB cap.
+tasks.register('verifyDeviceTypes', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.DeviceTypesCheck'
+}
+// The generated device screen (bootstrapped): tabs and controls derived per type, the permission of each control and the
+// bounds of what it sends, as the server's validator checks them; the General tab's slug preview, the Access tab's mode, who may claim and retry, the Diagnostics tab's ages.
+tasks.register('verifyDeviceTabs', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.ui.device.DeviceTabsCheck'
+}
+// Item and paper topics: the shared namespace, the allowlist, owner literal sets, refusals and the M1 re-resolution; no game bootstrap needed.
+tasks.register('verifyRawTopics', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.RawTopicsCheck'
+}
+// Wireless redstone is retained: the retain override and type defaults, M1 and v1 links, empty payloads and what an output leaves on its topic.
+tasks.register('verifyRawLinkRetain', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.RawLinkRetainCheck'
 }
 // v1 block entity data and topic states: snapshots, the Smart Lamp's, the Redstone Output's and Input's and the Presence Sensor's v2 data, adopted Raw Links, records and legacy groups.
 tasks.register('verifyLegacyNbtMigration', JavaExec) {
@@ -115,11 +141,22 @@ tasks.register('verifyDiscoveryPayloads', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.ha.DiscoveryGoldenTest'
 }
-// Discovery publishing: exposure and hashes, the rate limit, the v1 migration and status clear, birth and bridge requests.
+// Discovery publishing: exposure and hashes, the rate limit, the v1 migration and status clear, birth and bridge requests,
+// the ghost cleanup.
 tasks.register('verifyDiscoveryPublisher', JavaExec) {
     dependsOn sensorChecksClasses
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.ha.DiscoveryPublisherCheck'
+}
+// The Catalog of blocks and items: assets, loot tables, lang keys, 26.2 recipes behind the Network Chip and their unlock
+// advancements (bootstrapped). It reads the source resources, so a deleted file cannot survive in build/resources.
+tasks.register('verifyCatalog', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.registry.CatalogCheck'
+    def resourcesDir = file('src/main/resources')
+    inputs.dir(resourcesDir).withPropertyName('resources')
+    args resourcesDir.absolutePath
 }
 
 // Run mqtt.core checks against an in-process Moquette broker; the timeout keeps a stuck broker from hanging check.
@@ -146,6 +183,15 @@ tasks.register('verifyBrokerSmoke', JavaExec) {
     }
 }
 
+// The flows message bus and its coercion table, Minecraft-free on the same isolated classpath: FIFO order, the hop TTL,
+// fan-in, the drain budget, the rate cap, the change filter, wire mappings and payload caps.
+tasks.register('verifyMessageBus', JavaExec) {
+    dependsOn brokerChecksClasses
+    classpath = sourceSets.brokerChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.flow.core.MessageBusCheck'
+    timeout = java.time.Duration.ofMinutes(2)
+}
+
 // HiveMqttService scenarios behind a TCP proxy: MQTT 3.1.1 against Moquette by default, both protocols against
 // -PexternalBroker=tcp://host:port (the Docker Mosquitto, E2E item 13), since Moquette refuses MQTT 5.
 tasks.register('verifyBrokerIntegration', JavaExec) {
@@ -157,44 +203,74 @@ tasks.register('verifyBrokerIntegration', JavaExec) {
     timeout = java.time.Duration.ofMinutes(5)
 }
 
-// mqtt.core may only use the JDK, Gson, HiveMQ and itself, so it stays testable without Minecraft. This is an allowlist:
-// main's compile classpath also carries Netty 4.2, Guava, fastutil, slf4j and the loaders, which brokerChecks lacks.
-tasks.register('verifyMqttCoreIsolation') {
+// The Minecraft-free cores stay testable without Minecraft (M2 plan §3.8 #7). Each scope is an allowlist of packages and
+// classes, since main's compile classpath also carries Netty 4.2, Guava, fastutil, slf4j and the loaders, which brokerChecks lacks:
+// - mqtt.core: the JDK, Gson, HiveMQ and itself; its checks also the embedded Moquette broker and ha.GhostCleanup
+// - flow.core (port kinds, coercion, wires and the message bus): the JDK, Gson, itself and security.TokenBucket
+// - security/TokenBucket.java and RateLimit.java, which flow.core and the server share: the JDK only, and none of the
+//   other classes of their package, which they could name without an import
+// - ha/GhostCleanup.java, which the broker integration check runs against a real broker: what mqtt.core may use plus
+//   mqtt.core, and none of the other classes of its package
+tasks.register('verifyCoreIsolation') {
     group = 'verification'
-    description = 'Fails if a mqtt.core source references a package outside the JDK, Gson, HiveMQ and mqtt.core.'
-    def mainSources = fileTree('src/main/java/art/rehra/mineqtt/mqtt/core') { include '**/*.java' }
-    def checkSources = fileTree('src/brokerChecks/java/art/rehra/mineqtt/mqtt/core') { include '**/*.java' }
+    description = 'Fails if a source of mqtt.core, flow.core, TokenBucket, RateLimit or GhostCleanup references a package or class outside its allowlist.'
+    def jdk = ['java', 'javax']
+    def mqttAllowed = jdk + ['com.google.gson', 'com.hivemq.client', 'art.rehra.mineqtt.mqtt.core']
+    def flowAllowed = jdk + ['com.google.gson', 'art.rehra.mineqtt.flow.core', 'art.rehra.mineqtt.security.TokenBucket']
+    def securityDir = file('src/main/java/art/rehra/mineqtt/security')
+    def haDir = file('src/main/java/art/rehra/mineqtt/ha')
+    // A scope of single classes names the folder of their package third: its files must exist, and the other classes there are off limits.
+    def scopes = [
+            'mqtt.core'        : [fileTree('src/main/java/art/rehra/mineqtt/mqtt/core') { include '**/*.java' }, mqttAllowed],
+            'mqtt.core checks' : [fileTree('src/brokerChecks/java/art/rehra/mineqtt/mqtt/core') { include '**/*.java' },
+                                  mqttAllowed + ['io.moquette', 'art.rehra.mineqtt.ha.GhostCleanup']],
+            'flow.core'        : [fileTree('src/main/java/art/rehra/mineqtt/flow/core') { include '**/*.java' }, flowAllowed],
+            'flow.core checks' : [fileTree('src/brokerChecks/java/art/rehra/mineqtt/flow/core') { include '**/*.java' }, flowAllowed],
+            'rate limits'      : [files(new File(securityDir, 'TokenBucket.java'), new File(securityDir, 'RateLimit.java')), jdk, securityDir],
+            'ghost cleanup'    : [files(new File(haDir, 'GhostCleanup.java')), mqttAllowed, haDir],
+    ]
     def baseDir = projectDir
-    inputs.files(mainSources).withPropertyName('mqttCoreSources')
-    inputs.files(checkSources).withPropertyName('mqttCoreCheckSources')
+    scopes.each { name, scope -> inputs.files(scope[0]).withPropertyName(name.replaceAll(/\W/, '_')) }
+    inputs.files(fileTree(securityDir) { include '*.java' }).withPropertyName('securityPackage')
+    inputs.files(fileTree(haDir) { include '*.java' }).withPropertyName('haPackage')
     doLast {
-        def allowed = ['java', 'javax', 'com.google.gson', 'com.hivemq.client', 'art.rehra.mineqtt.mqtt.core']
-        // The checks additionally drive the embedded broker.
-        def allowedInChecks = allowed + ['io.moquette']
         // Comments and string literals are blanked (keeping newlines) so only code matches and line numbers stay exact.
         def nonCode = ~/(?s)""".*?"""|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])+'|\/\/[^\n]*|\/\*.*?\*\//
-        // A package: two or more lowercase segments followed by a type or a wildcard. This catches imports, static
-        // imports and fully qualified references alike. A field chain ending in a constant (a.b.CONST) also matches.
-        def packageName = ~/(?<![\w.])[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)+(?=\.(?:[A-Z]|\*))/
+        // A qualified name: two or more lowercase segments (the package), then a type or a wildcard. This catches
+        // imports, static imports and fully qualified references alike, and lets an allowlist name a single class.
+        // A field chain ending in a constant (a.b.CONST) also matches.
+        def qualifiedName = ~/(?<![\w.])([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)+)\.([A-Z][\w$]*|\*)/
         def violations = []
-        def scan = { Set<File> files, List<String> roots ->
-            files.sort().each { File source ->
+        def relative = { File source -> baseDir.toPath().relativize(source.toPath()) }
+        scopes.each { name, scope ->
+            def (sources, allowed, packageDir) = scope
+            // The other classes of a single class's package need no import, so they are matched by their simple names.
+            def siblingName = null
+            if (packageDir != null) {
+                def own = sources.files*.name
+                sources.files.findAll { !it.isFile() }.each { violations << "${relative(it)}: missing, so ${name} checks nothing there" }
+                def siblings = packageDir.listFiles().findAll { it.name.endsWith('.java') && !own.contains(it.name) }.collect { it.name - '.java' }
+                if (!siblings.isEmpty()) siblingName = ~/(?<![\w.$])(${siblings.join('|')})(?![\w$])/
+            }
+            sources.files.findAll { it.isFile() }.sort().each { File source ->
                 def code = source.getText('UTF-8').replaceAll(nonCode) { String literal -> literal.replaceAll(/[^\n]/, ' ') }
-                def matcher = packageName.matcher(code)
+                def report = { int offset, String rule ->
+                    def line = code.substring(0, offset).count('\n') + 1
+                    violations << "${relative(source)}:${line} (${name} ${rule}): ${source.readLines('UTF-8')[line - 1].trim()}"
+                }
+                def matcher = qualifiedName.matcher(code)
                 while (matcher.find()) {
-                    def name = matcher.group()
-                    if (roots.any { name == it || name.startsWith(it + '.') }) {
-                        continue
-                    }
-                    def line = code.substring(0, matcher.start()).count('\n') + 1
-                    violations << "${baseDir.toPath().relativize(source.toPath())}:${line}: ${source.readLines('UTF-8')[line - 1].trim()}"
+                    def qualified = matcher.group(1) + '.' + matcher.group(2)
+                    if (!allowed.any { qualified == it || qualified.startsWith(it + '.') }) report(matcher.start(), "may only use ${allowed.join(', ')}")
+                }
+                if (siblingName != null) {
+                    def sibling = siblingName.matcher(code)
+                    while (sibling.find()) report(sibling.start(), "may not use ${sibling.group(1)}, another class of its package")
                 }
             }
         }
-        scan(mainSources.files, allowed)
-        scan(checkSources.files, allowedInChecks)
         if (!violations.isEmpty()) {
-            throw new GradleException("mqtt.core may only reference ${allowed.join(', ')} (and io.moquette in brokerChecks):\n" + violations.join('\n'))
+            throw new GradleException("A Minecraft-free core references something outside its allowlist:\n" + violations.join('\n'))
         }
     }
 }
@@ -209,10 +285,15 @@ tasks.named('check') {
     dependsOn tasks.named('verifyRegistryRoundTrip')
     dependsOn tasks.named('verifyValueCodecs')
     dependsOn tasks.named('verifyLifecycleGuards')
+    dependsOn tasks.named('verifyDeviceTypes')
+    dependsOn tasks.named('verifyDeviceTabs')
     dependsOn tasks.named('verifySecurityGuards')
+    dependsOn tasks.named('verifyRawTopics')
+    dependsOn tasks.named('verifyRawLinkRetain')
     dependsOn tasks.named('verifyLegacyNbtMigration')
     dependsOn tasks.named('verifyDiscoveryPayloads')
     dependsOn tasks.named('verifyDiscoveryPublisher')
+    dependsOn tasks.named('verifyCatalog')
     dependsOn tasks.named('verifyBrokerSmoke')
     dependsOn tasks.named('verifyTopicTrie')
     dependsOn tasks.named('verifyBrokerUri')
@@ -220,5 +301,6 @@ tasks.named('check') {
     dependsOn tasks.named('verifyOutboundBuffer')
     dependsOn tasks.named('verifyTopicAcl')
     dependsOn tasks.named('verifyBrokerIntegration')
-    dependsOn tasks.named('verifyMqttCoreIsolation')
+    dependsOn tasks.named('verifyMessageBus')
+    dependsOn tasks.named('verifyCoreIsolation')
 }

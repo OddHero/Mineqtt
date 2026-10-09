@@ -37,12 +37,12 @@ public class MineqttBlocks {
         MineQTT.LOGGER.info("Registering MineQTT Blocks");
         // Register blocks here
 
-        TERMINAL_BLOCK = registerBlock("terminal_block", () -> new Block(baseProperties("terminal_block").requiresCorrectToolForDrops().strength(3.5f)));
+        TERMINAL_BLOCK = registerBlock("terminal_block", () -> new TerminalBlock(baseProperties("terminal_block").requiresCorrectToolForDrops().strength(3.5f)));
         PUBLISHER_BLOCK = registerBlock("redstone_publisher_block", () -> new RedstonePublisherBlock(baseProperties("redstone_publisher_block").requiresCorrectToolForDrops().strength(3.5f)));
         REDSTONE_EMITTER_BLOCK = registerBlock("redstone_emitter_block", () -> new RedstoneEmitterBlock(baseProperties("redstone_emitter_block").requiresCorrectToolForDrops().strength(3.5f)));
         RGB_LED_BLOCK = registerBlock("rgb_led_block", () -> new RgbLedBlock(baseProperties("rgb_led_block").requiresCorrectToolForDrops().strength(3.5f)));
         MOTION_SENSOR_BLOCK = registerBlock("motion_sensor_block", () -> new MotionSensorBlock(baseProperties("motion_sensor_block").requiresCorrectToolForDrops().strength(3.5f)));
-        LIGHT_REMOTE_BLOCK = registerBlock("light_remote_block", () -> new LightRemoteBlock(baseProperties("light_remote_block").requiresCorrectToolForDrops().strength(3.5f)));
+        LIGHT_REMOTE_BLOCK = registerBlock("light_remote_block", () -> new LightRemoteBlock(baseProperties("light_remote_block").requiresCorrectToolForDrops().strength(3.5f).noOcclusion()));
         BLOCK_SENSOR_BLOCK = registerBlock("block_sensor_block", () -> new BlockSensorBlock(baseProperties("block_sensor_block").requiresCorrectToolForDrops().strength(3.5f)));
         BLOCK_EMITTER_BLOCK = registerBlock("block_emitter_block", () -> new BlockEmitterBlock(baseProperties("block_emitter_block").requiresCorrectToolForDrops().strength(3.5f)));
         CRON_TIMER_BLOCK = registerBlock("cron_timer", () -> new CronTimerBlock(baseProperties("cron_timer").requiresCorrectToolForDrops().strength(3.5f)));
@@ -52,8 +52,8 @@ public class MineqttBlocks {
         ALARM_CLOCK_BLOCK = registerBlock("alarm_clock", () -> new AlarmClockBlock(baseProperties("alarm_clock").requiresCorrectToolForDrops().strength(3.5f)));
         GAME_TIME_TIMER_BLOCK = registerBlock("game_time_timer", () -> new GameTimeTimerBlock(baseProperties("game_time_timer").requiresCorrectToolForDrops().strength(3.5f)));
         STATIC_PUBLISHER_BLOCK = registerBlock("static_publisher", () -> new StaticPublisherBlock(baseProperties("static_publisher").requiresCorrectToolForDrops().strength(3.5f)));
-        DYNAMIC_PUBLISHER_BLOCK = registerBlock("dynamic_publisher", () -> new DynamicPublisherBlock(baseProperties("dynamic_publisher").requiresCorrectToolForDrops().strength(3.5f)));
-        TOPIC_RELAY_BLOCK = registerBlock("topic_relay", () -> new TopicRelayBlock(baseProperties("topic_relay").requiresCorrectToolForDrops().strength(3.5f)));
+        DYNAMIC_PUBLISHER_BLOCK = registerBlock("dynamic_publisher", () -> new DynamicPublisherBlock(baseProperties("dynamic_publisher").strength(3.5f)));
+        TOPIC_RELAY_BLOCK = registerBlock("topic_relay", () -> new TopicRelayBlock(baseProperties("topic_relay").strength(3.5f)));
         SMART_PLUG_BLOCK = registerBlock("smart_plug", () -> new SmartPlugBlock(baseProperties("smart_plug").requiresCorrectToolForDrops().strength(3.5f)));
         BLOCKS.register();
 

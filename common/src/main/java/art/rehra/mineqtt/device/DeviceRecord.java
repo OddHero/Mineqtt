@@ -33,8 +33,9 @@ public final class DeviceRecord {
             JsonCodecs.OBJECT.optionalFieldOf("lastState").forGetter(r -> Optional.ofNullable(r.lastState)),
             Codec.STRING.optionalFieldOf("discoveryHash").forGetter(r -> Optional.ofNullable(r.discoveryHash)),
             Codec.STRING.optionalFieldOf("legacyUniqueId").forGetter(r -> Optional.ofNullable(r.legacyUniqueId)),
-            Codec.STRING.optionalFieldOf("legacyTopic").forGetter(r -> Optional.ofNullable(r.legacyTopic))
-    ).apply(instance, (id, type, pos, name, slug, owner, access, expose, group, pending, lastState, discoveryHash, legacyUniqueId, legacyTopic) -> {
+            Codec.STRING.optionalFieldOf("legacyTopic").forGetter(r -> Optional.ofNullable(r.legacyTopic)),
+            Codec.STRING.optionalFieldOf("v1Topic").forGetter(r -> Optional.ofNullable(r.v1Topic))
+    ).apply(instance, (id, type, pos, name, slug, owner, access, expose, group, pending, lastState, discoveryHash, legacyUniqueId, legacyTopic, v1Topic) -> {
         DeviceRecord record = new DeviceRecord(id, type, pos, name, slug);
         record.owner = owner.orElse(null);
         record.access = access;
@@ -45,6 +46,7 @@ public final class DeviceRecord {
         record.discoveryHash = discoveryHash.orElse(null);
         record.legacyUniqueId = legacyUniqueId.orElse(null);
         record.legacyTopic = legacyTopic.orElse(null);
+        record.v1Topic = v1Topic.orElse(null);
         return record;
     }));
 
@@ -62,6 +64,7 @@ public final class DeviceRecord {
     private @Nullable String discoveryHash;
     private @Nullable String legacyUniqueId;
     private @Nullable String legacyTopic;
+    private @Nullable String v1Topic;
 
     public DeviceRecord(UUID id, Identifier type, GlobalPos pos, String name, String slug) {
         this.id = id;
@@ -191,5 +194,18 @@ public final class DeviceRecord {
 
     public void setLegacyTopic(@Nullable String legacyTopic) {
         this.legacyTopic = legacyTopic;
+    }
+
+    /**
+     * The v1 topic a v1 lamp or remote was adopted with, which M2 plan D15 matches a v1 remote's lamps by: a lamp keeps
+     * it, so a remote finds it also while it is unloaded; a remote keeps it until it is wired to those lamps or its v1
+     * commands are dropped. Null for every other device.
+     */
+    public @Nullable String v1Topic() {
+        return v1Topic;
+    }
+
+    public void setV1Topic(@Nullable String v1Topic) {
+        this.v1Topic = v1Topic;
     }
 }

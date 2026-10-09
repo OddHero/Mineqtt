@@ -8,7 +8,8 @@ import net.minecraft.world.item.ItemStack;
 /**
  * A {@link Slot} bound to a specific tab id; only active (rendered + interactive)
  * while the menu's active tab matches. Its items configure the block, so they only
- * move for a player whose menu is {@link TabbedMqttMenu#configurable()}.
+ * move for a player whose menu is {@link TabbedMqttMenu#configurable()}; the menu remembers who moved them
+ * ({@link TabbedMqttMenu#clicked}).
  */
 public class TabbedSlot extends Slot {
 

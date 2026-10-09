@@ -1,223 +1,180 @@
 package art.rehra.mineqtt.blocks.entities;
 
-import art.rehra.mineqtt.ui.framework.MqttTab;
-import art.rehra.mineqtt.ui.framework.tabs.TemperatureSensorTab;
+import art.rehra.mineqtt.device.CommandReader;
+import art.rehra.mineqtt.device.CommandResult;
+import art.rehra.mineqtt.device.CommandSource;
+import art.rehra.mineqtt.device.CommonFields;
+import art.rehra.mineqtt.device.DeviceLink;
+import art.rehra.mineqtt.device.DeviceType;
+import art.rehra.mineqtt.device.StateWriter;
+import art.rehra.mineqtt.device.types.ClimateSensor;
+import art.rehra.mineqtt.device.types.ClimateSensor.Climate;
+import art.rehra.mineqtt.legacy.LegacyNbtV1;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.HolderLookup;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.chat.Component;
+import net.minecraft.core.GlobalPos;
+import net.minecraft.core.Holder;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
-import java.util.Random;
+import java.util.Optional;
 
-public class TemperatureSensorBlockEntity extends MqttPublisherBlockEntity {
-
-    // Current temperature reading in Celsius
-    private double temperature = 20.0;
-    private long lastPublishTime = 0;
-    private int updateIntervalTicks = 200; // Default: publish every 10 seconds (200 ticks)
+/**
+ * The Climate Sensor ({@link ClimateSensor}), in the block entity of the v1 temperature sensor, whose id it keeps. Its
+ * settings and its last reading are in the {@code mineqtt} compound; v1 data of a temperature sensor, or of a humidity
+ * sensor that converted into it, is read on load and adopted when the device attaches. Clients get no render data.
+ */
+public class TemperatureSensorBlockEntity extends DeviceBlockEntity {
+    private final DeviceLink link = new DeviceLink(ClimateSensor.TYPE);
+    private Climate climate = Climate.DEFAULT;
+    // Whether the sensor took a reading since it attached; the reading it loaded with may be stale.
+    private boolean measured;
 
     public TemperatureSensorBlockEntity(BlockPos pos, BlockState blockState) {
         super(MineqttBlockEntityTypes.TEMPERATURE_SENSOR_BLOCK.get(), pos, blockState);
     }
 
     @Override
-    protected String getDefaultTopic() {
-        return "/mineqtt/temperature";
-    }
-
-    public double getTemperature() {
-        return temperature;
-    }
-
-    public void setTemperature(double temperature) {
-        this.temperature = temperature;
-        markUpdated();
-    }
-
-    public int getUpdateIntervalTicks() {
-        return updateIntervalTicks;
-    }
-
-    public void setUpdateIntervalTicks(int ticks) {
-        this.updateIntervalTicks = Math.max(20, ticks); // Minimum 1 second
-        markUpdated();
+    public DeviceType deviceType() {
+        return ClimateSensor.TYPE;
     }
 
     @Override
-    protected void saveAdditional(ValueOutput output) {
-        super.saveAdditional(output);
-        output.putDouble("Temperature", temperature);
-        output.putLong("LastPublishTime", lastPublishTime);
-        output.putInt("UpdateIntervalTicks", updateIntervalTicks);
+    public DeviceLink deviceLink() {
+        return link;
     }
 
     @Override
-    protected void loadAdditional(ValueInput input) {
-        super.loadAdditional(input);
-        this.temperature = input.getDoubleOr("Temperature", 20.0);
-        this.lastPublishTime = input.getLongOr("LastPublishTime", 0L);
-        this.updateIntervalTicks = input.getIntOr("UpdateIntervalTicks", 200);
+    public void writeState(StateWriter out) {
+        climate.write(out).put(CommonFields.LOCATION, GlobalPos.of(level.dimension(), worldPosition));
     }
 
     @Override
-    public List<MqttTab> getTabs() {
-        List<MqttTab> tabs = super.getTabs();
-        tabs.add(new TemperatureSensorTab());
-        return tabs;
-    }
-
-    @Override
-    public Component getDisplayName() {
-        return Component.literal("Temperature Sensor");
-    }
-
-    @Override
-    protected Component getDefaultName() {
-        return Component.translatable("container.mineqtt.temperature_sensor");
-    }
-
-    @Override
-    public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
-        CompoundTag tag = super.getUpdateTag(registries);
-        tag.putDouble("Temperature", temperature);
-        return tag;
+    public CommandResult applyCommand(CommandReader in, CommandSource source) {
+        Optional<Climate> next = climate.apply(in);
+        if (next.isEmpty()) return CommandResult.rejected("not a climate sensor command: " + in.keys());
+        if (next.get().equals(climate)) return CommandResult.unchanged();
+        boolean rawValueChanged = next.get().rawValue() != climate.rawValue();
+        climate = next.get();
+        setChanged();
+        // The Raw Link carries the reading now named at once: a retained copy of the other one must not wait for the next reading.
+        if (rawValueChanged && measured) link.publishRaw(this, climate.raw());
+        return CommandResult.applied();
     }
 
     /**
-     * Simulate a temperature reading based on the block's environment.
-     * Considers biome temperature, light level, daytime, nearby fire/lava/water,
-     * and sky visibility for realistic readings.
+     * The reading the Raw Link output carries, once the sensor took one after the attach: until then it is the reading
+     * saved at the unload, which a retained publish must never repeat (M2 plan D2).
      */
-    private double simulateTemperature() {
-        if (this.level == null) return 20.0;
+    @Override
+    public @Nullable String rawValue() {
+        return measured ? climate.raw() : null;
+    }
 
-        BlockPos pos = this.getBlockPos();
-        double baseTemp = 20.0;
+    // Takes a reading: the Raw Link gets it every time, as v1 sensors published theirs; the state as the type allows.
+    private void measure(ServerLevel level) {
+        Climate next = climate.read(ClimateSensor.measure(environment(level)), level.getGameTime());
+        measured = true;
+        boolean changed = !next.reading().equals(climate.reading());
+        climate = next;
+        setChanged();
+        link.publishRaw(this, climate.raw());
+        if (changed) link.stateChanged(this);
+    }
 
-        // Biome-based temperature: use precipitation as a proxy (snowy biomes are colder)
-        boolean hasPrecipitation = this.level.getBiome(pos).value().hasPrecipitation();
-        baseTemp = hasPrecipitation ? 10.0 : 25.0; // Snowy/rainy biomes are cooler
-
-        // Y level effect: higher = colder, lower = hotter
-        int y = pos.getY();
-        if (y > 64) {
-            baseTemp -= (y - 64) * 0.05;
-        } else if (y < 64) {
-            baseTemp += (64 - y) * 0.1;
-        }
-
-        // Daytime factor: day is warmer, night is cooler
-        long gameTime = this.level.getGameTime() % 24000;
-        double dayFactor = 0.0;
-        if (gameTime >= 6000 && gameTime <= 12000) {
-            // Daytime: warmer
-            dayFactor = 5.0;
-        } else if (gameTime > 13000 && gameTime <= 18000) {
-            // Sunset: moderate
-            dayFactor = 2.0;
-        } else if (gameTime > 18000 || gameTime < 6000) {
-            // Nighttime: cooler
-            dayFactor = -5.0;
-        }
-        baseTemp += dayFactor;
-
-        // Light level: dark areas slightly cooler
-        int lightLevel = this.level.getLightEmission(pos);
-        if (lightLevel == 0) {
-            // Check ambient light
-            int ambientLight = this.level.getMaxLocalRawBrightness(pos);
-            if (ambientLight < 4) {
-                baseTemp -= 2.0; // Dark caves are cooler
-            }
-        }
-
-        // Sky visibility: exposed to sky has more temperature swings
-        boolean skyVisible = this.level.canSeeSky(pos);
-        if (skyVisible) {
-            baseTemp += dayFactor * 0.5; // Amplify day/night effect when exposed
-        } else {
-            // Enclosed spaces have more stable temperature
-            baseTemp -= dayFactor * 0.3;
-        }
-
-        // Nearby fire/lava detection (5-block radius)
-        int fireCount = 0;
-        int waterCount = 0;
-        int scanRadius = 5;
-        for (int dx = -scanRadius; dx <= scanRadius; dx++) {
-            for (int dy = -scanRadius; dy <= scanRadius; dy++) {
-                for (int dz = -scanRadius; dz <= scanRadius; dz++) {
+    // What the sensor feels where it stands. Only blocks in loaded chunks count, so a reading never loads a chunk.
+    private ClimateSensor.Environment environment(ServerLevel level) {
+        BlockPos pos = worldPosition;
+        Holder<Biome> biome = level.getBiome(pos);
+        Biome.Precipitation precipitation = biome.value().getPrecipitationAt(pos, level.getSeaLevel());
+        int heat = 0;
+        int cold = 0;
+        BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
+        int radius = ClimateSensor.SCAN_RADIUS;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dy = -radius; dy <= radius; dy++) {
+                for (int dz = -radius; dz <= radius; dz++) {
                     if (dx == 0 && dy == 0 && dz == 0) continue;
-                    BlockPos checkPos = pos.offset(dx, dy, dz);
-                    var blockState = this.level.getBlockState(checkPos);
-                    net.minecraft.world.level.block.Block block = blockState.getBlock();
-                    if (block == net.minecraft.world.level.block.Blocks.FIRE
-                            || block == net.minecraft.world.level.block.Blocks.SOUL_FIRE
-                            || block == net.minecraft.world.level.block.Blocks.LAVA
-                            || block == net.minecraft.world.level.block.Blocks.CAMPFIRE
-                            || block == net.minecraft.world.level.block.Blocks.SOUL_CAMPFIRE
-                            || block == net.minecraft.world.level.block.Blocks.MAGMA_BLOCK) {
-                        fireCount++;
-                    } else if (block == net.minecraft.world.level.block.Blocks.WATER
-                            || block == net.minecraft.world.level.block.Blocks.FROSTED_ICE) {
-                        waterCount++;
+                    at.setWithOffset(pos, dx, dy, dz);
+                    if (!level.isLoaded(at)) continue;
+                    BlockState state = level.getBlockState(at);
+                    if (state.is(BlockTags.FIRE) || state.is(BlockTags.CAMPFIRES) || state.is(Blocks.MAGMA_BLOCK) || state.getFluidState().is(FluidTags.LAVA)) {
+                        heat++;
+                    } else if (state.is(BlockTags.ICE) || state.getFluidState().is(FluidTags.WATER)) {
+                        cold++;
                     }
                 }
             }
         }
+        return new ClimateSensor.Environment(biome.unwrapKey().map(key -> key.identifier().toString()).orElse(""), biome.value().getBaseTemperature(),
+                switch (precipitation) {
+                    case NONE -> ClimateSensor.Precipitation.NONE;
+                    case RAIN -> ClimateSensor.Precipitation.RAIN;
+                    case SNOW -> ClimateSensor.Precipitation.SNOW;
+                }, pos.getY() - level.getSeaLevel(), level.getSkyDarken(), level.getBrightness(LightLayer.SKY, pos),
+                level.getBrightness(LightLayer.BLOCK, pos), level.canSeeSky(pos), level.isRainingAt(pos), heat, cold);
+    }
 
-        // Fire/lava increases temperature
-        if (fireCount > 0) {
-            baseTemp += Math.min(fireCount * 3.0, 30.0); // Up to +30°C
-        }
+    @Override
+    protected void saveDevice(ValueOutput output) {
+        saveSensor(link, climate, output);
+    }
 
-        // Water decreases temperature
-        if (waterCount > 0) {
-            baseTemp -= Math.min(waterCount * 1.0, 10.0); // Up to -10°C
-        }
+    @Override
+    protected void loadDevice(ValueInput input) {
+        climate = loadSensor(link, input);
+    }
 
-        // Random fluctuation for realism
-        Random random = new Random(this.level.getGameTime() + pos.asLong());
-        baseTemp += (random.nextDouble() - 0.5) * 2.0;
-
-        // Clamp to reasonable range
-        return Math.max(-50.0, Math.min(120.0, baseTemp));
+    /** A placed copy keeps its interval and Raw Link value, and reads its own spot at its first tick. */
+    @Override
+    protected void placedCopy() {
+        climate = climate.placed();
+        measured = false;
+        if (level instanceof ServerLevel serverLevel) climate = climate.read(ClimateSensor.measure(environment(serverLevel)), serverLevel.getGameTime());
     }
 
     /**
-     * Ticker for updating temperature sensor logic
+     * A sensor's data: the link with the sensor as its {@code state}, or v1's keys while its v1 data waits for adoption,
+     * so it is still v1 data when it loads again.
      */
-    public static class Ticker<T extends BlockEntity> implements BlockEntityTicker<T> {
+    public static void saveSensor(DeviceLink link, Climate climate, ValueOutput output) {
+        if (link.awaitingAdoption()) {
+            link.saveV1(output);
+            LegacyNbtV1.writeClimate(output, climate);
+        } else {
+            link.save(output).store("state", Climate.CODEC, climate);
+        }
+    }
+
+    /**
+     * Loads a sensor's link and returns the sensor; v1 data of a temperature or humidity sensor, also a placed v1 item's,
+     * is kept for adoption.
+     */
+    public static Climate loadSensor(DeviceLink link, ValueInput input) {
+        return link.load(input, LegacyNbtV1.hasClimateKeys(input))
+                .map(data -> data.read("state", Climate.CODEC).orElse(Climate.DEFAULT))
+                .orElseGet(() -> LegacyNbtV1.climateState(input));
+    }
+
+    /** A reading at the first tick after the attach, then every interval. */
+    public static class ServerTicker<T extends BlockEntity> implements BlockEntityTicker<T> {
         @Override
         public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
-            if (level != null && !level.isClientSide() && blockEntity instanceof TemperatureSensorBlockEntity sensor) {
-                // Update topic if needed
-                String oldTopic = sensor.topic;
-                String newCombinedTopic = sensor.getCombinedTopic();
-                if (!newCombinedTopic.equals(oldTopic)) {
-                    sensor.setTopic(newCombinedTopic);
-                }
-
-                // Publish temperature at configured interval
-                long currentTime = level.getGameTime();
-                if (sensor.isEnabled() && (currentTime - sensor.lastPublishTime) >= sensor.updateIntervalTicks) {
-                    double temp = sensor.simulateTemperature();
-                    sensor.setTemperature(temp);
-                    sensor.publish(String.format("%.1f", temp));
-                    sensor.lastPublishTime = currentTime;
-                } else if (!sensor.isEnabled() && sensor.temperature != 0.0) {
-                    // Reset if disabled
-                    sensor.setTemperature(0.0);
-                    sensor.publish("0.0");
-                    sensor.lastPublishTime = currentTime;
-                }
+            if (!(blockEntity instanceof TemperatureSensorBlockEntity sensor) || !(level instanceof ServerLevel serverLevel)) return;
+            if (!sensor.link.attached()) {
+                sensor.measured = false;
+            } else if (!sensor.measured || sensor.climate.due(level.getGameTime())) {
+                sensor.measure(serverLevel);
             }
         }
     }

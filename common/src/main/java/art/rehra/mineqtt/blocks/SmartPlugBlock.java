@@ -18,15 +18,15 @@ import net.minecraft.world.level.redstone.ExperimentalRedstoneUtils;
 import net.minecraft.world.level.redstone.Orientation;
 import org.jetbrains.annotations.Nullable;
 
-public class SmartPlugBlock extends BaseSubscriberBlock {
+/**
+ * The Smart Plug block. It emits the {@code power} property, which its block entity sets to 0 or 15; the property keeps
+ * v1's full 0–15 range, so saved block states stay valid.
+ */
+public class SmartPlugBlock extends BaseMqttBlock {
 
     public static final MapCodec<SmartPlugBlock> CODEC = simpleCodec(SmartPlugBlock::new);
 
-    public static final IntegerProperty POWER;
-
-    static {
-        POWER = BlockStateProperties.POWER;
-    }
+    public static final IntegerProperty POWER = BlockStateProperties.POWER;
 
     public SmartPlugBlock(Properties properties) {
         super(properties, CODEC);
@@ -73,8 +73,9 @@ public class SmartPlugBlock extends BaseSubscriberBlock {
         return new SmartPlugBlockEntity(pos, state);
     }
 
+    /** The server keeps the level in step with the plug; the client has nothing to tick. */
     @Override
     public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
-        return new SmartPlugBlockEntity.Ticker<>();
+        return level.isClientSide() ? null : new SmartPlugBlockEntity.ServerTicker<>();
     }
 }

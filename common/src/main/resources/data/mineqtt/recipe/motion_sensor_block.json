@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "H": "minecraft:tripwire_hook",
+    "N": "mineqtt:network_chip",
+    "O": "minecraft:observer",
+    "S": "minecraft:smooth_stone"
+  },
+  "pattern": [
+    "SHS",
+    "ONO",
+    "SSS"
+  ],
+  "result": {
+    "id": "mineqtt:motion_sensor_block"
+  }
+}

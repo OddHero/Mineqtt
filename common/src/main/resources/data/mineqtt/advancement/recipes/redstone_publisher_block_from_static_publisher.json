@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_static_publisher": {
+      "conditions": {
+        "items": [
+          {
+            "items": "mineqtt:static_publisher"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "mineqtt:redstone_publisher_block_from_static_publisher"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_static_publisher"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "mineqtt:redstone_publisher_block_from_static_publisher"
+    ]
+  }
+}

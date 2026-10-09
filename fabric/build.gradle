@@ -49,18 +49,67 @@ dependencies {
         exclude(group: "net.fabricmc.fabric-api")
     }
 
-    common(project(path: ':common')) { transitive false }
+    common(project(path: ':common')) { transitive = false }
     shadowBundle project(path: ':common', configuration: 'transformProductionFabric')
 
     // Add HiveMQ MQTT client dependency for bundling
     shadowBundle("com.hivemq:hivemq-mqtt-client:1.3.7")
 }
 
+// Client game tests (fabric-client-gametest-api-v1, part of Fabric API): the "gametest" source set is a separate test
+// mod, run by the opt-in task :fabric:runClientGameTest in build/run/clientGameTest. They open a game window, so they are
+// not part of check; check only compiles them. See e2e/README.md.
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = 'mineqtt-gametest'
+        // The server game-test run would be wired into check.
+        enableGameTests = false
+        // The in-process dedicated server of the client game tests needs an accepted EULA in the run directory.
+        eula = true
+    }
+}
+
+loom.runs.named('clientGameTest') {
+    displayName.set('Client:fabric:GameTest')
+    // Fails the run when the test mod is not loaded, instead of running no test at all.
+    property('fabric.client.gametest.modid', 'mineqtt-gametest')
+}
+
+tasks.named('check') {
+    dependsOn 'compileGametestJava'
+}
+
+def gameTestSuites = new groovy.json.JsonSlurper().parse(file('src/gametest/resources/fabric.mod.json'))
+        .entrypoints['fabric-client-gametest'].size()
+
+tasks.named('runClientGameTest') {
+    group = 'verification'
+    description = 'Runs the MineQTT client game tests in a game window (set MINEQTT_E2E_BROKER to use a broker).'
+    // A passing run returns from the client's main method; the client's 15 s shutdown watchdog then ends the JVM with
+    // -8 (248 on Unix) because the dev runtime leaves idle non-daemon threads. A failing test ends the JVM with 1 before
+    // that. The verdict therefore comes from the exit value together with the report every suite writes.
+    ignoreExitValue = true
+    doLast {
+        int exit = executionResult.get().exitValue
+        File report = new File(workingDir, 'mineqtt-gametest-report.txt')
+        List<String> lines = report.exists() ? report.readLines() : []
+        lines.findAll { it.startsWith('SKIP') }.each { logger.warn("Client game test {}", it) }
+        int passed = lines.count { it.startsWith('SUITE PASS') }
+        if (!(exit in [0, -8, 248]) || passed != gameTestSuites || lines.any { it.startsWith('FAIL') }) {
+            throw new GradleException("Client game tests failed: exit value $exit, $passed of $gameTestSuites suites passed, see $report")
+        }
+        logger.lifecycle("Client game tests passed: $passed suites, report $report")
+    }
+}
+
 processResources {
-    inputs.property 'version', project.version
+    // Read at configuration time: the filesMatching action runs during execution, where Task.project is deprecated.
+    def modVersion = project.version
+    inputs.property 'version', modVersion
 
     filesMatching('fabric.mod.json') {
-        expand version: project.version
+        expand version: modVersion
     }
 }
 

@@ -40,16 +40,13 @@ public class MineQTTConfig {
     public static boolean aclExplorerBrokerWide;
     public static boolean blockPlacerEnabled;
     public static int limitsMaxDevicesPerPlayer;
+    public static int limitsMaxWiresPerPlayer;
+
+    // Dedicated server
+    public static boolean serverKeepTickingWhenEmpty;
 
     // Migration record
     public static String legacyV1StatusTopic;
-
-    // Leftover experiments
-    public static boolean allowItemNetherPortalTeleport;
-    public static int goalX;
-    public static int goalY;
-    public static int goalZ;
-    public static boolean zombieGoalEnabled;
 
     static {
         resetToDefaults();
@@ -75,12 +72,9 @@ public class MineQTTConfig {
         aclExplorerBrokerWide = StaticDefaults.DEFAULT_ACL_EXPLORER_BROKER_WIDE;
         blockPlacerEnabled = StaticDefaults.DEFAULT_BLOCK_PLACER_ENABLED;
         limitsMaxDevicesPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER;
+        limitsMaxWiresPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER;
+        serverKeepTickingWhenEmpty = StaticDefaults.DEFAULT_SERVER_KEEP_TICKING_WHEN_EMPTY;
         legacyV1StatusTopic = StaticDefaults.DEFAULT_LEGACY_V1_STATUS_TOPIC;
-        allowItemNetherPortalTeleport = StaticDefaults.DEFAULT_ALLOW_ITEM_NETHER_PORTAL_TELEPORT;
-        goalX = StaticDefaults.DEFAULT_GOAL_X;
-        goalY = StaticDefaults.DEFAULT_GOAL_Y;
-        goalZ = StaticDefaults.DEFAULT_GOAL_Z;
-        zombieGoalEnabled = StaticDefaults.DEFAULT_ZOMBIE_GOAL_ENABLED;
     }
 
     /**
@@ -113,6 +107,16 @@ public class MineQTTConfig {
             bridgeId = StaticDefaults.DEFAULT_BRIDGE_ID;
         }
         baseTopic = validTopic("baseTopic", baseTopic, StaticDefaults.DEFAULT_BASE_TOPIC, problems);
+        Optional<String> baseNamespaceError = ConfigValidation.baseTopicNamespaceError(baseTopic);
+        if (baseNamespaceError.isPresent()) {
+            problems.add("baseTopic: " + baseNamespaceError.get() + ", using '" + StaticDefaults.DEFAULT_BASE_TOPIC + "'");
+            baseTopic = StaticDefaults.DEFAULT_BASE_TOPIC;
+        }
+        Optional<String> namespaceError = ConfigValidation.bridgeNamespaceError(bridgeId, baseTopic);
+        if (namespaceError.isPresent()) {
+            problems.add("bridgeId: " + namespaceError.get() + "; a bridge id is generated per world instead");
+            bridgeId = StaticDefaults.DEFAULT_BRIDGE_ID;
+        }
         discoveryPrefix = validTopic("discoveryPrefix", discoveryPrefix, StaticDefaults.DEFAULT_DISCOVERY_PREFIX, problems);
         haBirthTopic = validTopic("haBirthTopic", haBirthTopic, StaticDefaults.DEFAULT_HA_BIRTH_TOPIC, problems);
         if (haExpose == null) haExpose = StaticDefaults.DEFAULT_HA_EXPOSE;
@@ -130,6 +134,10 @@ public class MineQTTConfig {
         if (limitsMaxDevicesPerPlayer < 0) {
             problems.add("limits.maxDevicesPerPlayer: " + limitsMaxDevicesPerPlayer + " is negative, using 0 (unlimited)");
             limitsMaxDevicesPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER;
+        }
+        if (limitsMaxWiresPerPlayer < 0) {
+            problems.add("limits.maxWiresPerPlayer: " + limitsMaxWiresPerPlayer + " is negative, using " + StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER);
+            limitsMaxWiresPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER;
         }
         if (legacyV1StatusTopic == null) legacyV1StatusTopic = StaticDefaults.DEFAULT_LEGACY_V1_STATUS_TOPIC;
         return problems;

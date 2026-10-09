@@ -40,7 +40,6 @@ subprojects {
     apply plugin: 'dev.architectury.loom-no-remap'
     apply plugin: 'architectury-plugin'
     apply plugin: 'maven-publish'
-    apply plugin: 'com.gradleup.shadow'
 
     base {
         // Set up a suffixed format for the mod jar names, e.g. `example-fabric`.

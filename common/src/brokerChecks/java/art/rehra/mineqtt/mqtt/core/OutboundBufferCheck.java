@@ -28,6 +28,8 @@ public final class OutboundBufferCheck {
         edgeCapPerOrigin();
         globalCapDefersStates();
         offlineOutbox();
+        retainedRawLevels();
+        cappedRetainedLevels();
         keepIsNeverEvicted();
         failedSends();
         supersededOutboxEntry();
@@ -88,13 +90,13 @@ public final class OutboundBufferCheck {
         Fixture fixture = new Fixture(OutboundBuffer.Limits.DEFAULT);
         UUID origin = UUID.randomUUID();
         for (String payload : new String[]{"ON", "OFF", "ON", "OFF"}) {
-            fixture.buffer.add(Outbound.raw("raw/door", utf8(payload), 0, false, origin));
+            fixture.buffer.add(Outbound.raw("raw/door", utf8(payload), 0, origin));
         }
         fixture.flush(OutboundBuffer.Link.CONNECTED);
         check(fixture.sent.equals(List.of("raw/door=ON", "raw/door=OFF", "raw/door=ON", "raw/door=OFF")),
                 "Every edge of a fast clock survives in order, got " + fixture.sent);
         fixture.clearRecords();
-        fixture.buffer.add(Outbound.raw("raw/door", utf8("OFF"), 0, false, origin));
+        fixture.buffer.add(Outbound.raw("raw/door", utf8("OFF"), 0, origin));
         fixture.flush(OutboundBuffer.Link.CONNECTED);
         check(fixture.sent.equals(List.of("raw/door=OFF")), "Edges are never deduplicated");
     }
@@ -103,8 +105,8 @@ public final class OutboundBufferCheck {
         Fixture fixture = new Fixture(OutboundBuffer.Limits.DEFAULT);
         UUID busy = UUID.randomUUID();
         UUID quiet = UUID.randomUUID();
-        for (int i = 0; i < 45; i++) fixture.buffer.add(Outbound.raw("raw/busy", utf8("e" + i), 0, false, busy));
-        fixture.buffer.add(Outbound.raw("raw/quiet", utf8("q"), 0, false, quiet));
+        for (int i = 0; i < 45; i++) fixture.buffer.add(Outbound.raw("raw/busy", utf8("e" + i), 0, busy));
+        fixture.buffer.add(Outbound.raw("raw/quiet", utf8("q"), 0, quiet));
         fixture.flush(OutboundBuffer.Link.CONNECTED);
         check(fixture.sent.size() == 41, "40 edges of the busy origin plus the quiet one, got " + fixture.sent.size());
         check(fixture.sent.get(39).equals("raw/busy=e39") && fixture.sent.get(40).equals("raw/quiet=q"), "The first 40 edges win");
@@ -112,7 +114,7 @@ public final class OutboundBufferCheck {
 
         fixture.clearRecords();
         fixture.clock.addAndGet(SECOND);
-        for (int i = 0; i < 40; i++) fixture.buffer.add(Outbound.raw("raw/busy", utf8("n" + i), 0, false, busy));
+        for (int i = 0; i < 40; i++) fixture.buffer.add(Outbound.raw("raw/busy", utf8("n" + i), 0, busy));
         fixture.flush(OutboundBuffer.Link.CONNECTED);
         check(fixture.sent.size() == 40, "The cap refills over one second");
 
@@ -125,14 +127,17 @@ public final class OutboundBufferCheck {
     private static void globalCapDefersStates() {
         Fixture fixture = new Fixture(new OutboundBuffer.Limits(10, 40, 100, 100));
         for (int i = 0; i < 15; i++) fixture.buffer.add(state("dev/d" + i, i));
+        check(fixture.buffer.hasWork(false), "Added messages wait for a flush, connected or not");
         fixture.flush(OutboundBuffer.Link.CONNECTED);
         check(fixture.sent.size() == 10 && fixture.buffer.pendingSize() == 5, "The global cap defers five states");
+        check(fixture.buffer.hasWork(true), "Deferred states are work for a later flush");
         check(fixture.buffer.dropped() == 0, "Deferred states are not dropped");
         fixture.flush(OutboundBuffer.Link.CONNECTED);
         check(fixture.sent.size() == 10, "Without time passing the cap stays exhausted");
         fixture.clock.addAndGet(SECOND / 2);
         fixture.flush(OutboundBuffer.Link.CONNECTED);
         check(fixture.sent.size() == 15 && fixture.buffer.pendingSize() == 0, "Half a second later the rest goes out");
+        check(!fixture.buffer.hasWork(true), "Nothing is left for a flush");
         check(fixture.sent.get(14).equals("dev/d14=14"), "Deferred states keep their order");
     }
 
@@ -141,12 +146,13 @@ public final class OutboundBufferCheck {
         fixture.buffer.add(Outbound.clear("ha/device/a/config"));
         fixture.buffer.add(state("dev/lamp", 1));
         fixture.buffer.add(Outbound.event("dev/btn/action", new JsonObject()));
-        fixture.buffer.add(Outbound.raw("raw/door", utf8("ON"), 0, false, UUID.randomUUID()));
+        fixture.buffer.add(Outbound.raw("raw/door", utf8("ON"), 0, UUID.randomUUID()));
         fixture.flush(OutboundBuffer.Link.DISCONNECTED);
         check(fixture.sent.isEmpty(), "Nothing is sent while disconnected");
         check(fixture.looped.size() == 4, "The local loopback works with the broker down");
         check(fixture.buffer.dropped() == 2, "DROP messages are counted, got " + fixture.buffer.dropped());
         check(fixture.buffer.outboxSize() == 2, "COALESCE and KEEP wait in the outbox");
+        check(!fixture.buffer.hasWork(false) && fixture.buffer.hasWork(true), "The outbox is work only once connected");
 
         fixture.buffer.add(state("dev/lamp", 2));
         fixture.flush(OutboundBuffer.Link.DISCONNECTED);
@@ -167,6 +173,110 @@ public final class OutboundBufferCheck {
         check(fixture.sent.equals(List.of("dev/plug=2")), "A newer state supersedes its outbox entry, got " + fixture.sent);
     }
 
+    /** Wireless redstone levels: every edge goes out while connected, only the last level waits while not. */
+    private static void retainedRawLevels() {
+        Fixture fixture = new Fixture(OutboundBuffer.Limits.DEFAULT);
+        UUID origin = UUID.randomUUID();
+        for (String payload : new String[]{"true", "false", "true"}) {
+            fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8(payload), 0, origin));
+        }
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/garage=true", "raw/garage=false", "raw/garage=true")),
+                "Online, every retained edge is sent in order, got " + fixture.sent);
+        check(fixture.looped.equals(fixture.sent), "and looped back once each");
+
+        fixture.clearRecords();
+        for (String payload : new String[]{"false", "true", "false"}) {
+            fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8(payload), 0, origin));
+        }
+        fixture.flush(OutboundBuffer.Link.DISCONNECTED);
+        check(fixture.looped.size() == 3 && fixture.sent.isEmpty(), "Offline, every edge still reaches local receivers");
+        check(fixture.buffer.outboxSize() == 1 && fixture.buffer.dropped() == 0, "and only the last level waits, nothing is counted as dropped");
+        fixture.clearRecords();
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/garage=false")), "After the reconnect the broker gets the last level once, got " + fixture.sent);
+
+        fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8("true"), 0, origin));
+        fixture.flush(OutboundBuffer.Link.DISCONNECTED);
+        fixture.clearRecords();
+        fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8("false"), 0, origin));
+        fixture.buffer.add(Outbound.raw("raw/garage", utf8("pulse"), 0, origin));
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/garage=false", "raw/garage=pulse")),
+                "A newer retained level replaces its outbox entry, got " + fixture.sent);
+
+        fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8("true"), 0, origin));
+        fixture.flush(OutboundBuffer.Link.DISCONNECTED);
+        fixture.clearRecords();
+        fixture.buffer.add(Outbound.raw("raw/garage", utf8("pulse"), 0, origin));
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/garage=true", "raw/garage=pulse")), "A plain edge does not replace it, got " + fixture.sent);
+    }
+
+    /** A retained level over its origin's edge cap is held, latest per topic, so the broker still gets the last one. */
+    private static void cappedRetainedLevels() {
+        Fixture fixture = new Fixture(OutboundBuffer.Limits.DEFAULT);
+        UUID origin = UUID.randomUUID();
+        // A 0-tick clock: 46 edges in one tick, the last one off.
+        for (int i = 0; i < 46; i++) fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8(i % 2 == 0 ? "true" : "false"), 0, origin));
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.size() == 40 && fixture.sent.get(39).equals("raw/garage=false"), "The first 40 edges go out, got " + fixture.sent.size());
+        check(fixture.buffer.pendingSize() == 1 && fixture.buffer.dropped() == 5, "Of the six over the cap only the last level is held, got "
+                + fixture.buffer.pendingSize() + " held and " + fixture.buffer.dropped() + " dropped");
+        fixture.clearRecords();
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.isEmpty(), "It waits while the cap is exhausted");
+        fixture.clock.addAndGet(SECOND / 20);
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/garage=false")) && fixture.looped.equals(fixture.sent),
+                "Once the cap refills the last level goes out and is looped back, got " + fixture.sent);
+        check(fixture.buffer.pendingSize() == 0, "Nothing is held afterwards");
+
+        // The input is destroyed right after a burst: its off payload and a retarget's new level, held per topic.
+        fixture.clearRecords();
+        fixture.clock.addAndGet(SECOND);
+        for (int i = 0; i < 40; i++) fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8(i % 2 == 0 ? "true" : "false"), 0, origin));
+        fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8("true"), 0, origin));
+        fixture.buffer.add(Outbound.rawRetainedFinal("raw/garage", utf8("false"), 0, origin));
+        fixture.buffer.add(Outbound.rawRetained("raw/hall", utf8("true"), 0, origin));
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.size() == 40 && fixture.buffer.pendingSize() == 2, "The off payload and the new topic's level are held");
+        fixture.clearRecords();
+        fixture.clock.addAndGet(SECOND / 20);
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/garage=false", "raw/hall=true")), "Both go out in order, got " + fixture.sent);
+
+        // A newer level of the topic from another input goes out first: the held one is older and is dropped.
+        fixture.clearRecords();
+        fixture.clock.addAndGet(SECOND);
+        for (int i = 0; i < 41; i++) fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8("busy" + i), 0, origin));
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        long droppedBefore = fixture.buffer.dropped();
+        fixture.clearRecords();
+        fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8("other"), 0, UUID.randomUUID()));
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        fixture.clock.addAndGet(SECOND);
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/garage=other")) && fixture.buffer.dropped() == droppedBefore + 1,
+                "A newer level of another origin supersedes the held one, got " + fixture.sent);
+
+        // Held while the broker comes back: the older outbox entry of the topic is not sent first.
+        fixture.clearRecords();
+        fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8("true"), 0, origin));
+        fixture.flush(OutboundBuffer.Link.DISCONNECTED);
+        // The rest of the second's cap.
+        for (int i = 0; i < 39; i++) fixture.buffer.add(Outbound.rawRetained("raw/porch", utf8("e" + i), 0, origin));
+        fixture.flush(OutboundBuffer.Link.DISCONNECTED);
+        fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8("false"), 0, origin));
+        fixture.clearRecords();
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/porch=e38")), "Only the porch's last level leaves the outbox, got " + fixture.sent);
+        fixture.clearRecords();
+        fixture.clock.addAndGet(SECOND / 20);
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/garage=false")), "then the held level, got " + fixture.sent);
+    }
+
     private static void keepIsNeverEvicted() {
         Fixture fixture = new Fixture(new OutboundBuffer.Limits(500, 40, 100, 2));
         fixture.buffer.add(Outbound.clear("k/1"));
@@ -180,6 +290,16 @@ public final class OutboundBufferCheck {
         check(fixture.buffer.outboxSize() == 3, "KEEP entries are kept even beyond the capacity");
         fixture.flush(OutboundBuffer.Link.CONNECTED);
         check(fixture.sent.equals(List.of("k/1=", "k/2=", "k/3=")), "Every clear reaches the broker, got " + fixture.sent);
+
+        // The off payload a destroyed input leaves is never evicted; the levels of live inputs are.
+        fixture.clearRecords();
+        UUID origin = UUID.randomUUID();
+        fixture.buffer.add(Outbound.rawRetainedFinal("raw/gone", utf8("false"), 0, origin));
+        fixture.buffer.add(Outbound.rawRetained("raw/a", utf8("true"), 0, origin));
+        fixture.buffer.add(Outbound.rawRetained("raw/b", utf8("true"), 0, origin));
+        fixture.flush(OutboundBuffer.Link.DISCONNECTED);
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/gone=false", "raw/b=true")), "The off payload survives a full outbox, got " + fixture.sent);
     }
 
     private static void failedSends() {
@@ -203,6 +323,33 @@ public final class OutboundBufferCheck {
         fixture.buffer.add(state("dev/lamp", 5));
         fixture.flush(OutboundBuffer.Link.CONNECTED);
         check(fixture.sent.equals(List.of("dev/lamp=5", "dev/lamp=5")), "After a failure the same bytes are not deduplicated away, got " + fixture.sent);
+
+        // An input switched on and destroyed just before the connection dropped: both were in flight and fail in order.
+        UUID origin = UUID.randomUUID();
+        Outbound on = Outbound.rawRetained("raw/garage", utf8("true"), 1, origin);
+        Outbound off = Outbound.rawRetainedFinal("raw/garage", utf8("false"), 1, origin);
+        fixture.buffer.add(on);
+        fixture.buffer.add(off);
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        fixture.buffer.sendFailed(on);
+        fixture.buffer.sendFailed(off);
+        fixture.clearRecords();
+        fixture.flush(OutboundBuffer.Link.DISCONNECTED);
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/garage=false")), "The later of two failures on a topic is sent again, got " + fixture.sent);
+
+        // A level released while disconnected is newer than any failure that arrives after it.
+        fixture.clearRecords();
+        Outbound inFlight = Outbound.rawRetained("raw/garage", utf8("true"), 1, origin);
+        fixture.buffer.add(inFlight);
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        fixture.buffer.add(Outbound.rawRetained("raw/garage", utf8("false"), 1, origin));
+        fixture.flush(OutboundBuffer.Link.DISCONNECTED);
+        fixture.buffer.sendFailed(inFlight);
+        fixture.clearRecords();
+        fixture.flush(OutboundBuffer.Link.DISCONNECTED);
+        fixture.flush(OutboundBuffer.Link.CONNECTED);
+        check(fixture.sent.equals(List.of("raw/garage=false")), "A failure does not replace a newer outbox entry, got " + fixture.sent);
 
         // The broker answered with an error reason code: resending would be refused again, every tick.
         fixture.clearRecords();
@@ -229,7 +376,7 @@ public final class OutboundBufferCheck {
     private static void noBroker() {
         Fixture fixture = new Fixture(OutboundBuffer.Limits.DEFAULT);
         fixture.buffer.add(Outbound.clear("k/1"));
-        fixture.buffer.add(Outbound.raw("raw/door", utf8("ON"), 0, false, UUID.randomUUID()));
+        fixture.buffer.add(Outbound.raw("raw/door", utf8("ON"), 0, UUID.randomUUID()));
         fixture.flush(OutboundBuffer.Link.NONE);
         check(fixture.looped.size() == 2 && fixture.sent.isEmpty(), "Without a broker messages are only looped back");
         check(fixture.buffer.outboxSize() == 0 && fixture.buffer.dropped() == 0, "Without a broker nothing is kept or counted");

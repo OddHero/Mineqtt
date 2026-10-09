@@ -12,6 +12,7 @@ import net.minecraft.core.SectionPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.ItemStackWithSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -20,6 +21,7 @@ import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -27,7 +29,9 @@ import java.util.function.Function;
 /**
  * A device block entity's identity and lifecycle, by composition (design §6.5). It holds the device's copy of its
  * identity (id, name, slug; the registry is authoritative for name and slug), its owner and access mode, its Home
- * Assistant exposure and its Raw Link, all saved in the {@code mineqtt} compound.
+ * Assistant exposure and its Raw Link, all saved in the {@code mineqtt} compound, and what the block keeps beside them:
+ * whether its Raw Link's channel resolves into the owner's private subtree, the items its old configuration slots held
+ * ({@link #legacyItems()}, M2-12) and the tab its screen last showed.
  * <p>
  * Lifecycle: {@code BlockEntity#setLevel} schedules the attach on the next server tick, {@code setRemoved} detaches
  * (unload) or destroys (the block was replaced), {@code preRemoveSideEffects} destroys. Only the server runs any of
@@ -36,11 +40,20 @@ import java.util.function.Function;
  * Data without a {@code mineqtt} compound is v1 data, and so is a placed v1 item's ({@link #load}): loading keeps it as a
  * {@link LegacyNbtV1.Snapshot}, which the attach adopts (design §9), or the placement at once. Until then the block
  * entity saves its v1 keys, so it is still v1 data if it unloads first.
+ * <p>
+ * Versions of the compound: 2 is M1's, whose block kept its slots ({@code Items}), its private mode
+ * ({@code privateMode}) and its last tab ({@code lastTabId}) beside the compound; 3 keeps them in it. {@link #load}
+ * migrates both, purely.
  */
 public final class DeviceLink {
     public static final String KEY = "mineqtt";
     /** The version of the {@code mineqtt} compound. */
-    public static final int VERSION = 2;
+    public static final int VERSION = 3;
+    /** The version of M1's compound, whose block kept its slots and private mode beside it. */
+    public static final int VERSION_M1 = 2;
+    /** v1 data, which had no compound. */
+    public static final int VERSION_V1 = 1;
+    public static final String LEGACY_ITEMS = "legacyItems";
 
     /** What removing a block entity means for its device. */
     public enum Removal {
@@ -59,7 +72,11 @@ public final class DeviceLink {
     private AccessMode access = AccessMode.DEFAULT;
     private @Nullable Boolean expose;
     private @Nullable RawLink raw;
+    private boolean privateMode;
+    private List<ItemStackWithSlot> legacyItems = List.of();
+    private String lastTab = "";
     // Runtime state, never saved.
+    private int loadedVersion = VERSION;
     private LegacyNbtV1.@Nullable Snapshot pendingV1;
     private boolean attached;
     private boolean placedByPlayer;
@@ -92,6 +109,11 @@ public final class DeviceLink {
      * Placing an item merges its block entity data into the save of the fresh block entity before loading the result
      * ({@code TypedEntityData.loadInto}), so v1 item data arrives next to the fresh block entity's own compound, which
      * has no id yet. The type's v1 keys, which v2 data never has, tell it apart.
+     * <p>
+     * What the block kept beside its data before M2-12 is migrated here: the items of its configuration slots
+     * ({@code Items}) become its {@link #legacyItems()}, and its private mode and last tab come along. v1 data keeps them
+     * until it is adopted, as {@link #saveV1} writes them back as they were read; M1 data ({@value #VERSION_M1}) has them
+     * beside its compound, where its next save leaves them out.
      *
      * @param v1TypeKeys whether the input holds the type's v1 keys. A type whose v1 data had no keys of its own passes
      *                   true: only a compound with a device id is v2 data then, which every device saved after its
@@ -102,22 +124,38 @@ public final class DeviceLink {
     public Optional<ValueInput> load(ValueInput input, boolean v1TypeKeys) {
         Optional<ValueInput> compound = input.child(KEY).filter(data -> !v1TypeKeys || data.read("id", UUIDUtil.CODEC).isPresent());
         pendingV1 = compound.isPresent() ? null : LegacyNbtV1.read(input);
-        compound.ifPresent(data -> {
-            id = data.read("id", UUIDUtil.CODEC).orElse(null);
-            name = data.getStringOr("name", "");
-            slug = data.getStringOr("slug", "");
-            owner = data.read("owner", UUIDUtil.CODEC).orElse(null);
-            ownerName = data.getStringOr("ownerName", "");
-            access = data.read("access", AccessMode.CODEC).orElse(AccessMode.DEFAULT);
-            expose = data.read("expose", Codec.BOOL).orElse(null);
-            raw = data.read("raw", RawLink.CODEC).orElse(null);
-        });
+        if (compound.isEmpty()) {
+            loadedVersion = VERSION_V1;
+            privateMode = pendingV1.privateMode();
+            legacyItems = LegacyNbtV1.items(input);
+            lastTab = input.getStringOr(LegacyNbtV1.LAST_TAB, "");
+            return compound;
+        }
+        ValueInput data = compound.get();
+        loadedVersion = data.getIntOr("v", VERSION);
+        id = data.read("id", UUIDUtil.CODEC).orElse(null);
+        name = data.getStringOr("name", "");
+        slug = data.getStringOr("slug", "");
+        owner = data.read("owner", UUIDUtil.CODEC).orElse(null);
+        ownerName = data.getStringOr("ownerName", "");
+        access = data.read("access", AccessMode.CODEC).orElse(AccessMode.DEFAULT);
+        expose = data.read("expose", Codec.BOOL).orElse(null);
+        raw = data.read("raw", RawLink.CODEC).orElse(null);
+        if (loadedVersion <= VERSION_M1) {
+            privateMode = input.getBooleanOr(LegacyNbtV1.PRIVATE_MODE, false);
+            legacyItems = LegacyNbtV1.items(input);
+            lastTab = input.getStringOr(LegacyNbtV1.LAST_TAB, "");
+        } else {
+            privateMode = data.getBooleanOr("private", false);
+            legacyItems = data.listOrEmpty(LEGACY_ITEMS, ItemStackWithSlot.CODEC).stream().filter(item -> !item.stack().isEmpty()).toList();
+            lastTab = data.getStringOr("lastTab", "");
+        }
         return compound;
     }
 
     /**
      * Writes the {@code mineqtt} compound and returns it, so the block entity can add its own keys. Not while
-     * {@link #awaitingAdoption()}: the block entity then writes its v1 keys.
+     * {@link #awaitingAdoption()}: the block entity then writes its v1 keys and {@link #saveV1}.
      */
     public ValueOutput save(ValueOutput output) {
         if (pendingV1 != null) throw new IllegalStateException("v1 data that is not adopted yet is saved as v1 data");
@@ -132,7 +170,22 @@ public final class DeviceLink {
         data.store("access", AccessMode.CODEC, access);
         data.storeNullable("expose", Codec.BOOL, expose);
         data.storeNullable("raw", RawLink.CODEC, raw);
+        if (privateMode) data.putBoolean("private", true);
+        if (!legacyItems.isEmpty()) {
+            ValueOutput.TypedOutputList<ItemStackWithSlot> items = data.list(LEGACY_ITEMS, ItemStackWithSlot.CODEC);
+            legacyItems.forEach(items::add);
+        }
+        if (!lastTab.isEmpty()) data.putString("lastTab", lastTab);
         return data;
+    }
+
+    /**
+     * Writes the keys every v1 device wrote, as they were read, while its v1 data waits for adoption ({@link #save}
+     * refuses then): its slots, owner name, private mode, topic and last tab. The block entity adds its type's v1 keys.
+     */
+    public void saveV1(ValueOutput output) {
+        if (pendingV1 == null) throw new IllegalStateException("Only v1 data that waits for adoption is saved as v1 data");
+        LegacyNbtV1.writeDevice(output, pendingV1, legacyItems, lastTab);
     }
 
     /** From {@code BlockEntity#setLevel}: placement, chunk load, {@code /clone}, structures. */
@@ -181,14 +234,28 @@ public final class DeviceLink {
         DeviceRuntime.ifAttached(blockEntity, (devices, host) -> devices.publishState(host, false));
     }
 
-    /** Publishes an event on the device's {@code action} topic, e.g. {@code {"event_type":"pulse","signal":11}}. */
+    /**
+     * The block entity changed something its screen shows besides the state and the Raw Link (its private mode): open
+     * screens get the new view, also while the device is not attached.
+     */
+    public void viewChanged(BlockEntity blockEntity) {
+        DeviceRuntime.viewChanged(blockEntity);
+    }
+
+    /**
+     * Publishes an event on the device's {@code action} topic, e.g. {@code {"event_type":"pulse","signal":11}}; only an
+     * event its type declares ({@link DeviceType#eventProblem}).
+     */
     public void publishEvent(BlockEntity blockEntity, JsonObject event) {
         DeviceRuntime.ifAttached(blockEntity, (devices, host) -> devices.publishEvent(host, event));
     }
 
-    /** Opens the Raw Link again after the block entity changed it ({@link #setRaw}); attach opens it otherwise. */
-    public void rawChanged(BlockEntity blockEntity) {
-        DeviceRuntime.ifAttached(blockEntity, DeviceRuntime::rawChanged);
+    /**
+     * The block entity knows its current value after the attach ({@link DeviceHost#rawValue()} answers): a retaining
+     * output publishes it once, as the level stored on the broker may be stale.
+     */
+    public void rawValueKnown(BlockEntity blockEntity) {
+        DeviceRuntime.ifAttached(blockEntity, DeviceRuntime::rawValueKnown);
     }
 
     /** Publishes to the device's Raw Link output, if it has an active one. */
@@ -197,9 +264,17 @@ public final class DeviceLink {
     }
 
     /**
-     * The untrusted-data rule of a placement: no copied id (a fresh one is minted), the placer owns it, access follows
-     * the claim, the exposure follows the policy default, grandfathering is dropped and the Raw Link is checked for the
-     * placer.
+     * Publishes an edge of the device's level to its Raw Link output, if it has an active one that publishes this edge: a
+     * link of rising edges only skips the falling one ({@link RawLink.Edges}).
+     */
+    public void publishRawEdge(BlockEntity blockEntity, boolean rising, String payload) {
+        DeviceRuntime.ifAttached(blockEntity, (devices, host) -> devices.publishRawEdge(host, rising, payload));
+    }
+
+    /**
+     * The untrusted-data rule of a placement: no copied id (a fresh one is minted), no legacy items, the placer owns it,
+     * access follows the claim, the exposure follows the policy default, grandfathering is dropped and the Raw Link is
+     * checked for the placer. A link with a channel is resolved for the placer again at the attach, which replaces this check.
      * <p>
      * The fresh id is minted here, not at the attach: data saved before the attach must not read as v1 data when it
      * loads again, which the Redstone Input tells by a missing id (its v1 data has no keys of its own), so a reload in
@@ -211,6 +286,8 @@ public final class DeviceLink {
         // v1 data from an item is adopted now, as a placement: no grandfather flag, no v1 echo (§8.6).
         if (pendingV1 != null) adopt(takePendingV1(), false);
         id = UUID.randomUUID();
+        // Items copied with the data were never in this block: ejecting or breaking it must not make them.
+        legacyItems = List.of();
         name = "";
         slug = "";
         owner = placer;
@@ -241,17 +318,29 @@ public final class DeviceLink {
 
     /**
      * Adopts v1 data (§9.4): the v1 owner name, resolved to a UUID later, and the v1 topic as the Raw Link with its
-     * custom payloads, if the type has them. Only data adopted on chunk load is {@code trusted}: its topic is
-     * grandfathered for its owner, and an input echoes its state to the v1 state topic.
+     * custom payloads, if the type has them, and the type's default retain: wireless redstone of v1 publishes retained
+     * from now on (M2 plan D2). Only data adopted on chunk load is {@code trusted}: its topic is grandfathered for its
+     * owner, and an input echoes its state to the v1 state topic; the owner UUID a legacy block saved since M2 F11 is
+     * the owner at once, as the resolution would have bound it. The topic is the slots' literal as v1 used it, not
+     * resolved: untrusted data keeps it as its channel, resolved for its new owner at the attach. A name an anvil gave
+     * the v1 block becomes the device's name, which the attach registers. A converted Static Publisher's output keeps
+     * v1's events (M2 plan D11): its message on rising edges only, explicitly not retained. A v1 remote's topic becomes
+     * no Raw Link ({@link DeviceType#remote()}).
      */
     void adopt(LegacyNbtV1.Snapshot v1, boolean trusted) {
-        if (owner == null && ownerName.isEmpty()) ownerName = v1.ownerName();
+        if (owner == null && ownerName.isEmpty()) {
+            ownerName = v1.ownerName();
+            if (trusted && !ownerName.isEmpty()) owner = v1.ownerUuid();
+        }
+        if (name.isEmpty()) name = ValueCodecs.sanitizeText(v1.name()).strip();
         RawLinkSpec spec = type.rawLink().orElse(null);
-        if (spec == null || v1.combinedTopic().isEmpty()) return;
+        // A v1 remote's topic named the lamps it commanded, which the attach wires it to instead (M2 plan D15).
+        if (spec == null || type.remote() || v1.combinedTopic().isEmpty()) return;
         String topic = v1.combinedTopic();
         ValueCodecs.CustomPayloads custom = spec.customPayloads() ? v1.custom() : ValueCodecs.CustomPayloads.NONE;
-        raw = new RawLink(topic, spec.direction(), custom.on(), custom.off(), 0, false,
-                trusted ? new TopicAcl.Grandfather(topic, owner) : null, trusted && spec.echoes(), null);
+        RawLink.Edges edges = spec.direction() == RawLinkSpec.Direction.OUT ? v1.edges() : RawLink.Edges.BOTH;
+        raw = new RawLink(topic, spec.direction(), custom.on(), custom.off(), 0, edges.level() ? null : Boolean.FALSE,
+                trusted ? new TopicAcl.Grandfather(topic, owner) : null, trusted && spec.echoes(), null, 0, trusted ? null : topic, edges);
     }
 
     /** Whether the block entity holds v1 data that no attach has adopted yet. */
@@ -259,10 +348,27 @@ public final class DeviceLink {
         return pendingV1 != null;
     }
 
+    /** The v1 data that waits for adoption, as the block entity writes its type's v1 keys back; null when none waits. */
+    public LegacyNbtV1.@Nullable Snapshot pendingV1() {
+        return pendingV1;
+    }
+
     LegacyNbtV1.@Nullable Snapshot takePendingV1() {
         LegacyNbtV1.Snapshot v1 = pendingV1;
         pendingV1 = null;
         return v1;
+    }
+
+    /**
+     * A failed attach hands back what it used up (M2 plan D7): the v1 data it took waits for adoption again, and is
+     * saved as v1 data until then, and a placement it cleared is one again.
+     *
+     * @param v1     the v1 data the attach took, null when there was none
+     * @param placed whether the device was placed by a player when the attach began
+     */
+    void handBack(LegacyNbtV1.@Nullable Snapshot v1, boolean placed) {
+        if (v1 != null) pendingV1 = v1;
+        if (placed) placedByPlayer = true;
     }
 
     /**
@@ -278,15 +384,17 @@ public final class DeviceLink {
     }
 
     /**
-     * A player claims a device that has neither an owner nor an owner name (the private-mode toggle, a trusted server
+     * A player claims a device that has neither an owner nor an owner name (the Access tab's claim, a trusted server
      * path behind the CONFIGURE check): they own it from now on, and a grandfather flag that waited for an owner is
-     * bound to them, as a resolved v1 owner name binds it.
+     * bound to them, as a resolved v1 owner name binds it. The claimer is no v1 owner, so the flag holds for this device
+     * only: it is settled without joining their literal set ({@link LegacyAdoption#settleGrandfathered}).
      *
      * @return false when the device has an owner, or a v1 owner name still to resolve
      */
     public boolean claim(BlockEntity blockEntity, UUID player, String playerName) {
         if (owner != null || !ownerName.isEmpty()) return false;
         resolveOwner(player);
+        if (raw != null && raw.grandfathered() != null) raw = raw.markResolved();
         ownerName = playerName;
         blockEntity.setChanged();
         DeviceRuntime.ifAttached(blockEntity, DeviceRuntime::ownerChanged);
@@ -331,6 +439,11 @@ public final class DeviceLink {
         return access;
     }
 
+    /** Set by the owner or an operator through the screen or {@code /mineqtt devices setting} (M2-6). */
+    void setAccess(AccessMode access) {
+        this.access = access;
+    }
+
     /** The explicit Home Assistant exposure; null follows {@code ha.expose}. */
     public @Nullable Boolean expose() {
         return expose;
@@ -348,6 +461,54 @@ public final class DeviceLink {
     /** A Raw Link a trusted path set (the GUI after its ACL check, or the v1 migrator); null removes it. */
     public void setRaw(@Nullable RawLink raw) {
         this.raw = raw;
+    }
+
+    /**
+     * Whether the Raw Link's channel resolves into the owner's private subtree ({@link RawTopics#resolve}): v1's private
+     * mode, which a private channel sets (the Advanced tab, {@code /mineqtt devices raw ... private}).
+     */
+    public boolean privateMode() {
+        return privateMode;
+    }
+
+    /** Set with the channel it resolves; a typed topic or a removed link clears it. */
+    void setPrivateMode(boolean privateMode) {
+        this.privateMode = privateMode;
+    }
+
+    /**
+     * The items the block's configuration slots held before devices lost their containers (M2-12), each with its slot.
+     * Breaking the block drops them; the Diagnostics tab and {@code /mineqtt devices eject} hand them out.
+     */
+    public List<ItemStackWithSlot> legacyItems() {
+        return legacyItems;
+    }
+
+    /**
+     * Takes the legacy items out of the block: it is broken, or a player ejects them. Ejecting waits while v1 data waits
+     * for adoption ({@link #awaitingAdoption()}), as those slots still are its topic.
+     */
+    public List<ItemStackWithSlot> takeLegacyItems() {
+        List<ItemStackWithSlot> taken = legacyItems;
+        legacyItems = List.of();
+        return taken;
+    }
+
+    /** The tab the device's screen last showed; empty for none. */
+    public String lastTab() {
+        return lastTab;
+    }
+
+    public void setLastTab(String lastTab) {
+        this.lastTab = lastTab;
+    }
+
+    /**
+     * The version of the data the link was loaded from: {@value #VERSION_V1} for v1 data, {@value #VERSION_M1} for M1's,
+     * {@value #VERSION} for anything newer and for a new device. A block entity migrates its own keys by it.
+     */
+    public int loadedVersion() {
+        return loadedVersion;
     }
 
     public boolean attached() {

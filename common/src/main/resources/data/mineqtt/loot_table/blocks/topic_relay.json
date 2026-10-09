@@ -6,7 +6,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "mineqtt:topic_relay"
+          "name": "mineqtt:network_chip"
         }
       ],
       "conditions": [

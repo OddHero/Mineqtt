@@ -1,5 +1,8 @@
-﻿{
+{
   "variants": {
-    "" : { "model": "mineqtt:block/terminal_block" }
+    "facing=north": { "model": "mineqtt:block/terminal_block" },
+    "facing=east": { "model": "mineqtt:block/terminal_block", "y": 90 },
+    "facing=south": { "model": "mineqtt:block/terminal_block", "y": 180 },
+    "facing=west": { "model": "mineqtt:block/terminal_block", "y": 270 }
   }
 }

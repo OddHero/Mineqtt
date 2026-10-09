@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "N": "mineqtt:network_chip",
+    "O": "minecraft:observer",
+    "R": "minecraft:redstone",
+    "S": "minecraft:smooth_stone"
+  },
+  "pattern": [
+    "SOS",
+    "RNR",
+    "SSS"
+  ],
+  "result": {
+    "id": "mineqtt:redstone_publisher_block"
+  }
+}

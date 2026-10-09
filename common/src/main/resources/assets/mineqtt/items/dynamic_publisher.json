@@ -1,6 +1,6 @@
 {
   "model": {
     "type": "minecraft:model",
-    "model": "mineqtt:block/dynamic_publisher_on"
+    "model": "mineqtt:block/dynamic_publisher"
   }
 }

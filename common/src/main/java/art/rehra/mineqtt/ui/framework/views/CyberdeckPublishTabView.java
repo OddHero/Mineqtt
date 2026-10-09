@@ -1,9 +1,8 @@
 package art.rehra.mineqtt.ui.framework.views;
 
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
-import art.rehra.mineqtt.items.CyberdeckDataUtil;
-import art.rehra.mineqtt.items.CyberdeckItem;
 import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.ui.CyberdeckMenu;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
@@ -36,7 +35,7 @@ public class CyberdeckPublishTabView implements MqttTabView {
         String base = baseStack.isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(baseStack);
         String sub = subStack.isEmpty() ? "" : BaseMqttBlockEntity.parseItemStackTopic(subStack);
         String topic = sub.isEmpty() ? base : base + "/" + sub;
-        if (isHeldCyberdeckPrivate()) {
+        if (isPrivate(menu)) {
             String owner = Minecraft.getInstance().player != null
                     ? Minecraft.getInstance().player.getGameProfile().name() : "";
             if (!owner.isEmpty()) {
@@ -46,13 +45,8 @@ public class CyberdeckPublishTabView implements MqttTabView {
         return topic;
     }
 
-    private static boolean isHeldCyberdeckPrivate() {
-        var mc = Minecraft.getInstance();
-        if (mc.player == null) return false;
-        var stack = mc.player.getMainHandItem();
-        if (!(stack.getItem() instanceof CyberdeckItem)) stack = mc.player.getOffhandItem();
-        if (!(stack.getItem() instanceof CyberdeckItem)) return false;
-        return CyberdeckDataUtil.isPrivate(stack);
+    private static boolean isPrivate(TabbedMqttMenu menu) {
+        return menu instanceof CyberdeckMenu explorer && explorer.privateMode();
     }
 
     @Override
@@ -85,7 +79,7 @@ public class CyberdeckPublishTabView implements MqttTabView {
 
         // The server re-applies the private-mode username prefix in private mode,
         // so strip it from the displayed topic before sending to avoid duplication.
-        boolean privateMode = isHeldCyberdeckPrivate();
+        boolean privateMode = isPrivate(screen.getMenu());
         if (privateMode && Minecraft.getInstance().player != null) {
             String owner = Minecraft.getInstance().player.getGameProfile().name();
             if (topic.equals(owner)) {

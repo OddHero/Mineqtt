@@ -5,18 +5,13 @@ import art.rehra.mineqtt.device.CommandReader;
 import art.rehra.mineqtt.device.CommandResult;
 import art.rehra.mineqtt.device.CommandSource;
 import art.rehra.mineqtt.device.CommonFields;
-import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceLink;
 import art.rehra.mineqtt.device.DeviceType;
 import art.rehra.mineqtt.device.RawLink;
 import art.rehra.mineqtt.device.StateWriter;
 import art.rehra.mineqtt.device.types.RedstoneInput;
-import art.rehra.mineqtt.ui.framework.MqttTab;
-import art.rehra.mineqtt.ui.framework.tabs.PublisherValuesTab;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
-import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -24,19 +19,16 @@ import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
-import java.util.List;
 
 import static art.rehra.mineqtt.blocks.RedstonePublisherBlock.POWERED;
 
 /**
  * The Redstone Input ({@link RedstoneInput}): reports the signal its block receives. The signal is in the
- * {@code mineqtt} compound; v1 data is read on load and adopted when the device attaches. Slots 0 and 1 edit the Raw
- * Link with v1 topic rules, slots 2 and 3 its custom on/off payloads (design §6.9).
+ * {@code mineqtt} compound; v1 data is read on load and adopted when the device attaches. Clients get no render data:
+ * the block state shows whether it is powered.
  */
-public class PublisherBlockEntity extends BaseMqttBlockEntity implements DeviceHost {
+public class PublisherBlockEntity extends DeviceBlockEntity {
     private final DeviceLink link = new DeviceLink(RedstoneInput.TYPE);
     private int signal;
     // Neighbours in other chunks may have changed while this one was unloaded; the first server tick after the attach
@@ -67,16 +59,21 @@ public class PublisherBlockEntity extends BaseMqttBlockEntity implements DeviceH
         return CommandResult.rejected("a Redstone Input takes no commands");
     }
 
-    /** v1's payload for whether the block is powered. */
+    /**
+     * v1's payload for whether the block is powered, once the signal was read after the attach: until then the
+     * {@code powered} property is the one saved at the unload, which a retained publish must never repeat. From then on
+     * every neighbour change keeps it live.
+     */
     @Override
     public @Nullable String rawValue() {
         RawLink raw = link.raw();
-        return raw == null ? null : RedstoneInput.rawPayload(getBlockState().getValue(POWERED), raw.customPayloads());
+        return raw == null || !signalRead ? null : RedstoneInput.rawPayload(getBlockState().getValue(POWERED), raw.customPayloads());
     }
 
     /**
      * The signal the block receives now. Its state follows; a rising or falling edge also switches the block's
-     * {@code powered} property and publishes v1's payload to the Raw Link, and a rising edge is a {@code pulse} event.
+     * {@code powered} property and publishes v1's payload to the Raw Link (a converted Static Publisher's link only the
+     * rising one), and a rising edge is a {@code pulse} event.
      */
     public void signalChanged(int newSignal) {
         if (level == null) return;
@@ -90,49 +87,38 @@ public class PublisherBlockEntity extends BaseMqttBlockEntity implements DeviceH
         if (powered != wasPowered) {
             level.setBlock(worldPosition, state.setValue(POWERED, powered), Block.UPDATE_ALL);
             RawLink raw = link.raw();
-            if (raw != null) link.publishRaw(this, RedstoneInput.rawPayload(powered, raw.customPayloads()));
+            if (raw != null) link.publishRawEdge(this, powered, RedstoneInput.rawPayload(powered, raw.customPayloads()));
             if (powered) link.publishEvent(this, RedstoneInput.pulse(received));
         }
         link.stateChanged(this);
     }
 
     @Override
-    protected void saveAdditional(ValueOutput output) {
-        super.saveAdditional(output);
+    protected void saveDevice(ValueOutput output) {
         saveInput(link, signal, output);
     }
 
     @Override
-    protected void loadAdditional(ValueInput input) {
-        super.loadAdditional(input);
+    protected void loadDevice(ValueInput input) {
         signal = loadInput(link, input, getBlockState().getValue(POWERED));
-        // v1 synced the topic to the slots only in its ticker; the adopted link is the slots' topic, not an edit.
-        if (link.awaitingAdoption()) topic = getCombinedTopic();
     }
 
+    /** A placed copy reads its signal again after its attach, as every input does; until then it reports none. */
     @Override
-    protected String getDefaultTopic() {
-        return "";
-    }
-
-    @Override
-    protected @NotNull Component getDefaultName() {
-        return Component.translatable("container.mineqtt.publisher");
-    }
-
-    @Override
-    public List<MqttTab> getTabs() {
-        List<MqttTab> tabs = super.getTabs();
-        tabs.add(new PublisherValuesTab());
-        return tabs;
+    protected void placedCopy() {
+        signal = 0;
     }
 
     /**
-     * An input's keys besides the slots: the link with the signal in its {@code state}. v1 publishers wrote no keys of
-     * their own, so v1 data waiting for adoption writes nothing more.
+     * An input's data: the link with the signal in its {@code state}. v1 publishers wrote no keys of their own, so v1
+     * data waiting for adoption writes only the keys every v1 device wrote.
      */
     public static void saveInput(DeviceLink link, int signal, ValueOutput output) {
-        if (!link.awaitingAdoption()) link.save(output).child("state").putInt(RedstoneInput.SIGNAL.key(), signal);
+        if (link.awaitingAdoption()) {
+            link.saveV1(output);
+        } else {
+            link.save(output).child("state").putInt(RedstoneInput.SIGNAL.key(), signal);
+        }
     }
 
     /**
@@ -149,15 +135,19 @@ public class PublisherBlockEntity extends BaseMqttBlockEntity implements DeviceH
                 .orElse(blockPowered ? RedstoneInput.MAX_SIGNAL : 0);
     }
 
-    /** Slot edits, and the signal once after the attach. */
+    /**
+     * The signal, once after the attach: an edge it finds is published, otherwise the level it confirms is published once
+     * to a retaining Raw Link, as the broker may hold an older one.
+     */
     public static class ServerTicker<T extends BlockEntity> implements BlockEntityTicker<T> {
         @Override
         public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
-            if (!(blockEntity instanceof PublisherBlockEntity input) || !(level instanceof ServerLevel serverLevel)) return;
-            input.followSlots(serverLevel, input.link);
+            if (!(blockEntity instanceof PublisherBlockEntity input) || level.isClientSide()) return;
             if (!input.signalRead && input.link.attached()) {
                 input.signalRead = true;
+                boolean wasPowered = state.getValue(POWERED);
                 input.signalChanged(RedstonePublisherBlock.inputSignal(level, pos));
+                if (level.getBlockState(pos).getValue(POWERED) == wasPowered) input.link.rawValueKnown(input);
             }
         }
     }

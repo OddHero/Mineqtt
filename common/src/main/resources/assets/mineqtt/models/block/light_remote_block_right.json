@@ -1,0 +1,67 @@
+{
+  "textures": {
+    "rocker": "mineqtt:block/light_remote_block_rocker",
+    "particle": "mineqtt:block/light_remote_block"
+  },
+  "elements": [
+    {
+      "from": [
+        3.5,
+        4.5,
+        12
+      ],
+      "to": [
+        7.5,
+        11.5,
+        13
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            6,
+            4,
+            10,
+            11
+          ],
+          "texture": "#rocker"
+        },
+        "east": {
+          "uv": [
+            0,
+            4,
+            1,
+            11
+          ],
+          "texture": "#rocker"
+        },
+        "west": {
+          "uv": [
+            0,
+            4,
+            1,
+            11
+          ],
+          "texture": "#rocker"
+        },
+        "up": {
+          "uv": [
+            6,
+            0,
+            10,
+            1
+          ],
+          "texture": "#rocker"
+        },
+        "down": {
+          "uv": [
+            6,
+            0,
+            10,
+            1
+          ],
+          "texture": "#rocker"
+        }
+      }
+    }
+  ]
+}

@@ -3,7 +3,6 @@ package art.rehra.mineqtt.mqtt;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.integrations.MineqttPermission;
-import art.rehra.mineqtt.items.CyberdeckDataUtil;
 import art.rehra.mineqtt.items.CyberdeckItem;
 import art.rehra.mineqtt.mqtt.core.BrokerSettings;
 import art.rehra.mineqtt.mqtt.core.Inbound;
@@ -18,24 +17,24 @@ import art.rehra.mineqtt.security.C2SGuard;
 import art.rehra.mineqtt.security.DeviceAccess;
 import art.rehra.mineqtt.security.RateLimit;
 import art.rehra.mineqtt.security.TokenBucket;
-import art.rehra.mineqtt.ui.CyberdeckMenu;
 import dev.architectury.networking.NetworkManager;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
- * The server side of the Cyberdeck (design §8.4): its explorer sessions and its publishes.
+ * The server side of the Configurator's explorer (the Cyberdeck's, design §8.4): its listen sessions and its publishes.
  * <ul>
  *     <li>A player has at most one listen session. It subscribes the player's {@link TopicAcl#listenScope}: this
  *     server's namespace plus the raw allowlist filters they may listen on, or the whole broker for an admin when
@@ -48,6 +47,8 @@ import java.util.UUID;
  *     {@value #PUBLISHES_PER_SECOND} per second. In private mode the topic lies in the player's own subtree,
  *     {@code <base>/<bridgeId>/raw/players/<uuid>/<topic>}.</li>
  * </ul>
+ * Whether a player listens and publishes privately is kept here, not on the item (M2-13): a player who leaves while
+ * listening listens again when they join with a Configurator, as long as the server runs; private mode lasts as long.
  * Server thread only.
  */
 public final class CyberdeckSessionManager {
@@ -58,6 +59,9 @@ public final class CyberdeckSessionManager {
     private static final String ELLIPSIS = "…";
 
     private static final Map<UUID, Session> sessions = new HashMap<>();
+    // Players who left while listening, and players who publish into their private subtree.
+    private static final Set<UUID> resumeOnJoin = new HashSet<>();
+    private static final Set<UUID> privatePublishers = new HashSet<>();
     private static final RateLimit publishes = new RateLimit(PUBLISHES_PER_SECOND);
 
     private CyberdeckSessionManager() {
@@ -89,13 +93,30 @@ public final class CyberdeckSessionManager {
         }
     }
 
+    public static boolean isListening(ServerPlayer player) {
+        return sessions.containsKey(player.getUUID());
+    }
+
+    /** Whether the player's explorer publishes into their private subtree. */
+    public static boolean isPrivate(ServerPlayer player) {
+        return privatePublishers.contains(player.getUUID());
+    }
+
+    public static void setPrivate(ServerPlayer player, boolean privateMode) {
+        if (privateMode) {
+            privatePublishers.add(player.getUUID());
+        } else {
+            privatePublishers.remove(player.getUUID());
+        }
+    }
+
     /**
-     * Publishes from the player's open Cyberdeck.
+     * Publishes from the player's open explorer.
      *
      * @param topic the topic the player entered; in private mode it is relative to the player's own subtree
      */
-    public static void publish(ServerPlayer player, CyberdeckMenu menu, String topic, String payload) {
-        Optional<String> refusal = publishRefusal(player, menu, topic, payload);
+    public static void publish(ServerPlayer player, String topic, String payload) {
+        Optional<String> refusal = publishRefusal(player, topic, payload);
         refusal.ifPresent(reason -> player.sendSystemMessage(Component.translatable("mineqtt.cyberdeck.publish_refused", topic, reason), true));
     }
 
@@ -123,42 +144,41 @@ public final class CyberdeckSessionManager {
     }
 
     public static void onPlayerLoggedIn(ServerPlayer player) {
-        // A Cyberdeck that was listening when the player left listens again.
-        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
-            ItemStack stack = player.getInventory().getItem(i);
-            if (stack.getItem() instanceof CyberdeckItem && CyberdeckDataUtil.isListening(stack)) {
-                toggleListening(player, true);
-                MineQTT.LOGGER.debug("[Cyberdeck] Restored listening for player {} from item data", player.getGameProfile().name());
-                return;
-            }
+        // A player who was listening when they left listens again, if they still carry a Configurator.
+        if (resumeOnJoin.remove(player.getUUID()) && carriesCyberdeck(player)) {
+            toggleListening(player, true);
+            MineQTT.LOGGER.debug("[Cyberdeck] Resumed listening for player {}", player.getGameProfile().name());
         }
     }
 
     public static void onPlayerLoggedOut(ServerPlayer player) {
+        if (isListening(player)) resumeOnJoin.add(player.getUUID());
         toggleListening(player, false);
         publishes.forget(player.getUUID());
     }
 
-    /** Forgets the sessions of a stopping server; its players restore theirs from the item when they join again. */
+    /** Forgets the sessions and the players' explorer state of a stopping server. */
     public static void onServerStopping() {
         sessions.values().forEach(CyberdeckSessionManager::close);
         sessions.clear();
+        resumeOnJoin.clear();
+        privatePublishers.clear();
         publishes.clear();
     }
 
-    private static Optional<String> publishRefusal(ServerPlayer player, CyberdeckMenu menu, String topic, String payload) {
+    private static Optional<String> publishRefusal(ServerPlayer player, String topic, String payload) {
         if (!C2SGuard.fitsPayload(payload)) return Optional.of("the payload is larger than " + C2SGuard.MAX_PAYLOAD_BYTES + " bytes");
         Optional<MineqttRuntime> running = runtime(player.level().getServer());
         if (running.isEmpty()) return Optional.of("MineQTT is not running");
         TopicAcl acl = running.get().acl();
-        boolean privateMode = CyberdeckDataUtil.isPrivate(menu.itemStack);
+        boolean privateMode = isPrivate(player);
         if (topic.isBlank() && !privateMode) return Optional.of("no topic is set");
         String target = privateMode ? acl.privateTopic(player.getUUID(), topic) : topic;
         TopicAcl.Decision decision = acl.checkPublish(AclContext.of(player), target);
         if (!decision.allowed()) return Optional.of(decision.message());
         if (!publishes.tryTake(player.getUUID())) return Optional.of("at most " + PUBLISHES_PER_SECOND + " messages per second");
         byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
-        running.get().mqtt().publish(Outbound.raw(target, bytes, 0, false, player.getUUID()));
+        running.get().mqtt().publish(Outbound.raw(target, bytes, 0, player.getUUID()));
         MineQTT.LOGGER.debug("[Cyberdeck] {} published {} bytes to {}", player.getGameProfile().name(), bytes.length, target);
         return Optional.empty();
     }

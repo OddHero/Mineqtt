@@ -1,14 +1,24 @@
 package art.rehra.mineqtt.blocks;
 
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
+import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
+import art.rehra.mineqtt.device.DeviceConfig;
 import art.rehra.mineqtt.device.DeviceHost;
+import art.rehra.mineqtt.device.DeviceRuntime;
+import art.rehra.mineqtt.device.DeviceType;
+import art.rehra.mineqtt.device.LinkSetting;
 import art.rehra.mineqtt.integrations.MineqttPermission;
+import art.rehra.mineqtt.items.ConfiguratorMode;
+import art.rehra.mineqtt.items.ConfiguratorSessions;
 import art.rehra.mineqtt.security.DeviceAccess;
+import art.rehra.mineqtt.ui.device.AdvancedTab;
+import art.rehra.mineqtt.ui.framework.TabbedScreenHost;
 import com.mojang.serialization.MapCodec;
 import dev.architectury.event.EventResult;
 import dev.architectury.event.events.common.InteractionEvent;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.*;
 import net.minecraft.world.entity.LivingEntity;
@@ -49,12 +59,13 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
         if (level.isClientSide()) return;
         BlockEntity be = level.getBlockEntity(pos);
         // The item's block entity data is applied by now and is untrusted (design §8.6).
-        if (be instanceof DeviceHost host) {
-            host.deviceLink().onPlacedBy(be, placer);
+        if (be instanceof DeviceBlockEntity device) {
+            device.placedBy(placer);
         }
         if (be instanceof BaseMqttBlockEntity mqtt) {
             // An owner copied with the item's data is forged; only a placing player becomes the owner.
-            mqtt.setOwnerName(placer instanceof Player p ? p.getGameProfile().name() : "");
+            Player player = placer instanceof Player p ? p : null;
+            mqtt.setOwner(player == null ? null : player.getUUID(), player == null ? "" : player.getGameProfile().name());
         }
     }
 
@@ -72,28 +83,67 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
         return codec;
     }
 
+    /**
+     * A right-click on the block, before vanilla handles it: {@link Interaction#decide} says what it does. Each outcome
+     * but {@link Interaction.Outcome#PASS} needs USE on the server, else the click passes as on any block; a paper, a
+     * name tag or a Configurator mode step of a player who may not use the device is answered in the action bar, as one
+     * who may not configure it.
+     * <p>
+     * A spectator only looks, as into a chest: whatever they hold, their click opens the screen, where they change
+     * nothing ({@code C2SGuard}). The event comes before vanilla's spectator check on both loaders, and vanilla would then
+     * open the block entity's menu without asking {@link DeviceAccess}, so a spectator's click never passes.
+     */
     @Override
     public EventResult click(Player player, InteractionHand hand, BlockPos pos, Direction face) {
-        if (player.level().getBlockEntity(pos) == null) {
-            return EventResult.pass();
-        }
-
-        if (player.isShiftKeyDown()) {
-            return EventResult.pass();
-        }
-
         BlockEntity blockEntity = player.level().getBlockEntity(pos);
-        if (blockEntity instanceof BaseMqttBlockEntity mqtt) {
-            if (player instanceof ServerPlayer serverPlayer) {
-                if (!DeviceAccess.check(serverPlayer, mqtt, MineqttPermission.USE)) {
-                    return EventResult.pass();
-                }
-                mqtt.openScreen(serverPlayer);
-            }
-            return EventResult.interruptTrue();
+        if (!(blockEntity instanceof TabbedScreenHost screenHost)) {
+            return EventResult.pass();
         }
+        ItemStack held = player.getItemInHand(hand);
+        DeviceType type = blockEntity instanceof DeviceHost host ? host.deviceType() : null;
+        boolean spectator = player.isSpectator();
+        Interaction.Outcome outcome = spectator ? Interaction.Outcome.SCREEN
+                : Interaction.decide(player.isShiftKeyDown(), Interaction.Held.of(player, hand), type);
+        if (outcome == Interaction.Outcome.PASS) {
+            return EventResult.pass();
+        }
+        if (player instanceof ServerPlayer serverPlayer) {
+            if (!DeviceAccess.check(serverPlayer, blockEntity, MineqttPermission.USE)) {
+                if (outcome != Interaction.Outcome.USE && outcome != Interaction.Outcome.SCREEN) {
+                    serverPlayer.sendSystemMessage(Component.translatable("mineqtt.device.refused", DeviceConfig.refusal(LinkSetting.Gate.CONFIGURE)), true);
+                }
+                return spectator ? EventResult.interruptFalse() : EventResult.pass();
+            }
+            switch (outcome) {
+                case USE -> useDevice(serverPlayer, blockEntity);
+                case SCREEN -> screenHost.openScreen(serverPlayer);
+                // Neither the paper nor the name tag is used up.
+                case PAPER -> DeviceRuntime.paperChannel(serverPlayer, blockEntity, AdvancedTab.paperChannel(held).orElseThrow());
+                case RENAME -> DeviceRuntime.nameTag(serverPlayer, blockEntity, Interaction.nameTag(held).orElseThrow());
+                case LINK -> step(serverPlayer, blockEntity, ConfiguratorMode.LINK);
+                case GROUP -> step(serverPlayer, blockEntity, ConfiguratorMode.GROUP);
+                case COPY -> step(serverPlayer, blockEntity, ConfiguratorMode.COPY_PASTE);
+            }
+        }
+        return EventResult.interruptTrue();
+    }
 
-        return EventResult.pass();
+    /**
+     * A right-click uses the device ({@link Interaction.Outcome#USE}), after the USE check: its type's
+     * {@link DeviceType#use() use} action. A block whose use depends on where the click hits (the Wall Switch's two
+     * buttons) does it itself.
+     */
+    protected void useDevice(ServerPlayer player, BlockEntity blockEntity) {
+        DeviceRuntime.use(player, blockEntity);
+    }
+
+    // A step of a Configurator mode on the block; a block that is no device cannot take part.
+    private static void step(ServerPlayer player, BlockEntity blockEntity, ConfiguratorMode mode) {
+        if (blockEntity instanceof DeviceBlockEntity device) {
+            ConfiguratorSessions.click(mode, player, device);
+        } else {
+            player.sendSystemMessage(ConfiguratorSessions.notDevice(mode, blockEntity.getBlockState().getBlock().getName()), true);
+        }
     }
 
     @Override

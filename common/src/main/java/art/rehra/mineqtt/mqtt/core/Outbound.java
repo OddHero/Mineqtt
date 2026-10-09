@@ -56,8 +56,25 @@ public record Outbound(String topic, byte[] payload, int qos, boolean retain, Of
         return new Outbound(topic, utf8(json), 1, false, OfflinePolicy.DROP, Delivery.EDGE, null);
     }
 
-    public static Outbound raw(String topic, byte[] payload, int qos, boolean retain, UUID origin) {
-        return new Outbound(topic, payload, qos, retain, OfflinePolicy.DROP, Delivery.EDGE, origin);
+    /** A raw edge that is not retained: dropped while offline, since a late pulse would be wrong. */
+    public static Outbound raw(String topic, byte[] payload, int qos, UUID origin) {
+        return new Outbound(topic, payload, qos, false, OfflinePolicy.DROP, Delivery.EDGE, origin);
+    }
+
+    /**
+     * A retained raw edge, the current level of wireless redstone: every edge is sent, and the latest level waits while
+     * its origin is over the edge cap or the broker is unreachable, so the broker ends up holding it.
+     */
+    public static Outbound rawRetained(String topic, byte[] payload, int qos, UUID origin) {
+        return new Outbound(topic, payload, qos, true, OfflinePolicy.COALESCE, Delivery.EDGE, origin);
+    }
+
+    /**
+     * The last retained raw message an output leaves on a topic (its off payload, or a clear): nothing publishes there
+     * again to correct it, so like {@link #clear} it is never evicted from the outbox.
+     */
+    public static Outbound rawRetainedFinal(String topic, byte[] payload, int qos, UUID origin) {
+        return new Outbound(topic, payload, qos, true, OfflinePolicy.KEEP, Delivery.EDGE, origin);
     }
 
     /** This message as a {@link #refresh()}: it is sent even when the broker got the same bytes before. */

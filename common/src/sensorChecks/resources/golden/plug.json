@@ -1,0 +1,54 @@
+{
+  "dev": {
+    "ids": ["mineqtt_9b2c4d6e8f1a4b3c8d5e6f708192a3b4"],
+    "name": "Coffee Maker",
+    "mf": "MineQTT",
+    "mdl": "Smart Plug",
+    "mdl_id": "mineqtt:smart_plug",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": { "name": "MineQTT", "sw": "2.0.0", "url": "https://github.com/OddHero/Mineqtt" },
+  "avty": [
+    { "t": "mineqtt/world_7f3a/bridge/state" },
+    { "t": "mineqtt/world_7f3a/coffee_maker/availability" }
+  ],
+  "avty_mode": "all",
+  "qos": 1,
+  "cmps": {
+    "plug": {
+      "p": "switch",
+      "unique_id": "mineqtt_9b2c4d6e8f1a4b3c8d5e6f708192a3b4_plug",
+      "name": null,
+      "state_topic": "mineqtt/world_7f3a/coffee_maker",
+      "command_topic": "mineqtt/world_7f3a/coffee_maker/set",
+      "value_template": "{{ 'OFF' if value_json.power == 0 else 'ON' }}",
+      "payload_on": "{\"state\":\"ON\"}",
+      "payload_off": "{\"state\":\"OFF\"}",
+      "state_on": "ON",
+      "state_off": "OFF",
+      "device_class": "outlet",
+      "retain": false
+    },
+    "power_on_behaviour": {
+      "p": "select",
+      "unique_id": "mineqtt_9b2c4d6e8f1a4b3c8d5e6f708192a3b4_power_on_behaviour",
+      "name": "Power on behaviour",
+      "state_topic": "mineqtt/world_7f3a/coffee_maker",
+      "value_template": "{{ value_json.power_on_behaviour }}",
+      "command_topic": "mineqtt/world_7f3a/coffee_maker/set/power_on_behaviour",
+      "options": ["previous", "off", "on"],
+      "retain": false,
+      "entity_category": "config"
+    },
+    "location": {
+      "p": "sensor",
+      "unique_id": "mineqtt_9b2c4d6e8f1a4b3c8d5e6f708192a3b4_location",
+      "name": "Location",
+      "state_topic": "mineqtt/world_7f3a/coffee_maker",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  }
+}

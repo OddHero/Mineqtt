@@ -1,6 +1,6 @@
 {
   "dev": {
-    "ids": ["mineqtt_000000000000400080000000000000aa"],
+    "ids": ["mineqtt_000000000000400080000000000000aa", "home_hallway"],
     "name": "Hallway",
     "mf": "MineQTT",
     "mdl": "Smart Lamp group",
@@ -28,6 +28,9 @@
       "color_temp_kelvin": true,
       "min_kelvin": 2000,
       "max_kelvin": 6500,
+      "effect": true,
+      "effect_list": ["off", "pulse", "candle"],
+      "flash": false,
       "retain": false
     }
   }

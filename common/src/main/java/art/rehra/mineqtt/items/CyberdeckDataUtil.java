@@ -1,48 +1,37 @@
 package art.rehra.mineqtt.items;
 
 import art.rehra.mineqtt.registry.MineqttDataComponents;
-import net.minecraft.core.HolderLookup;
-import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.ItemContainerContents;
 
+import java.util.List;
+
 /**
- * Utility for Cyberdeck item data handling using 1.21 Data Components.
+ * The data the Configurator (the {@code cyberdeck} item) keeps on itself: its {@link ConfiguratorMode}. The explorer's
+ * listening, private mode and topic slots used to live on the item too; {@link #stripDeprecated} takes them off.
  */
 public final class CyberdeckDataUtil {
     private CyberdeckDataUtil() {
     }
 
-    public static boolean isListening(ItemStack stack) {
-        if (stack.isEmpty()) return false;
-        return stack.getOrDefault(MineqttDataComponents.LISTENING.get(), false);
+    public static ConfiguratorMode mode(ItemStack stack) {
+        return stack.getOrDefault(MineqttDataComponents.CONFIGURATOR_MODE.get(), ConfiguratorMode.CONFIGURE);
     }
 
-    public static void setListening(ItemStack stack, boolean value) {
-        if (stack.isEmpty()) return;
-        stack.set(MineqttDataComponents.LISTENING.get(), value);
+    public static void setMode(ItemStack stack, ConfiguratorMode mode) {
+        stack.set(MineqttDataComponents.CONFIGURATOR_MODE.get(), mode);
     }
 
-    public static boolean isPrivate(ItemStack stack) {
-        if (stack.isEmpty()) return false;
-        return stack.getOrDefault(MineqttDataComponents.PRIVATE_MODE.get(), false);
-    }
-
-    public static void setPrivate(ItemStack stack, boolean value) {
-        if (stack.isEmpty()) return;
-        stack.set(MineqttDataComponents.PRIVATE_MODE.get(), value);
-    }
-
-    public static void loadToContainer(ItemStack stack, SimpleContainer container, HolderLookup.Provider registries) {
-        if (stack.isEmpty()) return;
-        ItemContainerContents contents = stack.get(MineqttDataComponents.INVENTORY.get());
-        if (contents != null) {
-            contents.copyInto(container.getItems());
-        }
-    }
-
-    public static void saveFromContainer(ItemStack stack, SimpleContainer container, HolderLookup.Provider registries) {
-        if (stack.isEmpty()) return;
-        stack.set(MineqttDataComponents.INVENTORY.get(), ItemContainerContents.fromItems(container.getItems()));
+    /**
+     * Removes the deprecated explorer components (design §7.2) from a Configurator.
+     *
+     * @return copies of the items its old topic slots held, which belong to the player again; empty when it held none
+     */
+    @SuppressWarnings("deprecation")
+    public static List<ItemStack> stripDeprecated(ItemStack stack) {
+        stack.remove(MineqttDataComponents.LISTENING.get());
+        stack.remove(MineqttDataComponents.PRIVATE_MODE.get());
+        ItemContainerContents contents = stack.remove(MineqttDataComponents.INVENTORY.get());
+        return contents == null ? List.of() : contents.nonEmptyItemCopyStream().toList();
     }
 }

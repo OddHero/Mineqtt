@@ -6,8 +6,9 @@
   "client": [
   ],
   "mixins": [
-    "EntityMixin",
-    "ZombieMixin"
+  ],
+  "server": [
+    "MinecraftServerPauseMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -180,6 +180,31 @@ public final class GuiText {
         }
     }
 
+    /**
+     * Renders {@code text} wrapped into a {@code maxWidth × maxHeight} box, shrunk uniformly until its lines fit or
+     * {@link #MIN_AUTO_SCALE} is reached. Lines that still do not fit are left out, and the full text shows on hover.
+     */
+    public static void drawWrappedScaled(GuiGraphicsExtractor g, String text, int x, int y, int maxWidth, int maxHeight, int color, int mouseX, int mouseY) {
+        if (text == null || text.isEmpty() || maxWidth <= 0 || maxHeight <= 0) return;
+        Font f = font();
+        float scale = 1f;
+        List<FormattedCharSequence> lines = f.split(Component.literal(text), maxWidth);
+        while (lines.size() * f.lineHeight * scale > maxHeight && scale > MIN_AUTO_SCALE) {
+            scale = Math.max(MIN_AUTO_SCALE, scale - 0.05f);
+            lines = f.split(Component.literal(text), (int) Math.floor(maxWidth / scale));
+        }
+        int fitting = Math.min(lines.size(), (int) Math.floor(maxHeight / (f.lineHeight * scale)));
+        var pose = g.pose();
+        pose.pushMatrix();
+        pose.translate(x, y);
+        pose.scale(scale, scale);
+        for (int i = 0; i < fitting; i++) {
+            g.text(f, lines.get(i), 0, i * f.lineHeight, color, false);
+        }
+        pose.popMatrix();
+        if (fitting < lines.size()) maybeTooltip(g, text, x, y, maxWidth, maxHeight, mouseX, mouseY);
+    }
+
     public static String truncate(Font f, String text, int maxWidth) {
         if (text == null) return "";
         if (maxWidth <= 0) return "";

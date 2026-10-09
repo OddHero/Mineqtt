@@ -3,7 +3,11 @@ package art.rehra.mineqtt.mqtt;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
 
-/** A block entity that receives the messages of its v1 topics; the first three methods are {@code BlockEntity}'s. */
+/**
+ * A block entity that receives the messages of its v1 topic through the
+ * {@link art.rehra.mineqtt.legacy.LegacySubscriptionFacade}: the Block Emitter. The first three methods are
+ * {@code BlockEntity}'s.
+ */
 public interface ICallbackTarget {
     Level getLevel();
 

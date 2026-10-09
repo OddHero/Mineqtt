@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "redstone",
+  "ingredients": [
+    "mineqtt:static_publisher"
+  ],
+  "result": {
+    "id": "mineqtt:redstone_publisher_block"
+  }
+}

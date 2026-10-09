@@ -7,14 +7,13 @@ import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.inventory.MenuType;
-import net.minecraft.world.item.ItemStack;
 
 /**
  * Registry of all MineQTT {@link MenuType}s.
  *
  * <p>Every MQTT block opens a single shared, tabbed menu type ({@link #MQTT_TABBED_MENU}).
  * The set of tabs displayed inside the menu is provided by the {@code BaseMqttBlockEntity}
- * itself, so the screen automatically adapts to whichever block is opened. The Cyberdeck
+ * itself, so the screen automatically adapts to whichever block is opened. The Configurator (Cyberdeck)
  * keeps its own dedicated menu because it is not a block but an item.</p>
  */
 public class MineqttMenuTypes {
@@ -35,14 +34,7 @@ public class MineqttMenuTypes {
                 () -> MenuRegistry.ofExtended(TabbedMqttMenu::fromOpenData));
 
         CYBERDECK_MENU = MENU_TYPES.register("cyberdeck",
-                () -> MenuRegistry.ofExtended((id, inventory, buf) -> {
-                    buf.readByte(); // Read dummy byte to avoid empty buffer issues
-                    ItemStack stack = inventory.player.getMainHandItem();
-                    if (!(stack.getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem)) {
-                        stack = inventory.player.getOffhandItem();
-                    }
-                    return new CyberdeckMenu(id, inventory, stack);
-                }));
+                () -> MenuRegistry.ofExtended(CyberdeckMenu::fromOpenData));
 
         MENU_TYPES.register();
     }

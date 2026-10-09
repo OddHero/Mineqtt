@@ -15,12 +15,13 @@ import java.util.function.Supplier;
 
 /**
  * The runtime's {@link MqttService} as its users see it. It stays the same object when the connection behind it is
- * replaced (a config change of the broker settings), and moves every open subscription and connect listener over to
- * the replacement, so nobody has to subscribe again. Same threading contract as {@link MqttService}.
+ * replaced (a config change of the broker settings), and moves every open subscription, connect listener and the
+ * inbound listener over to the replacement, so nobody has to subscribe again. Same threading contract as {@link MqttService}.
  */
 final class ReplaceableMqttService implements MqttService {
     private final Set<ReplaceableSubscription> subscriptions = new LinkedHashSet<>();
     private final List<Runnable> connectListeners = new CopyOnWriteArrayList<>();
+    private volatile Runnable inboundListener;
     private volatile MqttService current;
     private volatile boolean closed;
 
@@ -39,6 +40,8 @@ final class ReplaceableMqttService implements MqttService {
         MqttService replacement = next.get();
         // Registered before the next drain, so the first CONNACK of the replacement already runs them.
         connectListeners.forEach(replacement::onConnected);
+        Runnable inbound = inboundListener;
+        if (inbound != null) replacement.onInboundAvailable(inbound);
         synchronized (subscriptions) {
             current = replacement;
             for (ReplaceableSubscription subscription : subscriptions) {
@@ -70,6 +73,17 @@ final class ReplaceableMqttService implements MqttService {
     public void onConnected(Runnable listener) {
         connectListeners.add(listener);
         current.onConnected(listener);
+    }
+
+    @Override
+    public void onInboundAvailable(Runnable listener) {
+        inboundListener = listener;
+        current.onInboundAvailable(listener);
+    }
+
+    @Override
+    public boolean hasPendingWork() {
+        return current.hasPendingWork();
     }
 
     @Override

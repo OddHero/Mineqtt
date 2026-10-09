@@ -5,19 +5,14 @@ import art.rehra.mineqtt.device.CommandReader;
 import art.rehra.mineqtt.device.CommandResult;
 import art.rehra.mineqtt.device.CommandSource;
 import art.rehra.mineqtt.device.CommonFields;
-import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceLink;
 import art.rehra.mineqtt.device.DeviceType;
 import art.rehra.mineqtt.device.StateWriter;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.RedstoneOutput.Output;
 import art.rehra.mineqtt.legacy.LegacyNbtV1;
-import art.rehra.mineqtt.ui.framework.MqttTab;
-import art.rehra.mineqtt.ui.framework.tabs.PublisherValuesTab;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
-import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -26,7 +21,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 
-import java.util.List;
 import java.util.Optional;
 
 import static art.rehra.mineqtt.blocks.RedstoneEmitterBlock.POWER;
@@ -34,10 +28,10 @@ import static art.rehra.mineqtt.blocks.RedstoneEmitterBlock.POWER;
 /**
  * The Redstone Output ({@link RedstoneOutput}): emits the level Home Assistant, its group or its Raw Link set. The
  * level is in the {@code mineqtt} compound, and the block's {@code power} property follows it; v1 data, which only had
- * that property, is read on load and adopted when the device attaches. Slots 0 and 1 edit the Raw Link with v1 topic
- * rules, slots 2 and 3 its custom on/off payloads (design §6.9).
+ * that property, is read on load and adopted when the device attaches. Clients get no render data: the block state shows
+ * the level.
  */
-public class RedstoneEmitterBlockEntity extends BaseMqttBlockEntity implements DeviceHost {
+public class RedstoneEmitterBlockEntity extends DeviceBlockEntity {
     private final DeviceLink link = new DeviceLink(RedstoneOutput.TYPE);
     private Output output;
 
@@ -76,44 +70,38 @@ public class RedstoneEmitterBlockEntity extends BaseMqttBlockEntity implements D
         if (!next.equals(output)) setOutput(next);
     }
 
+    /** As in v1, taking the topic away turns the output off. */
     @Override
-    protected void saveAdditional(ValueOutput output) {
-        super.saveAdditional(output);
-        saveOutput(link, this.output, topic, output);
+    public void rawRemoved() {
+        if (!output.on()) return;
+        setOutput(new Output(0, output.lastLevel(), output.mode(), output.powerOn()));
+        link.stateChanged(this);
     }
 
     @Override
-    protected void loadAdditional(ValueInput input) {
-        super.loadAdditional(input);
+    protected void saveDevice(ValueOutput output) {
+        saveOutput(link, this.output, output);
+    }
+
+    @Override
+    protected void loadDevice(ValueInput input) {
         output = loadOutput(link, input, getBlockState().getValue(POWER));
-        // v1 synced the topic to the slots only in its ticker; the adopted link is the slots' topic, not an edit.
-        if (link.awaitingAdoption()) topic = getCombinedTopic();
     }
 
+    /** A placed copy keeps its mode and power-on behaviour and emits nothing. */
     @Override
-    protected String getDefaultTopic() {
-        return "";
-    }
-
-    @Override
-    protected Component getDefaultName() {
-        return Component.translatable("container.mineqtt.subscriber");
-    }
-
-    @Override
-    public List<MqttTab> getTabs() {
-        List<MqttTab> tabs = super.getTabs();
-        tabs.add(new PublisherValuesTab());
-        return tabs;
+    protected void placedCopy() {
+        setOutput(output.placed());
     }
 
     /**
-     * An output's keys besides the slots: the link with the output as its {@code state}, or v1's own key while its v1
-     * data waits for adoption, so it is still v1 data when it loads again.
+     * An output's data: the link with the output as its {@code state}, or v1's keys while its v1 data waits for
+     * adoption, so it is still v1 data when it loads again.
      */
-    public static void saveOutput(DeviceLink link, Output state, String topic, ValueOutput output) {
+    public static void saveOutput(DeviceLink link, Output state, ValueOutput output) {
         if (link.awaitingAdoption()) {
-            LegacyNbtV1.writeEmitter(output, topic);
+            link.saveV1(output);
+            LegacyNbtV1.writeSubscribed(output, link.pendingV1().combinedTopic());
         } else {
             link.save(output).store("state", Output.CODEC, state);
         }
@@ -126,7 +114,7 @@ public class RedstoneEmitterBlockEntity extends BaseMqttBlockEntity implements D
      * @param blockPower the {@code power} property of the block
      */
     public static Output loadOutput(DeviceLink link, ValueInput input, int blockPower) {
-        return link.load(input, LegacyNbtV1.hasEmitterKeys(input))
+        return link.load(input, LegacyNbtV1.hasSubscribedKeys(input))
                 .map(data -> data.read("state", Output.CODEC).orElse(Output.DEFAULT))
                 .orElseGet(() -> Output.ofLevel(blockPower));
     }
@@ -148,16 +136,11 @@ public class RedstoneEmitterBlockEntity extends BaseMqttBlockEntity implements D
         }
     }
 
-    /** Slot edits and the block's level. */
+    /** The block's level. */
     public static class ServerTicker<T extends BlockEntity> implements BlockEntityTicker<T> {
         @Override
         public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
-            if (!(blockEntity instanceof RedstoneEmitterBlockEntity emitter) || !(level instanceof ServerLevel serverLevel)) return;
-            // As in v1, taking the topic away turns the output off.
-            if (emitter.followSlots(serverLevel, emitter.link) && emitter.link.raw() == null && emitter.output.on()) {
-                emitter.setOutput(new Output(0, emitter.output.lastLevel(), emitter.output.mode(), emitter.output.powerOn()));
-                emitter.link.stateChanged(emitter);
-            }
+            if (!(blockEntity instanceof RedstoneEmitterBlockEntity emitter) || level.isClientSide()) return;
             // Item data, or a level set while the block was another one, is applied once the block is in the world.
             if (state.getValue(POWER) != emitter.output.power()) emitter.updatePower();
         }

@@ -15,6 +15,7 @@ import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Tab view for the Interval Timer: provides an interval input field,
@@ -23,6 +24,7 @@ import java.util.List;
 public class IntervalTimerTabView implements MqttTabView {
 
     private static final int CONTENT_W = TabbedMqttMenu.GUI_WIDTH - 16;
+    private static final int LINE_PITCH = 10;
     private final TabbedMqttScreen screen;
     private final List<net.minecraft.client.gui.components.AbstractWidget> widgets = new ArrayList<>();
 
@@ -171,19 +173,18 @@ public class IntervalTimerTabView implements MqttTabView {
     @Override
     public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         int x = guiLeft + 8;
-        int y = guiTop + 46; // Below the unit selector buttons
+        int y = guiTop + 54; // Below the unit selector buttons
 
-        // Current interval display - compact
-        long intervalTicks = computeIntervalTicks(currentIntervalValue, currentUnitIndex);
-        String unitLabel = UNIT_LABELS[currentUnitIndex];
-        GuiText.drawTruncated(g, "mineqtt.interval_timer.config: " + currentIntervalValue + " " + unitLabel.toLowerCase() + " (" + intervalTicks + " ticks)", x, y, CONTENT_W, 0xFFAAAAAA);
-        y += 12;
-
-        // Validation error
-        if (!this.validationError.isEmpty()) {
-            GuiText.drawTruncated(g, "mineqtt.interval_timer.error: " + this.validationError, x, y, CONTENT_W, 0xFFFF5555);
-            y += 12;
+        // Current interval display - compact; in its place why the typed value is not taken
+        if (this.validationError.isEmpty()) {
+            long intervalTicks = computeIntervalTicks(currentIntervalValue, currentUnitIndex);
+            String unitLabel = UNIT_LABELS[currentUnitIndex];
+            GuiText.drawTruncated(g, labelled("mineqtt.interval_timer.config", currentIntervalValue + " " + unitLabel.toLowerCase(Locale.ROOT) + " (" + intervalTicks + " ticks)"),
+                    x, y, CONTENT_W, 0xFFAAAAAA, mouseX, mouseY);
+        } else {
+            GuiText.drawTruncated(g, Component.translatable(this.validationError), x, y, CONTENT_W, 0xFFFF5555, mouseX, mouseY);
         }
+        y += LINE_PITCH;
 
         // Timer progress info - compact
         TabbedMqttMenu menu = screen.getMenu();
@@ -197,11 +198,14 @@ public class IntervalTimerTabView implements MqttTabView {
 
                 if (interval > 0) {
                     double progress = (double) tickCounter / interval * 100.0;
-                    GuiText.drawTruncated(g, "mineqtt.interval_timer.progress: " + tickCounter + "/" + interval + " (" + String.format("%.1f", progress) + "%)  mineqtt.interval_timer.remaining: " + remaining + " ticks", x, y, CONTENT_W, 0xFF888888);
+                    GuiText.drawTruncated(g, labelled("mineqtt.interval_timer.progress", tickCounter + "/" + interval + " (" + String.format(Locale.ROOT, "%.1f", progress) + "%)"),
+                            x, y, CONTENT_W, 0xFF888888, mouseX, mouseY);
+                    y += LINE_PITCH;
+                    GuiText.drawTruncated(g, labelled("mineqtt.interval_timer.remaining", remaining + " ticks"), x, y, CONTENT_W, 0xFF888888, mouseX, mouseY);
                 } else {
-                    GuiText.drawTruncated(g, "mineqtt.interval_timer.progress: " + tickCounter, x, y, CONTENT_W, 0xFF888888);
+                    GuiText.drawTruncated(g, labelled("mineqtt.interval_timer.progress", String.valueOf(tickCounter)), x, y, CONTENT_W, 0xFF888888, mouseX, mouseY);
                 }
-                y += 12;
+                y += LINE_PITCH;
 
                 // Power status
                 var state = level.getBlockState(menu.blockPos);
@@ -209,11 +213,16 @@ public class IntervalTimerTabView implements MqttTabView {
                     int power = state.getValue(art.rehra.mineqtt.blocks.IntervalTimerBlock.POWER);
                     String powerStr = power > 0 ? "mineqtt.interval_timer.powered" : "mineqtt.interval_timer.unpowered";
                     int color = power > 0 ? 0xFF55FF55 : 0xFF666666;
-                    GuiText.drawTruncated(g, "mineqtt.interval_timer.status: " + powerStr, x, y, CONTENT_W, color);
+                    GuiText.drawTruncated(g, labelled("mineqtt.interval_timer.status", Component.translatable(powerStr).getString()), x, y, CONTENT_W, color, mouseX, mouseY);
                 }
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    // "<label>: <value>", the label from the language file.
+    private static String labelled(String labelKey, String value) {
+        return Component.translatable(labelKey).getString() + ": " + value;
     }
 
     private long computeIntervalTicks(long value, int unitIndex) {

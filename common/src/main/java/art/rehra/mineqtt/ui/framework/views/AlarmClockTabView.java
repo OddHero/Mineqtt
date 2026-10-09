@@ -77,15 +77,17 @@ public class AlarmClockTabView implements MqttTabView {
         minuteInput.setResponder(text -> validateTime());
         widgets.add(minuteInput);
 
-        // Set alarm button
+        // Set and clear buttons share the rest of the row, up to the panel's right padding
+        int buttonsX = inputX + inputW * 2 + 6 + 4;
+        int right = inputX + CONTENT_W;
+        int buttonW = (right - buttonsX - 2) / 2;
         setButton = Button.builder(Component.translatable("mineqtt.alarm_clock.apply"), b -> setAlarm())
-                .bounds(inputX + (inputW + 6) * 2 + 4, inputY, 50, inputH)
+                .bounds(buttonsX, inputY, buttonW, inputH)
                 .build();
         widgets.add(setButton);
 
-        // Clear alarm button
         clearButton = Button.builder(Component.translatable("mineqtt.alarm_clock.clear"), b -> clearAlarm())
-                .bounds(inputX + (inputW + 6) * 2 + 58, inputY, 50, inputH)
+                .bounds(right - buttonW, inputY, buttonW, inputH)
                 .build();
         widgets.add(clearButton);
 

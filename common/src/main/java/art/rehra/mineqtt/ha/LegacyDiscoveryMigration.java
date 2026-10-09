@@ -86,6 +86,11 @@ public final class LegacyDiscoveryMigration {
                 + registry.groups().stream().map(DeviceGroup::legacyUniqueId).filter(this::isPending).count();
     }
 
+    /** Whether a step is waiting for its time or a token; a sent clear waits for its acknowledgement instead. */
+    boolean hasPendingWork() {
+        return started && (!waiting.isEmpty() || running.values().stream().anyMatch(sequence -> sequence.step != Step.CLEAR_SENT));
+    }
+
     /** After every CONNACK: the sequences of the lost connection are abandoned; the v1 status is cleared once. */
     void connected() {
         running.clear();

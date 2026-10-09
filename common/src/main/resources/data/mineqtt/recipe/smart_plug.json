@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "N": "mineqtt:network_chip",
+    "R": "minecraft:redstone",
+    "S": "minecraft:smooth_stone",
+    "T": "minecraft:redstone_torch"
+  },
+  "pattern": [
+    "ITI",
+    "RNR",
+    "ISI"
+  ],
+  "result": {
+    "id": "mineqtt:smart_plug"
+  }
+}

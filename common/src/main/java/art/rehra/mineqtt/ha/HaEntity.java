@@ -83,33 +83,40 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
 
     /**
      * A JSON-schema light over a field whose keys sit in the state object ({@code state}, {@code brightness},
-     * {@code color}, {@code color_temp_kelvin}).
+     * {@code color}, {@code color_temp_kelvin}, {@code effect}). Home Assistant sends such a light a {@code transition}
+     * with its commands.
      *
      * @param colorModes Home Assistant's {@code supported_color_modes}
+     * @param effects    Home Assistant's {@code effect_list}; empty for a light without effects
      */
     record Light(Meta meta, Field<?> field, boolean brightness, List<String> colorModes, int minKelvin,
-                 int maxKelvin) implements HaEntity<Light> {
+                 int maxKelvin, List<String> effects) implements HaEntity<Light> {
         public Light {
             colorModes = List.copyOf(colorModes);
+            effects = List.copyOf(effects);
             if (colorModes.isEmpty()) throw new IllegalArgumentException("A light needs at least one color mode");
             if (minKelvin > maxKelvin) throw new IllegalArgumentException("Empty kelvin range");
         }
 
         public Light brightness(boolean supported) {
-            return new Light(meta, field, supported, colorModes, minKelvin, maxKelvin);
+            return new Light(meta, field, supported, colorModes, minKelvin, maxKelvin, effects);
         }
 
         public Light colorModes(String... modes) {
-            return new Light(meta, field, brightness, List.of(modes), minKelvin, maxKelvin);
+            return new Light(meta, field, brightness, List.of(modes), minKelvin, maxKelvin, effects);
         }
 
         public Light kelvin(int min, int max) {
-            return new Light(meta, field, brightness, colorModes, min, max);
+            return new Light(meta, field, brightness, colorModes, min, max, effects);
+        }
+
+        public Light effects(List<String> names) {
+            return new Light(meta, field, brightness, colorModes, minKelvin, maxKelvin, names);
         }
 
         @Override
         public Light withMeta(Meta meta) {
-            return new Light(meta, field, brightness, colorModes, minKelvin, maxKelvin);
+            return new Light(meta, field, brightness, colorModes, minKelvin, maxKelvin, effects);
         }
 
         @Override
@@ -424,13 +431,19 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
     }
 
     /**
-     * A {@code device_automation} trigger, e.g. type {@code button_short_press}, subtype {@code left}. It fires on the
-     * device's events {@code {"event_type":"<type>","subtype":"<subtype>"}}.
+     * A {@code device_automation} trigger, e.g. type {@code button_short_press}, subtype {@code left}: Home Assistant
+     * names it after both. It fires on the device's declared event {@code event} whose attribute {@code attribute} is
+     * the subtype, e.g. {@code {"event_type":"press","button":"left"}}.
      */
-    record DeviceTrigger(Meta meta, String type, String subtype) implements HaEntity<DeviceTrigger> {
+    record DeviceTrigger(Meta meta, String type, String subtype, String event, String attribute) implements HaEntity<DeviceTrigger> {
+        /** What the trigger's template makes of an event it fires on, and so its payload: {@code press_left}. */
+        public String payload() {
+            return event + "_" + subtype;
+        }
+
         @Override
         public DeviceTrigger withMeta(Meta meta) {
-            return new DeviceTrigger(meta, type, subtype);
+            return new DeviceTrigger(meta, type, subtype, event, attribute);
         }
 
         @Override

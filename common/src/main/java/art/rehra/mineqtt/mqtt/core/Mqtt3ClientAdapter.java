@@ -20,7 +20,7 @@ import java.util.concurrent.CompletionException;
  * MQTT 3.1.1: clean session. The protocol has neither no-local nor retain handling, so {@link HiveMqttService}
  * filters own copies through {@link LocalLoopback} and drops retained messages per handler. Nor can the client limit
  * the size of the packets it receives: a message is read whole before the inbound payload limit drops it, so the
- * broker's own limit (Mosquitto {@code message_size_limit}) has to keep huge messages away.
+ * broker's own limit (Mosquitto 2 {@code max_packet_size}, 1.x {@code message_size_limit}) has to keep huge messages away.
  */
 final class Mqtt3ClientAdapter implements MqttClientAdapter {
     private final Mqtt3AsyncClient client;

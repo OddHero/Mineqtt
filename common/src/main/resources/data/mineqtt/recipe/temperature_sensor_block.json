@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "C": "minecraft:copper_ingot",
+    "D": "minecraft:daylight_detector",
+    "N": "mineqtt:network_chip",
+    "S": "minecraft:smooth_stone"
+  },
+  "pattern": [
+    "CDC",
+    "CNC",
+    "SSS"
+  ],
+  "result": {
+    "id": "mineqtt:temperature_sensor_block"
+  }
+}

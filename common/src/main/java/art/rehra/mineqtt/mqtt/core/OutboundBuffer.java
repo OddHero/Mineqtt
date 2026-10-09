@@ -3,9 +3,11 @@ package art.rehra.mineqtt.mqtt.core;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -18,11 +20,18 @@ import java.util.function.LongSupplier;
  *     ones released on that topic, unless they are a {@link Outbound#refresh() refresh}. A refresh stays one when a
  *     newer state for the topic replaces it.</li>
  *     <li>{@code EDGE} messages are never coalesced. Each origin (or, without one, each topic) may release
- *     {@link Limits#edgePerOriginPerSecond()} per second; the excess is dropped and counted.</li>
+ *     {@link Limits#edgePerOriginPerSecond()} per second; the excess is dropped and counted. An edge over the cap that
+ *     is not {@code DROP} (a retained raw level) is held instead, latest per topic, until its origin may release again:
+ *     only the levels in between are dropped, so the broker still ends up with the last one. A newer edge of the topic
+ *     that goes out first drops it.</li>
  *     <li>All releases share {@link Limits#globalPerSecond()}. What exceeds it waits for the next flush.</li>
  *     <li>A released message is looped back locally once, connected or not. While disconnected, {@code DROP}
- *     messages are counted and the others wait in a latest-per-topic outbox that is sent first after reconnecting.
- *     A full outbox evicts its oldest {@code COALESCE} entry; {@code KEEP} entries are never evicted.</li>
+ *     messages are counted and the others wait in a latest-per-topic outbox that is sent first after reconnecting,
+ *     unless a newer state or kept edge for the topic is waiting to go out. A message the client failed to deliver
+ *     joins the outbox too; of several failures on one topic the last one wins, but never over an entry released
+ *     while disconnected, which is newer than anything that was in flight. A full outbox evicts its oldest
+ *     {@code COALESCE} entry; {@code KEEP} entries are never evicted. A {@code COALESCE} edge (a retained raw level) is
+ *     thus sent edge by edge while connected and held latest-per-topic while not.</li>
  * </ul>
  * Per-device minimum intervals and deadbands are applied by the device layer before messages get here.
  */
@@ -62,11 +71,16 @@ public final class OutboundBuffer {
     private final ConcurrentLinkedQueue<Outbound> failed = new ConcurrentLinkedQueue<>();
     private final LinkedHashMap<String, Outbound> pendingStates = new LinkedHashMap<>();
     private final ArrayDeque<Outbound> pendingEdges = new ArrayDeque<>();
-    private final LinkedHashMap<String, Outbound> outbox = new LinkedHashMap<>();
+    // Kept edges over their origin's cap, latest per topic, released once the origin may send again.
+    private final LinkedHashMap<String, Outbound> cappedEdges = new LinkedHashMap<>();
+    private final LinkedHashMap<String, Waiting> outbox = new LinkedHashMap<>();
     private final Map<String, byte[]> lastReleased = new HashMap<>();
     private final Map<Object, RateBucket> edgeBuckets = new HashMap<>();
     private final RateBucket globalBucket;
     private final AtomicLong dropped = new AtomicLong();
+    // What the last flush left behind, for hasWork() on other threads; written by the owner thread only.
+    private volatile int heldAfterFlush;
+    private volatile int outboxAfterFlush;
 
     public OutboundBuffer(Limits limits, LongSupplier nanoClock) {
         this.limits = limits;
@@ -111,14 +125,19 @@ public final class OutboundBuffer {
         acceptIntake(now);
         acceptFailed();
 
-        if (link == Link.CONNECTED) {
-            for (Iterator<Outbound> waiting = outbox.values().iterator(); waiting.hasNext(); ) {
-                Outbound msg = waiting.next();
-                // A newer state for the topic is about to go out; sending the old one first would only flicker.
+        if (link == Link.CONNECTED && !outbox.isEmpty()) {
+            Set<String> newerEdges = keptEdgeTopics();
+            for (Iterator<Waiting> waiting = outbox.values().iterator(); waiting.hasNext(); ) {
+                Outbound msg = waiting.next().msg();
+                // A newer message for the topic is about to go out; sending the old one first would only flicker.
                 if (pendingStates.containsKey(msg.topic())) {
                     waiting.remove();
                     // The broker never got the outbox entry, so the newer state must not be deduplicated away.
                     lastReleased.remove(msg.topic());
+                    continue;
+                }
+                if (newerEdges.contains(msg.topic())) {
+                    waiting.remove();
                     continue;
                 }
                 if (!globalBucket.tryTake(now)) break;
@@ -140,6 +159,16 @@ public final class OutboundBuffer {
             lastReleased.put(msg.topic(), msg.payload());
             release(msg, link, sink);
         }
+        heldAfterFlush = pendingSize();
+        outboxAfterFlush = outbox.size();
+    }
+
+    /**
+     * Any thread: whether a flush would release something now: a message added or failed since the last flush, one the
+     * rate limits held back, or, only when {@code connected}, the outbox.
+     */
+    public boolean hasWork(boolean connected) {
+        return !intake.isEmpty() || !failed.isEmpty() || heldAfterFlush > 0 || connected && outboxAfterFlush > 0;
     }
 
     /** Owner thread: forgets everything waiting, e.g. on shutdown. */
@@ -148,10 +177,16 @@ public final class OutboundBuffer {
         failed.clear();
         pendingStates.clear();
         pendingEdges.clear();
+        cappedEdges.clear();
         outbox.clear();
+        heldAfterFlush = 0;
+        outboxAfterFlush = 0;
     }
 
-    /** Messages dropped by the edge cap, the offline {@code DROP} policy, outbox eviction or a broker rejection. */
+    /**
+     * Messages dropped by the edge cap (of the levels held over the cap, each one a newer level replaced), the offline
+     * {@code DROP} policy, outbox eviction or a broker rejection.
+     */
     public long dropped() {
         return dropped.get();
     }
@@ -162,29 +197,52 @@ public final class OutboundBuffer {
 
     /** Messages accepted but not yet released (excluding the outbox). */
     public int pendingSize() {
-        return pendingStates.size() + pendingEdges.size();
+        return pendingStates.size() + pendingEdges.size() + cappedEdges.size();
     }
 
     private void acceptIntake(long now) {
+        // Held levels are older than anything in the intake, so they go first.
+        for (Iterator<Outbound> held = cappedEdges.values().iterator(); held.hasNext(); ) {
+            Outbound msg = held.next();
+            if (pendingEdges.size() < limits.edgeBacklog() && edgeBucket(msg, now).tryTake(now)) {
+                held.remove();
+                pendingEdges.add(msg);
+            }
+        }
         for (Outbound msg; (msg = intake.poll()) != null; ) {
             if (msg.delivery() == Outbound.Delivery.STATE) {
                 Outbound replaced = pendingStates.put(msg.topic(), msg);
                 if (replaced != null && replaced.refresh() && !msg.refresh()) pendingStates.put(msg.topic(), msg.asRefresh());
-            } else if (!edgeBucket(msg, now).tryTake(now) || pendingEdges.size() >= limits.edgeBacklog()) {
-                dropped.incrementAndGet();
-            } else {
+            } else if (pendingEdges.size() < limits.edgeBacklog() && edgeBucket(msg, now).tryTake(now)) {
                 pendingEdges.add(msg);
+                // A level held for the topic is older than this edge, which goes out first.
+                if (msg.offline() != OfflinePolicy.DROP && cappedEdges.remove(msg.topic()) != null) dropped.incrementAndGet();
+            } else if (msg.offline() == OfflinePolicy.DROP || cappedEdges.put(msg.topic(), msg) != null) {
+                // A plain edge over the cap, or the level held for the topic, which this newer one replaced.
+                dropped.incrementAndGet();
             }
         }
+    }
+
+    // The topics of waiting edges that would have been kept offline (retained raw levels, held ones included): each
+    // replaces the outbox entry of its topic, as it would have while disconnected.
+    private Set<String> keptEdgeTopics() {
+        Set<String> topics = new HashSet<>(cappedEdges.keySet());
+        for (Outbound msg : pendingEdges) {
+            if (msg.offline() != OfflinePolicy.DROP) topics.add(msg.topic());
+        }
+        return topics;
     }
 
     private void acceptFailed() {
         for (Outbound msg; (msg = failed.poll()) != null; ) {
             // The broker may not have it, so the next release of the same bytes must not be deduplicated away.
             lastReleased.remove(msg.topic());
-            if (!pendingStates.containsKey(msg.topic()) && !outbox.containsKey(msg.topic())) {
-                putOutbox(msg);
-            }
+            if (pendingStates.containsKey(msg.topic())) continue;
+            // Failures arrive in the order the messages were sent, so a later one replaces an earlier one. An entry released
+            // while disconnected stays: it is newer than anything that was in flight when the connection was lost.
+            Waiting waiting = outbox.get(msg.topic());
+            if (waiting == null || waiting.failed()) putOutbox(msg, true);
         }
     }
 
@@ -196,7 +254,7 @@ public final class OutboundBuffer {
                 if (msg.offline() == OfflinePolicy.DROP) {
                     dropped.incrementAndGet();
                 } else {
-                    putOutbox(msg);
+                    putOutbox(msg, false);
                 }
             }
             case NONE -> {
@@ -204,13 +262,13 @@ public final class OutboundBuffer {
         }
     }
 
-    private void putOutbox(Outbound msg) {
+    private void putOutbox(Outbound msg, boolean failed) {
         // Re-inserting moves the topic to the end, so the outbox stays ordered by latest change.
         outbox.remove(msg.topic());
-        outbox.put(msg.topic(), msg);
+        outbox.put(msg.topic(), new Waiting(msg, failed));
         if (outbox.size() <= limits.outboxCapacity()) return;
-        for (Iterator<Outbound> oldest = outbox.values().iterator(); oldest.hasNext(); ) {
-            if (oldest.next().offline() == OfflinePolicy.COALESCE) {
+        for (Iterator<Waiting> oldest = outbox.values().iterator(); oldest.hasNext(); ) {
+            if (oldest.next().msg().offline() == OfflinePolicy.COALESCE) {
                 oldest.remove();
                 dropped.incrementAndGet();
                 return;
@@ -230,6 +288,10 @@ public final class OutboundBuffer {
             edgeBuckets.put(key, bucket);
         }
         return bucket;
+    }
+
+    /** An outbox entry: {@code failed} when the client failed to deliver it, not released while disconnected. */
+    private record Waiting(Outbound msg, boolean failed) {
     }
 
     /** A token bucket holding one second's worth of tokens. */

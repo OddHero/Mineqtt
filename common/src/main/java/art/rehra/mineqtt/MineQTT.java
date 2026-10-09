@@ -1,15 +1,13 @@
 package art.rehra.mineqtt;
 
 import art.rehra.mineqtt.blocks.MineqttBlocks;
+import art.rehra.mineqtt.blocks.entities.MineqttBlockEntityTypes;
 import art.rehra.mineqtt.commands.MineQTTCommands;
 import art.rehra.mineqtt.config.ConfigHandler;
 import art.rehra.mineqtt.device.DeviceTypes;
-import art.rehra.mineqtt.device.types.PresenceSensor;
-import art.rehra.mineqtt.device.types.RedstoneInput;
-import art.rehra.mineqtt.device.types.RedstoneOutput;
-import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.integrations.IModLoaderUtils;
 import art.rehra.mineqtt.integrations.PermissionManager;
+import art.rehra.mineqtt.items.ConfiguratorSessions;
 import art.rehra.mineqtt.items.MineqttItems;
 import art.rehra.mineqtt.legacy.LegacySubscriptionFacade;
 import art.rehra.mineqtt.mqtt.CyberdeckSessionManager;
@@ -56,14 +54,13 @@ public class MineQTT {
         MineQTTTabs.init();
         MineqttDataComponents.init();
         MineqttBlocks.init();
+        // After the blocks: Fabric registers eagerly, and every block entity type names its block.
+        MineqttBlockEntityTypes.init();
         MineqttItems.init();
 
         MineqttMenuTypes.init();
         MineqttNetworking.init();
-        DeviceTypes.register(SmartLamp.TYPE);
-        DeviceTypes.register(RedstoneOutput.TYPE);
-        DeviceTypes.register(RedstoneInput.TYPE);
-        DeviceTypes.register(PresenceSensor.TYPE);
+        DeviceTypes.registerBuiltIn();
 
         // First, so the runtime exists for the listeners below and delivers each tick's messages before they run.
         ServerHooks.register();
@@ -75,12 +72,18 @@ public class MineQTT {
         dev.architectury.event.events.common.PlayerEvent.PLAYER_JOIN.register(player -> {
             if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
                 CyberdeckSessionManager.onPlayerLoggedIn(serverPlayer);
+                MineqttRuntime.current().filter(runtime -> runtime.server() == serverPlayer.level().getServer())
+                        .ifPresent(runtime -> {
+                            runtime.devices().playerJoined(serverPlayer);
+                            runtime.devices().deliverNotices(serverPlayer);
+                        });
             }
         });
 
         dev.architectury.event.events.common.PlayerEvent.PLAYER_QUIT.register(player -> {
             if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
                 CyberdeckSessionManager.onPlayerLoggedOut(serverPlayer);
+                ConfiguratorSessions.forget(serverPlayer.getUUID());
                 C2SGuard.forget(serverPlayer.getUUID());
             }
         });
@@ -93,6 +96,7 @@ public class MineQTT {
             // Close the legacy subscriptions; the next session's blocks register anew
             LegacySubscriptionFacade.detach();
             CyberdeckSessionManager.onServerStopping();
+            ConfiguratorSessions.clear();
             C2SGuard.clear();
         });
     }

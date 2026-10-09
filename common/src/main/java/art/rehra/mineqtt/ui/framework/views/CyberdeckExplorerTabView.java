@@ -1,8 +1,8 @@
 package art.rehra.mineqtt.ui.framework.views;
 
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
-import art.rehra.mineqtt.items.CyberdeckDataUtil;
 import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.ui.CyberdeckMenu;
 import art.rehra.mineqtt.ui.CyberdeckScreen;
 import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
@@ -13,7 +13,6 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 
@@ -27,30 +26,18 @@ public class CyberdeckExplorerTabView implements MqttTabView {
 
     @Override
     public void init(TabbedMqttScreen screen, int guiLeft, int guiTop) {
-        TabbedMqttMenu menu = screen.getMenu();
-        // We need the item stack. We can assume it's CyberdeckMenu if we are here.
-        // Actually, we can just check if menu.blockPos is null.
-        if (menu.blockPos == null) {
-            // Find the cyberdeck in player inventory or hand
-            ItemStack cyberdeck = ItemStack.EMPTY;
-            if (menu.player.getMainHandItem().getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem) {
-                cyberdeck = menu.player.getMainHandItem();
-            } else if (menu.player.getOffhandItem().getItem() instanceof art.rehra.mineqtt.items.CyberdeckItem) {
-                cyberdeck = menu.player.getOffhandItem();
-            }
-
-            if (!cyberdeck.isEmpty()) {
-                boolean isListening = CyberdeckDataUtil.isListening(cyberdeck);
-                final ItemStack finalCyberdeck = cyberdeck;
-                listenBtn = Button.builder(Component.literal(isListening ? "Listen: ON" : "Listen: OFF"), b -> {
-                    boolean currentState = CyberdeckDataUtil.isListening(finalCyberdeck);
-                    boolean newState = !currentState;
-                    CyberdeckDataUtil.setListening(finalCyberdeck, newState);
-                    b.setMessage(Component.literal(newState ? "Listen: ON" : "Listen: OFF"));
-                    NetworkManager.sendToServer(new MineqttNetworking.CyberdeckListenTogglePayload(newState));
-                }).pos(guiLeft + 88, guiTop + 16).size(80, 20).build();
-            }
+        if (screen.getMenu() instanceof CyberdeckMenu menu) {
+            listenBtn = Button.builder(listenLabel(menu.listening()), b -> {
+                boolean listening = !menu.listening();
+                menu.setListening(listening);
+                b.setMessage(listenLabel(listening));
+                NetworkManager.sendToServer(new MineqttNetworking.CyberdeckListenTogglePayload(listening));
+            }).pos(guiLeft + 88, guiTop + 16).size(80, 20).build();
         }
+    }
+
+    private static Component listenLabel(boolean listening) {
+        return Component.translatable(listening ? "mineqtt.tab.cyberdeck_explorer.listen.on" : "mineqtt.tab.cyberdeck_explorer.listen.off");
     }
 
     @Override

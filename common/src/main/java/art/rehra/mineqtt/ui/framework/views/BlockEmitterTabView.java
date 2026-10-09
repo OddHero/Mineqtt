@@ -70,7 +70,7 @@ public class BlockEmitterTabView implements MqttTabView {
         widgets.add(testPayloadInput);
 
         testButton = Button.builder(Component.translatable("mineqtt.block_emitter.test_button"), b -> testEmit())
-                .bounds(guiLeft + CONTENT_W - buttonW, inputY, buttonW, inputH)
+                .bounds(guiLeft + 8 + CONTENT_W - buttonW, inputY, buttonW, inputH)
                 .tooltip(Tooltip.create(Component.translatable("mineqtt.block_emitter.test_tooltip")))
                 .build();
         widgets.add(testButton);
@@ -129,7 +129,7 @@ public class BlockEmitterTabView implements MqttTabView {
 
         // Execution Status - combined with value
         int statusColor = (lastStatus.startsWith("Success") || lastStatus.equals("Ready")) ? 0xFF55FF55 : 0xFFFF5555;
-        GuiText.drawTruncated(g, Component.translatable("mineqtt.block_emitter.status") + ": " + lastStatus, x, y, CONTENT_W, statusColor);
+        GuiText.drawTruncated(g, Component.translatable("mineqtt.block_emitter.status").getString() + ": " + lastStatus, x, y, CONTENT_W, statusColor, mouseX, mouseY);
     }
 
     @Override

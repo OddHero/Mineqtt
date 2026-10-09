@@ -114,6 +114,10 @@ public final class DeviceGroup {
         return exposeMembers;
     }
 
+    void setExposeMembers(boolean exposeMembers) {
+        this.exposeMembers = exposeMembers;
+    }
+
     /** The hash of the discovery message last published for the group; null when none is retained. */
     public @Nullable String discoveryHash() {
         return discoveryHash;

@@ -21,6 +21,8 @@ import java.util.Optional;
 public final class ConfigMigrationCheck {
     private static final String SECRET_USER = "alice-user";
     private static final String SECRET_PASSWORD = "hunter2-secret";
+    /** The zombie goal and item portal keys, removed in Milestone 2. */
+    private static final List<String> REMOVED_KEYS = List.of("allowItemNetherPortalTeleport", "goalX", "goalY", "goalZ", "zombieGoalEnabled");
 
     static void main(String[] args) {
         defaults();
@@ -29,6 +31,8 @@ public final class ConfigMigrationCheck {
         customisedV1Values();
         v1WithMissingKeys();
         v2WithoutVersion();
+        keysAddedAfterM1();
+        keysRemovedInM2();
         v1Backup();
         v2RoundTrip();
         v2FromNewerVersion();
@@ -53,7 +57,9 @@ public final class ConfigMigrationCheck {
         check(MineQTTConfig.bridgeId.isEmpty(), "The bridge id is generated per world by default");
         check(!MineQTTConfig.blockPlacerEnabled, "The block placer is off by default");
         check(MineQTTConfig.limitsMaxDevicesPerPlayer == 0, "No device limit by default");
+        check(MineQTTConfig.limitsMaxWiresPerPlayer == 256, "A player may own 256 wires by default");
         check(!MineQTTConfig.aclExplorerBrokerWide, "No broker-wide explorer by default");
+        check(!MineQTTConfig.serverKeepTickingWhenEmpty, "An empty dedicated server pauses by default");
         check(MineQTTConfig.rawAllow("world_7f3a").equals(TopicAcl.defaultRawAllow("mineqtt", "world_7f3a")),
                 "The default raw allowlist resolves to TopicAcl's default: " + MineQTTConfig.rawAllow("world_7f3a"));
         check(MineQTTConfig.sanitize().isEmpty(), "The defaults need no correction");
@@ -71,9 +77,6 @@ public final class ConfigMigrationCheck {
         check(MineQTTConfig.baseTopic.equals("mineqtt"), "The v1 default base topic minecraft-<clientId> becomes mineqtt");
         check(MineQTTConfig.legacyV1StatusTopic.equals("minecraft-DESKTOP-1/status"), "The v1 status topic is recorded: " + MineQTTConfig.legacyV1StatusTopic);
         check(MineQTTConfig.keepAliveSec == 45, "keepAlive becomes keepAliveSec");
-        check(!MineQTTConfig.allowItemNetherPortalTeleport, "The portal key survives");
-        check(MineQTTConfig.goalX == 1 && MineQTTConfig.goalY == 2 && MineQTTConfig.goalZ == 3 && MineQTTConfig.zombieGoalEnabled,
-                "The zombie goal keys survive");
         check(result.messages().stream().anyMatch(message -> message.contains("test.mosquitto.org")), "Dropping the public broker is logged");
 
         JsonObject written = JsonConfigFormat.write();
@@ -81,15 +84,16 @@ public final class ConfigMigrationCheck {
         for (String v1Key : List.of("brokerUrl", "clientId", "autoReconnect", "connectionTimeout", "keepAlive", "statusTopic")) {
             check(!written.has(v1Key), "The v2 file has no v1 key " + v1Key);
         }
+        REMOVED_KEYS.forEach(key -> check(!written.has(key), "The v2 file has no removed key " + key));
         JsonConfigFormat.Result reread = JsonConfigFormat.read(written);
         check(!reread.migrated() && reread.messages().isEmpty(), "The written v2 file reads back cleanly: " + reread.messages());
-        check(MineQTTConfig.legacyV1StatusTopic.equals("minecraft-DESKTOP-1/status") && MineQTTConfig.goalZ == 3, "Values survive the round trip");
+        check(MineQTTConfig.legacyV1StatusTopic.equals("minecraft-DESKTOP-1/status") && MineQTTConfig.keepAliveSec == 45, "Values survive the round trip");
     }
 
     /** v1 NeoForge's default broker: a URI the v1 client passed to serverHost() and could not connect with. */
     private static void neoForgeV1TcpBroker() {
         List<String> notes = ConfigMigration.applyV1(new ConfigMigration.V1("tcp://localhost:1883", "minecraft-client1234", "", "",
-                60, "minecraft", "status", true, 7, -35, 4, false));
+                60, "minecraft", "status"));
         check(MineQTTConfig.broker.equals("tcp://localhost:1883"), "The tcp:// form is kept as the v2 broker");
         BrokerConfig broker = MineQTTConfig.brokerConfig("mineqtt_test").orElseThrow();
         check(broker.host().equals("localhost") && broker.port() == 1883 && !broker.tls(), "The old default now parses: " + broker.uri());
@@ -117,13 +121,13 @@ public final class ConfigMigrationCheck {
     }
 
     private static void v1WithMissingKeys() {
-        JsonConfigFormat.Result result = read("{\"clientId\": \"c\", \"goalX\": 99}");
+        JsonConfigFormat.Result result = read("{\"clientId\": \"c\", \"keepAlive\": 99}");
         check(result.migrated(), "Even a sparse v1 file is migrated");
         check(MineQTTConfig.broker.isEmpty() && MineQTTConfig.baseTopic.equals("mineqtt"), "Missing v1 keys take the v2 defaults");
-        check(MineQTTConfig.goalX == 99 && MineQTTConfig.goalY == StaticDefaults.DEFAULT_GOAL_Y, "Present keys are kept, missing ones default");
+        check(MineQTTConfig.keepAliveSec == 99 && MineQTTConfig.username.equals(StaticDefaults.DEFAULT_USERNAME), "Present keys are kept, missing ones default");
         check(MineQTTConfig.legacyV1StatusTopic.equals("minecraft/status"), "The v1 file default status topic is recorded");
 
-        ConfigMigration.applyV1(new ConfigMigration.V1(null, null, null, null, null, null, null, null, null, null, null, null));
+        ConfigMigration.applyV1(new ConfigMigration.V1(null, null, null, null, null, null, null));
         check(MineQTTConfig.broker.isEmpty() && MineQTTConfig.keepAliveSec == 60, "An empty v1 file gives the defaults");
     }
 
@@ -138,7 +142,53 @@ public final class ConfigMigrationCheck {
         check(MineQTTConfig.aclRawAllow.equals(List.of("zigbee2mqtt/#")), "Its allowlist is kept");
         check(JsonConfigFormat.write().get("configVersion").getAsInt() == StaticDefaults.CONFIG_VERSION, "A save adds configVersion");
 
-        check(!read("{\"goalX\": 99}").migrated() && MineQTTConfig.goalX == 99, "Keys shared by v1 and v2 do not make a file v1");
+        check(!read("{\"baseTopic\": \"home/mc\"}").migrated() && MineQTTConfig.baseTopic.equals("home/mc"), "Keys shared by v1 and v2 do not make a file v1");
+    }
+
+    /** Keys added in Milestone 2 take their defaults from v1 files and from the files Milestone 1 wrote, which lack them. */
+    private static void keysAddedAfterM1() {
+        MineQTTConfig.serverKeepTickingWhenEmpty = true;
+        check(read("{\"brokerUrl\": \"broker.lan\", \"clientId\": \"c\"}").migrated() && !MineQTTConfig.serverKeepTickingWhenEmpty,
+                "A migrated v1 file keeps ticking off");
+
+        MineQTTConfig.serverKeepTickingWhenEmpty = true;
+        // Exactly what Milestone 1 wrote for its defaults.
+        JsonConfigFormat.Result m1 = read("""
+                {"configVersion": 2, "broker": "", "protocol": "5", "keepAliveSec": 60, "username": "", "password": "",
+                 "tls": {"caFile": "", "insecureSkipVerify": false}, "bridgeId": "", "baseTopic": "mineqtt",
+                 "discoveryPrefix": "homeassistant", "haBirthTopic": "homeassistant/status", "ha": {"expose": "AUTO"},
+                 "acl": {"rawAllow": ["mineqtt/shared/#", "<base>/<bridgeId>/raw/#"], "opsBypassAllowlist": "AUTO", "explorerBrokerWide": false},
+                 "blockPlacer": {"enabled": false}, "limits": {"maxDevicesPerPlayer": 0}, "legacy": {"v1StatusTopic": ""},
+                 "allowItemNetherPortalTeleport": true, "goalX": 7, "goalY": -35, "goalZ": 4, "zombieGoalEnabled": false}""");
+        check(!m1.migrated() && m1.messages().isEmpty(), "A Milestone 1 file reads without messages: " + m1.messages());
+        check(!MineQTTConfig.serverKeepTickingWhenEmpty, "A Milestone 1 file keeps ticking off");
+        check(MineQTTConfig.limitsMaxWiresPerPlayer == 256, "A Milestone 1 file gets the default wire cap");
+        JsonObject written = JsonConfigFormat.write();
+        check(written.has("server") && !written.getAsJsonObject("server").get("keepTickingWhenEmpty").getAsBoolean(),
+                "Its next save adds server.keepTickingWhenEmpty as false");
+        check(written.getAsJsonObject("limits").get("maxWiresPerPlayer").getAsInt() == 256, "Its next save adds limits.maxWiresPerPlayer as 256");
+    }
+
+    /**
+     * Milestone 2 removed the zombie goal and the item portal switch with their keys, which every Milestone 1 file and
+     * many v1 files have (see {@link #keysAddedAfterM1} and {@link #fabricV1DefaultFile}). They are ignored when read,
+     * and the next save drops them.
+     */
+    private static void keysRemovedInM2() {
+        JsonConfigFormat.Result result = read("""
+                {"configVersion": 2, "broker": "broker.lan", "bridgeId": "survival_01", "acl": {"rawAllow": ["zigbee2mqtt/#"]},
+                 "allowItemNetherPortalTeleport": false, "goalX": 100, "goalY": 64, "goalZ": -100, "zombieGoalEnabled": true}""");
+        check(!result.migrated() && result.messages().isEmpty(), "A file with the removed keys loads without messages: " + result.messages());
+        check(MineQTTConfig.broker.equals("broker.lan") && MineQTTConfig.bridgeId.equals("survival_01")
+                && MineQTTConfig.aclRawAllow.equals(List.of("zigbee2mqtt/#")), "The keys around them are read");
+        JsonObject written = JsonConfigFormat.write();
+        REMOVED_KEYS.forEach(key -> check(!written.has(key), "The next save drops " + key));
+        check(written.get("broker").getAsString().equals("broker.lan") && written.get("bridgeId").getAsString().equals("survival_01"),
+                "The next save keeps the other keys");
+
+        check(read("{\"configVersion\": 2, \"goalX\": \"far\", \"zombieGoalEnabled\": 3}").messages().isEmpty(),
+                "A removed key with a value of the wrong type is not reported either");
+        check(!read("{\"goalX\": 1, \"zombieGoalEnabled\": true}").migrated(), "The removed keys alone do not make a file v1");
     }
 
     private static void v1Backup() {
@@ -177,13 +227,13 @@ public final class ConfigMigrationCheck {
         MineQTTConfig.aclExplorerBrokerWide = true;
         MineQTTConfig.blockPlacerEnabled = true;
         MineQTTConfig.limitsMaxDevicesPerPlayer = 12;
+        MineQTTConfig.limitsMaxWiresPerPlayer = 0;
+        MineQTTConfig.serverKeepTickingWhenEmpty = true;
         MineQTTConfig.legacyV1StatusTopic = "minecraft/status";
-        MineQTTConfig.allowItemNetherPortalTeleport = false;
-        MineQTTConfig.goalX = -5;
-        MineQTTConfig.zombieGoalEnabled = true;
         MineQTTConfig.ConnectionSettings before = MineQTTConfig.connectionSettings();
         JsonObject written = JsonConfigFormat.write();
         check(written.getAsJsonObject("tls").get("insecureSkipVerify").getAsBoolean(), "Dotted keys are nested objects");
+        check(written.getAsJsonObject("server").get("keepTickingWhenEmpty").getAsBoolean(), "server.keepTickingWhenEmpty is nested too");
 
         MineQTTConfig.resetToDefaults();
         JsonConfigFormat.Result result = JsonConfigFormat.read(written);
@@ -192,9 +242,9 @@ public final class ConfigMigrationCheck {
         check(MineQTTConfig.haExpose == HaExpose.OPT_IN && MineQTTConfig.aclOpsBypassAllowlist == AutoBoolean.FALSE, "Enums survive");
         check(MineQTTConfig.aclRawAllow.equals(List.of("zigbee2mqtt/+/set", "<base>/<bridgeId>/raw/#")), "The allowlist survives unresolved");
         check(MineQTTConfig.rawAllow("survival_01").equals(List.of("zigbee2mqtt/+/set", "mc/survival_01/raw/#")), "Placeholders resolve");
-        check(MineQTTConfig.aclExplorerBrokerWide && MineQTTConfig.blockPlacerEnabled && MineQTTConfig.limitsMaxDevicesPerPlayer == 12,
-                "Security keys survive");
-        check(!MineQTTConfig.allowItemNetherPortalTeleport && MineQTTConfig.goalX == -5 && MineQTTConfig.zombieGoalEnabled, "Experiments survive");
+        check(MineQTTConfig.aclExplorerBrokerWide && MineQTTConfig.blockPlacerEnabled && MineQTTConfig.limitsMaxDevicesPerPlayer == 12
+                && MineQTTConfig.limitsMaxWiresPerPlayer == 0, "Security keys survive, an unlimited wire cap too");
+        check(MineQTTConfig.serverKeepTickingWhenEmpty, "The keep-ticking opt-in survives");
         check(MineQTTConfig.legacyV1StatusTopic.equals("minecraft/status"), "The migration record survives");
         BrokerConfig broker = MineQTTConfig.brokerConfig("mineqtt_survival_01").orElseThrow();
         check(broker.tls() && broker.port() == 8883 && broker.insecureSkipVerify() && broker.keepAliveSec() == 0
@@ -213,8 +263,8 @@ public final class ConfigMigrationCheck {
                 {"configVersion": 2, "broker": "localhost", "protocol": "4", "keepAliveSec": "sixty",
                  "password": 1234, "tls": "none", "ha": {"expose": "sometimes"},
                  "acl": {"rawAllow": ["a/#/b", 5, "mineqtt/shared/#"], "opsBypassAllowlist": true},
-                 "limits": {"maxDevicesPerPlayer": 2.5}, "goalX": 11}""");
-        check(MineQTTConfig.broker.equals("localhost") && MineQTTConfig.goalX == 11, "Valid keys are read despite bad neighbours");
+                 "limits": {"maxDevicesPerPlayer": 2.5, "maxWiresPerPlayer": "many"}, "server": {"keepTickingWhenEmpty": "yes"}, "discoveryPrefix": "ha"}""");
+        check(MineQTTConfig.broker.equals("localhost") && MineQTTConfig.discoveryPrefix.equals("ha"), "Valid keys are read despite bad neighbours");
         check(MineQTTConfig.protocol == ProtocolVersion.MQTT_5, "An unknown protocol falls back to 5");
         check(MineQTTConfig.keepAliveSec == 60, "A non-numeric keep alive falls back");
         check(MineQTTConfig.password.isEmpty(), "A non-string password is ignored");
@@ -223,7 +273,10 @@ public final class ConfigMigrationCheck {
         check(MineQTTConfig.aclOpsBypassAllowlist == AutoBoolean.TRUE, "A JSON boolean is accepted for an auto boolean");
         check(MineQTTConfig.aclRawAllow.equals(List.of("mineqtt/shared/#")), "Invalid allowlist entries are dropped: " + MineQTTConfig.aclRawAllow);
         check(MineQTTConfig.limitsMaxDevicesPerPlayer == 0, "A fractional limit falls back");
-        for (String key : List.of("protocol", "keepAliveSec", "password", "tls", "ha.expose", "acl.rawAllow", "limits.maxDevicesPerPlayer")) {
+        check(MineQTTConfig.limitsMaxWiresPerPlayer == 256, "A non-numeric wire cap falls back");
+        check(!MineQTTConfig.serverKeepTickingWhenEmpty, "A non-boolean keep-ticking opt-in falls back to off");
+        for (String key : List.of("protocol", "keepAliveSec", "password", "tls", "ha.expose", "acl.rawAllow", "limits.maxDevicesPerPlayer",
+                "limits.maxWiresPerPlayer", "server.keepTickingWhenEmpty")) {
             check(result.messages().stream().anyMatch(message -> message.startsWith(key)), "A problem with " + key + " is reported: " + result.messages());
         }
         check(result.messages().stream().noneMatch(message -> message.contains("1234")), "The password value is never repeated");
@@ -238,6 +291,7 @@ public final class ConfigMigrationCheck {
         MineQTTConfig.haBirthTopic = "homeassistant//status";
         MineQTTConfig.keepAliveSec = 70_000;
         MineQTTConfig.limitsMaxDevicesPerPlayer = -1;
+        MineQTTConfig.limitsMaxWiresPerPlayer = -5;
         MineQTTConfig.tlsCaFile = "does/not/exist.pem";
         List<String> problems = MineQTTConfig.sanitize();
         check(MineQTTConfig.broker.equals("tcp://user:" + SECRET_PASSWORD + "@broker.lan"), "A malformed broker is kept for the user to fix");
@@ -245,8 +299,9 @@ public final class ConfigMigrationCheck {
         check(MineQTTConfig.bridgeId.isEmpty(), "An invalid bridge id falls back to a generated one");
         check(MineQTTConfig.baseTopic.equals("mineqtt") && MineQTTConfig.discoveryPrefix.equals("homeassistant")
                 && MineQTTConfig.haBirthTopic.equals("homeassistant/status"), "Invalid topics fall back");
-        check(MineQTTConfig.keepAliveSec == 60 && MineQTTConfig.limitsMaxDevicesPerPlayer == 0, "Out-of-range numbers fall back");
-        check(problems.size() == 8, "Every problem is reported once: " + problems);
+        check(MineQTTConfig.keepAliveSec == 60 && MineQTTConfig.limitsMaxDevicesPerPlayer == 0 && MineQTTConfig.limitsMaxWiresPerPlayer == 256,
+                "Out-of-range numbers fall back");
+        check(problems.size() == 9, "Every problem is reported once: " + problems);
         try {
             MineQTTConfig.brokerConfig("mineqtt_test");
             throw new AssertionError("A malformed broker must not produce a connection");
@@ -258,6 +313,35 @@ public final class ConfigMigrationCheck {
         MineQTTConfig.protocol = ProtocolVersion.MQTT_3_1_1;
         MineQTTConfig.password = SECRET_PASSWORD;
         check(MineQTTConfig.sanitize().stream().anyMatch(problem -> problem.startsWith("password")), "A 3.1.1 password without username is reported");
+
+        // The bridge id "shared" under the base topic "mineqtt" would reserve the shared namespace of every server.
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.bridgeId = "shared";
+        List<String> shared = MineQTTConfig.sanitize();
+        check(MineQTTConfig.bridgeId.isEmpty() && shared.size() == 1 && shared.getFirst().startsWith("bridgeId") && shared.getFirst().contains("mineqtt/shared"),
+                "The bridge id 'shared' under 'mineqtt' is rejected: " + shared);
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.bridgeId = "shared";
+        MineQTTConfig.baseTopic = "home/mc";
+        check(MineQTTConfig.sanitize().isEmpty() && MineQTTConfig.bridgeId.equals("shared"), "Under another base topic it is an ordinary bridge id");
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.bridgeId = "shared_2";
+        check(MineQTTConfig.sanitize().isEmpty() && MineQTTConfig.bridgeId.equals("shared_2"), "Only 'shared' itself is reserved");
+        check(ConfigValidation.bridgeNamespaceError("shared", "mineqtt").isPresent() && ConfigValidation.bridgeNamespaceError("", "mineqtt").isEmpty(),
+                "The rule across both values");
+        // A base topic in the shared namespace would put every bridge namespace under it there.
+        for (String base : List.of("mineqtt/shared", "mineqtt/shared/x")) {
+            MineQTTConfig.resetToDefaults();
+            MineQTTConfig.baseTopic = base;
+            MineQTTConfig.bridgeId = "abc";
+            List<String> nested = MineQTTConfig.sanitize();
+            check(MineQTTConfig.baseTopic.equals("mineqtt") && MineQTTConfig.bridgeId.equals("abc") && nested.size() == 1
+                    && nested.getFirst().startsWith("baseTopic") && nested.getFirst().contains(base), "A base topic in the shared namespace is rejected: " + nested);
+            check(ConfigValidation.baseTopicNamespaceError(base).isPresent() && ConfigValidation.bridgeNamespaceError("abc", base).isPresent(),
+                    "So is any bridge namespace under it: " + base);
+        }
+        check(ConfigValidation.baseTopicNamespaceError("mineqtt").isEmpty() && ConfigValidation.baseTopicNamespaceError("mineqtt/sharedx").isEmpty()
+                && ConfigValidation.baseTopicNamespaceError("home/mineqtt/shared").isEmpty(), "Only the shared namespace itself is reserved");
     }
 
     private static void serverTypeDefaults() {
@@ -299,8 +383,7 @@ public final class ConfigMigrationCheck {
         String settings = MineQTTConfig.connectionSettings().toString();
         check(!settings.contains(SECRET_USER) && !settings.contains(SECRET_PASSWORD), "ConnectionSettings masks URI credentials: " + settings);
 
-        List<String> notes = ConfigMigration.applyV1(new ConfigMigration.V1("broker.lan:1884", null, null, null, null, null, null, null,
-                null, null, null, null));
+        List<String> notes = ConfigMigration.applyV1(new ConfigMigration.V1("broker.lan:1884", null, null, null, null, null, null));
         check(notes.contains("brokerUrl -> broker: tcp://broker.lan:1884"), "A valid broker is noted in canonical form: " + notes);
     }
 

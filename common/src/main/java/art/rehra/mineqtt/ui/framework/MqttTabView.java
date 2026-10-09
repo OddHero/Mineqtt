@@ -2,9 +2,11 @@ package art.rehra.mineqtt.ui.framework;
 
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Client-side counterpart of a {@link MqttTab}: renders the tab's content and
@@ -37,7 +39,15 @@ public interface MqttTabView {
     }
 
     /**
-     * Renders content under the player inventory area (above the inventory rows).
+     * A short note the screen shows at the right of the title row, such as "Read only"; the title makes room for it.
+     * Asked every frame.
+     */
+    default Optional<Component> titleNote() {
+        return Optional.empty();
+    }
+
+    /**
+     * Renders the tab's content between the title row and the player's inventory, or the panel's foot without one.
      */
     default void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
     }

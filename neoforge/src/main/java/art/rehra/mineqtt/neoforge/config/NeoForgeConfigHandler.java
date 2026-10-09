@@ -31,7 +31,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     private static final Logger LOGGER = LoggerFactory.getLogger("MineQTT-Config");
     public static final String FILE_NAME = "mineqtt.toml";
     private static final String V1_BACKUP_SUFFIX = ".v1.bak";
-    /** Tables only a v1 file has; v2 keeps just [goal] of the v1 tables. */
+    /** Tables only a v1 file has. [goal], which Milestone 1's v2 files have too, is not read any more. */
     private static final List<String> V1_ONLY_TABLES = List.of("connection", "topics");
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
@@ -49,7 +49,6 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     public static final ModConfigSpec.ConfigValue<String> BASE_TOPIC;
     public static final ModConfigSpec.ConfigValue<String> DISCOVERY_PREFIX;
     public static final ModConfigSpec.ConfigValue<String> HA_BIRTH_TOPIC;
-    public static final ModConfigSpec.BooleanValue ALLOW_ITEM_NETHER_PORTAL_TELEPORT;
 
     public static final ModConfigSpec.ConfigValue<String> TLS_CA_FILE;
     public static final ModConfigSpec.BooleanValue TLS_INSECURE_SKIP_VERIFY;
@@ -63,13 +62,11 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     public static final ModConfigSpec.BooleanValue BLOCK_PLACER_ENABLED;
 
     public static final ModConfigSpec.IntValue LIMITS_MAX_DEVICES_PER_PLAYER;
+    public static final ModConfigSpec.IntValue LIMITS_MAX_WIRES_PER_PLAYER;
+
+    public static final ModConfigSpec.BooleanValue SERVER_KEEP_TICKING_WHEN_EMPTY;
 
     public static final ModConfigSpec.ConfigValue<String> LEGACY_V1_STATUS_TOPIC;
-
-    public static final ModConfigSpec.IntValue GOAL_X;
-    public static final ModConfigSpec.IntValue GOAL_Y;
-    public static final ModConfigSpec.IntValue GOAL_Z;
-    public static final ModConfigSpec.BooleanValue ZOMBIE_GOAL_ENABLED;
 
     public static final ModConfigSpec SPEC;
 
@@ -126,11 +123,6 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                 .comment("Home Assistant birth topic; 'online' there makes MineQTT republish discovery and state")
                 .translation("config.mineqtt.ha_birth_topic")
                 .define("haBirthTopic", StaticDefaults.DEFAULT_HA_BIRTH_TOPIC, ConfigValidation::isValidConfigTopic);
-
-        ALLOW_ITEM_NETHER_PORTAL_TELEPORT = BUILDER
-                .comment("Allow items to teleport through nether portals")
-                .translation("config.mineqtt.allow_item_nether_portal_teleport")
-                .define("allowItemNetherPortalTeleport", StaticDefaults.DEFAULT_ALLOW_ITEM_NETHER_PORTAL_TELEPORT);
 
         BUILDER.comment("TLS for ssl://, mqtts:// and wss:// brokers").translation("config.mineqtt.section.tls").push("tls");
 
@@ -192,6 +184,21 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                 .translation("config.mineqtt.limits_max_devices_per_player")
                 .defineInRange("maxDevicesPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER, 0, Integer.MAX_VALUE);
 
+        LIMITS_MAX_WIRES_PER_PLAYER = BUILDER
+                .comment("Maximum number of wires (Configurator links) a player may own, 0 for unlimited; wires made from the console count for nobody")
+                .translation("config.mineqtt.limits_max_wires_per_player")
+                .defineInRange("maxWiresPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER, 0, Integer.MAX_VALUE);
+
+        BUILDER.pop();
+
+        BUILDER.comment("Dedicated server").translation("config.mineqtt.section.server").push("server");
+
+        SERVER_KEEP_TICKING_WHEN_EMPTY = BUILDER
+                .comment("Keep ticking with nobody online, overriding pause-when-empty-seconds in server.properties, so repeaters,",
+                        "pistons and light keep running. Off, MQTT is still handled while the server is paused.")
+                .translation("config.mineqtt.server_keep_ticking_when_empty")
+                .define("keepTickingWhenEmpty", StaticDefaults.DEFAULT_SERVER_KEEP_TICKING_WHEN_EMPTY);
+
         BUILDER.pop();
 
         BUILDER.comment("Migration records, maintained by MineQTT").translation("config.mineqtt.section.legacy").push("legacy");
@@ -200,30 +207,6 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                 .comment("The status topic of the v1 config; its retained Offline message is cleared once")
                 .translation("config.mineqtt.legacy_v1_status_topic")
                 .define("v1StatusTopic", StaticDefaults.DEFAULT_LEGACY_V1_STATUS_TOPIC);
-
-        BUILDER.pop();
-
-        BUILDER.comment("Goal Coordinates").translation("config.mineqtt.category.goal").push("goal");
-
-        GOAL_X = BUILDER
-                .comment("X coordinate of the global goal")
-                .translation("config.mineqtt.goal_x")
-                .defineInRange("goalX", StaticDefaults.DEFAULT_GOAL_X, -30000000, 30000000);
-
-        GOAL_Y = BUILDER
-                .comment("Y coordinate of the global goal")
-                .translation("config.mineqtt.goal_y")
-                .defineInRange("goalY", StaticDefaults.DEFAULT_GOAL_Y, -2048, 2048);
-
-        GOAL_Z = BUILDER
-                .comment("Z coordinate of the global goal")
-                .translation("config.mineqtt.goal_z")
-                .defineInRange("goalZ", StaticDefaults.DEFAULT_GOAL_Z, -30000000, 30000000);
-
-        ZOMBIE_GOAL_ENABLED = BUILDER
-                .comment("Whether the global zombie goal is enabled")
-                .translation("config.mineqtt.zombie_goal_enabled")
-                .define("zombieGoalEnabled", StaticDefaults.DEFAULT_ZOMBIE_GOAL_ENABLED);
 
         BUILDER.pop();
 
@@ -292,7 +275,6 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         MineQTTConfig.baseTopic = BASE_TOPIC.get();
         MineQTTConfig.discoveryPrefix = DISCOVERY_PREFIX.get();
         MineQTTConfig.haBirthTopic = HA_BIRTH_TOPIC.get();
-        MineQTTConfig.allowItemNetherPortalTeleport = ALLOW_ITEM_NETHER_PORTAL_TELEPORT.get();
         MineQTTConfig.tlsCaFile = TLS_CA_FILE.get();
         MineQTTConfig.tlsInsecureSkipVerify = TLS_INSECURE_SKIP_VERIFY.get();
         MineQTTConfig.haExpose = HA_EXPOSE.get();
@@ -301,11 +283,9 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         MineQTTConfig.aclExplorerBrokerWide = ACL_EXPLORER_BROKER_WIDE.get();
         MineQTTConfig.blockPlacerEnabled = BLOCK_PLACER_ENABLED.get();
         MineQTTConfig.limitsMaxDevicesPerPlayer = LIMITS_MAX_DEVICES_PER_PLAYER.get();
+        MineQTTConfig.limitsMaxWiresPerPlayer = LIMITS_MAX_WIRES_PER_PLAYER.get();
+        MineQTTConfig.serverKeepTickingWhenEmpty = SERVER_KEEP_TICKING_WHEN_EMPTY.get();
         MineQTTConfig.legacyV1StatusTopic = LEGACY_V1_STATUS_TOPIC.get();
-        MineQTTConfig.goalX = GOAL_X.get();
-        MineQTTConfig.goalY = GOAL_Y.get();
-        MineQTTConfig.goalZ = GOAL_Z.get();
-        MineQTTConfig.zombieGoalEnabled = ZOMBIE_GOAL_ENABLED.get();
         MineQTTConfig.sanitize().forEach(problem -> LOGGER.warn("Config: {}", problem));
     }
 
@@ -339,9 +319,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     private static ConfigMigration.V1 readV1(UnmodifiableConfig v1File) {
         return new ConfigMigration.V1(v1String(v1File, "connection.brokerUrl"), v1String(v1File, "connection.clientId"),
                 v1String(v1File, "connection.username"), v1String(v1File, "connection.password"),
-                v1Int(v1File, "connection.keepAlive"), v1String(v1File, "topics.baseTopic"), v1String(v1File, "topics.statusTopic"),
-                v1Bool(v1File, "connection.allowItemNetherPortalTeleport"), v1Int(v1File, "goal.goalX"),
-                v1Int(v1File, "goal.goalY"), v1Int(v1File, "goal.goalZ"), v1Bool(v1File, "goal.zombieGoalEnabled"));
+                v1Int(v1File, "connection.keepAlive"), v1String(v1File, "topics.baseTopic"), v1String(v1File, "topics.statusTopic"));
     }
 
     private static String v1String(UnmodifiableConfig v1File, String path) {
@@ -350,10 +328,6 @@ public class NeoForgeConfigHandler implements ConfigHandler {
 
     private static Integer v1Int(UnmodifiableConfig v1File, String path) {
         return v1File.get(path) instanceof Number value && value.longValue() == value.intValue() ? value.intValue() : null;
-    }
-
-    private static Boolean v1Bool(UnmodifiableConfig v1File, String path) {
-        return v1File.get(path) instanceof Boolean value ? value : null;
     }
 
     /** Every spec value from {@link MineQTTConfig}, in spec order. */
@@ -368,7 +342,6 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         sink.put(BASE_TOPIC, MineQTTConfig.baseTopic);
         sink.put(DISCOVERY_PREFIX, MineQTTConfig.discoveryPrefix);
         sink.put(HA_BIRTH_TOPIC, MineQTTConfig.haBirthTopic);
-        sink.put(ALLOW_ITEM_NETHER_PORTAL_TELEPORT, MineQTTConfig.allowItemNetherPortalTeleport);
         sink.put(TLS_CA_FILE, MineQTTConfig.tlsCaFile);
         sink.put(TLS_INSECURE_SKIP_VERIFY, MineQTTConfig.tlsInsecureSkipVerify);
         sink.put(HA_EXPOSE, MineQTTConfig.haExpose);
@@ -377,11 +350,9 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         sink.put(ACL_EXPLORER_BROKER_WIDE, MineQTTConfig.aclExplorerBrokerWide);
         sink.put(BLOCK_PLACER_ENABLED, MineQTTConfig.blockPlacerEnabled);
         sink.put(LIMITS_MAX_DEVICES_PER_PLAYER, MineQTTConfig.limitsMaxDevicesPerPlayer);
+        sink.put(LIMITS_MAX_WIRES_PER_PLAYER, MineQTTConfig.limitsMaxWiresPerPlayer);
+        sink.put(SERVER_KEEP_TICKING_WHEN_EMPTY, MineQTTConfig.serverKeepTickingWhenEmpty);
         sink.put(LEGACY_V1_STATUS_TOPIC, MineQTTConfig.legacyV1StatusTopic);
-        sink.put(GOAL_X, MineQTTConfig.goalX);
-        sink.put(GOAL_Y, MineQTTConfig.goalY);
-        sink.put(GOAL_Z, MineQTTConfig.goalZ);
-        sink.put(ZOMBIE_GOAL_ENABLED, MineQTTConfig.zombieGoalEnabled);
     }
 
     private interface ValueSink {

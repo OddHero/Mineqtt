@@ -53,7 +53,8 @@ public class CronTimerTabView implements MqttTabView {
         }
 
         int inputX = guiLeft + 8;
-        int inputY = guiTop + 10;
+        // Below the title row, as on the other timers.
+        int inputY = guiTop + 18;
         int inputW = CONTENT_W - 110;
         int btnW = 50;
 
@@ -122,10 +123,10 @@ public class CronTimerTabView implements MqttTabView {
     @Override
     public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         int x = guiLeft + 8;
-        int y = guiTop + 28; // Below the input + buttons
+        int y = guiTop + 36; // Below the input + buttons
 
         // Field reference below input
-        GuiText.drawTruncated(g, "mineqtt.cron_timer.fields", x, y, CONTENT_W, 0xFF888888);
+        GuiText.drawTruncated(g, Component.translatable("mineqtt.cron_timer.fields"), x, y, CONTENT_W, 0xFF888888, mouseX, mouseY);
         y += 12;
 
         // Power status
@@ -137,7 +138,7 @@ public class CronTimerTabView implements MqttTabView {
                 int power = state.getValue(art.rehra.mineqtt.blocks.CronTimerBlock.POWER);
                 String powerStr = power > 0 ? "mineqtt.cron_timer.powered" : "mineqtt.cron_timer.unpowered";
                 int color = power > 0 ? 0xFF55FF55 : 0xFF666666;
-                GuiText.drawTruncated(g, "mineqtt.cron_timer.status: " + powerStr, x, y, CONTENT_W, color);
+                GuiText.drawTruncated(g, labelled("mineqtt.cron_timer.status", Component.translatable(powerStr).getString()), x, y, CONTENT_W, color, mouseX, mouseY);
                 y += 10;
             }
         } catch (Throwable ignored) {
@@ -145,7 +146,7 @@ public class CronTimerTabView implements MqttTabView {
 
         // Validation error
         if (!this.validationError.isEmpty()) {
-            GuiText.drawTruncated(g, "mineqtt.cron_timer.error: " + this.validationError, x, y, CONTENT_W, 0xFFFF5555);
+            GuiText.drawTruncated(g, labelled("mineqtt.cron_timer.error", this.validationError), x, y, CONTENT_W, 0xFFFF5555, mouseX, mouseY);
             y += 10;
         }
 
@@ -155,19 +156,24 @@ public class CronTimerTabView implements MqttTabView {
             try {
                 CronSchedule schedule = CronSchedule.parse(expr);
                 String next = CronSchedule.describeNextTrigger(schedule, expr);
-                GuiText.drawTruncated(g, "mineqtt.cron_timer.next: " + next, x, y, CONTENT_W, 0xFF55FF55);
+                GuiText.drawTruncated(g, labelled("mineqtt.cron_timer.next", next), x, y, CONTENT_W, 0xFF55FF55, mouseX, mouseY);
                 y += 10;
 
                 LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
                 String timeStr = now.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"));
-                GuiText.drawTruncated(g, "mineqtt.cron_timer.time: " + timeStr, x, y, CONTENT_W, 0xFF888888);
+                GuiText.drawTruncated(g, labelled("mineqtt.cron_timer.time", timeStr), x, y, CONTENT_W, 0xFF888888, mouseX, mouseY);
             } catch (IllegalArgumentException ignored) {
             }
         } else if (!expr.isEmpty()) {
-            GuiText.drawTruncated(g, "mineqtt.cron_timer.invalid", x, y, CONTENT_W, 0xFFFF5555);
+            GuiText.drawTruncated(g, Component.translatable("mineqtt.cron_timer.invalid"), x, y, CONTENT_W, 0xFFFF5555, mouseX, mouseY);
         } else {
-            GuiText.drawTruncated(g, "mineqtt.cron_timer.no_expression", x, y, CONTENT_W, 0xFF666666);
+            GuiText.drawTruncated(g, Component.translatable("mineqtt.cron_timer.no_expression"), x, y, CONTENT_W, 0xFF666666, mouseX, mouseY);
         }
+    }
+
+    // "<label>: <value>", the label from the language file.
+    private static String labelled(String labelKey, String value) {
+        return Component.translatable(labelKey).getString() + ": " + value;
     }
 
     @Override

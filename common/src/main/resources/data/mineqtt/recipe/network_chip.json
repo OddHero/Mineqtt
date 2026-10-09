@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "C": "minecraft:copper_ingot",
+    "E": "minecraft:ender_pearl",
+    "Q": "minecraft:quartz",
+    "R": "minecraft:redstone"
+  },
+  "pattern": [
+    "CRC",
+    "QEQ",
+    "CRC"
+  ],
+  "result": {
+    "count": 4,
+    "id": "mineqtt:network_chip"
+  }
+}

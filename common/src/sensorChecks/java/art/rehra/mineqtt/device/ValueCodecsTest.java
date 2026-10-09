@@ -1,5 +1,11 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.device.ValueCodecs.LightEffect;
+import art.rehra.mineqtt.device.ValueCodecs.LightState;
+import art.rehra.mineqtt.device.ValueCodecs.LightTransition;
+import art.rehra.mineqtt.device.ValueCodecs.Rgb;
+import art.rehra.mineqtt.device.types.SmartLamp;
+import art.rehra.mineqtt.flow.core.PortType;
 import art.rehra.mineqtt.ha.Ha;
 import art.rehra.mineqtt.ha.HaEntity;
 import com.google.gson.JsonElement;
@@ -23,15 +29,16 @@ import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.level.Level;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Typed values from MQTT payloads, run by Gradle's verifyValueCodecs task: the v1 raw grammar, custom payloads, the
+ * Typed values from MQTT payloads, run by Gradle's verifyValueCodecs task: the v1 raw grammars, custom payloads, the
  * Home Assistant JSON light merge, colours and kelvin, the lenient field codecs, number formatting under a German
- * default locale, UTF-8 text, and the consistency rules of a device type declaration.
+ * default locale, UTF-8 text, quotes around command text, and the consistency rules of a device type declaration.
  */
 public final class ValueCodecsTest {
     private static final ValueCodecs.CustomPayloads NONE = ValueCodecs.CustomPayloads.NONE;
@@ -56,8 +63,11 @@ public final class ValueCodecsTest {
         Bootstrap.bootStrap();
         Locale.setDefault(Locale.GERMANY);
         redstoneGrammar();
+        switchGrammar();
         lightGrammar();
         lightMerge();
+        lightEffects();
+        lightTransitions();
         colors();
         fieldCodecs();
         numbersAndText();
@@ -77,6 +87,21 @@ public final class ValueCodecsTest {
         check(redstone("open", custom).equals(json("{\"power\":15}")), "A custom on payload means 15");
         check(redstone("ON", custom).equals(json("{\"power\":0}")), "Custom payloads win over the grammar");
         check(redstone("Open", custom) == null, "Custom payloads match exactly, as in v1");
+    }
+
+    /** v1's plug grammar (M2-18): on, off and toggle only, with the custom payloads first. */
+    private static void switchGrammar() {
+        check(switchState("ON").equals("ON") && switchState("true").equals("ON") && switchState("1").equals("ON") && switchState(" on ").equals("ON"),
+                "ON, TRUE and 1 switch it on");
+        check(switchState("OFF").equals("OFF") && switchState("False").equals("OFF") && switchState("0").equals("OFF"), "OFF, FALSE and 0 switch it off");
+        check(switchState("TOGGLE").equals("TOGGLE") && switchState("toggle").equals("TOGGLE"), "TOGGLE is passed to the device");
+        check(plug("7", NONE) == null && plug("15", NONE) == null && plug("-1", NONE) == null, "A level means nothing to a plug, as in v1");
+        check(plug("garbage", NONE) == null && plug("{\"state\":\"ON\"}", NONE) == null && plug("", NONE) == null, "Garbage, JSON and the empty payload mean nothing");
+        ValueCodecs.CustomPayloads custom = new ValueCodecs.CustomPayloads("brew", "ON");
+        check(plug("brew", custom).equals(json("{\"state\":\"ON\"}")), "A custom on payload switches it on");
+        check(plug("ON", custom).equals(json("{\"state\":\"OFF\"}")), "Custom payloads win over the grammar");
+        check(plug("Brew", custom) == null, "Custom payloads match exactly, as in v1");
+        check(plug("", new ValueCodecs.CustomPayloads("", null)) == null, "An empty payload never commands, also when a custom payload is empty");
     }
 
     private static void lightGrammar() {
@@ -115,6 +140,112 @@ public final class ValueCodecsTest {
         check(red.merge(json("{\"color\":{\"h\":120,\"s\":100}}")).color().equals(new ValueCodecs.Rgb(0, 255, 0)), "Hue and saturation");
         ValueCodecs.Rgb xy = red.merge(json("{\"color\":{\"x\":0.64,\"y\":0.33}}")).color();
         check(xy.r() == 255 && xy.g() < 60 && xy.b() < 60, "CIE xy red: " + xy);
+    }
+
+    /** M2-25: the light's effect in commands, in its state and on the clients. */
+    private static void lightEffects() {
+        LightState red = LightState.DEFAULT.merge(json("{\"state\":\"ON\",\"color\":{\"r\":255,\"g\":0,\"b\":0}}"));
+        check(red.effect() == LightEffect.NONE, "A light has no effect until a command sets one");
+        LightState candle = red.merge(json("{\"effect\":\"candle\"}"));
+        check(candle.effect() == LightEffect.CANDLE && candle.on() && candle.color().equals(red.color()), "An effect keeps the rest of the light");
+        check(red.merge(json("{\"effect\":\" PULSE \"}")).effect() == LightEffect.PULSE, "Effect names are read without regard to case or spaces");
+        check(candle.merge(json("{\"effect\":\"off\"}")).effect() == LightEffect.NONE && candle.merge(json("{\"effect\":\"none\"}")).effect() == LightEffect.NONE,
+                "off (Home Assistant's) and none end the effect");
+        check(candle.merge(json("{\"effect\":\"disco\"}")).equals(candle) && candle.merge(json("{\"effect\":{\"name\":\"pulse\"}}")).equals(candle),
+                "An unknown or unreadable effect is ignored");
+        check(candle.merge(json("{\"brightness\":40,\"color\":{\"r\":0,\"g\":0,\"b\":255}}")).effect() == LightEffect.CANDLE
+                && candle.merge(json("{\"state\":\"OFF\"}")).effect() == LightEffect.CANDLE, "Other keys, also OFF, keep the effect");
+        check(candle.placed().effect() == LightEffect.CANDLE && !candle.placed().on(), "A placed copy keeps the effect, switched off");
+        check(LightEffect.names().equals(List.of("off", "pulse", "candle")), "The effect list starts with off: " + LightEffect.names());
+
+        JsonObject state = LightState.MAP_CODEC.codec().encodeStart(JsonOps.INSTANCE, red).getOrThrow().getAsJsonObject();
+        check(state.get("effect").getAsString().equals("off"), "The state always names the effect, off when there is none: " + state);
+        JsonObject candleState = LightState.MAP_CODEC.codec().encodeStart(JsonOps.INSTANCE, candle).getOrThrow().getAsJsonObject();
+        check(candleState.get("effect").getAsString().equals("candle")
+                && LightState.MAP_CODEC.codec().parse(JsonOps.INSTANCE, candleState).getOrThrow().equals(candle), "The effect round-trips: " + candleState);
+        state.remove("effect");
+        check(LightState.MAP_CODEC.codec().parse(JsonOps.INSTANCE, state).getOrThrow().equals(red), "A state saved before effects existed has none");
+
+        check(LightState.commandProblem(json("{\"effect\":\"candle\"}")).isEmpty() && LightState.commandProblem(json("{\"effect\":\"OFF\"}")).isEmpty(),
+                "A player may set an effect by its name");
+        check(LightState.commandProblem(json("{\"effect\":\"disco\"}")).isPresent() && LightState.commandProblem(json("{\"effect\":3}")).isPresent(),
+                "An unknown effect is refused from a player");
+
+        // The clients' animation: a pulse in step on every lamp, a candle on its own.
+        check(SmartLamp.effectFactor(LightEffect.NONE, 17, 5) == 1, "No effect keeps the tint");
+        float brightest = 1, dimmest = 1;
+        for (long time = 0; time < 40; time++) {
+            float pulse = SmartLamp.effectFactor(LightEffect.PULSE, time, 1);
+            check(pulse == SmartLamp.effectFactor(LightEffect.PULSE, time + 40, 99) && pulse == SmartLamp.effectFactor(LightEffect.PULSE, time, -7),
+                    "A pulse repeats every 40 ticks, the same on every lamp");
+            brightest = Math.max(brightest, pulse);
+            dimmest = Math.min(dimmest, pulse);
+        }
+        check(SmartLamp.effectFactor(LightEffect.PULSE, 0, 1) == 1 && Math.abs(SmartLamp.effectFactor(LightEffect.PULSE, 20, 1) - 0.3f) < 1e-6
+                && brightest == 1 && Math.abs(dimmest - 0.3f) < 1e-6, "A pulse breathes from full down to 30 % and back");
+        Set<Float> flickers = new HashSet<>();
+        boolean apart = false;
+        for (long time = 0; time < 200; time++) {
+            float flame = SmartLamp.effectFactor(LightEffect.CANDLE, time, 42);
+            check(flame >= 0.5f && flame <= 1 && flame == SmartLamp.effectFactor(LightEffect.CANDLE, time, 42), "A candle flickers within 50-100 %, the same way each time: " + flame);
+            check(Math.abs(flame * 10 - Math.round(flame * 10)) < 1e-4, "In steps of a tenth, so a client redraws only when it moves a step: " + flame);
+            flickers.add(flame);
+            apart |= flame != SmartLamp.effectFactor(LightEffect.CANDLE, time, 43);
+        }
+        check(flickers.size() >= 3, "A candle flickers: " + flickers);
+        check(apart, "Two candles flicker each their own way");
+    }
+
+    /** M2-25: a command's transition, and the way a light fades to its new state. */
+    private static void lightTransitions() {
+        check(ValueCodecs.transitionTicks(json("{\"transition\":2}")) == 40 && ValueCodecs.transitionTicks(json("{\"transition\":0.5}")) == 10
+                && ValueCodecs.transitionTicks(json("{\"transition\":\"1.5\"}")) == 30, "Seconds, also fractions and text, are ticks");
+        check(ValueCodecs.transitionTicks(json("{\"state\":\"ON\"}")) == 0 && ValueCodecs.transitionTicks(json("{\"transition\":-3}")) == 0
+                && ValueCodecs.transitionTicks(json("{\"transition\":\"soon\"}")) == 0 && ValueCodecs.transitionTicks(json("{\"transition\":true}")) == 0
+                && ValueCodecs.transitionTicks(json("{\"transition\":1e99999999}")) == 0, "None, negative or unreadable: at once");
+        check(ValueCodecs.transitionTicks(json("{\"transition\":99999}")) == ValueCodecs.MAX_TRANSITION_SECONDS * 20, "At most an hour");
+        check(LightState.commandProblem(json("{\"state\":\"ON\",\"transition\":2.5}")).isEmpty()
+                && LightState.commandProblem(json("{\"transition\":3601}")).isPresent() && LightState.commandProblem(json("{\"transition\":\"x\"}")).isPresent(),
+                "A player's transition is seconds up to an hour");
+        LightState off = LightState.DEFAULT.merge(json("{\"color\":{\"r\":255,\"g\":0,\"b\":0}}"));
+        check(off.merge(json("{\"transition\":2}")).equals(off), "A transition alone changes no state");
+
+        LightState on = off.merge(json("{\"state\":\"ON\",\"brightness\":200,\"effect\":\"pulse\"}"));
+        LightState start = off.towards(on, 0);
+        check(!start.on() && start.brightness() == 0 && start.effect() == LightEffect.PULSE, "Switching on starts dark, with the new effect at once: " + start);
+        LightState half = off.towards(on, 0.5);
+        check(half.on() && half.brightness() == 100 && half.color().equals(on.color()), "Half way up, in the new colour: " + half);
+        check(off.towards(on, 1).equals(on) && off.towards(on, 7).equals(on) && off.towards(on, -1).equals(start), "The end is the new state");
+        LightState down = on.towards(off, 0.75);
+        check(down.on() && down.brightness() == 50 && down.color().equals(on.color()), "Switching off fades down in the old colour: " + down);
+        LightState blue = on.merge(json("{\"color\":{\"r\":0,\"g\":0,\"b\":255}}"));
+        check(on.towards(blue, 0.5).color().equals(new Rgb(128, 0, 128)) && on.towards(blue, 0.5).brightness() == 200, "The colour moves at the same brightness");
+        LightState warm = on.merge(json("{\"color_temp_kelvin\":2700}"));
+        LightState cold = warm.merge(json("{\"color_temp_kelvin\":6500}"));
+        LightState between = warm.towards(cold, 0.5);
+        check(between.kelvin() == 4600 && between.color().equals(ValueCodecs.kelvinToRgb(4600)), "Between two temperatures the temperature moves: " + between);
+        check(on.towards(warm, 0.5).kelvin() == null, "From a colour to a temperature the colour moves");
+        LightState offBlue = off.merge(json("{\"color\":{\"r\":0,\"g\":0,\"b\":255}}"));
+        check(off.towards(offBlue, 0).equals(offBlue) && off.towards(offBlue, 0.5).equals(offBlue),
+                "Off to off shows the new colour from the start, no fade back to the old one");
+
+        // HA's {"state":"ON","brightness":200,"transition":2}: the block light rises over 40 ticks, a step every 2.
+        LightTransition fade = new LightTransition(off, on, 1000, ValueCodecs.transitionTicks(json("{\"transition\":2}")));
+        int level = -1;
+        for (long time = 1000; time <= 1040; time += SmartLamp.TRANSITION_STEP_TICKS) {
+            int next = SmartLamp.lightLevel(fade.at(time));
+            check(next >= level, "The light level never falls on the way up: " + level + " -> " + next + " at " + time);
+            check(fade.done(time) == (time == 1040), "Done after 40 ticks, not before");
+            level = next;
+        }
+        check(SmartLamp.lightLevel(fade.at(1000)) == 0 && SmartLamp.lightLevel(fade.at(1020)) == 6 && level == 12 && fade.at(1040).equals(on),
+                "From dark through 6 to 12, ending on the state itself");
+        try {
+            new LightTransition(off, on, 0, 0);
+            throw new AssertionError("A transition of no ticks is refused");
+        } catch (IllegalArgumentException expected) {
+            // A command without a transition applies at once instead.
+        }
     }
 
     private static void colors() {
@@ -172,6 +303,15 @@ public final class ValueCodecsTest {
         check(ValueCodecs.plainValue(" TOGGLE ").equals(new JsonPrimitive("TOGGLE")), "Plain text stays text");
         check(ValueCodecs.plainValue("7").getAsInt() == 7 && ValueCodecs.plainValue("false").equals(new JsonPrimitive(false)), "Plain numbers and booleans");
         check(ValueCodecs.plainValue("{\"r\":1}").isJsonObject() && ValueCodecs.plainValue("{nope").getAsString().equals("{nope"), "Plain JSON, strictly");
+        check(ValueCodecs.unquote("\"Living Room Lamp\"").equals("Living Room Lamp"), "One pair of double quotes is stripped");
+        check(ValueCodecs.unquote("'a'").equals("a"), "One pair of single quotes is stripped");
+        check(ValueCodecs.unquote("\"a").equals("\"a") && ValueCodecs.unquote("a'").equals("a'"), "An unmatched quote stays");
+        check(ValueCodecs.unquote("\"a'").equals("\"a'") && ValueCodecs.unquote("'a\"").equals("'a\""), "Different quote characters are no pair");
+        check(ValueCodecs.unquote("\"\"").isEmpty() && ValueCodecs.unquote("''").isEmpty(), "An empty quoted text is empty");
+        check(ValueCodecs.unquote("\"").equals("\"") && ValueCodecs.unquote("").isEmpty(), "A lone quote is no pair");
+        check(ValueCodecs.unquote("\"Say \"hi\"\"").equals("Say \"hi\"") && ValueCodecs.unquote("Bob's 'lamp'").equals("Bob's 'lamp'"),
+                "Quotes inside stay, and only the outer pair goes");
+        check(ValueCodecs.unquote("\"\"a\"\"").equals("\"a\""), "Only one pair is stripped");
         String umlauts = "Küche ☀ 東京";
         check(new String(ValueCodecs.utf8(umlauts), StandardCharsets.UTF_8).equals(umlauts) && ValueCodecs.utf8(umlauts).length == 17, "Text is UTF-8");
     }
@@ -186,6 +326,7 @@ public final class ValueCodecsTest {
                 .entity(Ha.number("power_level", power).range(0, 15).slider())
                 .entity(Ha.select("mode", modeField).config())
                 .entity(Ha.sensor("location", CommonFields.LOCATION).diagnostic().disabledByDefault())
+                .action(Action.state())
                 .rawLink(RawLinkSpec.in(ValueCodecs.REDSTONE).acceptRetained(true))
                 .build();
         HaEntity.Select select = (HaEntity.Select) output.entities().get(2);
@@ -205,7 +346,7 @@ public final class ValueCodecsTest {
         check(reader.get(power).orElseThrow() == 3 && reader.text("state").orElseThrow().equals("ON") && reader.get(CommonFields.LOCATION).isEmpty(),
                 "Commands read writable fields only");
 
-        Field<ValueCodecs.Rgb> color = Field.inline("color", RGB_MAP, ValueCodecs.Rgb.WHITE, Access.READ_WRITE);
+        Field<ValueCodecs.Rgb> color = Field.inline("color", RGB_MAP, ValueCodecs.Rgb.WHITE, Access.READ_WRITE, PortType.COLOR);
         JsonObject inline = new StateWriter().put(color, new ValueCodecs.Rgb(1, 2, 3)).json();
         check(inline.equals(json("{\"r\":1,\"g\":2,\"b\":3}")), "Inline fields write their keys at the top level");
         check(new CommandReader(json("{\"r\":9,\"g\":8,\"b\":7,\"x\":1}")).get(color).orElseThrow().equals(new ValueCodecs.Rgb(9, 8, 7)), "Inline fields read the whole command");
@@ -235,6 +376,14 @@ public final class ValueCodecsTest {
 
     private static JsonObject redstone(String payload, ValueCodecs.CustomPayloads custom) {
         return ValueCodecs.REDSTONE.command(payload, custom).orElse(null);
+    }
+
+    private static String switchState(String payload) {
+        return plug(payload, NONE).get("state").getAsString();
+    }
+
+    private static JsonObject plug(String payload, ValueCodecs.CustomPayloads custom) {
+        return ValueCodecs.SWITCH.command(payload, custom).orElse(null);
     }
 
     private static JsonObject light(String payload) {

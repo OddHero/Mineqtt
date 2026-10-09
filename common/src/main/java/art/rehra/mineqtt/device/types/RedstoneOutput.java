@@ -2,11 +2,13 @@ package art.rehra.mineqtt.device.types;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.device.Access;
+import art.rehra.mineqtt.device.Action;
 import art.rehra.mineqtt.device.CommandReader;
 import art.rehra.mineqtt.device.CommonFields;
 import art.rehra.mineqtt.device.DeviceType;
 import art.rehra.mineqtt.device.Field;
 import art.rehra.mineqtt.device.RawLinkSpec;
+import art.rehra.mineqtt.device.Setting;
 import art.rehra.mineqtt.device.StateWriter;
 import art.rehra.mineqtt.device.UnloadedPolicy;
 import art.rehra.mineqtt.device.ValueCodecs;
@@ -68,16 +70,19 @@ public final class RedstoneOutput {
         }
     }
 
-    public static final Field<Switch> STATE = Field.enumOf("state", Switch.class, Access.READ);
-    public static final Field<Integer> POWER = Field.intRange("power", 0, MAX_POWER, Access.READ_WRITE);
+    public static final Field<Switch> STATE = Field.onOff("state", Switch.class, Access.READ);
+    public static final Field<Integer> POWER = Field.level("power", Access.READ_WRITE);
     public static final Field<Mode> MODE = Field.enumOf("mode", Mode.class, Access.READ_WRITE);
     public static final Field<PowerOn> POWER_ON = Field.enumOf("power_on_behaviour", PowerOn.class, Access.READ_WRITE);
     /** The level ON restores; in the state, so an unloaded output's queued ON turns it on at that level. */
-    public static final Field<Integer> LAST_LEVEL = new Field<>("last_level", ValueCodecs.intRange(1, MAX_POWER), MAX_POWER, Access.READ, false);
+    public static final Field<Integer> LAST_LEVEL = Field.intRange("last_level", 1, MAX_POWER, MAX_POWER, null, Access.READ);
 
     public static final DeviceType TYPE = DeviceType.builder(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "redstone_output"))
             .model("Redstone Output").unloaded(UnloadedPolicy.QUEUE).groupable(true)
             .field(STATE).field(POWER).field(MODE).field(POWER_ON).field(LAST_LEVEL).field(CommonFields.LOCATION)
+            .setting(new Setting<>(MODE)).setting(new Setting<>(POWER_ON))
+            // Home Assistant's switch sends {"state":"ON"}: ON restores the last level, OFF is 0, TOGGLE flips.
+            .action(Action.state())
             .entity(Ha.switchOf("output", POWER).on(MAX_POWER).off(0).name(null))
             .entity(Ha.number("power_level", POWER).range(0, MAX_POWER).slider())
             .entity(Ha.select("mode", MODE).config())
@@ -153,6 +158,11 @@ public final class RedstoneOutput {
                 case OFF -> new Output(0, lastLevel, mode, powerOn);
                 case ON -> new Output(lastLevel, lastLevel, mode, powerOn);
             };
+        }
+
+        /** A placed copy (M2 plan D14): it keeps its mode, power-on behaviour and the level ON restores, and emits nothing. */
+        public Output placed() {
+            return new Output(0, lastLevel, mode, powerOn);
         }
 
         /** Writes every readable field but the location. */

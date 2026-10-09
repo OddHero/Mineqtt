@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_alarm_clock": {
+      "conditions": {
+        "items": [
+          {
+            "items": "mineqtt:alarm_clock"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "mineqtt:game_time_timer_from_alarm_clock"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_alarm_clock"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "mineqtt:game_time_timer_from_alarm_clock"
+    ]
+  }
+}

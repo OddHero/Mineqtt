@@ -3,7 +3,8 @@ package art.rehra.mineqtt.blocks.entities;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.BlockEmitterBlock;
 import art.rehra.mineqtt.config.MineQTTConfig;
-import art.rehra.mineqtt.mqtt.SubscriptionManager;
+import art.rehra.mineqtt.legacy.LegacySubscriptionFacade;
+import art.rehra.mineqtt.mqtt.ICallbackTarget;
 import art.rehra.mineqtt.ui.framework.MqttTab;
 import art.rehra.mineqtt.ui.framework.tabs.BlockEmitterTab;
 import com.google.gson.JsonElement;
@@ -37,9 +38,16 @@ import java.util.Optional;
  * Places the block an MQTT message names in front of it. That accepts block ids, states and block entity data from
  * the broker, so it is off unless the server enables {@code blockPlacer.enabled} (design §8.3): while off, the block
  * neither subscribes nor decodes or places anything.
+ * <p>
+ * It receives the messages of its combined topic through the {@link LegacySubscriptionFacade}. Only the server block
+ * entity subscribes: loading the data picks the topic, and the subscription opens once the block entity is in a server
+ * level.
  */
-public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
+public class BlockEmitterBlockEntity extends BaseMqttBlockEntity implements ICallbackTarget {
     private static final String DISABLED_STATUS = "Disabled: blockPlacer.enabled is off on this server";
+
+    // The topic this block subscribes while the placer is enabled; still saved under its v1 key.
+    private String currentSubscribedTopic = "";
 
     private String lastReceivedPayload = "";
     private String lastStatus = "Ready";
@@ -268,6 +276,7 @@ public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
     @Override
     protected void saveAdditional(ValueOutput output) {
         super.saveAdditional(output);
+        output.putString("currentSubscribedTopic", this.currentSubscribedTopic);
         output.putString("lastReceivedPayload", this.lastReceivedPayload);
         output.putString("lastStatus", this.lastStatus);
         output.putLong("lastExecutionTime", this.lastExecutionTime);
@@ -276,6 +285,9 @@ public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
     @Override
     protected void loadAdditional(ValueInput input) {
         super.loadAdditional(input);
+        // The slots decide the topic. A block loading with its chunk has no level yet and subscribes from setLevel;
+        // a live one (data replaced by a command) moves its subscription at once.
+        updateSubscription(getCombinedTopic());
         this.lastReceivedPayload = input.getString("lastReceivedPayload").orElse("");
         this.lastStatus = input.getString("lastStatus").orElse("Ready");
         this.lastExecutionTime = input.getLong("lastExecutionTime").orElse(0L);
@@ -310,9 +322,50 @@ public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
         return success;
     }
 
+    /** Chunk load and placement: the first moment the block entity knows its level. */
     @Override
-    protected boolean listens() {
-        return MineQTTConfig.blockPlacerEnabled && super.listens();
+    public void setLevel(Level level) {
+        super.setLevel(level);
+        resubscribe();
+    }
+
+    /** A block entity added back to its chunk after a removal. */
+    @Override
+    public void clearRemoved() {
+        super.clearRemoved();
+        resubscribe();
+    }
+
+    /** Unload or removal. The topic is kept, so a block entity added back to its chunk subscribes it again. */
+    @Override
+    public void setRemoved() {
+        super.setRemoved();
+        if (!currentSubscribedTopic.isEmpty()) {
+            LegacySubscriptionFacade.unsubscribe(currentSubscribedTopic, this);
+        }
+    }
+
+    /** Whether the block subscribes its topic: while it has one and the server enables the block placer. */
+    private boolean listens() {
+        return MineQTTConfig.blockPlacerEnabled && isEnabled();
+    }
+
+    private void updateSubscription(String newCombinedTopic) {
+        if (newCombinedTopic.equals(currentSubscribedTopic)) return;
+        if (!currentSubscribedTopic.isEmpty()) {
+            LegacySubscriptionFacade.unsubscribe(currentSubscribedTopic, this);
+        }
+        currentSubscribedTopic = newCombinedTopic;
+        if (listens() && !newCombinedTopic.isEmpty()) {
+            LegacySubscriptionFacade.subscribe(newCombinedTopic, this);
+        }
+    }
+
+    /** Subscribes the current topic again; subscribing a topic the block already has does nothing. */
+    private void resubscribe() {
+        if (listens() && !currentSubscribedTopic.isEmpty()) {
+            LegacySubscriptionFacade.subscribe(currentSubscribedTopic, this);
+        }
     }
 
     @Override
@@ -346,7 +399,7 @@ public class BlockEmitterBlockEntity extends MqttSubscriberBlockEntity {
         if (placerEnabled) {
             resubscribe();
         } else if (!currentSubscribedTopic.isEmpty()) {
-            SubscriptionManager.unsubscribe(currentSubscribedTopic, this);
+            LegacySubscriptionFacade.unsubscribe(currentSubscribedTopic, this);
         }
         setLastStatus(placerEnabled ? "Ready" : DISABLED_STATUS);
     }

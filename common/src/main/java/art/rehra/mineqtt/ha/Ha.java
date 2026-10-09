@@ -14,9 +14,9 @@ public final class Ha {
     private Ha() {
     }
 
-    /** A JSON-schema light with on/off only; add brightness and colour modes with its modifiers. */
+    /** A JSON-schema light with on/off only; add brightness, colour modes and effects with its modifiers. */
     public static HaEntity.Light light(String key, Field<?> field) {
-        return new HaEntity.Light(HaEntity.Meta.of(key), field, false, List.of("onoff"), 2000, 6500);
+        return new HaEntity.Light(HaEntity.Meta.of(key), field, false, List.of("onoff"), 2000, 6500, List.of());
     }
 
     /** A switch over a field; set its values with {@code .on(...)} and {@code .off(...)}. */
@@ -61,8 +61,11 @@ public final class Ha {
         return new HaEntity.Notify(HaEntity.Meta.of(key));
     }
 
-    /** A device trigger keyed {@code <type>_<subtype>}. */
-    public static HaEntity.DeviceTrigger deviceTrigger(String type, String subtype) {
-        return new HaEntity.DeviceTrigger(HaEntity.Meta.of(type + "_" + subtype), type, subtype);
+    /**
+     * A device trigger keyed {@code <type>_<subtype>}, fired by the declared event {@code event} whose attribute
+     * {@code attribute} is the subtype.
+     */
+    public static HaEntity.DeviceTrigger deviceTrigger(String type, String subtype, String event, String attribute) {
+        return new HaEntity.DeviceTrigger(HaEntity.Meta.of(type + "_" + subtype), type, subtype, event, attribute);
     }
 }

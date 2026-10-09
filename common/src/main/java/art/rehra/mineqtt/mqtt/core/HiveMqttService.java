@@ -30,6 +30,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -60,6 +61,8 @@ import java.util.concurrent.atomic.AtomicLong;
  *     (unless its policy drops it); one the broker refuses is dropped and counted.</li>
  *     <li>A message's {@link Outbound#onAcknowledged() acknowledgement listener} is queued when the broker acknowledges
  *     it and runs during the next drain, after the connect listeners.</li>
+ *     <li>Whatever queues work for the next drain (a message, a local copy, a CONNACK, an acknowledgement) tells the
+ *     {@link #onInboundAvailable inbound listener}, once until the next drain starts.</li>
  * </ul>
  */
 public final class HiveMqttService implements MqttService {
@@ -170,6 +173,9 @@ public final class HiveMqttService implements MqttService {
     private final AtomicLong oversizedInbound = new AtomicLong();
     private final AtomicLong receivedFromBroker = new AtomicLong();
     private final LogLimiter logLimiter = new LogLimiter();
+    private volatile Runnable inboundListener;
+    // Set when the inbound listener was told, cleared when a drain starts: one call per burst.
+    private final AtomicBoolean wakePending = new AtomicBoolean();
 
     private HiveMqttService(MqttLog log, Options options, BrokerConfig config, ConnectionState initial) {
         this.log = log;
@@ -247,8 +253,24 @@ public final class HiveMqttService implements MqttService {
     }
 
     @Override
+    public void onInboundAvailable(Runnable listener) {
+        inboundListener = listener;
+        // The connection starts before anyone can set a listener, so its CONNACK may already be waiting.
+        if (inbound.size() > 0 || pendingConnects.get() > 0 || !acknowledged.isEmpty()) inboundQueued();
+    }
+
+    @Override
+    public boolean hasPendingWork() {
+        if (stopped) return false;
+        return inbound.size() > 0 || pendingConnects.get() > 0 || !acknowledged.isEmpty()
+                || outbound.hasWork(client != null && state.isConnected());
+    }
+
+    @Override
     public void drainInbound(long budgetNanos, int maxMessages) {
         if (stopped) return;
+        // Cleared first, so work queued while this drain runs tells the listener again.
+        wakePending.set(false);
         if (pendingConnects.getAndSet(0) > 0) {
             outbound.onConnected();
             for (Runnable listener : connectListeners) {
@@ -301,6 +323,7 @@ public final class HiveMqttService implements MqttService {
             await(client.disconnect(), "disconnect", deadline);
         }
         state = ConnectionState.STOPPED;
+        inboundListener = null;
         inbound.clear();
         outbound.clear();
         acknowledged.clear();
@@ -378,6 +401,7 @@ public final class HiveMqttService implements MqttService {
             if (!table.isEmpty()) sendSubscribe(table);
         }
         pendingConnects.incrementAndGet();
+        inboundQueued();
         log.info("Connected to MQTT broker " + config.redacted());
         if (config.tls() && config.insecureSkipVerify()) {
             log.warn("Connected WITHOUT TLS certificate verification (insecureSkipVerify)");
@@ -496,7 +520,10 @@ public final class HiveMqttService implements MqttService {
         if (copies > 0) echoes.record(msg.topic(), msg.payload(), msg.origin(), copies);
         client.publish(msg).whenComplete((ignored, error) -> {
             if (error == null) {
-                if (msg.onAcknowledged() != null && !stopped) acknowledged.add(msg.onAcknowledged());
+                if (msg.onAcknowledged() != null && !stopped) {
+                    acknowledged.add(msg.onAcknowledged());
+                    inboundQueued();
+                }
                 return;
             }
             if (isConnectionLoss(error)) {
@@ -722,6 +749,18 @@ public final class HiveMqttService implements MqttService {
         // The sequence number and the queue position are taken together, so seq order is delivery order.
         synchronized (enqueueLock) {
             inbound.offer(new Delivery(new Inbound(topic, payload, retained, local, origin, nextSeq++), route, session));
+        }
+        inboundQueued();
+    }
+
+    /** Any thread: tells the inbound listener, unless it was told since the last drain started. */
+    private void inboundQueued() {
+        Runnable listener = inboundListener;
+        if (listener == null || !wakePending.compareAndSet(false, true)) return;
+        try {
+            listener.run();
+        } catch (RuntimeException e) {
+            log.error("MQTT inbound listener failed", e);
         }
     }
 

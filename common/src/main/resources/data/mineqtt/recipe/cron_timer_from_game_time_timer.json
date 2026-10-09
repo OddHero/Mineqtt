@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "redstone",
+  "group": "mineqtt_timer",
+  "ingredients": [
+    "mineqtt:game_time_timer"
+  ],
+  "result": {
+    "id": "mineqtt:cron_timer"
+  }
+}

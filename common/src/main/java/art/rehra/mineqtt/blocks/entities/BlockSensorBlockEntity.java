@@ -20,7 +20,11 @@ import net.minecraft.world.level.storage.ValueOutput;
 
 import java.util.List;
 
-public class BlockSensorBlockEntity extends MqttPublisherBlockEntity {
+/**
+ * Publishes the block in front of it to its v1 topic through the {@link LegacySubscriptionFacade}, with v1's flags (QoS
+ * 0, not retained, dropped while the broker is unreachable).
+ */
+public class BlockSensorBlockEntity extends BaseMqttBlockEntity {
     private DataMode dataMode = DataMode.FULL_DATA;
     private BlockState observedState;
     private BlockPos observedPos;
@@ -129,6 +133,13 @@ public class BlockSensorBlockEntity extends MqttPublisherBlockEntity {
 
     public void requestObservation() {
         observationRequested = true;
+    }
+
+    private void publish(String message) {
+        String topic = getCombinedTopic();
+        if (isEnabled() && !topic.isEmpty()) {
+            LegacySubscriptionFacade.publish(level, worldPosition, topic, message);
+        }
     }
 
     @Override

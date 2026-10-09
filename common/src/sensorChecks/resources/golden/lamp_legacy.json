@@ -1,6 +1,6 @@
 {
   "dev": {
-    "ids": ["mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566"],
+    "ids": ["mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566", "home_kitchen"],
     "name": "Kitchen",
     "mf": "MineQTT",
     "mdl": "Smart Lamp",
@@ -29,6 +29,9 @@
       "color_temp_kelvin": true,
       "min_kelvin": 2000,
       "max_kelvin": 6500,
+      "effect": true,
+      "effect_list": ["off", "pulse", "candle"],
+      "flash": false,
       "retain": false
     },
     "light_level": {

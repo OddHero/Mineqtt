@@ -23,6 +23,7 @@ final class StateThrottle {
         SKIP
     }
 
+    private static final double BAND_TOLERANCE = 1e-9;
     private final long minIntervalMillis;
     private final Map<String, Double> deadbands;
     private JsonObject published;
@@ -60,6 +61,11 @@ final class StateThrottle {
         return state;
     }
 
+    /** Whether a state waits for its interval's end. */
+    boolean hasDeferred() {
+        return deferred != null;
+    }
+
     /** A state published regardless of the limits, e.g. the full republish after a reconnect. */
     void markPublished(JsonObject state, long nowMillis) {
         published = state;
@@ -76,7 +82,8 @@ final class StateThrottle {
             if (before != null && before.equals(now)) continue;
             Double band = deadbands.get(key);
             if (band == null || !isNumber(before) || !isNumber(now)) return false;
-            if (Math.abs(before.getAsDouble() - now.getAsDouble()) >= band) return false;
+            // A tolerance for binary fractions: 20.2 - 20.0 is 0.19999999999999929, a change of a 0.2 band all the same.
+            if (Math.abs(before.getAsDouble() - now.getAsDouble()) >= band - BAND_TOLERANCE) return false;
         }
         return true;
     }

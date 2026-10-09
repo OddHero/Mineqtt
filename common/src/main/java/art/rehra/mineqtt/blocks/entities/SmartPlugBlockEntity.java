@@ -1,155 +1,148 @@
 package art.rehra.mineqtt.blocks.entities;
 
-import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.SmartPlugBlock;
-import art.rehra.mineqtt.legacy.LegacySubscriptionFacade;
-import art.rehra.mineqtt.ui.framework.MqttTab;
-import art.rehra.mineqtt.ui.framework.tabs.PublisherValuesTab;
+import art.rehra.mineqtt.device.CommandReader;
+import art.rehra.mineqtt.device.CommandResult;
+import art.rehra.mineqtt.device.CommandSource;
+import art.rehra.mineqtt.device.CommonFields;
+import art.rehra.mineqtt.device.DeviceLink;
+import art.rehra.mineqtt.device.DeviceType;
+import art.rehra.mineqtt.device.StateWriter;
+import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.SmartPlug.Plug;
+import art.rehra.mineqtt.legacy.LegacyNbtV1;
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.GlobalPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
 
-import java.util.List;
+import java.util.Optional;
 
 import static art.rehra.mineqtt.blocks.SmartPlugBlock.POWER;
 
-public class SmartPlugBlockEntity extends MqttSubscriberBlockEntity {
-
-    private int currentPower = 0;
+/**
+ * The Smart Plug ({@link SmartPlug}): on or off as Home Assistant, its group, its Raw Link or a right-click set it. Its
+ * state is in the {@code mineqtt} compound, and the block's {@code power} property follows it; v1 data, which only had
+ * that property, is read on load and adopted when the device attaches. Clients get no render data: the block state
+ * shows whether it is on.
+ */
+public class SmartPlugBlockEntity extends DeviceBlockEntity {
+    private final DeviceLink link = new DeviceLink(SmartPlug.TYPE);
+    private Plug plug;
 
     public SmartPlugBlockEntity(BlockPos pos, BlockState blockState) {
         super(MineqttBlockEntityTypes.SMART_PLUG_BLOCK_ENTITY.get(), pos, blockState);
+        this.plug = Plug.ofPower(blockState.getValue(POWER));
     }
 
     @Override
-    protected String getDefaultTopic() {
-        return "/mineqtt/smartplug";
+    public DeviceType deviceType() {
+        return SmartPlug.TYPE;
     }
 
     @Override
-    protected Component getDefaultName() {
-        return Component.translatable("container.mineqtt.smart_plug");
+    public DeviceLink deviceLink() {
+        return link;
     }
 
     @Override
-    public List<MqttTab> getTabs() {
-        List<MqttTab> tabs = super.getTabs();
-        tabs.add(new PublisherValuesTab());
-        return tabs;
+    public void writeState(StateWriter out) {
+        plug.write(out).put(CommonFields.LOCATION, GlobalPos.of(level.dimension(), worldPosition));
     }
 
     @Override
-    public void onMessageReceived(String topic, String message) {
-        if (this.level == null) {
-            return;
-        }
-
-        ItemStack onStack = getItem(2);
-        ItemStack offStack = getItem(3);
-
-        String customOn = onStack.isEmpty() ? null : parseItemStackTopic(onStack);
-        String customOff = offStack.isEmpty() ? null : parseItemStackTopic(offStack);
-
-        int newPower = -1;
-
-        if (customOn != null || customOff != null) {
-            if (message.equals(customOn)) {
-                newPower = 15;
-            } else if (message.equals(customOff)) {
-                newPower = 0;
-            }
-        }
-
-        if (newPower == -1) {
-            if (message.equalsIgnoreCase("ON") || message.equalsIgnoreCase("TRUE") || message.equals("1")) {
-                newPower = 15;
-            } else if (message.equalsIgnoreCase("OFF") || message.equalsIgnoreCase("FALSE") || message.equals("0")) {
-                newPower = 0;
-            } else if (message.equalsIgnoreCase("TOGGLE")) {
-                newPower = currentPower > 0 ? 0 : 15;
-            }
-        }
-
-        if (newPower != -1) {
-            setPower(newPower);
-        }
+    public CommandResult applyCommand(CommandReader in, CommandSource source) {
+        Optional<Plug> next = plug.apply(in);
+        if (next.isEmpty()) return CommandResult.rejected("not a plug command: " + in.keys());
+        if (next.get().equals(plug)) return CommandResult.unchanged();
+        setPlug(next.get());
+        return CommandResult.applied();
     }
 
-    private void setPower(int newPower) {
-        if (this.level == null) {
-            return;
-        }
-
-        BlockState currentStateBlock = this.level.getBlockState(this.worldPosition);
-        if (currentStateBlock.hasProperty(POWER) && currentStateBlock.getValue(POWER) != newPower) {
-            BlockState newStateBlock = currentStateBlock.setValue(POWER, newPower);
-            this.level.setBlock(this.worldPosition, newStateBlock, Block.UPDATE_ALL);
-            if (this.level.getBlockState(this.worldPosition).getBlock() instanceof SmartPlugBlock plugBlock) {
-                plugBlock.updateNeighbors(this.level, this.worldPosition, newStateBlock);
-            }
-            this.currentPower = newPower;
-
-            // Publish state change
-            publishState(newPower);
-        }
+    @Override
+    public void powerOn() {
+        Plug next = plug.poweredOn();
+        if (!next.equals(plug)) setPlug(next);
     }
 
-    private void publishState(int power) {
-        if (!isEnabled()) {
-            return;
-        }
+    /** As in v1, taking the topic away switches the plug off. */
+    @Override
+    public void rawRemoved() {
+        if (!plug.on()) return;
+        setPlug(new Plug(false, plug.powerOn()));
+        link.stateChanged(this);
+    }
 
-        String combinedTopic = getCombinedTopic();
-        if (combinedTopic.isEmpty()) {
-            return;
-        }
+    @Override
+    protected void saveDevice(ValueOutput output) {
+        savePlug(link, plug, output);
+    }
 
-        ItemStack onStack = getItem(2);
-        ItemStack offStack = getItem(3);
+    @Override
+    protected void loadDevice(ValueInput input) {
+        plug = loadPlug(link, input, getBlockState().getValue(POWER));
+    }
 
-        String message;
-        if (power > 0 && !onStack.isEmpty()) {
-            message = parseItemStackTopic(onStack);
-        } else if (power == 0 && !offStack.isEmpty()) {
-            message = parseItemStackTopic(offStack);
+    /** A placed copy keeps its power-on behaviour and is off. */
+    @Override
+    protected void placedCopy() {
+        setPlug(plug.placed());
+    }
+
+    /**
+     * A plug's data: the link with the plug as its {@code state}, or v1's keys while its v1 data waits for adoption, so
+     * it is still v1 data when it loads again.
+     */
+    public static void savePlug(DeviceLink link, Plug state, ValueOutput output) {
+        if (link.awaitingAdoption()) {
+            link.saveV1(output);
+            LegacyNbtV1.writeSubscribed(output, link.pendingV1().combinedTopic());
         } else {
-            message = power > 0 ? "ON" : "OFF";
+            link.save(output).store("state", Plug.CODEC, state);
         }
-
-        LegacySubscriptionFacade.publish(level, worldPosition, combinedTopic, message);
     }
 
-    public static class Ticker<T extends BlockEntity> implements BlockEntityTicker<T> {
+    /**
+     * Loads a plug's link and returns its state; v1 data, also a placed v1 item's, is kept for adoption and only had the
+     * level of its block.
+     *
+     * @param blockPower the {@code power} property of the block
+     */
+    public static Plug loadPlug(DeviceLink link, ValueInput input, int blockPower) {
+        return link.load(input, LegacyNbtV1.hasSubscribedKeys(input))
+                .map(data -> data.read("state", Plug.CODEC).orElse(Plug.DEFAULT))
+                .orElseGet(() -> Plug.ofPower(blockPower));
+    }
+
+    private void setPlug(Plug next) {
+        plug = next;
+        setChanged();
+        updatePower();
+    }
+
+    // The block emits the plug's level; changing it keeps this block entity.
+    private void updatePower() {
+        if (level == null) return;
+        BlockState state = getBlockState();
+        if (state.getBlock() instanceof SmartPlugBlock plugBlock && state.getValue(POWER) != plug.power()) {
+            BlockState powered = state.setValue(POWER, plug.power());
+            level.setBlock(worldPosition, powered, Block.UPDATE_ALL);
+            plugBlock.updateNeighbors(level, worldPosition, powered);
+        }
+    }
+
+    /** The block's level. */
+    public static class ServerTicker<T extends BlockEntity> implements BlockEntityTicker<T> {
         @Override
-        public void tick(Level level, BlockPos blockPos, BlockState blockState, T blockEntity) {
-            if (blockEntity instanceof SmartPlugBlockEntity plugBlockEntity) {
-                String newCombinedTopic = plugBlockEntity.getCombinedTopic();
-
-                boolean topicChanged = !newCombinedTopic.equals(plugBlockEntity.topic);
-
-                if (topicChanged) {
-                    plugBlockEntity.setTopic(newCombinedTopic);
-                    plugBlockEntity.updateSubscription(newCombinedTopic);
-
-                    if (!plugBlockEntity.isEnabled()) {
-                        BlockState currentState = level.getBlockState(blockPos);
-                        if (currentState.hasProperty(POWER) && currentState.getValue(POWER) > 0) {
-                            BlockState newState = currentState.setValue(POWER, 0);
-                            level.setBlock(blockPos, newState, Block.UPDATE_ALL);
-                            if (level.getBlockState(blockPos).getBlock() instanceof SmartPlugBlock plugBlock) {
-                                plugBlock.updateNeighbors(level, blockPos, newState);
-                            }
-                            plugBlockEntity.currentPower = 0;
-                            MineQTT.LOGGER.info("SmartPlugBlockEntity disabled - no base path item in first slot");
-                        }
-                    }
-                }
-            }
+        public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
+            if (!(blockEntity instanceof SmartPlugBlockEntity plug) || level.isClientSide()) return;
+            // Item data, or a state set while the block was another one, is applied once the block is in the world.
+            if (state.getValue(POWER) != plug.plug.power()) plug.updatePower();
         }
     }
 }

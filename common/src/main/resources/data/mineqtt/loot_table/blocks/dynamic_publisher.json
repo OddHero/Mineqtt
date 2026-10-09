@@ -6,7 +6,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "mineqtt:dynamic_publisher"
+          "name": "mineqtt:network_chip"
         }
       ],
       "conditions": [

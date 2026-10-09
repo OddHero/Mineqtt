@@ -24,6 +24,7 @@ import java.util.List;
 public class GameTimeTimerTabView implements MqttTabView {
 
     private static final int CONTENT_W = TabbedMqttMenu.GUI_WIDTH - 16;
+    private static final int LINE_PITCH = 10;
     private final TabbedMqttScreen screen;
     private final List<net.minecraft.client.gui.components.AbstractWidget> widgets = new ArrayList<>();
 
@@ -61,7 +62,7 @@ public class GameTimeTimerTabView implements MqttTabView {
 
         // Trigger mode selector buttons
         int btnW = (CONTENT_W - 12) / 5;
-        int btnH = 20;
+        int btnH = 16;
 
         btnSunrise = createModeButton(0, "mineqtt.game_time_timer.mode.sunrise", guiLeft + 8, inputY, btnW, btnH);
         btnNoon = createModeButton(1, "mineqtt.game_time_timer.mode.noon", guiLeft + 8 + btnW + 3, inputY, btnW, btnH);
@@ -78,7 +79,7 @@ public class GameTimeTimerTabView implements MqttTabView {
         updateModeButtons();
 
         // Custom time input field (below mode buttons)
-        int customY = inputY + btnH + 6;
+        int customY = inputY + btnH + 4;
         int inputW = CONTENT_W - 80;
         int inputH = 14;
 
@@ -177,7 +178,7 @@ public class GameTimeTimerTabView implements MqttTabView {
     @Override
     public void renderContent(GuiGraphicsExtractor g, int guiLeft, int guiTop, int mouseX, int mouseY, float partialTick) {
         int x = guiLeft + 8;
-        int y = guiTop + 60; // Below the mode buttons and custom input
+        int y = guiTop + 56; // Below the mode buttons and custom input; the last line ends above the inventory label
 
         TabbedMqttMenu menu = screen.getMenu();
         var level = menu.player.level();
@@ -193,7 +194,7 @@ public class GameTimeTimerTabView implements MqttTabView {
             Component timeComp = Component.translatable("mineqtt.game_time_timer.time")
                     .append(": " + timeStr + " (tick " + timeOfDay + ")");
             GuiText.drawTruncated(g, timeComp, x, y, CONTENT_W, 0xFFAAAAAA, mouseX, mouseY);
-            y += 12;
+            y += LINE_PITCH;
 
             // Trigger mode display
             var be = level.getBlockEntity(menu.blockPos);
@@ -202,30 +203,27 @@ public class GameTimeTimerTabView implements MqttTabView {
                 int targetTicks = gameTimeBe.getTargetTicks();
                 String targetStr = GameTimeTimerBlockEntity.formatGameTime(targetTicks);
 
-                y += 4;
                 Component modeComp = Component.translatable("mineqtt.game_time_timer.mode")
                         .append(": ")
                         .append(Component.translatable(getModeTranslationKey(mode)))
                         .append(" (tick " + targetTicks + " / " + targetStr + ")");
                 GuiText.drawTruncated(g, modeComp, x, y, CONTENT_W, 0xFFAAAAAA, mouseX, mouseY);
-                y += 12;
+                y += LINE_PITCH;
 
-                // Next trigger countdown
-                long remaining = gameTimeBe.getRemainingTicks(level);
-                String remainingStr = formatRemaining(remaining);
-                Component countdownComp = Component.translatable("mineqtt.game_time_timer.countdown")
-                        .append(": " + remainingStr + " (" + remaining + " ticks)");
-                GuiText.drawTruncated(g, countdownComp, x, y, CONTENT_W, 0xFF888888, mouseX, mouseY);
-                y += 12;
-
-                // Validation error
-                if (!this.validationError.isEmpty()) {
+                // Next trigger countdown, or in its place why the typed custom time is not taken
+                if (this.validationError.isEmpty()) {
+                    long remaining = gameTimeBe.getRemainingTicks(level);
+                    String remainingStr = formatRemaining(remaining);
+                    Component countdownComp = Component.translatable("mineqtt.game_time_timer.countdown")
+                            .append(": " + remainingStr + " (" + remaining + " ticks)");
+                    GuiText.drawTruncated(g, countdownComp, x, y, CONTENT_W, 0xFF888888, mouseX, mouseY);
+                } else {
                     Component errorComp = Component.translatable("mineqtt.game_time_timer.error")
                             .append(": ")
                             .append(Component.translatable(this.validationError));
                     GuiText.drawTruncated(g, errorComp, x, y, CONTENT_W, 0xFFFF5555, mouseX, mouseY);
-                    y += 12;
                 }
+                y += LINE_PITCH;
 
                 // Power status
                 var state = level.getBlockState(menu.blockPos);

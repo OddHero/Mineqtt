@@ -5,6 +5,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.util.Util;
 import net.minecraft.world.level.storage.LevelResource;
 import org.jetbrains.annotations.Nullable;
 
@@ -19,6 +20,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.function.LongSupplier;
 import java.util.random.RandomGenerator;
 
 /**
@@ -27,6 +29,10 @@ import java.util.random.RandomGenerator;
  * <ul>
  *     <li>Saving writes {@code devices.nbt.tmp}, keeps the current file as {@code devices.nbt.bak} and moves the new
  *     one into place atomically, so a crash leaves either the new file or the previous one.</li>
+ *     <li>A dirty registry is saved with the overworld (autosave, {@code /save-all}) and when the server stops. A
+ *     structural change is saved at the end of its tick, at most once a second (M2 plan D7), so a device whose chunk
+ *     unloads right after it was placed is still known after a crash. A failed one is tried again a second later. Until
+ *     the level save, it keeps the devices broken since the last one, whose chunks may still hold their blocks.</li>
  *     <li>Loading reads {@code devices.nbt}, else the backup. An unreadable file (I/O or format error, wrong layout)
  *     is renamed to {@code devices.nbt.corrupt-<time>} and never overwritten. When nothing is readable, a new
  *     registry with a new bridge identity is started and saved at once; the devices register again from their block
@@ -40,21 +46,38 @@ public final class RegistryStore {
     public static final String FILE_NAME = "devices.nbt";
     /** Used when the level name has no topic-safe characters at all. */
     static final String FALLBACK_NAME = "world";
+    /** The shortest time between a save and the save of a structural change that follows it. */
+    static final long STRUCTURE_SAVE_INTERVAL_MILLIS = 1_000;
     private static final DateTimeFormatter QUARANTINE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private final Path dir;
     private final Path file;
     private final Path backup;
     private final Path temp;
+    private final LongSupplier millis;
+    // When a structural change may be saved again: one interval after the last save or failed attempt, whatever
+    // triggered it.
+    private long structureSaveDueMillis = Long.MIN_VALUE;
     // Why nothing is saved: a file that saving would replace must stay (unreadable and not moved aside, or newer).
     private @Nullable String saveBlocked;
     private boolean saveBlockedLogged;
+    // Set when the registry came from the backup, one save older than the file it replaces.
+    private boolean restoredFromBackup;
+    // The error of the last save when it failed: a structural save is tried again every second, so the same error is
+    // logged once, and then the save that works again.
+    private @Nullable String saveFailure;
 
     public RegistryStore(Path dir) {
+        this(dir, Util::getMillis);
+    }
+
+    /** @param millis a monotonic clock in milliseconds, which throttles the saves of structural changes */
+    public RegistryStore(Path dir, LongSupplier millis) {
         this.dir = dir;
         this.file = dir.resolve(FILE_NAME);
         this.backup = dir.resolve(FILE_NAME + ".bak");
         this.temp = dir.resolve(FILE_NAME + ".tmp");
+        this.millis = millis;
     }
 
     /** The store of a server's world, next to the v1 topic states in {@code data/mineqtt}. */
@@ -93,6 +116,7 @@ public final class RegistryStore {
             DeviceRegistry registry = decode(backup, tag);
             if (registry != null) {
                 MineQTT.LOGGER.warn("Restored the MineQTT device registry from its backup {}", backup);
+                restoredFromBackup = true;
                 // Rewrite the main file, so the next save keeps this good copy as the backup.
                 registry.markDirty();
                 return registry;
@@ -116,29 +140,70 @@ public final class RegistryStore {
     }
 
     /**
-     * Writes the registry atomically and keeps the previous file as the backup.
+     * The end of a tick: writes the registry when its structure changed and the last save is at least a second ago, so
+     * a run of changes is saved once a second while it lasts. The devices broken since the last level save are written
+     * too ({@link DeviceRegistry#encodeKeepingBroken()}). A failed save keeps the change pending, so it is tried again a
+     * second later.
+     */
+    public void saveStructure(DeviceRegistry registry) {
+        if (!structureSavePending(registry) || millis.getAsLong() < structureSaveDueMillis) return;
+        write(registry, true);
+    }
+
+    /**
+     * Why this run's registry may lack devices that exist, or null when it holds every device the world saved: nothing
+     * is saved (a file of a newer schema, or an unreadable one that could not be moved aside), or it was restored from
+     * the backup, which misses the devices added by the last save. Nothing is deleted for not being in such a registry
+     * (the ghost cleanup).
+     */
+    public @Nullable String incompleteReason() {
+        if (saveBlocked != null) return "it is not saved: " + saveBlocked;
+        return restoredFromBackup ? "it was restored from its backup, which is one save old" : null;
+    }
+
+    /** Whether {@link #saveStructure} still has a structural change to write, now or once the interval has passed. */
+    public boolean structureSavePending(DeviceRegistry registry) {
+        return registry.structureChanged() && saveBlocked == null;
+    }
+
+    /**
+     * Writes the registry atomically and keeps the previous file as the backup. This is the level save: the devices
+     * broken before it are left out from now on.
      *
-     * @return false when it could not be written; the error is logged
+     * @return false when it could not be written; the error is logged unless it is the one the last save failed with
      */
     public boolean save(DeviceRegistry registry) {
+        return write(registry, false);
+    }
+
+    private boolean write(DeviceRegistry registry, boolean keepBroken) {
         if (saveBlocked != null) {
             if (!saveBlockedLogged) MineQTT.LOGGER.error("Not saving the MineQTT device registry to {}: {}", file, saveBlocked);
             saveBlockedLogged = true;
             return false;
         }
+        structureSaveDueMillis = millis.getAsLong() + STRUCTURE_SAVE_INTERVAL_MILLIS;
         try {
             Files.createDirectories(dir);
-            CompoundTag tag = registry.encode();
+            CompoundTag tag = keepBroken ? registry.encodeKeepingBroken() : registry.encode();
             NbtIo.writeCompressed(tag, temp);
             try (FileChannel channel = FileChannel.open(temp, StandardOpenOption.WRITE)) {
                 channel.force(true);
             }
             if (Files.exists(file)) move(file, backup);
             move(temp, file);
-            registry.markSaved();
+            if (keepBroken) {
+                registry.markStructureSaved();
+            } else {
+                registry.markSaved();
+            }
+            if (saveFailure != null) MineQTT.LOGGER.info("Saved the MineQTT device registry to {} again", file);
+            saveFailure = null;
             return true;
         } catch (IOException | RuntimeException e) {
-            MineQTT.LOGGER.error("Could not save the MineQTT device registry to {}", file, e);
+            String failure = e.toString();
+            if (!failure.equals(saveFailure)) MineQTT.LOGGER.error("Could not save the MineQTT device registry to {}", file, e);
+            saveFailure = failure;
             return false;
         }
     }

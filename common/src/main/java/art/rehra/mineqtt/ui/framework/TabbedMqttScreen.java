@@ -1,6 +1,8 @@
 package art.rehra.mineqtt.ui.framework;
 
 import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.ui.console.ConsoleMenu;
+import art.rehra.mineqtt.ui.device.DeviceMenu;
 import dev.architectury.networking.NetworkManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -16,6 +18,7 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Generic screen for any block backed by {@link TabbedMqttMenu}.
@@ -24,9 +27,14 @@ import java.util.List;
  * (styled after the creative-menu category bar). Each button renders the
  * {@link MqttTab#icon()} item; clicking switches to that tab. The currently
  * selected tab's {@link MqttTabView} renders its content + handles input.</p>
+ *
+ * <p>The panel's title row names the device on a device's screen and the active tab on any other. The panel is as
+ * tall as the menu says ({@link TabbedMqttMenu#guiHeight()}): with the player's inventory and its label below the tab's
+ * content, or without them on a device's screen.</p>
  */
 public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
 
+    /** The widest a tab button gets; more tabs than fit share the panel's width ({@link #tabWidth}). */
     public static final int TAB_W = 28;
     public static final int TAB_H = 32;
     /**
@@ -37,13 +45,32 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
      * Vertical overlap between the tab bar and the GUI background.
      */
     public static final int TAB_OVERLAP = 4;
+    // Vanilla's label colour, opaque: 26.2 reads text colours as ARGB, so one without alpha draws nothing.
+    private static final int LABEL_COLOR = 0xFF404040;
+    private static final int NOTE_COLOR = 0xFF777777;
+    private static final int TITLE_GAP = 4;
     private final List<AbstractWidget> tabViewWidgets = new ArrayList<>();
     private MqttTabView activeView;
     private int lastMouseX = Integer.MIN_VALUE, lastMouseY = Integer.MIN_VALUE;
 
     public TabbedMqttScreen(TabbedMqttMenu menu, Inventory playerInventory, Component title) {
-        super(menu, playerInventory, title, TabbedMqttMenu.GUI_WIDTH, TabbedMqttMenu.GUI_HEIGHT);
+        super(menu, playerInventory, title, TabbedMqttMenu.GUI_WIDTH, menu.guiHeight());
         this.inventoryLabelY = this.imageHeight - 94;
+    }
+
+    /** The panel's left edge on the screen; the tab bar starts there too. */
+    public int getLeftPos() {
+        return leftPos;
+    }
+
+    /** The panel's top edge on the screen; the tab bar sits above it. */
+    public int getTopPos() {
+        return topPos;
+    }
+
+    /** The note the active tab's view puts at the right of the title row ({@link MqttTabView#titleNote()}), if any. */
+    public Optional<Component> titleNote() {
+        return activeView != null ? activeView.titleNote() : Optional.empty();
     }
 
     @Override
@@ -115,8 +142,20 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
         return this.topPos - TAB_H + TAB_OVERLAP;
     }
 
+    /**
+     * The width of each button in a tab bar of {@code tabs} tabs: {@link #TAB_W}, narrower when that many would run past
+     * the panel's right edge, but never narrower than an icon.
+     */
+    public static int tabWidth(int tabs) {
+        return Math.clamp((TabbedMqttMenu.GUI_WIDTH + TAB_SPACING) / Math.max(tabs, 1) - TAB_SPACING, 18, TAB_W);
+    }
+
+    private int tabW() {
+        return tabWidth(this.menu.tabs.size());
+    }
+
     private int tabBoundsX(int index) {
-        return tabBarX() + index * (TAB_W + TAB_SPACING);
+        return tabBarX() + index * (tabW() + TAB_SPACING);
     }
 
     private int tabIndexAt(double mouseX, double mouseY) {
@@ -124,7 +163,7 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
         if (mouseY < by || mouseY >= by + TAB_H) return -1;
         for (int i = 0; i < this.menu.tabs.size(); i++) {
             int bx = tabBoundsX(i);
-            if (mouseX >= bx && mouseX < bx + TAB_W) return i;
+            if (mouseX >= bx && mouseX < bx + tabW()) return i;
         }
         return -1;
     }
@@ -158,20 +197,21 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
             boolean active = tab.id().equals(this.menu.getActiveTabId());
             int bx = tabBoundsX(i);
             int by = tabBarY();
+            int tabW = tabW();
             int innerColor = active ? 0xFFC6C6C6 : 0xFF6E6E6E;
             int outline = active ? 0xFF1F1F1F : 0xFF2A2A2A;
             // Outline
-            g.fill(bx - 1, by - 1, bx + TAB_W + 1, by + TAB_H + 1, outline);
+            g.fill(bx - 1, by - 1, bx + tabW + 1, by + TAB_H + 1, outline);
             // Body
-            g.fill(bx, by, bx + TAB_W, by + TAB_H, innerColor);
+            g.fill(bx, by, bx + tabW, by + TAB_H, innerColor);
             // Hide bottom border on active tab so it blends into the GUI
             if (active) {
-                g.fill(bx, by + TAB_H - 1, bx + TAB_W, by + TAB_H + TAB_OVERLAP, 0xFFC6C6C6);
+                g.fill(bx, by + TAB_H - 1, bx + tabW, by + TAB_H + TAB_OVERLAP, 0xFFC6C6C6);
             }
             // Icon
             ItemStack icon = tab.icon();
             if (!icon.isEmpty()) {
-                int iconX = bx + (TAB_W - 16) / 2;
+                int iconX = bx + (tabW - 16) / 2;
                 int iconY = by + (TAB_H - TAB_OVERLAP - 16) / 2 + 2;
                 g.item(icon, iconX, iconY);
             }
@@ -180,16 +220,30 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
 
     @Override
     protected void extractLabels(GuiGraphicsExtractor g, int mouseX, int mouseY) {
-        MqttTab tab = this.menu.getActiveTab();
-        Component title = tab != null ? tab.title() : this.title;
         // extractLabels is called inside a translated pose (origin = guiLeft,guiTop).
         // Convert the absolute mouse coords to the same local space so tooltips work.
         int localMX = lastMouseX == Integer.MIN_VALUE ? Integer.MIN_VALUE : lastMouseX - this.leftPos;
         int localMY = lastMouseY == Integer.MIN_VALUE ? Integer.MIN_VALUE : lastMouseY - this.topPos;
-        // Centered title — truncated so a long localized name can never overflow the GUI.
-        GuiText.drawCentered(g, title, 0, 6, this.imageWidth, 0x404040, localMX, localMY);
-        // Inventory label — capped to the inventory width.
-        GuiText.drawTruncated(g, this.playerInventoryTitle, 8, this.inventoryLabelY, 9 * 18, 0x404040, localMX, localMY);
+        // The title row: the title at the left as in vanilla, a note of the tab at the right, both truncated to fit.
+        int titleW = this.imageWidth - 2 * this.titleLabelX;
+        Optional<Component> note = titleNote();
+        if (note.isPresent()) {
+            int noteW = Math.min(this.font.width(note.get()), titleW / 3);
+            GuiText.drawRight(g, note.get().getString(), this.titleLabelX + titleW, this.titleLabelY, noteW, NOTE_COLOR, localMX, localMY);
+            titleW -= noteW + TITLE_GAP;
+        }
+        GuiText.drawTruncated(g, screenTitle(), this.titleLabelX, this.titleLabelY, titleW, LABEL_COLOR, localMX, localMY);
+        if (this.menu.hasPlayerInventory()) {
+            GuiText.drawTruncated(g, this.playerInventoryTitle, this.inventoryLabelX, this.inventoryLabelY, 9 * 18, LABEL_COLOR, localMX, localMY);
+        }
+    }
+
+    /** What the title row names: the device for a device's screen, the console for a Bridge Console's, else the active tab. */
+    private Component screenTitle() {
+        if (this.menu instanceof DeviceMenu device) return device.title();
+        if (this.menu instanceof ConsoleMenu) return this.title;
+        MqttTab tab = this.menu.getActiveTab();
+        return tab != null ? tab.title() : this.title;
     }
 
     @Override

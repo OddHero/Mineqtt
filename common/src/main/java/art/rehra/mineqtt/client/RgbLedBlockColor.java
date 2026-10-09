@@ -16,7 +16,8 @@ public class RgbLedBlockColor implements BlockTintSource {
 
     @Override
     public int colorInWorld(BlockState state, BlockAndTintGetter level, BlockPos pos) {
-        // The lamp's 8-bit colour, quantised to its light level (stored in the block entity, not the block state)
+        // The lamp's 8-bit colour, quantised to its light level: the block entity has it from the render update of its
+        // update tag (RenderTag), not from the block state
         if (level != null && pos != null && level.getBlockEntity(pos) instanceof RgbLedBlockEntity ledEntity) {
             return 0xFF000000 | ledEntity.tint();
         }

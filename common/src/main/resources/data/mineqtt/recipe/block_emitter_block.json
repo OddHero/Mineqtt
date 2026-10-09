@@ -1,18 +1,18 @@
 {
   "type": "minecraft:crafting_shaped",
   "category": "redstone",
-  "pattern": [
-    "IRI",
-    "IPI",
-    "III"
-  ],
   "key": {
-    "I": "minecraft:iron_ingot",
+    "D": "minecraft:dispenser",
+    "N": "mineqtt:network_chip",
     "R": "minecraft:redstone",
-    "P": "minecraft:piston"
+    "S": "minecraft:smooth_stone"
   },
+  "pattern": [
+    "SDS",
+    "RNR",
+    "SSS"
+  ],
   "result": {
-    "id": "mineqtt:block_emitter_block",
-    "count": 1
+    "id": "mineqtt:block_emitter_block"
   }
 }

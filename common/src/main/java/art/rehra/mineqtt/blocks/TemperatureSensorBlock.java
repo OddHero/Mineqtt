@@ -19,6 +19,10 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * The Climate Sensor block (the v1 temperature sensor's id), mounted on the face it was placed against. v1 humidity
+ * sensors convert into it and keep their facing ({@link HumiditySensorBlock}).
+ */
 public class TemperatureSensorBlock extends BaseMqttBlock {
 
     public static final EnumProperty<Direction> FACING = BlockStateProperties.FACING;
@@ -70,8 +74,9 @@ public class TemperatureSensorBlock extends BaseMqttBlock {
         return new TemperatureSensorBlockEntity(pos, state);
     }
 
+    /** The server takes the readings; the client has nothing to tick. */
     @Override
     public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
-        return new TemperatureSensorBlockEntity.Ticker<>();
+        return level.isClientSide() ? null : new TemperatureSensorBlockEntity.ServerTicker<>();
     }
 }

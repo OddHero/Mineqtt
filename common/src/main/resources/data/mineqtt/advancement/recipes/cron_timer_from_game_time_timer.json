@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_game_time_timer": {
+      "conditions": {
+        "items": [
+          {
+            "items": "mineqtt:game_time_timer"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "mineqtt:cron_timer_from_game_time_timer"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_game_time_timer"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "mineqtt:cron_timer_from_game_time_timer"
+    ]
+  }
+}

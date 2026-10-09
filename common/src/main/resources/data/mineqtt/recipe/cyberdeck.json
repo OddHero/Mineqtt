@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "A": "minecraft:amethyst_shard",
+    "C": "minecraft:copper_ingot",
+    "N": "mineqtt:network_chip",
+    "S": "minecraft:stick"
+  },
+  "pattern": [
+    " CA",
+    " CN",
+    "S  "
+  ],
+  "result": {
+    "id": "mineqtt:cyberdeck"
+  }
+}
