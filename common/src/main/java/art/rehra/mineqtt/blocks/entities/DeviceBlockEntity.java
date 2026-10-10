@@ -7,12 +7,14 @@ import art.rehra.mineqtt.integrations.MineqttPermission;
 import art.rehra.mineqtt.network.MineqttNetworking;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
 import art.rehra.mineqtt.security.DeviceAccess;
+import art.rehra.mineqtt.ui.device.ControlsTab;
 import art.rehra.mineqtt.ui.device.DeviceMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedScreenHost;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
@@ -176,10 +178,15 @@ public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHos
 
     /**
      * Opens the device's generated screen ({@link DeviceMenu}), whose open data carries its view (M2-7). The player gets
-     * the notices about their devices that waited.
+     * the notices about their devices that waited. A player who may not build (P2) gets its Controls tab alone; for a type
+     * without controls they get no screen, and the action bar tells them why.
      */
     @Override
     public void openScreen(ServerPlayer player) {
+        if (!DeviceAccess.mayBuild(player) && ControlsTab.controls(deviceType()).isEmpty()) {
+            player.sendSystemMessage(Component.translatable("mineqtt.game_mode.no_controls", getBlockState().getBlock().getName()), true);
+            return;
+        }
         MineqttRuntime.current().filter(running -> running.server() == player.level().getServer())
                 .ifPresent(running -> running.devices().deliverNotices(player));
         DeviceMenu.open(player, this);

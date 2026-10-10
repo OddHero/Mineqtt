@@ -14,6 +14,7 @@ import art.rehra.mineqtt.mqtt.core.MqttService;
 import art.rehra.mineqtt.network.MineqttNetworking;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
 import art.rehra.mineqtt.security.AclContext;
+import art.rehra.mineqtt.security.DeviceAccess;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import dev.architectury.registry.menu.MenuRegistry;
 import net.minecraft.commands.CommandSourceStack;
@@ -72,8 +73,9 @@ public final class BridgeConsole {
      */
     public static void act(ServerPlayer player, BridgeAction action) {
         Optional<MineqttRuntime> running = running(player);
-        // The guard asked CONFIGURE, which only operators hold on a console; asked again, as the command asks its op level.
-        if (running.isEmpty() || !AclContext.isOp(player.permissions())) return;
+        // The guard asked CONFIGURE, which only operators who may build hold on a console; asked again, as the command asks
+        // its op level.
+        if (running.isEmpty() || !AclContext.isOp(player.permissions()) || !DeviceAccess.mayBuild(player)) return;
         MineqttRuntime runtime = running.get();
         CommandSourceStack source = player.createCommandSourceStack();
         MineQTT.LOGGER.info("{} ran {} on a Bridge Console", player.getGameProfile().name(), action.key());
@@ -102,15 +104,16 @@ public final class BridgeConsole {
 
     /**
      * The console as a player sees it: the bridge, the devices and groups they may configure (all for an operator, M2
-     * plan §4.2 M2-23), and whether they may run its actions. A spectator configures nothing and runs nothing.
+     * plan §4.2 M2-23), and whether they may run its actions. A player who may not build (P2), a spectator among them,
+     * configures nothing and runs nothing, an operator neither: they see the bridge alone, read-only.
      */
     public ConsoleView view(ServerPlayer player, BlockPos pos) {
-        boolean op = AclContext.isOp(player.permissions());
+        boolean operator = AclContext.isOp(player.permissions()) && DeviceAccess.mayBuild(player);
         DeviceRegistry registry = runtime.registry();
         Predicate<UUID> configures = runtime.devices().configurer(player);
-        List<ConsoleView.DeviceRow> devices = ConsoleView.visibleDevices(registry.records(), op, configures, this::row);
-        List<ConsoleView.GroupRow> groups = ConsoleView.visibleGroups(registry.groups(), op, configures);
-        return ConsoleView.of(pos, bridge(), devices, groups, op && !player.isSpectator());
+        List<ConsoleView.DeviceRow> devices = ConsoleView.visibleDevices(registry.records(), operator, configures, this::row);
+        List<ConsoleView.GroupRow> groups = ConsoleView.visibleGroups(registry.groups(), operator, configures);
+        return ConsoleView.of(pos, bridge(), devices, groups, operator);
     }
 
     private ConsoleView.Bridge bridge() {

@@ -289,6 +289,39 @@ public final class SecurityGuardsCheck {
         check(DeviceAccess.permits(MineqttPermission.USE, AccessMode.PUBLIC, false, false, DeviceAccess.claimTrust(false, never())),
                 "Anyone may still use a public device from another dimension");
         check(AccessMode.DEFAULT == AccessMode.CLAIM, "Devices follow the claim by default");
+        mayNotBuildTable();
+    }
+
+    /**
+     * P2: a player who may not build (adventure mode) only uses MineQTT blocks. They configure nothing, an operator and
+     * the owner neither, without the claim being asked; whether they use a device stays the access mode's decision. A
+     * player who may build is decided as before.
+     */
+    private static void mayNotBuildTable() {
+        for (AccessMode mode : AccessMode.values()) {
+            check(!DeviceAccess.permits(MineqttPermission.CONFIGURE, mode, true, false, false, never()), "An op who may not build may not configure a " + mode + " device");
+            check(!DeviceAccess.permits(MineqttPermission.CONFIGURE, mode, false, true, false, never()), "Nor may its owner who may not build");
+            check(!DeviceAccess.permits(MineqttPermission.CONFIGURE, mode, false, false, false, never()), "Nor anyone else, whatever the claim says");
+            check(DeviceAccess.permits(MineqttPermission.USE, mode, true, false, false, never()) && DeviceAccess.permits(MineqttPermission.USE, mode, false, true, false, never()),
+                    "An op and the owner who may not build still use a " + mode + " device");
+        }
+        check(DeviceAccess.permits(MineqttPermission.USE, AccessMode.PUBLIC, false, false, false, never()), "Anyone who may not build still uses a public device");
+        check(DeviceAccess.permits(MineqttPermission.USE, AccessMode.CLAIM, false, false, false, () -> true)
+                && !DeviceAccess.permits(MineqttPermission.USE, AccessMode.CLAIM, false, false, false, () -> false), "The claim decides who uses a claim device in adventure mode");
+        check(!DeviceAccess.permits(MineqttPermission.USE, AccessMode.PRIVATE, false, false, false, never()), "Nobody else uses a private device in adventure mode");
+        for (MineqttPermission need : MineqttPermission.values()) {
+            for (AccessMode mode : AccessMode.values()) {
+                for (int who = 0; who < 8; who++) {
+                    boolean op = (who & 1) != 0;
+                    boolean owner = (who & 2) != 0;
+                    boolean trust = (who & 4) != 0;
+                    check(DeviceAccess.permits(need, mode, op, owner, true, () -> trust) == DeviceAccess.permits(need, mode, op, owner, () -> trust),
+                            "A player who may build is decided by the access mode alone (" + need + ", " + mode + ", op " + op + ", owner " + owner + ", trusted " + trust + ")");
+                }
+            }
+        }
+        check(DeviceAccess.consolePermits(MineqttPermission.USE, true, false, never()), "An op in adventure mode opens a console");
+        check(!DeviceAccess.consolePermits(MineqttPermission.CONFIGURE, true, false, never()), "but runs none of its actions");
     }
 
     /**
@@ -300,29 +333,15 @@ public final class SecurityGuardsCheck {
      * owner (or a v1 owner name still to resolve) by nobody.
      */
     private static void accessChanges() {
-        for (boolean op : new boolean[]{true, false}) {
-            for (boolean owner : new boolean[]{true, false}) {
-                for (AccessMode mode : AccessMode.values()) {
-                    for (int trust = 0; trust < 4; trust++) {
-                        boolean useTrust = (trust & 1) != 0;
-                        boolean configureTrust = (trust & 2) != 0;
-                        for (boolean mayExpose : new boolean[]{true, false}) {
-                            String who = (op ? "an op" : "a non-op") + (owner ? " owner" : " non-owner") + " of a " + mode + " device (trusted to use: " + useTrust
-                                    + ", to configure: " + configureTrust + ", may expose: " + mayExpose + ")";
-                            DeviceView.Grants grants = DeviceAccess.grants(op, owner, mode, need -> {
-                                check(!op && !owner, "The claim is not asked for " + who);
-                                return need == MineqttPermission.USE ? useTrust : configureTrust;
-                            }, mayExpose);
-                            boolean use = DeviceAccess.permits(MineqttPermission.USE, mode, op, owner, () -> useTrust);
-                            boolean configure = DeviceAccess.permits(MineqttPermission.CONFIGURE, mode, op, owner, () -> configureTrust);
-                            check(grants.equals(new DeviceView.Grants(use, configure, configure && mayExpose, op || owner)), who + " gets " + grants);
-                            for (AccessMode target : AccessMode.values()) {
-                                boolean taken = DeviceConfig.parse(RedstoneOutput.TYPE, "access", new JsonPrimitive(target.getSerializedName()), grants).isSuccess();
-                                check(taken == (op || owner), who + (taken ? " may" : " may not") + " set it " + target);
-                            }
-                            for (DeviceView.Owner owned : DeviceView.Owner.values()) {
-                                check(DeviceAccess.mayClaim(grants, owned) == (owned == DeviceView.Owner.NOBODY && configure),
-                                        who + (owned == DeviceView.Owner.NOBODY ? " claims an ownerless one exactly when configuring" : " claims no owned one"));
+        for (boolean mayBuild : new boolean[]{true, false}) {
+            for (boolean op : new boolean[]{true, false}) {
+                for (boolean owner : new boolean[]{true, false}) {
+                    for (AccessMode mode : AccessMode.values()) {
+                        for (int trust = 0; trust < 4; trust++) {
+                            boolean useTrust = (trust & 1) != 0;
+                            boolean configureTrust = (trust & 2) != 0;
+                            for (boolean mayExpose : new boolean[]{true, false}) {
+                                accessChange(mayBuild, op, owner, mode, useTrust, configureTrust, mayExpose);
                             }
                         }
                     }
@@ -330,11 +349,21 @@ public final class SecurityGuardsCheck {
             }
         }
         // The plan's client check, as a table row: the trusted non-owner may not set private, the owner may.
-        DeviceView.Grants trusted = DeviceAccess.grants(false, false, AccessMode.CLAIM, need -> true, false);
+        DeviceView.Grants trusted = DeviceAccess.grants(false, false, true, AccessMode.CLAIM, need -> true, false);
         check(trusted.configure() && DeviceConfig.parse(RedstoneOutput.TYPE, "access", new JsonPrimitive("private"), trusted).isError(),
                 "A claim-trusted player who configures the device may not set it private");
-        DeviceView.Grants owner = DeviceAccess.grants(false, true, AccessMode.PRIVATE, need -> false, false);
+        DeviceView.Grants owner = DeviceAccess.grants(false, true, true, AccessMode.PRIVATE, need -> false, false);
         check(owner.use() && owner.configure() && owner.access(), "The owner of a private device keeps every right but exposing");
+        // P2: in adventure mode the owner, an operator who may expose devices, and a player the claim trusts only use it.
+        for (AccessMode mode : AccessMode.values()) {
+            DeviceView.Grants adventureOwner = DeviceAccess.grants(false, true, false, mode, need -> false, true);
+            DeviceView.Grants adventureOp = DeviceAccess.grants(true, false, false, mode, need -> false, true);
+            DeviceView.Grants adventureTrusted = DeviceAccess.grants(false, false, false, mode, need -> true, true);
+            DeviceView.Grants usesOnly = new DeviceView.Grants(true, false, false, false);
+            check(adventureOwner.equals(usesOnly) && adventureOp.equals(usesOnly), "In adventure mode the owner and an op only use a " + mode + " device");
+            check(adventureTrusted.equals(new DeviceView.Grants(mode != AccessMode.PRIVATE, false, false, false)),
+                    "and a player the claim trusts uses a " + mode + " device as its access mode says, configuring nothing");
+        }
         UUID steve = UUID.fromString("6a1c0f4e-0b6e-4a43-9d76-2f4f6f0e5a11");
         for (boolean onlineMode : new boolean[]{true, false}) {
             check(DeviceAccess.owner(steve, "Steve", onlineMode) == DeviceView.Owner.KNOWN, "A UUID is a known owner");
@@ -342,6 +371,29 @@ public final class SecurityGuardsCheck {
         }
         check(DeviceAccess.owner(null, "Steve", true) == DeviceView.Owner.NOT_VERIFIED, "An online-mode server has not verified an unresolved v1 name");
         check(DeviceAccess.owner(null, "Steve", false) == DeviceView.Owner.KNOWN, "Without authentication the name stands for its derived UUID");
+    }
+
+    // One row of the matrix: a player who may not build gets USE at most (P2).
+    private static void accessChange(boolean mayBuild, boolean op, boolean owner, AccessMode mode, boolean useTrust, boolean configureTrust, boolean mayExpose) {
+        String who = (op ? "an op" : "a non-op") + (owner ? " owner" : " non-owner") + " of a " + mode + " device (may build: " + mayBuild
+                + ", trusted to use: " + useTrust + ", to configure: " + configureTrust + ", may expose: " + mayExpose + ")";
+        DeviceView.Grants grants = DeviceAccess.grants(op, owner, mayBuild, mode, need -> {
+            check(!op && !owner, "The claim is not asked for " + who);
+            check(mayBuild || need == MineqttPermission.USE, "Nor about configuring for " + who);
+            return need == MineqttPermission.USE ? useTrust : configureTrust;
+        }, mayExpose);
+        boolean use = DeviceAccess.permits(MineqttPermission.USE, mode, op, owner, () -> useTrust);
+        boolean configure = mayBuild && DeviceAccess.permits(MineqttPermission.CONFIGURE, mode, op, owner, () -> configureTrust);
+        boolean access = mayBuild && (op || owner);
+        check(grants.equals(new DeviceView.Grants(use, configure, configure && mayExpose, access)), who + " gets " + grants);
+        for (AccessMode target : AccessMode.values()) {
+            boolean taken = DeviceConfig.parse(RedstoneOutput.TYPE, "access", new JsonPrimitive(target.getSerializedName()), grants).isSuccess();
+            check(taken == access, who + (taken ? " may" : " may not") + " set it " + target);
+        }
+        for (DeviceView.Owner owned : DeviceView.Owner.values()) {
+            check(DeviceAccess.mayClaim(grants, owned) == (owned == DeviceView.Owner.NOBODY && configure),
+                    who + (owned == DeviceView.Owner.NOBODY ? " claims an ownerless one exactly when configuring" : " claims no owned one"));
+        }
     }
 
     /**
@@ -1088,7 +1140,7 @@ public final class SecurityGuardsCheck {
         UUID id = UUID.randomUUID();
         return new DeviceView(BlockPos.ZERO, type.id(), "Garage Output", "garage_output", "Steve", access, expose,
                 new DeviceView.Registration("mineqtt/world", false, Optional.empty()), DeviceView.Grants.ALL, state.toString(), raw, privateMode,
-                "", Optional.empty(), new DeviceView.Ownership(DeviceView.Owner.KNOWN, false), DeviceView.Diagnostics.notRunning(id), 0);
+                "", Optional.empty(), new DeviceView.Ownership(DeviceView.Owner.KNOWN, false), DeviceView.Diagnostics.notRunning(id), 0, false);
     }
 
     /**
@@ -1098,11 +1150,11 @@ public final class SecurityGuardsCheck {
      * and its action payload cross the wire within their caps, and an unknown action is not read as another.
      */
     private static void bridgeConsole() {
-        check(DeviceAccess.consolePermits(MineqttPermission.USE, true, never()), "An operator opens a console without a claim check");
-        check(DeviceAccess.consolePermits(MineqttPermission.USE, false, () -> true), "A player the claim trusts opens a console");
-        check(!DeviceAccess.consolePermits(MineqttPermission.USE, false, () -> false), "One it does not trust does not");
-        check(DeviceAccess.consolePermits(MineqttPermission.CONFIGURE, true, never()), "An operator runs the console's actions");
-        check(!DeviceAccess.consolePermits(MineqttPermission.CONFIGURE, false, never()),
+        check(DeviceAccess.consolePermits(MineqttPermission.USE, true, true, never()), "An operator opens a console without a claim check");
+        check(DeviceAccess.consolePermits(MineqttPermission.USE, false, true, () -> true), "A player the claim trusts opens a console");
+        check(!DeviceAccess.consolePermits(MineqttPermission.USE, false, true, () -> false), "One it does not trust does not");
+        check(DeviceAccess.consolePermits(MineqttPermission.CONFIGURE, true, true, never()), "An operator runs the console's actions");
+        check(!DeviceAccess.consolePermits(MineqttPermission.CONFIGURE, false, true, never()),
                 "Nobody else does, and the claim is not even asked: the actions act on the whole bridge");
 
         DeviceRegistry registry = new DeviceRegistry("console_0001", UUID.randomUUID());

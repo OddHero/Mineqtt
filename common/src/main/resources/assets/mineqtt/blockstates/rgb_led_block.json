@@ -1,6 +1,78 @@
 {
   "variants": {
-    "": { "model": "mineqtt:block/rgb_led_block" }
+    "face=ceiling,facing=down": {
+      "model": "mineqtt:block/rgb_led_block",
+      "x": 180
+    },
+    "face=ceiling,facing=east": {
+      "model": "mineqtt:block/rgb_led_block",
+      "x": 180,
+      "y": 270
+    },
+    "face=ceiling,facing=north": {
+      "model": "mineqtt:block/rgb_led_block",
+      "x": 180,
+      "y": 180
+    },
+    "face=ceiling,facing=south": {
+      "model": "mineqtt:block/rgb_led_block",
+      "x": 180
+    },
+    "face=ceiling,facing=up": {
+      "model": "mineqtt:block/rgb_led_block",
+      "x": 180
+    },
+    "face=ceiling,facing=west": {
+      "model": "mineqtt:block/rgb_led_block",
+      "x": 180,
+      "y": 90
+    },
+    "face=floor,facing=down": {
+      "model": "mineqtt:block/rgb_led_block"
+    },
+    "face=floor,facing=east": {
+      "model": "mineqtt:block/rgb_led_block",
+      "y": 90
+    },
+    "face=floor,facing=north": {
+      "model": "mineqtt:block/rgb_led_block"
+    },
+    "face=floor,facing=south": {
+      "model": "mineqtt:block/rgb_led_block",
+      "y": 180
+    },
+    "face=floor,facing=up": {
+      "model": "mineqtt:block/rgb_led_block"
+    },
+    "face=floor,facing=west": {
+      "model": "mineqtt:block/rgb_led_block",
+      "y": 270
+    },
+    "face=wall,facing=down": {
+      "model": "mineqtt:block/rgb_led_block",
+      "x": 180
+    },
+    "face=wall,facing=east": {
+      "model": "mineqtt:block/rgb_led_block",
+      "x": 90,
+      "y": 90
+    },
+    "face=wall,facing=north": {
+      "model": "mineqtt:block/rgb_led_block",
+      "x": 90
+    },
+    "face=wall,facing=south": {
+      "model": "mineqtt:block/rgb_led_block",
+      "x": 90,
+      "y": 180
+    },
+    "face=wall,facing=up": {
+      "model": "mineqtt:block/rgb_led_block"
+    },
+    "face=wall,facing=west": {
+      "model": "mineqtt:block/rgb_led_block",
+      "x": 90,
+      "y": 270
+    }
   }
 }
-

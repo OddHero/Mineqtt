@@ -730,6 +730,22 @@ public final class DeviceTypesCheck {
                 type + ": state, type, private mode and the legacy item count survive");
         type.rawLink().ifPresent(spec -> check(copy.raw().orElseThrow().retains() == (spec.direction() == RawLinkSpec.Direction.OUT && spec.retainByDefault()),
                 type + ": the view says whether the link retains"));
+        check(!copy.controlsOnly(), type + ": a view of a player who may build is no controls-only view");
+
+        // P2: a player who may not build gets what the Controls tab and the title show, and nothing else.
+        DeviceView.Grants usesOnly = new DeviceView.Grants(true, false, false, false);
+        DeviceView redacted = DeviceView.of(POS, link, registration, true, state.json(), type.defaultSlug(DEVICE) + " | online", "refused here", usesOnly,
+                new DeviceView.Ownership(DeviceView.Owner.KNOWN, true), diagnostics).redacted();
+        DeviceView redactedCopy = roundTrip(redacted);
+        check(redactedCopy.equals(redacted) && redactedCopy.controlsOnly(), type + ": a controls-only view round-trips as one");
+        check(redactedCopy.pos().equals(POS) && redactedCopy.type().equals(type.id()) && redactedCopy.name().equals(view.name())
+                && redactedCopy.grants().equals(usesOnly) && redactedCopy.stateJson().equals(state.json()), type + ": it keeps position, type, name, grants and state");
+        check(redactedCopy.slug().isEmpty() && redactedCopy.ownerName().isEmpty() && redactedCopy.expose().isEmpty()
+                        && redactedCopy.registration().equals(DeviceView.Registration.NONE) && redactedCopy.raw().isEmpty() && !redactedCopy.privateMode()
+                        && redactedCopy.status().isEmpty() && redactedCopy.problem().isEmpty() && redactedCopy.ownership().owner() == DeviceView.Owner.NOBODY
+                        && !redactedCopy.ownership().claimMod() && redactedCopy.access() == AccessMode.DEFAULT && redactedCopy.legacyItems() == 0,
+                type + ": it names no topic, owner, group, exposure or status: " + redactedCopy);
+        check(redactedCopy.diagnostics().equals(DeviceView.Diagnostics.notRunning(null)), type + ": and carries no id, traffic or counts");
     }
 
     /**
@@ -796,10 +812,10 @@ public final class DeviceTypesCheck {
                         Optional.of(false), false, Optional.of("a".repeat(1024)), Optional.of("b".repeat(1024)), Optional.of(DeviceView.cap("€".repeat(600), 1536)), RawLink.Edges.BOTH)),
                 true, DeviceView.cap("€".repeat(600), 1536), Optional.of(DeviceView.cap("€".repeat(600), 1536)), new DeviceView.Ownership(DeviceView.Owner.KNOWN, true),
                 new DeviceView.Diagnostics(Optional.of(DEVICE), DeviceView.Availability.FAULTED, DeviceView.cap("€".repeat(600), 1024), Optional.of(cut), Optional.of(cut),
-                        Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE), Integer.MAX_VALUE);
+                        Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE), Integer.MAX_VALUE, false);
         check(roundTrip(largest).equals(largest), "The largest view round-trips within 32 KiB");
         DeviceView tooLarge = new DeviceView(POS, RedstoneInput.TYPE.id(), "n", "s", "", AccessMode.CLAIM, Optional.empty(), DeviceView.Registration.NONE, DeviceView.Grants.NONE,
-                "{\"x\":\"" + "x".repeat(DeviceView.MAX_STATE_BYTES) + "\"}", Optional.empty(), false, "", Optional.empty(), OWNED, DeviceView.Diagnostics.notRunning(null), 0);
+                "{\"x\":\"" + "x".repeat(DeviceView.MAX_STATE_BYTES) + "\"}", Optional.empty(), false, "", Optional.empty(), OWNED, DeviceView.Diagnostics.notRunning(null), 0, false);
         try {
             DeviceView.STREAM_CODEC.encode(Unpooled.buffer(), tooLarge);
             throw new AssertionError("A view whose state exceeds " + DeviceView.MAX_STATE_BYTES + " bytes must not encode");
@@ -809,9 +825,14 @@ public final class DeviceTypesCheck {
         expectFailure(() -> DeviceView.of(POS, link, DeviceView.Registration.NONE, false, json(tooLarge.state()), "", null, DeviceView.Grants.NONE, OWNED,
                 DeviceView.Diagnostics.notRunning(null)), "A view of a state over the cap");
         expectFailure(() -> new DeviceView(POS, RedstoneInput.TYPE.id(), "n", "s", "", AccessMode.CLAIM, Optional.empty(), DeviceView.Registration.NONE, DeviceView.Grants.NONE,
-                "[1]", Optional.empty(), false, "", Optional.empty(), OWNED, DeviceView.Diagnostics.notRunning(null), 0), "A state that is no object");
+                "[1]", Optional.empty(), false, "", Optional.empty(), OWNED, DeviceView.Diagnostics.notRunning(null), 0, false), "A state that is no object");
         expectFailure(() -> new DeviceView(POS, RedstoneInput.TYPE.id(), "n", "s", "", AccessMode.CLAIM, Optional.empty(), DeviceView.Registration.NONE, DeviceView.Grants.NONE,
-                "{}", Optional.empty(), false, "", Optional.empty(), OWNED, DeviceView.Diagnostics.notRunning(null), -1), "A negative item count");
+                "{}", Optional.empty(), false, "", Optional.empty(), OWNED, DeviceView.Diagnostics.notRunning(null), -1, false), "A negative item count");
+        for (DeviceView.Grants beyondUse : List.of(new DeviceView.Grants(true, true, false, false), new DeviceView.Grants(false, false, true, false),
+                new DeviceView.Grants(false, false, false, true))) {
+            expectFailure(() -> new DeviceView(POS, RedstoneInput.TYPE.id(), "n", "", "", AccessMode.CLAIM, Optional.empty(), DeviceView.Registration.NONE, beyondUse,
+                    "{}", Optional.empty(), false, "", Optional.empty(), OWNED, DeviceView.Diagnostics.notRunning(null), 0, true), "A controls-only view granting " + beyondUse);
+        }
     }
 
     private static <T> JsonElement encodeDefault(Field<T> field) {

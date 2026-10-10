@@ -250,10 +250,15 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
 
     /**
      * Opens the block's screen for a player who may use it; the slots only move if they may also configure it. The player
-     * gets the notices about their devices that waited.
+     * gets the notices about their devices that waited. A player who may not build (P2) gets no screen: it only
+     * configures the block. The action bar tells them why.
      */
     @Override
     public void openScreen(ServerPlayer player) {
+        if (!DeviceAccess.mayBuild(player)) {
+            player.sendSystemMessage(Component.translatable("mineqtt.game_mode.no_screen", getBlockState().getBlock().getName()), true);
+            return;
+        }
         MineqttRuntime.current().filter(running -> running.server() == player.level().getServer())
                 .ifPresent(running -> running.devices().deliverNotices(player));
         boolean configurable = mayConfigure(player);

@@ -94,7 +94,7 @@ broker cannot change a device when the server starts. Raw links are different, s
 
 | Device (block) | State | Commands and notes |
 |---|---|---|
-| **Smart Lamp** (RGB LED block) | `state`, `brightness` 0-255, `color_mode` (`rgb`/`color_temp`), `color` {r,g,b}, `color_temp` and `color_temp_kelvin` (both in kelvin), `effect` (`off`, `pulse`, `candle`), `light_level`, `location` | Home Assistant JSON light commands. `color_temp` is read as kelvin from 1000 up and as mireds below, so v1 automations that send mireds keep working. `transition` (seconds, up to 3600) fades the block light and the colour, e.g. `{"state":"ON","brightness":200,"transition":2}`; the state shows the target at once, a lamp whose chunk is not loaded or is outside the simulation distance takes it without fading, a command without a transition ends a fade, and on a server paused while empty the fade waits until the server runs again. `effect` `pulse` breathes, `candle` flickers, `off` ends it; effects are drawn by each player's game, so the block light stays steady. Plain colour names and `#rrggbb` also work on the raw link. |
+| **Smart Lamp** (RGB LED block) | `state`, `brightness` 0-255, `color_mode` (`rgb`/`color_temp`), `color` {r,g,b}, `color_temp` and `color_temp_kelvin` (both in kelvin), `effect` (`off`, `pulse`, `candle`), `light_level`, `location` | Home Assistant JSON light commands. `color_temp` is read as kelvin from 1000 up and as mireds below, so v1 automations that send mireds keep working. `transition` (seconds, up to 3600) fades the block light and the colour, e.g. `{"state":"ON","brightness":200,"transition":2}`; the state shows the target at once, a lamp whose chunk is not loaded or is outside the simulation distance takes it without fading, a command without a transition ends a fade, and on a server paused while empty the fade waits until the server runs again. `effect` `pulse` breathes, `candle` flickers, `off` ends it; effects are drawn by each player's game, so the block light stays steady. Plain colour names and `#rrggbb` also work on the raw link. The lamp stands on the floor, sits on a wall or hangs from a ceiling, by the face you place it against; it needs something solid under the middle of its socket and pops off when that goes away. |
 | **Redstone Output** (redstone emitter) | `state` ON/OFF, `power` 0-15, `mode`, `power_on_behaviour`, `last_level` | `{"power":7}`, `{"state":"ON"}` (restores the last non-zero level), `TOGGLE`. `mode`: `level` (analog, default) or `switch` (any level emits 15). `power_on_behaviour` (`previous`/`off`/`on`) applies when the server starts. |
 | **Smart Plug** | `state` ON/OFF, `power` 0 or 15, `power_on_behaviour` | `{"state":"ON"}`, `OFF`, `TOGGLE`; any `power` above 0 switches it on. Home Assistant shows an outlet switch. `power_on_behaviour` (`previous`/`off`/`on`) applies when the server starts. A right-click switches it. Its raw link takes v1's plug payloads (`ON`/`OFF`, `TRUE`/`FALSE`, `1`/`0`, `TOGGLE`, or your custom on/off payloads; no levels) and, unlike v1, never repeats its own state there. |
 | **Redstone Input** (redstone publisher) | `powered`, `signal` 0-15 | State is published at most once per second; short pulses are reported as `{"event_type":"pulse","signal":n}` on `…/action` at every rising edge. |
@@ -202,6 +202,16 @@ size and payload; the payload only for players who may configure it) and how man
 sent since the server started. A device that still holds the items of its old configuration slots (topic papers,
 payload papers, spawn eggs) has an *Eject* button there that puts them into your inventory; breaking the device drops
 them as well.
+
+**Adventure mode.** A player who may not build (adventure mode, spectator mode, or a mod that takes the ability away)
+only *uses* MineQTT blocks, an operator and a device's owner included, as vanilla lets no one break blocks in adventure
+mode. A right-click still switches a lamp or a plug and presses the Wall Switch, as far as the device's access mode
+lets them. A device's screen shows its *Controls* tab alone, without the device's topics, owner or diagnostics; its
+settings there are read-only. A device without controls (the Redstone Input), the screens of the other blocks (timers,
+Block Sensor, Block Emitter), a name tag, a renamed paper, the Configurator's Link, Group and Copy-Paste modes and its
+reach from afar are refused, and the action bar says why; within reach it opens the Controls tab as sneak +
+right-click does, and that screen stays open only within the player's reach. The Bridge Console opens read-only, without its actions and without its device
+and group lists. A screen open when the game mode changes is rebuilt for the new mode, or closed.
 
 **Wireless redstone is retained.** A Redstone Input publishes every edge on its raw link *retained*, so the topic
 always holds the current level: an output on another server, or one that loads later or restarts, picks it up when it

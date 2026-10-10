@@ -202,10 +202,12 @@ public class ControlsTabView implements MqttTabView {
         return Component.translatableWithFallback("mineqtt.device.control." + control.key(), control.key());
     }
 
-    // Why a control is read-only, or null when the player may work it.
+    // Why a control is read-only, or null when the player may work it: a setting is refused a player who may only use the
+    // device by their game mode (P2).
     private static @Nullable Tooltip readOnly(DeviceTabs.Control control, DeviceView view) {
         if (control.editable(view.grants())) return null;
-        return Tooltip.create(Component.translatable(control.gate() == LinkSetting.Gate.USE ? "mineqtt.device.controls.no_use" : "mineqtt.device.general.read_only"));
+        if (control.gate() == LinkSetting.Gate.USE) return Tooltip.create(Component.translatable("mineqtt.device.controls.no_use"));
+        return Tooltip.create(Component.translatable(view.controlsOnly() ? "mineqtt.game_mode.uses_only" : "mineqtt.device.general.read_only"));
     }
 
     /** The widgets of one control. */

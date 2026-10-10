@@ -32,7 +32,8 @@ import java.util.Optional;
  * tabs need ({@link #guiHeight()}). The screen's title is the device's name. What its tabs show comes from the device's
  * {@link DeviceView} in the open data and the views the server sends while it is open, never from the client's block
  * entity; its links ({@link DeviceLinks}) and its group page ({@link DeviceGroups}) come right after the open data and
- * whenever they change.
+ * whenever they change. A player who may not build (P2) gets the Controls tab alone, with a view that shows nothing else
+ * ({@link DeviceView#redacted()}), and neither links nor group page.
  */
 public class DeviceMenu extends TabbedMqttMenu {
 
@@ -40,6 +41,7 @@ public class DeviceMenu extends TabbedMqttMenu {
     private static final double SCREEN_SLACK = 4.0;
 
     private final BlockEntity device;
+    private final boolean controlsOnly;
     private @Nullable Refusal refusal;
     private @Nullable DeviceLinks links;
     private @Nullable DeviceGroups groups;
@@ -65,27 +67,48 @@ public class DeviceMenu extends TabbedMqttMenu {
      * @param device       a {@link DeviceHost} block entity, on the side the menu is built
      * @param initialTabId the tab to show first; null or unknown for the first one
      * @param configurable whether the player may configure the device, which the server judged when it opened
+     * @param controlsOnly whether the player may only use the device, so the screen has its Controls tab alone
      */
-    public DeviceMenu(int containerId, Inventory playerInventory, BlockEntity device, @Nullable String initialTabId, boolean configurable) {
+    public DeviceMenu(int containerId, Inventory playerInventory, BlockEntity device, @Nullable String initialTabId, boolean configurable,
+                      boolean controlsOnly) {
         super(MineqttMenuTypes.MQTT_TABBED_MENU.get(), containerId, playerInventory, new SimpleContainer(0),
-                DeviceTabs.forType(((DeviceHost) device).deviceType()), playerInventory.player, device.getBlockPos(), initialTabId, configurable, null, false);
+                DeviceTabs.forViewer(((DeviceHost) device).deviceType(), controlsOnly), playerInventory.player, device.getBlockPos(), initialTabId,
+                configurable, null, false);
         this.device = device;
+        this.controlsOnly = controlsOnly;
     }
 
     /**
      * Opens a device's screen for a player who may use it: its view goes into the open data, built for them, and both
-     * sides open on the tab they last had open on this device. The screen is titled with the device's name.
+     * sides open on the tab they last had open on this device. The screen is titled with the device's name. A player who
+     * may only use the device ({@link DeviceView#controlsOnly()}) gets its Controls tab alone; the caller made sure it
+     * has one.
      */
     public static void open(ServerPlayer player, DeviceBlockEntity device) {
         boolean configurable = DeviceAccess.check(player, device, MineqttPermission.CONFIGURE);
         DeviceView view = DeviceRuntime.view(player, device);
-        String tabId = initialTabId(DeviceTabs.forType(device.deviceType()), device.getLastTabId());
+        boolean controlsOnly = view.controlsOnly();
+        String tabId = initialTabId(DeviceTabs.forViewer(device.deviceType(), controlsOnly), device.getLastTabId());
         MenuRegistry.openExtendedMenu(player,
-                new SimpleMenuProvider((containerId, inventory, viewer) -> new DeviceMenu(containerId, inventory, device, tabId, configurable),
+                new SimpleMenuProvider((containerId, inventory, viewer) -> new DeviceMenu(containerId, inventory, device, tabId, configurable, controlsOnly),
                         title(view, device)),
                 buf -> writeOpenData(buf, device.getBlockPos(), configurable, tabId, null, view));
+        // A controls-only screen gets neither: MineqttNetworking drops both for it.
         DeviceRuntime.sendLinks(player, device);
         DeviceRuntime.sendGroups(player, device);
+    }
+
+    /** Whether the screen is a player's who may only use the device: the Controls tab alone, no links, no group page. */
+    public boolean controlsOnly() {
+        return controlsOnly;
+    }
+
+    /**
+     * Whether the player's open screen shows only a device's Controls tab (P2), so nothing beyond its view may reach it:
+     * no status line, links or group page.
+     */
+    public static boolean controlsOnly(Player player) {
+        return player.containerMenu instanceof DeviceMenu menu && menu.controlsOnly;
     }
 
     /** The screen's title: the device's name as the last view has it, so a rename shows at once (client). */

@@ -230,6 +230,18 @@ public final class DeviceTabs {
         return List.copyOf(tabs);
     }
 
+    /**
+     * The tabs of one player's screen of a device of {@code type}: the generated ones ({@link #forType}), or for a player
+     * who may only use it (P2) its Controls tab alone; none for such a player when the type has no controls, so no screen
+     * opens for them.
+     *
+     * @param controlsOnly whether the player may only use the device ({@link DeviceView#controlsOnly()})
+     */
+    public static List<MqttTab> forViewer(DeviceType type, boolean controlsOnly) {
+        if (!controlsOnly) return forType(type);
+        return ControlsTab.controls(type).isEmpty() ? List.of() : List.of(new ControlsTab(type));
+    }
+
     /** A name as the server keeps it ({@link LinkSetting#NAME}): sanitised and stripped. */
     public static String name(String typed) {
         return ValueCodecs.sanitizeText(typed).strip();

@@ -89,6 +89,10 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
      * name tag or a Configurator mode step of a player who may not use the device is answered in the action bar, as one
      * who may not configure it.
      * <p>
+     * A player who may not build (P2, {@link DeviceAccess#mayBuild}) only uses: a use and the screen go on, which shows
+     * them a device's Controls tab alone and refuses any other screen ({@link TabbedScreenHost#openScreen}); a paper, a
+     * name tag and a step of a Configurator mode are refused in the action bar.
+     * <p>
      * A spectator only looks, as into a chest: whatever they hold, their click opens the screen, where they change
      * nothing ({@code C2SGuard}). The event comes before vanilla's spectator check on both loaders, and vanilla would then
      * open the block entity's menu without asking {@link DeviceAccess}, so a spectator's click never passes.
@@ -113,6 +117,10 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
                     serverPlayer.sendSystemMessage(Component.translatable("mineqtt.device.refused", DeviceConfig.refusal(LinkSetting.Gate.CONFIGURE)), true);
                 }
                 return spectator ? EventResult.interruptFalse() : EventResult.pass();
+            }
+            if (outcome != Interaction.Outcome.USE && outcome != Interaction.Outcome.SCREEN && !DeviceAccess.mayBuild(serverPlayer)) {
+                serverPlayer.sendSystemMessage(Component.translatable("mineqtt.game_mode.uses_only"), true);
+                return EventResult.interruptTrue();
             }
             switch (outcome) {
                 case USE -> useDevice(serverPlayer, blockEntity);

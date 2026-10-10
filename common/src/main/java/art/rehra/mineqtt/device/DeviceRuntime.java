@@ -2500,7 +2500,8 @@ public final class DeviceRuntime {
     /**
      * What a device's screen shows one player (M2-6, M2-7): the view that goes into the screen's open data, and to its
      * open screens whenever the device changed. A device that does not run on this server (not attached yet, faulted, or
-     * MineQTT not started) still shows its block entity's values, with the status line "Not registered yet".
+     * MineQTT not started) still shows its block entity's values, with the status line "Not registered yet". A player
+     * who may not build gets the view of its Controls tab alone ({@link DeviceView#redacted}, P2).
      */
     public static DeviceView view(ServerPlayer viewer, BlockEntity blockEntity) {
         DeviceHost host = requireHost(blockEntity);
@@ -2517,8 +2518,9 @@ public final class DeviceRuntime {
         DeviceView.Ownership ownership = new DeviceView.Ownership(DeviceAccess.owner(link.owner(), link.ownerName(), server.usesAuthentication()),
                 MineQTT.permissionManager.hasClaimMod());
         DeviceView.Diagnostics diagnostics = devices == null ? DeviceView.Diagnostics.notRunning(id) : devices.diagnostics(id, record != null, fault, grants);
-        return DeviceView.of(blockEntity.getBlockPos(), link, registration, host.isPrivateMode(), stateOf(host), status, problem, grants,
+        DeviceView view = DeviceView.of(blockEntity.getBlockPos(), link, registration, host.isPrivateMode(), stateOf(host), status, problem, grants,
                 ownership, diagnostics);
+        return DeviceAccess.mayBuild(viewer) ? view : view.redacted();
     }
 
     /**

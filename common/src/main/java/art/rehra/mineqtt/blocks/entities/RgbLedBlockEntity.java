@@ -28,6 +28,7 @@ import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Set;
@@ -270,9 +271,7 @@ public class RgbLedBlockEntity extends DeviceBlockEntity {
             // Every 10 ticks (0.5 seconds), unless the colour is black.
             int color = lamp.tint();
             if (level.getGameTime() % 10 != 0 || color == 0) return;
-            double centerX = pos.getX() + 0.5;
-            double centerY = pos.getY() + 0.6;
-            double centerZ = pos.getZ() + 0.5;
+            Vec3 bulb = RgbLedBlock.bulbCentre(state, pos);
             int particleCount = level.getRandom().nextInt(2) + 2;
             for (int i = 0; i < particleCount; i++) {
                 double offsetX = (level.getRandom().nextDouble() - 0.5) * 0.3;
@@ -280,7 +279,7 @@ public class RgbLedBlockEntity extends DeviceBlockEntity {
                 double offsetZ = (level.getRandom().nextDouble() - 0.5) * 0.3;
                 // Small upward velocity for a glow effect.
                 double velocityY = level.getRandom().nextDouble() * 0.02;
-                level.addParticle(new DustParticleOptions(color, 0.8f), centerX + offsetX, centerY + offsetY, centerZ + offsetZ, 0, velocityY, 0);
+                level.addParticle(new DustParticleOptions(color, 0.8f), bulb.x + offsetX, bulb.y + offsetY, bulb.z + offsetZ, 0, velocityY, 0);
             }
         }
     }

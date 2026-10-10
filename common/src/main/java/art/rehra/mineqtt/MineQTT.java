@@ -18,6 +18,7 @@ import art.rehra.mineqtt.runtime.ServerHooks;
 import art.rehra.mineqtt.security.C2SGuard;
 import art.rehra.mineqtt.tabs.MineQTTTabs;
 import art.rehra.mineqtt.ui.MineqttMenuTypes;
+import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import dev.architectury.event.events.common.CommandRegistrationEvent;
 import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.TickEvent;
@@ -68,6 +69,11 @@ public class MineQTT {
         LifecycleEvent.SERVER_STARTED.register(server -> LegacySubscriptionFacade.attach(MineqttRuntime.of(server)));
 
         TickEvent.SERVER_PRE.register(CyberdeckSessionManager::tick);
+
+        // Not the runtime's: block screens open without MQTT too.
+        TickEvent.PLAYER_POST.register(player -> {
+            if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) TabbedMqttMenu.abilitiesChanged(serverPlayer);
+        });
 
         dev.architectury.event.events.common.PlayerEvent.PLAYER_JOIN.register(player -> {
             if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {

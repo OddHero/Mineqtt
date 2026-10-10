@@ -29,7 +29,9 @@
       "art.rehra.mineqtt.fabric.gametest.WallSwitchGameTest",
       "art.rehra.mineqtt.fabric.gametest.ConsoleGameTest",
       "art.rehra.mineqtt.fabric.gametest.LampEffectsGameTest",
-      "art.rehra.mineqtt.fabric.gametest.DeviceLimitGameTest"
+      "art.rehra.mineqtt.fabric.gametest.DeviceLimitGameTest",
+      "art.rehra.mineqtt.fabric.gametest.AdventureGameTest",
+      "art.rehra.mineqtt.fabric.gametest.LampMountGameTest"
     ]
   },
   "depends": {

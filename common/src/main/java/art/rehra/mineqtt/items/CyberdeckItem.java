@@ -82,7 +82,8 @@ public class CyberdeckItem extends Item {
     /**
      * Opens the screen of the block the player points at within the Configurator's range, if it is a device they may use
      * where the level lets them interact with it: vanilla asks {@link Level#mayInteract} (spawn protection, the world
-     * border) before a click within reach, while a right-click into the air never asks it.
+     * border) before a click within reach, while a right-click into the air never asks it. A player who may not build
+     * (P2) does not configure from afar.
      *
      * @return false when it points at no MineQTT block, so the explorer opens instead
      */
@@ -92,7 +93,9 @@ public class CyberdeckItem extends Item {
         BlockEntity blockEntity = player.level().getBlockEntity(blockHit.getBlockPos());
         if (!(blockEntity instanceof TabbedScreenHost)) return false;
         Component name = blockEntity.getBlockState().getBlock().getName();
-        if (!(blockEntity instanceof DeviceBlockEntity device)) {
+        if (!DeviceAccess.mayBuild(player)) {
+            player.sendSystemMessage(Component.translatable("mineqtt.game_mode.uses_only"), true);
+        } else if (!(blockEntity instanceof DeviceBlockEntity device)) {
             // A block that is no device has a screen with slots, which stays open only within reach.
             player.sendSystemMessage(Component.translatable("mineqtt.configurator.too_far", name), true);
         } else if (!player.level().mayInteract(player, blockHit.getBlockPos())) {
@@ -108,7 +111,7 @@ public class CyberdeckItem extends Item {
     /**
      * A step of the Link, Group or Copy-Paste mode on the device the player points at within the Configurator's range,
      * under the same rules as opening its screen from afar; pointing at nothing, or at a block that is no device, stops
-     * what the mode began.
+     * what the mode began. A player who may not build (P2) takes no step.
      */
     private static void stepAtRange(ServerPlayer player, ConfiguratorMode mode) {
         HitResult hit = player.pick(C2SGuard.CONFIGURATOR_RANGE, 1.0F, false);
@@ -119,7 +122,9 @@ public class CyberdeckItem extends Item {
             return;
         }
         Component name = blockEntity.getBlockState().getBlock().getName();
-        if (!(blockEntity instanceof DeviceBlockEntity device)) {
+        if (!DeviceAccess.mayBuild(player)) {
+            player.sendSystemMessage(Component.translatable("mineqtt.game_mode.uses_only"), true);
+        } else if (!(blockEntity instanceof DeviceBlockEntity device)) {
             player.sendSystemMessage(ConfiguratorSessions.notDevice(mode, name), true);
         } else if (!player.level().mayInteract(player, blockEntity.getBlockPos())) {
             player.sendSystemMessage(Component.translatable("mineqtt.configurator.protected", name), true);

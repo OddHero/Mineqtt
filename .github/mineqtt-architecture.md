@@ -209,6 +209,23 @@ crash never survives.
   set); the client ticker animates the tint with `SmartLamp.effectFactor` (pulse in step on every lamp, candle per
   position, in tenths) and redraws the block's chunk section when it moved a step, at most every 2 ticks. The block
   light ignores effects.
+- **Lamp mounts** (P3). `RgbLedBlock` has vanilla's `face` (`ATTACH_FACE`: floor, wall, ceiling; default floor) beside
+  the six-valued `facing` it always had. Lamps saved before P3 have no `face` and load as floor lamps (the state codec
+  fills a missing property from the default state), keeping their `facing` (always `north`) and `light_level`; `facing`
+  keeps all six values for that reason. The clicked face decides the mount; a wall lamp's `facing` points away from its
+  wall, a floor or ceiling lamp's is the player's horizontal facing (it only turns the textures); a click on a block the
+  lamp replaces (short grass) takes the first of the player's looking directions with a support, as buttons do.
+  `RgbLedBlock.pointing` (up, down, or a wall lamp's facing; a command-made `face=wall,facing=up|down` points that way)
+  drives the outline (one box per direction, also the collision), the survival rule (`Block.canSupportCenter` on the
+  support's face, as a torch or a lantern; placement is refused without it), `updateShape` (the lamp becomes air when
+  the block on its support side became replaceable, air, a fluid or short grass, and it cannot survive, so the level
+  drops it and `DeviceBlockEntity.preRemoveSideEffects` destroys the device) and `bulbCentre` (the client ticker's
+  particles). The blockstate rotates the one model like a button's (wall x 90, ceiling x 180); the item model is the
+  unrotated floor model. Legacy lamps standing where no support is (0.6.0 placed every lamp upright, also against walls,
+  on other lamps, repeaters and daylight sensors) stay until the block on their support side goes away: a support that
+  only changes its state (a lamp below switching on changes its `light_level` and updates the lamp above from below) is
+  not gone. For the same reason a new lamp whose support is swapped for a block that cannot hold it (a slab set by
+  command, a trapdoor opened) stays, where a torch would pop.
 - **Devices without containers** (M2-12, design §11.2 item 2). `DeviceBlockEntity extends BlockEntity implements
   DeviceHost, TabbedScreenHost` is the block entity of every device: the attach hooks, the render tag, `openScreen`
   (`DeviceMenu`), `accessChanged`, the editor of the last 30 s (`recentEditor`, set by `editRaw` for the screen and the
@@ -287,14 +304,36 @@ crash never survives.
   within reach, never before a use into the air, so `configureAtRange` asks it too). A hand without anything of meaning
   lends the other hand's Configurator (`Held.of(player, hand)`). A spectator only looks: `click` opens the screen
   whatever they hold and never passes (vanilla's spectator branch would open the block entity's menu unchecked),
-  `DeviceAccess.grants` gives them nothing and `C2SGuard` drops their payloads (`SPECTATOR`). The explorer (`CyberdeckMenu`) keeps its topic slots only while open (`clearContainer` on close);
+  `DeviceAccess.grants` gives them nothing and `C2SGuard` drops their payloads (`SPECTATOR`); as a player who may not
+  build they see a device's Controls tab alone (below).
+- **Players who may not build** (P2). `DeviceAccess.mayBuild(player)` (`Player.mayBuild()`, which vanilla takes in
+  adventure and spectator mode, and no spectator) gates everything but USE: `permits(need, mode, op, owner, mayBuild,
+  claimTrust)` refuses CONFIGURE before the access mode is asked, an operator and the owner included, so
+  `DeviceAccess.check` (both the block and the record variant), `grants` (USE at most: configure, expose and access
+  false), `consolePermits` and every `C2SGuard` CONFIGURE payload (`DENIED`), `DeviceRuntime.configurer` (Link/Group
+  offers, wires) and the explorer's device topics follow (its group and unregistered device topics go to an operator who
+  may build only); USE stays the access mode's. `C2SGuard.reaches` grants the Configurator's range only to a player who
+  may build, so `DeviceMenu.stillValid` and the payload reach check keep such a player within their hand's reach. `DeviceRuntime.view` gives such
+  a player `DeviceView.redacted()` (`controlsOnly`: position, type, name, grants and state, the rest blank; the
+  constructor refuses a controls-only view granting more than USE), and `DeviceMenu` builds its tabs with
+  `DeviceTabs.forViewer(type, controlsOnly)` on both sides (the client reads the flag from the view in the open data):
+  the Controls tab alone. `MineqttNetworking.sendDeviceStatus`/`sendDeviceLinks`/`sendDeviceGroups` skip a
+  controls-only screen (`DeviceMenu.controlsOnly(player)`). `DeviceBlockEntity.openScreen` refuses a type without
+  controls and `BaseMqttBlockEntity.openScreen` every legacy screen, in the action bar (`mineqtt.game_mode.*`);
+  `BaseMqttBlock.click` refuses PAPER, RENAME, LINK, GROUP and COPY, and `CyberdeckItem.configureAtRange`/`stepAtRange`
+  refuse every MineQTT block, likewise (`mineqtt.game_mode.uses_only`). The Bridge Console's view is `operator` only for
+  an operator who may build, so its buttons and its lists go. `TabbedMqttMenu` remembers `mayBuild` at its making;
+  `TabbedMqttMenu.abilitiesChanged` (`TickEvent.PLAYER_POST`, registered in `MineQTT.init`, not the runtime, as block
+  screens open without MQTT) closes a block screen whose player's `mayBuild` changed and asks the block's
+  `openScreen` again after a USE check, if the old screen was still valid for them (a device's screen opened from afar
+  is not reopened for a player who may no longer build). The explorer (`CyberdeckMenu`) keeps its topic slots only while open (`clearContainer` on close);
   listening and private mode live in `CyberdeckSessionManager` and come with the open data. The old `listening`,
   `private_mode` and `inventory` components stay registered, deprecated, and `CyberdeckItem.inventoryTick` strips
   them, giving the slots' items back (`CyberdeckDataUtil.stripDeprecated`).
 - **Access and Diagnostics tabs** (M2-11, design §6.9, §8.7). Every device has both, after Advanced. Access shows the
   owner (`DeviceView.Ownership`: nobody, known, or a v1 name not verified yet; whether a claim mod decides claim trust)
-  and the `access` link setting as a cycle gated ACCESS: `DeviceAccess.grants(op, owner, mode, claimTrust, mayExpose)`
-  gives the access grant only to the owner or an operator, so no mode locks the owner out. A device without an owner
+  and the `access` link setting as a cycle gated ACCESS: `DeviceAccess.grants(op, owner, mayBuild, mode, claimTrust,
+  mayExpose)` gives the access grant only to the owner or an operator who may build, so no mode locks the owner out. A device without an owner
   is claimed by a player with CONFIGURE (`DeviceAccess.mayClaim`) through `DeviceClaimPayload` and
   `DeviceRuntime.claim` (`DeviceLink.claim`). Diagnostics shows `DeviceView.Diagnostics`:
   the device's UUID, its availability (online, no broker, faulted with the fault, not running), the last MQTT message
@@ -312,7 +351,7 @@ crash never survives.
   plain `TerminalBlockEntity` (no container, no owner, nothing sent to clients) that keeps only its last tab; it is no
   device and no HA device. `TerminalBlock` is a `BaseMqttBlock`, so `Interaction.decide` opens it like any block that is
   no device. `DeviceAccess.consolePermits`: USE (open it) follows the claim like a block without an owner, CONFIGURE
-  (its actions) is for operators only. `BridgeConsole` (one per `MineqttRuntime`) builds each viewer's `ConsoleView`:
+  (its actions) is for operators who may build only (P2). `BridgeConsole` (one per `MineqttRuntime`) builds each viewer's `ConsoleView`:
   the bridge (`mqtt.state()`, the redacted broker, protocol, `BirthWatcher.heard()` (birth or last will, since the
   server started or the topic changed), the pause state, `MqttService.Stats` drops and queues, the wire count with the
   bus's delivered and dropped totals), the devices the viewer may configure (`DeviceRuntime.configurer`; all for an
@@ -561,7 +600,8 @@ Who wires what, and the Configurator's Link mode (M2-16):
   (`acl.rawAllow`) comes from the config; v1 topics of migrated devices are grandfathered per owner.
 - `C2SGuard` validates every client-to-server payload: rate limit first, then no spectator, then menu/BE lookup, reach
   (16 blocks with a Configurator in hand where the level lets the player interact, `reaches`), claim permission
-  (`MineqttPermission.USE`/`CONFIGURE`, Flan when present) and size limits. Device payloads use `requireDevice` (any
+  (`MineqttPermission.USE`/`CONFIGURE`, Flan when present; CONFIGURE never for a player who may not build, P2) and
+  size limits. Device payloads use `requireDevice` (any
   `DeviceHost` block entity); a setting's NBT value is read within `C2SGuard.valueQuota()` (8 KiB, depth 4).
 - Placement data from items (`BLOCK_ENTITY_DATA`) is untrusted: a fresh id is minted, the copied name, slug and
   grandfathering are dropped, the placer becomes the owner and the Raw Link is re-checked for them; a copied link with

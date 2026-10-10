@@ -149,6 +149,10 @@ public final class DeviceTabsCheck {
                 : List.of(GeneralTab.ID, AdvancedTab.ID, AccessTab.ID, DiagnosticsTab.ID);
         check(tabs.stream().map(MqttTab::id).toList().equals(ids), type.id() + ": the generated tabs are " + ids
                 + ", Controls exactly when it has in-ports, Advanced, Access and Diagnostics always: " + tabs);
+        check(DeviceTabs.forViewer(type, false).stream().map(MqttTab::id).toList().equals(ids),type.id() + ": a player who may build gets every generated tab");
+        List<String> controlsOnly = DeviceTabs.forViewer(type, true).stream().map(MqttTab::id).toList();
+        check(controlsOnly.equals(inPorts ? List.of(ControlsTab.ID) : List.of()),
+                type.id() + ": a player who may not build gets the Controls tab alone, or no screen without one (P2): " + controlsOnly);
         GeneralTab general = (GeneralTab) tabs.getFirst();
         check(general.controls().stream().map(DeviceTabs.Control::key).toList().equals(List.of("name", "expose")), type.id() + ": General has name and expose");
         for (DeviceTabs.Control control : general.controls()) {
@@ -723,26 +727,26 @@ public final class DeviceTabsCheck {
     private static DeviceView viewOf(DeviceType type, Optional<Boolean> expose) {
         return new DeviceView(BlockPos.ZERO, type.id(), type.defaultName(DEVICE), type.defaultSlug(DEVICE), "", AccessMode.CLAIM, expose,
                 new DeviceView.Registration("mineqtt/world_7f3a", false, Optional.empty()), DeviceView.Grants.ALL, "{}", Optional.empty(), false,
-                type.defaultSlug(DEVICE), Optional.empty(), new DeviceView.Ownership(DeviceView.Owner.NOBODY, false), DeviceView.Diagnostics.notRunning(DEVICE), 0);
+                type.defaultSlug(DEVICE), Optional.empty(), new DeviceView.Ownership(DeviceView.Owner.NOBODY, false), DeviceView.Diagnostics.notRunning(DEVICE), 0, false);
     }
 
     private static DeviceView withOwnership(DeviceView view, DeviceView.Grants grants, DeviceView.Owner owner) {
         return new DeviceView(view.pos(), view.type(), view.name(), view.slug(), owner == DeviceView.Owner.NOBODY ? "" : "Steve", view.access(), view.expose(),
                 view.registration(), grants, view.state(), view.raw(), view.privateMode(), view.status(), view.problem(),
-                new DeviceView.Ownership(owner, view.ownership().claimMod()), view.diagnostics(), view.legacyItems());
+                new DeviceView.Ownership(owner, view.ownership().claimMod()), view.diagnostics(), view.legacyItems(), view.controlsOnly());
     }
 
     private static DeviceView withDiagnostics(DeviceView view, DeviceView.Grants grants, DeviceView.Diagnostics diagnostics) {
         return new DeviceView(view.pos(), view.type(), view.name(), view.slug(), view.ownerName(), view.access(), view.expose(),
                 view.registration(), grants, view.state(), view.raw(), view.privateMode(), view.status(), view.problem(), view.ownership(), diagnostics,
-                view.legacyItems());
+                view.legacyItems(), view.controlsOnly());
     }
 
     // The view with this Raw Link, private channel or not, and legacy item count.
     private static DeviceView withLink(DeviceView view, Optional<DeviceView.Raw> raw, boolean privateMode, int legacyItems) {
         return new DeviceView(view.pos(), view.type(), view.name(), view.slug(), view.ownerName(), view.access(), view.expose(),
                 view.registration(), view.grants(), view.state(), raw, privateMode, view.status(), view.problem(), view.ownership(), view.diagnostics(),
-                legacyItems);
+                legacyItems, view.controlsOnly());
     }
 
     private static List<DeviceView.Grants> allGrants() {

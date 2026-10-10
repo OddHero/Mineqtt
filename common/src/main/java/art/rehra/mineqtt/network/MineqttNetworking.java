@@ -278,13 +278,15 @@ public final class MineqttNetworking {
 
     /**
      * Refreshes the status line of every open screen of a device block entity (M2 plan D1): only players whose open menu
-     * is that block entity's get it.
+     * is that block entity's get it, and of those not the ones who see its Controls tab alone (P2), as the status line and
+     * the problem name its topics.
      *
      * @param problem why the device's Raw Link does nothing, or null while it works
      */
     public static void sendDeviceStatus(BlockEntity blockEntity, String status, @Nullable String problem) {
         DeviceStatusPayload payload = null;
         for (ServerPlayer player : viewers(blockEntity)) {
+            if (DeviceMenu.controlsOnly(player)) continue;
             if (payload == null) payload = DeviceStatusPayload.of(blockEntity.getBlockPos(), status, problem);
             NetworkManager.sendToPlayer(player, payload);
         }
@@ -308,9 +310,10 @@ public final class MineqttNetworking {
 
     /**
      * Sends a player with a device's screen open the device's links (M2-16): when the screen opens and whenever one of
-     * them changed.
+     * them changed. A screen with the Controls tab alone (P2) gets none.
      */
     public static void sendDeviceLinks(ServerPlayer player, DeviceLinks links) {
+        if (DeviceMenu.controlsOnly(player)) return;
         NetworkManager.sendToPlayer(player, new DeviceLinksPayload(links));
     }
 
@@ -321,9 +324,10 @@ public final class MineqttNetworking {
 
     /**
      * Sends a player with a device's screen open the device's group page (M2-17): when the screen opens and whenever a
-     * group changed.
+     * group changed. A screen with the Controls tab alone (P2) gets none.
      */
     public static void sendDeviceGroups(ServerPlayer player, DeviceGroups groups) {
+        if (DeviceMenu.controlsOnly(player)) return;
         NetworkManager.sendToPlayer(player, new DeviceGroupsPayload(groups));
     }
 

@@ -10,6 +10,7 @@ import art.rehra.mineqtt.device.DeviceRuntime;
 import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.integrations.MineqttPermission;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import org.jetbrains.annotations.Nullable;
@@ -29,6 +30,10 @@ import java.util.function.Predicate;
  * when its owner joins. Only an online player of exactly that name, or an online-mode server's profile lookup, binds it.
  * Until then a server without authentication matches the UUID derived from the name ({@link AclContext#offlineOwner});
  * on an online-mode server the owner gets only what the access mode gives everyone.
+ * <p>
+ * A player who may not build ({@link #mayBuild}: adventure or spectator mode, or abilities taken by anything else) only
+ * uses MineQTT blocks (P2): they never configure one, expose it or set its access, an operator or the owner neither, as
+ * vanilla lets no operator in adventure mode break a block. Whether they may use it stays the access mode's decision.
  */
 public final class DeviceAccess {
     private DeviceAccess() {
@@ -40,40 +45,53 @@ public final class DeviceAccess {
      */
     public static boolean check(ServerPlayer player, BlockEntity blockEntity, MineqttPermission need) {
         boolean op = AclContext.isOp(player.permissions());
+        boolean mayBuild = mayBuild(player);
         BooleanSupplier claimTrust = claimTrust(sameLevel(player, blockEntity),
                 () -> MineQTT.permissionManager.canInteract(player, blockEntity.getBlockPos(), need));
         if (blockEntity instanceof DeviceHost host) {
-            return permits(need, host.deviceLink().access(), op, isOwner(player, blockEntity), claimTrust);
+            return permits(need, host.deviceLink().access(), op, isOwner(player, blockEntity), mayBuild, claimTrust);
         }
         if (blockEntity instanceof BaseMqttBlockEntity) {
-            return permits(need, AccessMode.CLAIM, op, isOwner(player, blockEntity), claimTrust);
+            return permits(need, AccessMode.CLAIM, op, isOwner(player, blockEntity), mayBuild, claimTrust);
         }
         if (blockEntity instanceof TerminalBlockEntity) {
-            return consolePermits(need, op, claimTrust);
+            return consolePermits(need, op, mayBuild, claimTrust);
         }
-        return op;
+        return op && (mayBuild || need == MineqttPermission.USE);
+    }
+
+    /**
+     * Whether a player may build, and so configure MineQTT blocks (P2): their abilities let them build
+     * ({@link Player#mayBuild()}, which vanilla takes away in adventure and spectator mode) and they are no spectator.
+     * A player who may not only uses the blocks: a device's screen shows them its Controls tab alone, and the other
+     * screens, the paper, the name tag and the Configurator are refused them.
+     */
+    public static boolean mayBuild(Player player) {
+        return player.mayBuild() && !player.isSpectator();
     }
 
     /**
      * The Bridge Console's rule (M2 plan §4.2 M2-23): anyone the claim at the console trusts may open it (USE), as a
      * block without an owner, and sees only the devices and groups they may configure; its actions (CONFIGURE) act on the
-     * whole bridge, so only an operator may run them, whatever the claim says.
+     * whole bridge, so only an operator who may build may run them, whatever the claim says.
+     *
+     * @param mayBuild whether the player may build ({@link #mayBuild(Player)})
      */
-    public static boolean consolePermits(MineqttPermission need, boolean op, BooleanSupplier claimTrust) {
+    public static boolean consolePermits(MineqttPermission need, boolean op, boolean mayBuild, BooleanSupplier claimTrust) {
         if (need == MineqttPermission.USE) return permits(need, AccessMode.CLAIM, op, false, claimTrust);
-        return op;
+        return op && mayBuild;
     }
 
     /**
      * What a player may change on a device (design §8.7, M2-6): use it, configure it, expose it to Home Assistant
      * (CONFIGURE and {@link AclContext#mayExpose}) and set its access mode (the owner or an operator). A spectator may
-     * change nothing, whoever they are: they only look at a device's screen, as into a chest ({@code C2SGuard}).
+     * change nothing, whoever they are: they only look at a device's Controls tab, as into a chest ({@code C2SGuard}).
      */
     public static DeviceView.Grants grants(ServerPlayer player, BlockEntity blockEntity) {
         if (player.isSpectator()) return DeviceView.Grants.NONE;
         AccessMode access = ((DeviceHost) blockEntity).deviceLink().access();
         boolean sameLevel = sameLevel(player, blockEntity);
-        return grants(AclContext.isOp(player.permissions()), isOwner(player, blockEntity), access,
+        return grants(AclContext.isOp(player.permissions()), isOwner(player, blockEntity), mayBuild(player), access,
                 need -> claimTrust(sameLevel, () -> MineQTT.permissionManager.canInteract(player, blockEntity.getBlockPos(), need)).getAsBoolean(),
                 AclContext.mayExpose(player.permissions()));
     }
@@ -81,15 +99,18 @@ public final class DeviceAccess {
     /**
      * The decision behind {@link #grants(ServerPlayer, BlockEntity)}: USE and CONFIGURE as {@link #permits} gives them,
      * the exposure on top of CONFIGURE, and the access mode only to the owner or an operator (M2-11), whatever the mode
-     * and the claim say. Nobody else may change who has access, so no access mode can lock the owner out.
+     * and the claim say. Nobody else may change who has access, so no access mode can lock the owner out. A player who
+     * may not build gets USE at most (P2).
      *
+     * @param mayBuild   whether the player may build ({@link #mayBuild(Player)})
      * @param claimTrust whether the claim at the device trusts the player with a permission; asked only when it matters
      * @param mayExpose  whether the player holds the right to expose devices ({@link AclContext#mayExpose})
      */
-    public static DeviceView.Grants grants(boolean op, boolean owner, AccessMode access, Predicate<MineqttPermission> claimTrust, boolean mayExpose) {
-        boolean use = permits(MineqttPermission.USE, access, op, owner, () -> claimTrust.test(MineqttPermission.USE));
-        boolean configure = permits(MineqttPermission.CONFIGURE, access, op, owner, () -> claimTrust.test(MineqttPermission.CONFIGURE));
-        return new DeviceView.Grants(use, configure, configure && mayExpose, op || owner);
+    public static DeviceView.Grants grants(boolean op, boolean owner, boolean mayBuild, AccessMode access, Predicate<MineqttPermission> claimTrust,
+                                           boolean mayExpose) {
+        boolean use = permits(MineqttPermission.USE, access, op, owner, mayBuild, () -> claimTrust.test(MineqttPermission.USE));
+        boolean configure = permits(MineqttPermission.CONFIGURE, access, op, owner, mayBuild, () -> claimTrust.test(MineqttPermission.CONFIGURE));
+        return new DeviceView.Grants(use, configure, configure && mayExpose, mayBuild && (op || owner));
     }
 
     /**
@@ -136,7 +157,7 @@ public final class DeviceAccess {
      */
     public static boolean check(ServerPlayer player, DeviceRecord record, MineqttPermission need) {
         boolean sameLevel = player.level().dimension().equals(record.pos().dimension());
-        return permits(need, record.access(), AclContext.isOp(player.permissions()), player.getUUID().equals(record.owner()),
+        return permits(need, record.access(), AclContext.isOp(player.permissions()), player.getUUID().equals(record.owner()), mayBuild(player),
                 claimTrust(sameLevel, () -> MineQTT.permissionManager.canInteract(player, record.pos().pos(), need)));
     }
 
@@ -173,7 +194,18 @@ public final class DeviceAccess {
     }
 
     /**
-     * The decision itself.
+     * The decision for a player: one who may not build only uses (P2), so anything but USE is refused them before the
+     * access mode is asked, an operator and the owner included.
+     *
+     * @param mayBuild   whether the player may build ({@link #mayBuild(Player)})
+     * @param claimTrust whether the claim at the device trusts the player with {@code need}; asked only when it matters
+     */
+    public static boolean permits(MineqttPermission need, AccessMode access, boolean op, boolean owner, boolean mayBuild, BooleanSupplier claimTrust) {
+        return (mayBuild || need == MineqttPermission.USE) && permits(need, access, op, owner, claimTrust);
+    }
+
+    /**
+     * The access mode's decision, for a player who may build.
      *
      * @param claimTrust whether the claim at the device trusts the player with {@code need}; asked only when it matters
      */

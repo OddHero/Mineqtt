@@ -26,7 +26,8 @@ import java.util.UUID;
  * what it sent and received ({@link Diagnostics}), and what the viewing player may change. The server builds it into the
  * open data of the screen (M2-7) and sends it again whenever the device changed (M2-6); the client resolves the type
  * from its id ({@link DeviceTypes}) and derives tabs and widgets from the declaration, so the view carries values, never
- * the declaration. It carries the owner's name but not their UUID, and no grandfather flag.
+ * the declaration. It carries the owner's name but not their UUID, and no grandfather flag. The view of a player who
+ * may only use the device ({@link #controlsOnly()}) carries no more than its Controls tab shows.
  * <p>
  * Its {@link #STREAM_CODEC} writes at most {@value #MAX_BYTES} bytes: {@link #of} cuts every text to its cap and a
  * state over {@value #MAX_STATE_BYTES} bytes does not encode.
@@ -38,11 +39,14 @@ import java.util.UUID;
  * @param ownership    whether it has an owner, and what decides claim trust on this server
  * @param diagnostics  its id, availability and traffic, the payloads only for a player who may configure it
  * @param legacyItems  how many items its old configuration slots held and it still keeps (M2-12)
+ * @param controlsOnly whether the view is for a player who may only use the device (P2: one who may not build), whose
+ *                     screen has the Controls tab alone; everything but its position, type, name, grants and state is
+ *                     then blank ({@link #redacted()})
  */
 public record DeviceView(BlockPos pos, Identifier type, String name, String slug, String ownerName, AccessMode access,
                          Optional<Boolean> expose, Registration registration, Grants grants, String state, Optional<Raw> raw,
                          boolean privateMode, String status, Optional<String> problem, Ownership ownership, Diagnostics diagnostics,
-                         int legacyItems) {
+                         int legacyItems, boolean controlsOnly) {
     public static final int MAX_BYTES = 32 * 1024;
     public static final int MAX_STATE_BYTES = 16 * 1024;
     /** The most of a message's payload the Diagnostics tab shows; its size is shown in full. */
@@ -184,6 +188,9 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
     public DeviceView {
         if (!parse(state).isJsonObject()) throw new IllegalArgumentException("A device view's state is a JSON object: " + state);
         if (legacyItems < 0) throw new IllegalArgumentException("A device view has a negative item count");
+        if (controlsOnly && (grants.configure() || grants.expose() || grants.access())) {
+            throw new IllegalArgumentException("A controls-only device view grants no more than USE");
+        }
     }
 
     /**
@@ -211,7 +218,18 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
         return new DeviceView(pos, type.id(), cap(link.name(), MAX_NAME_BYTES), cap(link.slug(), MAX_SLUG_BYTES), cap(link.ownerName(), MAX_OWNER_BYTES),
                 link.access(), Optional.ofNullable(link.expose()), capped, grants, json, raw, privateMode, cap(status, MAX_STATUS_BYTES),
                 Optional.ofNullable(problem).map(text -> cap(text, MAX_STATUS_BYTES)), ownership, cappedDiagnostics,
-                link.legacyItems().stream().mapToInt(item -> item.stack().getCount()).sum());
+                link.legacyItems().stream().mapToInt(item -> item.stack().getCount()).sum(), false);
+    }
+
+    /**
+     * This view as a player who may only use the device sees it (P2): what its Controls tab and the screen's title need,
+     * its position, type, name, grants and state, and nothing else. Its slug, owner, exposure, topics, group, Raw Link,
+     * status line, Raw Link problem, diagnostics and legacy items are blank; the access mode is the default and the
+     * ownership nobody's, without a claim mod. Such a player holds no grant beyond USE ({@code DeviceAccess}).
+     */
+    public DeviceView redacted() {
+        return new DeviceView(pos, type, name, "", "", AccessMode.DEFAULT, Optional.empty(), Registration.NONE, grants, state, Optional.empty(),
+                false, "", Optional.empty(), new Ownership(Owner.NOBODY, false), Diagnostics.notRunning(null), 0, true);
     }
 
     private static Traffic cap(Traffic traffic) {
@@ -293,6 +311,7 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
             VarLong.write(buf, count);
         }
         VarInt.write(buf, view.legacyItems);
+        buf.writeBoolean(view.controlsOnly);
         if (buf.writerIndex() - start > MAX_BYTES) throw new EncoderException("A device view takes more than " + MAX_BYTES + " bytes");
     }
 
@@ -358,10 +377,11 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
         Diagnostics diagnostics = new Diagnostics(id, availability, detail, lastIn, lastOut, readCount(buf), readCount(buf), readCount(buf),
                 readCount(buf), readCount(buf));
         int legacyItems = VarInt.read(buf);
+        boolean controlsOnly = buf.readBoolean();
         if (buf.readerIndex() - start > MAX_BYTES) throw new DecoderException("A device view takes more than " + MAX_BYTES + " bytes");
         try {
             return new DeviceView(pos, type, name, slug, ownerName, access, expose, registration, grants, state, raw, privateMode, status, problem,
-                    ownership, diagnostics, legacyItems);
+                    ownership, diagnostics, legacyItems, controlsOnly);
         } catch (IllegalArgumentException e) {
             throw new DecoderException(e.getMessage());
         }

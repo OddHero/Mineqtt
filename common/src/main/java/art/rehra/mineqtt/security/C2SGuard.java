@@ -30,7 +30,7 @@ import java.util.function.Predicate;
 /**
  * The one gate every client-to-server payload passes (design §8.5): the client is never trusted. A block payload is
  * accepted only from a player who has that block's screen open, {@link #reaches reaches} a loaded block entity of the
- * expected type (from afar with a Configurator in hand) and holds the permission it needs; a Cyberdeck payload only from
+ * expected type (from afar with a Configurator in hand, if they may build) and holds the permission it needs; a Cyberdeck payload only from
  * a player with the Cyberdeck screen open; a Configurator's Link mode pick or Group mode name only while it answers the
  * player's open offer ({@link #requireOffer}). A spectator only looks, as vanilla lets them look into a chest: none of their
  * payloads is accepted. Every player may send {@value #PACKETS_PER_SECOND} payloads per second; a rejected payload
@@ -200,14 +200,17 @@ public final class C2SGuard {
     /**
      * Whether the player reaches the block at {@code pos} in {@code level}: in the same dimension, within their block
      * interaction range, or within {@link #CONFIGURATOR_RANGE} while they hold a Configurator in either hand (the range
-     * variant of design §8.5, tied to the item in hand: putting it away ends it). From afar the level must let them
+     * variant of design §8.5, tied to the item in hand: putting it away ends it) and may build: a player who may not
+     * ({@link DeviceAccess#mayBuild}, P2) only uses a device within reach, as the Configurator opens nothing from afar for
+     * them, so their screen does not stay open from afar either. From afar the level must let them
      * interact with the block ({@link Level#mayInteract}: spawn protection, the world border), as vanilla asks before a
      * click within reach, which is the only way a screen within reach opens.
      *
      * @param slack blocks beyond either range that still count, for latency
      */
     public static boolean reaches(Player player, Level level, BlockPos pos, double slack) {
-        return reaches(player.level() == level, player.isWithinBlockInteractionRange(pos, slack), holdsConfigurator(player),
+        return reaches(player.level() == level, player.isWithinBlockInteractionRange(pos, slack),
+                holdsConfigurator(player) && DeviceAccess.mayBuild(player),
                 () -> level.mayInteract(player, pos), new AABB(pos).distanceToSqr(player.getEyePosition()), slack);
     }
 

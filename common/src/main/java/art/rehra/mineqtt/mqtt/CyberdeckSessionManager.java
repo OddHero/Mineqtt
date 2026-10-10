@@ -41,7 +41,8 @@ import java.util.UUID;
  *     {@code acl.explorerBrokerWide} is set. The scope follows the player's rights: it is built again on a config reload
  *     and whenever the player gains or loses operator or admin rights. Every message is then judged for that player
  *     ({@link TopicAcl#explorerExposure}): other players' private topics are hidden, a device's topics are shown only to
- *     players who may configure it, groups only to operators, and discovery payloads are cut to their size. At most
+ *     players who may configure it, groups and unregistered devices only to operators who may build (P2), and discovery
+ *     payloads are cut to their size. At most
  *     {@value #FORWARDED_PER_SECOND} messages per second reach a player.</li>
  *     <li>A publish passes the full {@link TopicAcl} for the player, is never retained and is limited to
  *     {@value #PUBLISHES_PER_SECOND} per second. In private mode the topic lies in the player's own subtree,
@@ -218,14 +219,16 @@ public final class CyberdeckSessionManager {
         if (player == null || message.topic().length() > CyberdeckTopicUpdatePayload.MAX_TOPIC_CHARS) return;
         TopicAcl.Subject subject = AclContext.of(player);
         TopicAcl.Exposure exposure = runtime.acl().explorerExposure(subject, message.topic());
+        // An operator who may not build configures nothing (P2), so they see what any other player sees.
+        boolean operator = subject.op() && DeviceAccess.mayBuild(player);
         boolean visible = switch (exposure.kind()) {
             case SHOW, REDACT -> true;
             case HIDE -> false;
             case DEVICE -> {
                 DeviceRecord record = runtime.registry().bySlug(exposure.slug());
-                yield record == null ? subject.op() : DeviceAccess.check(player, record, MineqttPermission.CONFIGURE);
+                yield record == null ? operator : DeviceAccess.check(player, record, MineqttPermission.CONFIGURE);
             }
-            case GROUP -> subject.op();
+            case GROUP -> operator;
         };
         if (!visible || !session.forwarded.tryTake()) return;
         String payload = exposure.kind() == TopicAcl.Exposure.Kind.REDACT

@@ -3,7 +3,9 @@ package art.rehra.mineqtt.ui.framework;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceView;
+import art.rehra.mineqtt.integrations.MineqttPermission;
 import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.security.DeviceAccess;
 import art.rehra.mineqtt.ui.MineqttMenuTypes;
 import art.rehra.mineqtt.ui.console.ConsoleMenu;
 import art.rehra.mineqtt.ui.console.ConsoleView;
@@ -39,6 +41,10 @@ import java.util.Optional;
  *
  * <p>Opening the screen of a block needs the USE permission; its slots configure the block, so a player without
  * CONFIGURE sees them but cannot change them ({@link #configurable()}).</p>
+ *
+ * <p>Which screen a block offers depends on whether the player may build ({@link DeviceAccess#mayBuild}, P2), which the
+ * menu remembers: when that changes while it is open (a game mode change), {@link #abilitiesChanged} offers the block's
+ * screen again.</p>
  */
 public class TabbedMqttMenu extends AbstractContainerMenu {
 
@@ -64,6 +70,8 @@ public class TabbedMqttMenu extends AbstractContainerMenu {
     private final int containerSlotStart;
     private final int containerSlotEnd;
     private final boolean configurable;
+    // Whether the player could build when the menu was made.
+    private final boolean mayBuild;
     private @Nullable String deviceStatus;
     private @Nullable String rawProblem;
     private @Nullable DeviceView deviceView;
@@ -84,9 +92,10 @@ public class TabbedMqttMenu extends AbstractContainerMenu {
         if (console != null) {
             return new ConsoleMenu(containerId, playerInventory, pos, null, tabId, console);
         }
-        // A device's screen is built from its type, which its client block entity knows.
+        // A device's screen is built from its type, which its client block entity knows, and the view, which says whether
+        // the player sees its Controls tab alone.
         if (view != null && playerInventory.player.level().getBlockEntity(pos) instanceof DeviceHost host) {
-            DeviceMenu menu = new DeviceMenu(containerId, playerInventory, (BlockEntity) host, tabId, configurable);
+            DeviceMenu menu = new DeviceMenu(containerId, playerInventory, (BlockEntity) host, tabId, configurable, view.controlsOnly());
             menu.setDeviceView(view);
             return menu;
         }
@@ -153,6 +162,7 @@ public class TabbedMqttMenu extends AbstractContainerMenu {
         this.container = container;
         this.blockPos = blockPos;
         this.configurable = configurable;
+        this.mayBuild = DeviceAccess.mayBuild(player);
         this.deviceStatus = deviceStatus;
         this.tabs = tabs.isEmpty() ? List.of() : Collections.unmodifiableList(new ArrayList<>(tabs));
         this.activeTabId = initialTabId(this.tabs, initialTabId);
@@ -210,6 +220,25 @@ public class TabbedMqttMenu extends AbstractContainerMenu {
     /** Whether this is the screen of that block entity; a player with it open sees the block's changes. */
     public boolean isFor(BlockEntity blockEntity) {
         return container == blockEntity;
+    }
+
+    /**
+     * {@code PLAYER_POST}: a player whose block screen was made while they could build and now cannot, or the other way
+     * round (P2: a game mode change, or abilities another mod changed), loses it, and the block offers its screen again as
+     * it would now: a device's Controls tab alone or all its tabs, the Bridge Console read-only or with its actions, a
+     * block with slots not at all. A player who may no longer use the block, or no longer reaches it (a device's screen
+     * opened from afar with the Configurator, whose range a player who may not build lacks), gets nothing. The explorer is
+     * no block's and stays.
+     */
+    public static void abilitiesChanged(ServerPlayer player) {
+        if (!(player.containerMenu instanceof TabbedMqttMenu menu) || menu.blockPos == null || menu.mayBuild == DeviceAccess.mayBuild(player)) return;
+        BlockEntity blockEntity = player.level().getBlockEntity(menu.blockPos);
+        // Asked of the old screen before it closes: the reach it needs is the player's as they are now.
+        boolean stillReaches = menu.stillValid(player);
+        player.closeContainer();
+        if (stillReaches && blockEntity instanceof TabbedScreenHost host && menu.isFor(blockEntity) && DeviceAccess.check(player, blockEntity, MineqttPermission.USE)) {
+            host.openScreen(player);
+        }
     }
 
     /** Whether the player may change the slots; the server decides when the screen opens and enforces it. */
