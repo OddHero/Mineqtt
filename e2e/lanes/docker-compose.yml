@@ -1,0 +1,109 @@
+# One isolated MineQTT test lane: broker, Fabric dedicated server and (profile "ha") Home Assistant.
+# Drive it with lane.sh, which sets the project name (<prefix>-<id>), the Docker host (this workstation or a remote of
+# docker/hosts.sh) and the variables below; on a host with a cpuset and cpu shares it adds docker-compose.limits.yml:
+#
+#   sh e2e/lanes/lane.sh up 1 [--ha] [--host local|auto|<remote>]
+#
+# There is no "name:" here on purpose: the project name comes from -p, so containers, the network and the volumes of
+# every lane are prefixed with it and never meet another lane's. Nothing is bind-mounted from the host (a remote daemon
+# cannot see this disk): the configs come from variables, and lane.sh ships the MineQTT jar into the mods volume. This
+# file publishes no ports; on this workstation lane.sh adds docker-compose.ports.yml (ephemeral loopback ports), a
+# remote lane has none and is driven with "docker compose exec" over the context.
+#
+# Variables (lane.sh exports them): LANE_ID, LANE_SERVER_IMAGE, MINEQTT_MOSQUITTO_CONF and MINEQTT_HA_CONFIGURATION
+# (file contents), MINEQTT_OWNER / MINEQTT_CREATED (labels), HA_VERSION, MC_JAVA_OPTS, MC_CPUS, MC_MEMORY.
+
+x-labels: &labels
+  mineqtt.owner: "${MINEQTT_OWNER:-}"
+  mineqtt.created: "${MINEQTT_CREATED:-}"
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    labels: *labels
+    configs:
+      - source: mosquitto_conf
+        target: /mosquitto/config/mosquitto.conf
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/broker/version", "-C", "1", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 1s
+    cpus: 0.5
+    mem_limit: 64m
+
+  server:
+    image: ${LANE_SERVER_IMAGE:-mineqtt-lane-server}
+    pull_policy: never
+    labels: *labels
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      LANE_ID: ${LANE_ID:-0}
+      RCON_PASSWORD: mineqtt-lane
+      MINEQTT_BROKER: tcp://mosquitto:1883
+      MINEQTT_BRIDGE_ID: lane-${LANE_ID:-0}
+      MINEQTT_KEEP_TICKING: ${MINEQTT_KEEP_TICKING:-false}
+      MINEQTT_HA_EXPOSE: ${MINEQTT_HA_EXPOSE:-AUTO}
+      JAVA_OPTS: ${MC_JAVA_OPTS:--Xms512M -Xmx1G}
+    volumes:
+      # The MineQTT jar, shipped by lane.sh (docker cp) on up and reload; the entrypoint copies it into mods/.
+      - mods:/opt/mineqtt
+      - world:/server/world
+    # Healthy once the server is up and MineQTT reached the lane broker (latest.log is removed on every start).
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'Done (' logs/latest.log && grep -q 'Connected to MQTT broker' logs/latest.log"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 300s
+      start_interval: 1s
+    stop_grace_period: 30s
+    cpus: ${MC_CPUS:-2}
+    mem_limit: ${MC_MEMORY:-1536m}
+
+  homeassistant:
+    profiles: ["ha"]
+    image: ghcr.io/home-assistant/home-assistant:${HA_VERSION:-2026.10.0}
+    labels: *labels
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    volumes:
+      - ha-config:/config
+    configs:
+      - source: ha_configuration
+        target: /config/configuration.yaml
+    # Healthy once the web server answers, so "up --ha --wait" returns when onboarding can start.
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "-o", "/dev/null", "http://127.0.0.1:8123/manifest.json"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 300s
+      start_interval: 1s
+    cpus: 2
+    mem_limit: 1g
+
+networks:
+  default:
+    labels: *labels
+
+configs:
+  # Copied into the containers at creation, not bind-mounted: e2e/lanes/mosquitto.conf and
+  # e2e/homeassistant/configuration.yaml.
+  mosquitto_conf:
+    environment: MINEQTT_MOSQUITTO_CONF
+  ha_configuration:
+    environment: MINEQTT_HA_CONFIGURATION
+
+volumes:
+  mods:
+    labels: *labels
+  world:
+    labels: *labels
+  ha-config:
+    labels: *labels

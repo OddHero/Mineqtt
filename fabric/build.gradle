@@ -74,6 +74,14 @@ loom.runs.named('clientGameTest') {
     displayName.set('Client:fabric:GameTest')
     // Fails the run when the test mod is not loaded, instead of running no test at all.
     property('fabric.client.gametest.modid', 'mineqtt-gametest')
+    // A client out of heap otherwise keeps running without progress and the run never ends.
+    vmArg('-XX:+ExitOnOutOfMemoryError')
+    // Without it the JVM takes 25 % of the machine's (or container's) memory as heap; docker/client-test sets it so a
+    // small container still gives the game enough.
+    def heap = System.getenv('MINEQTT_CLIENT_HEAP')
+    if (heap) {
+        vmArg("-Xmx$heap")
+    }
 }
 
 tasks.named('check') {

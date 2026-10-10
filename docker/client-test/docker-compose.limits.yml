@@ -1,0 +1,11 @@
+# Added by run.sh on a Docker host that pins and weighs MineQTT's containers (cpuset and shares in docker/hosts.sh), so
+# the services the host is there for win every CPU contention. Not used where both are unset: an explicit cpu_shares
+# of 1024 would already lower a container below Docker's default weight on cgroup v2.
+# Variables: MQ_CPUSET, MQ_CPU_SHARES (docker/hosts.sh, mq_use_host).
+services:
+  mosquitto:
+    cpuset: "${MQ_CPUSET:?}"
+    cpu_shares: ${MQ_CPU_SHARES:?}
+  client:
+    cpuset: "${MQ_CPUSET:?}"
+    cpu_shares: ${MQ_CPU_SHARES:?}

@@ -270,15 +270,17 @@ public final class GroupGameTest implements FabricClientGameTest {
                 && buttonVisible(mc, "Rename"), ANSWER_TICKS), "and the page returns to the group page, which shows Lounge");
 
         session.clickWidget(isButton("Leave"), "the Leave button");
-        session.check(session.await(() -> record(session, PORCH).group() == null, ANSWER_TICKS), "the porch lamp leaves again");
+        // The page brings its widgets up to date with new group data when it draws, so wait for the frame that did.
+        session.check(session.await(() -> record(session, PORCH).group() == null, ANSWER_TICKS)
+                && session.awaitClient(mc -> buttonVisible(mc, "Create") && !buttonVisible(mc, "Leave"), ANSWER_TICKS), "the porch lamp leaves again");
         session.typeInto(GroupGameTest::isNameField, "the group name field", "Porch");
         session.clickWidget(isButton("Create"), "the Create button");
         session.check(session.await(() -> group(session, "porch").map(found -> found.members().equals(Set.of(id(session, PORCH)))).orElse(false), ANSWER_TICKS),
                 "Create makes group Porch with the porch lamp");
         session.check(!session.onRuntime(runtime -> runtime.discovery().exposed(runtime.registry().groupBySlug("porch"))),
                 "under OPT_IN Home Assistant does not discover it: nobody exposed the porch lamp");
-        session.check(session.awaitClient(mc -> groups(mc).flatMap(DeviceGroups::own).map(own -> own.name().equals("Porch") && own.members() == 1).orElse(false),
-                ANSWER_TICKS), "the page shows the new group");
+        session.check(session.awaitClient(mc -> groups(mc).flatMap(DeviceGroups::own).map(own -> own.name().equals("Porch") && own.members() == 1).orElse(false)
+                && buttonVisible(mc, "Join another group"), ANSWER_TICKS), "the page shows the new group");
         session.clickWidget(isButton("Join another group"), "the join page button");
         session.clickWidget(isButton("Join"), "the Join button");
         session.check(session.await(() -> Objects.equals(record(session, PORCH).group(), groupId(session, "lounge")) && group(session, "porch").isEmpty(),
@@ -399,8 +401,11 @@ public final class GroupGameTest implements FabricClientGameTest {
 
     private static void openGroupPage(GameTestSession session, BlockPos pos) {
         openGeneral(session, pos);
-        session.check(session.awaitClient(mc -> groups(mc).isPresent(), ANSWER_TICKS), "the group page's data arrives with the screen");
-        session.clickWidget(widget -> widget instanceof Button && widget.getMessage().getString().endsWith(" >"), "the group button");
+        // The General tab labels its group button when it draws, so wait for a frame with the label too.
+        Predicate<AbstractWidget> groupButton = widget -> widget instanceof Button && widget.visible && widget.getMessage().getString().endsWith(" >");
+        session.check(session.awaitClient(mc -> groups(mc).isPresent() && mc.gui.screen().children().stream()
+                .anyMatch(child -> child instanceof AbstractWidget widget && groupButton.test(widget)), ANSWER_TICKS), "the group page's data arrives with the screen");
+        session.clickWidget(groupButton, "the group button");
         session.check(session.awaitClient(mc -> buttonVisible(mc, "< General"), ANSWER_TICKS), "the group page opens");
     }
 

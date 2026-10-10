@@ -66,6 +66,8 @@ MINEQTT_E2E_BROKER=tcp://localhost:1883 ./gradlew :fabric:runClientGameTest   # 
 ```
 
 - A game window opens on the desktop and closes by itself after about a minute; the test API feeds it its own input.
+  To run them without a window, next to other runs, use `docker/client-test/run.sh` (see
+  [Test lanes (Docker)](#test-lanes-docker)).
 - Each suite starts its own dedicated server in the client's JVM (`worldBuilder().createServer()`, a fresh flat world)
   and joins it as `Player0`, who is not an operator.
 - `MINEQTT_E2E_BROKER` (a `tcp://` or `ws://` URI) points that server's MineQTT at a broker, under the bridge id
@@ -118,6 +120,234 @@ crash report and exits with -8, because two idle fixed pools of non-daemon threa
 any server starts and match the `newFixedThreadPool` calls in the Architectury Transformer's dev runtime
 (`TinyRemapper`, `ReadClasspathProviderImpl`); MineQTT itself creates no executors. A failing test exits with 1 before
 that point. `:fabric:runClientGameTest` therefore accepts 0 and -8 and takes its verdict from the report.
+
+## Test lanes (Docker)
+
+Two tools give every test run its own environment in Docker, so parallel runs need no assigned ports, bridge ids
+or desktop windows. Both run from Git Bash on Windows (and from Linux shells), bind no fixed host port, and run either
+on this workstation or on a remote Docker host (a build host for the bulk of the work and, optionally, a shared machine
+used only as throttled overflow; see "Hosts" below), which takes the CPU-heavy work off the workstation.
+
+- `e2e/lanes/lane.sh`: a lane is one Compose project `mineqtt-lane-<id>` with its own Mosquitto broker, a Fabric 26.2
+  dedicated server running this worktree's jar (bridge id `lane-<id>`, flat world, RCON) and, with `--ha`, its own
+  Home Assistant. Healthy about 15 s (local) or 22 s (remote, the jar crosses the link) after `up`. Details and
+  measurements: [lanes/REPORT.md](lanes/REPORT.md).
+- `docker/client-test/run.sh`: the Fabric client game tests (above) in a Compose project `mineqtt-client-<id>`,
+  headless under Xvfb with software OpenGL and a private broker. It ships the working tree (tracked edits and
+  untracked, non-ignored files) into the container as a gzipped tar, so it never touches the worktree's build
+  directories. A full run takes about 7 min locally and about 8-9 min on the remote host (slower cores, but off the
+  workstation), a few suites about 1.5-2 min. Details and measurements:
+  [../docker/client-test/REPORT.md](../docker/client-test/REPORT.md).
+
+### Hosts
+
+`run.sh` and `lane.sh` take `--host local|auto|<remote>` (or `MINEQTT_DOCKER_HOST`; default `auto`); `remote-gc.sh`
+takes `--host local|<remote>` and by default sweeps every remote of the host table.
+
+The host table lists the remote Docker hosts, one line per host: name, SSH endpoint, client slots and size, lane cap,
+CPU pinning and weight, build policy. It is not part of the repository; `docker/hosts.sh` reads it from the first of
+these files that exists:
+
+1. `$MINEQTT_HOSTS_FILE`;
+2. `<git common dir>/mineqtt-docker-hosts`, for example `.git/mineqtt-docker-hosts` (every worktree of the clone
+   finds it there);
+3. `docker/hosts.local` (ignored by git).
+
+[`docker/hosts.example`](../docker/hosts.example) explains the columns and has two placeholder rows to copy. Lines
+starting with `#` and blank lines are skipped. Without a table there are no remotes, and `auto` runs everything on this
+workstation. Every docker and compose call goes to the selected host with `docker -H ssh://user@host` (a Docker context
+name works as well), so no per-workstation set-up beyond the SSH key and the table is needed.
+
+| Host | Client stacks | Lanes | MineQTT containers | Images and seed |
+|---|---|---|---|---|
+| A build host (the measured one: 64 threads, 125 GiB, also running other services) | 16 of 3 CPUs / 5 GB | 20 | unpinned, Docker's default weight | built whenever a run needs them (`build auto`) |
+| An overflow host: a shared machine whose own services (production, for example) come first | 2 of 3 CPUs / 5 GB | 6 | pinned to half of its cores (whole cores, for example CPUs 4-7 and 12-15), `--cpu-shares 256` (measured: cgroup `cpu.weight` 10 in our containers, 100 in the host's own, on cgroup v2 with Docker 28.4) | manual (`build manual`): only with an explicit `--host <name>`, at a quiet hour |
+| `local`: this workstation (32 threads, 30 GiB for Docker; also every Gradle build) | 3 of 4 CPUs / 8 GB | 8 (not enforced) | Docker's defaults | built whenever a run needs them |
+
+How to use them:
+
+- **`auto` tries the remotes in table order, then this workstation**, and says in one line why it skipped a host
+  (`remote <name> is not ready for auto ...`, `full: <name> (16 of 16); running on <next>`, `remote <name>
+  unreachable`). A remote counts as unreachable when its Docker daemon does not answer `docker -H <endpoint> version`
+  within 15 s (a daemon that is down, or an SSH key `docker.exe` lacks). An explicit `--host <remote>` that cannot reach
+  it fails at once. `MINEQTT_REMOTES="<name> ..."` limits `auto` to those remotes, in that order (for example to keep it
+  off an overflow host); `--host <name>` sends a run to any remote of the table on purpose.
+- **The build host comes first in the table.** Use it freely up to its slots; the measurements below are for such a
+  host.
+- **An overflow host is a shared machine: its own services come first.** List it after the build host. `auto` gives it
+  work only when the remotes before it are full or unreachable, and only once the host is ready (client image and Gradle
+  seed for `run.sh`, lane server image for `lane.sh`), because nothing is ever built there on the side. Measure its load
+  over some days (sysstat, for example) before you choose its slots and its quiet hours. Our containers are pinned to
+  half of its cores and weigh a tenth of one of its own containers, so its services win any contention. The host's own
+  services stay unpinned: the other cores are free of MineQTT, not reserved for them, and they may run on the pinned
+  cores as well. Warm-ups: image builds and image pulls cannot be pinned (BuildKit and the daemon do them), and the
+  Gradle warm-up is the most CPU-heavy step (~4 min, pinned but still a full build). So they happen there only on an
+  explicit request: `lane.sh build --host <name>` (lane server image, plus pulling the Mosquitto and Home Assistant
+  images) and `run.sh --warm --host <name>` (client image and seed), at a quiet hour for that host. A test run or
+  `lane.sh up` never builds or pulls there: it fails with that hint, and `auto` skips the host until a warm-up with the
+  current client image has completed (`run.sh` keeps an empty volume `mineqtt-client-warmed-<image hash>` as the
+  record) and the lane images are present. `run.sh --warm` under `auto` never picks a `build manual` host, and an
+  explicit warm-up there refuses to start while MineQTT client stacks run on it. After a dependency bump the seed is
+  merely stale: runs download what is missing inside their pinned containers, until the next warm-up at a quiet hour.
+- **Rules for every shared remote host** (any host that runs more than MineQTT's tests):
+  1. Only through `run.sh`, `lane.sh` and `remote-gc.sh`, which add the host's pinning and weight. Never `docker run`
+     or `docker compose up` there by hand, and never run commands on it over `ssh` yourself.
+  2. Never touch a container, network, volume or image that is not ours: `mineqtt-client*`, `mineqtt-lane*`, the seed
+     volume `mineqtt-client-gradle` and the images `mineqtt-client:*` and `mineqtt-lane-server:*`. Never `docker
+     system|image|volume|container|network prune` on any remote: it would delete other services' data. `remote-gc.sh`
+     is the only cleanup.
+  3. Never publish a host port there (remote stacks publish none), and never point a test at a broker the host runs for
+     its own services: every stack has its own broker.
+  4. Keep to its client stacks and lanes. Raise them only after measuring its own services under load, and with the
+     consent of whoever runs the host.
+  5. Other projects (EscapeWorlds) do not use an overflow host unless the user says so.
+- **Adding a host:**
+  1. Add one line to the host table (format: `docker/hosts.example`), in the place `auto` should try it.
+  2. Make sure the SSH key and the `known_hosts` entry are in `%USERPROFILE%\.ssh`: `docker.exe` uses Windows OpenSSH.
+  3. Run `run.sh --warm --host <it>` and `lane.sh build --host <it>`.
+  4. A host that runs other services gets a cpuset of whole cores (`lscpu -e` shows which CPUs share a core), `shares`
+     256, `build manual` and few slots, and goes after the build host. Measure before giving it more.
+- A lane remembers its host (`~/.mineqtt-lanes/mineqtt-lane-<id>`), so every later `lane.sh` command finds it without
+  `--host`. Without that record a lane is looked for here, then on every remote. When it is found nowhere and a remote
+  does not answer, the command fails instead of guessing (pass `--host`). A remote lane publishes no host ports: `rcon`,
+  `pub`, `sub`, `smoke`, `status` and `ha-*` run inside the lane with `docker compose exec` (`rcon` through a small Java
+  RCON client in the server image, `ha` by running `e2e/ha.py` inside the Home Assistant container; `ha <id> dump FILE`
+  copies the dump back to `FILE` on the workstation). `ports` prints none. `MINEQTT_LANE_PREFIX` must start with
+  `mineqtt-lane`.
+- Nothing is bind-mounted from the workstation (a remote daemon cannot see this disk):
+  - Broker and Home Assistant configs are compose `configs` filled from the files.
+  - The lane server image downloads Fabric API and Architectury at build time (versions from `gradle.properties`,
+    checked against Maven's sha1).
+  - `lane.sh` copies the host-built MineQTT jar into the lane's `mods` volume on `up` and on every `reload` (with or
+    without `--jar`).
+- Every resource the tools create carries the labels `mineqtt.owner=<workstation host name>` and
+  `mineqtt.created=<epoch>`. `sh docker/client-test/remote-gc.sh [--hours N] [--apply] [--force] [--all-owners] [--host
+  H]` lists (dry run) or removes `mineqtt-client*`/`mineqtt-lane*` stacks older than N hours (default 12) on every
+  remote (or on `H`). By default it only touches this workstation's stacks. It leaves stacks in use alone and lists
+  them as skipped: a lane with a running container, or a client stack whose client container runs. A lane keeps its
+  creation time through `reload` and `reset`, and the owner label is the workstation, shared by every run on it.
+  `--force` removes stacks in use too; ask whoever runs them first. Projects with other names (a host's own services, for
+  example) are invisible to it.
+
+Bandwidth (the link from this workstation is slow: ~8-9 MB/s up, ~4.5 MB/s down, 0.4 s per SSH connection):
+
+- **A remote client run** sends the source (~2.3 MB gzipped) and brings back only the report, `latest.log`,
+  `console.log` and, by default, the screenshots of failing suites. The console streams only the Gradle task, verdict,
+  error and SUITE/FAIL lines. `--screenshots all` (UI work: a full set is ~180 files, 29 MB, ~7 s of link time) or
+  `none` overrides that; locally the default stays `all`. `run.sh` prints the bytes it sent and received.
+- **A remote lane** costs the jar (~6.5 MB) on `up` and on each `reload`; everything else is a few KB per command.
+- **Images** build on the host that runs them (the build context is a few KB). The Gradle seed volume is filled on
+  each remote from the internet by `run.sh --warm --host <remote>`. Never copy images or volumes across the link.
+
+Multi-host notes (add them to the usage block below):
+
+```
+Docker hosts: lane.sh and run.sh pick a host by themselves (auto: the remotes of the host table in order, then this
+workstation) and print which; "running on ..." / "running locally" lines are normal. Force one with --host local|<name>.
+An overflow host is a shared machine: never --host it, never ssh to it, never prune or touch non-mineqtt-client/lane
+resources on any remote.
+Remote lanes have no host ports: use lane.sh rcon/pub/sub/smoke/ha, never 127.0.0.1 ports; lane.sh finds the lane's host.
+The link is slow (~8 MB/s up, ~4.5 MB/s down): each lane up/reload ships the ~6.5 MB jar, so reload only after a real change.
+run.sh brings back the report, latest.log, console.log and only failing suites' screenshots from a remote; add
+--screenshots all only when you review UI (~29 MB for a full run). run.sh prints the bytes sent and received.
+Capacity: each remote's row of the host table (a build host: 16 client stacks / 20 lanes), local 3 / 8; run.sh waits for a free slot.
+A client run is stopped after 30 min (MINEQTT_CLIENT_TIMEOUT_MIN) and fails with a TIMEOUT line.
+```
+
+Once per Docker host, and again after a dependency bump (Minecraft, loader, Fabric API, Architectury), the maintainer
+runs the set-up commands while no client stack runs on that host. `lane.sh up` and `run.sh` build a missing image by
+themselves on hosts with `build auto`, so there only the seed needs this. `docker.exe` on Windows connects with Windows
+OpenSSH, so the key and the `known_hosts` entry must be in `%USERPROFILE%\.ssh` (Git Bash's `ssh` may use other ones).
+The first line, run with each remote's endpoint from the host table, checks exactly what the tools check:
+
+```sh
+docker -H ssh://user@build-host version          # must print a Server section within a few seconds
+sh e2e/lanes/lane.sh build --host local          # lane server image mineqtt-lane-server:<mc>-<loader>-<recipe hash>
+sh docker/client-test/run.sh --warm --host local # client image mineqtt-client:<recipe hash> + Gradle seed volume mineqtt-client-gradle (cold ~3.5 min)
+sh e2e/lanes/lane.sh build --host <name>         # the same on a remote (~30 s)
+sh docker/client-test/run.sh --warm --host <name>      # ~5.5 min, downloads on the remote side
+# an overflow host (build manual): the same two lines, only at a quiet hour (builds cannot be pinned)
+```
+
+Usage (`<id>`: a short unique lowercase id, for example the worktree name):
+
+```
+Test environment: your own Docker lane, on a remote Docker host when one is reachable and has room (else locally). From the repository root in Git Bash:
+  ./gradlew :fabric:assemble && sh e2e/lanes/lane.sh up <id>      # broker + Fabric 26.2 server, waits until MQTT is connected (~15-25 s)
+  sh e2e/lanes/lane.sh rcon <id> mineqtt status                    # any server command, no leading slash
+  sh e2e/lanes/lane.sh pub <id> -t <topic> -m <payload>            # mosquitto_pub/_sub inside the lane broker
+  sh e2e/lanes/lane.sh sub <id> -v -t 'mineqtt/#' -W 5
+  sh e2e/lanes/lane.sh reload <id> --jar                           # after code changes: rebuild + ship the jar, restart the server (world kept, ~20 s)
+  sh e2e/lanes/lane.sh logs <id> | status <id> | reset <id> (fresh world) | smoke <id>
+  sh e2e/lanes/lane.sh up <id> --ha && sh e2e/lanes/lane.sh ha-onboard <id>   # Home Assistant; then: lane.sh ha <id> devices|entities|state ...
+Your bridge topic is mineqtt/lane-<id>. 26.2 keeps no spawn chunks: "forceload add 0 0" before setblock (flat world, surface y=-61).
+Dedicated servers expose devices to HA only on request: "mineqtt devices expose <slug> on". Remote lanes have no host ports; use the commands above.
+Client game tests (no window opens; waits for a free slot, so a run can take longer than its ~time):
+  sh docker/client-test/run.sh <id> GroupGameTest ScreensGameTest  # only these suites (~1.5 min)
+  sh docker/client-test/run.sh <id>                                # all suites (~5-7 min); once before handoff
+  Add --screenshots all when you review UI screenshots (remote default: only failing suites' screenshots come back).
+  Results: build/docker-client-test/<id>/ (mineqtt-gametest-report.txt, latest.log, console.log, screenshots/); exit code = verdict.
+  Start run.sh in the background and wait for it to finish. Never run it
+  under a short command timeout: a timed-out run is killed before it can clean up, its stack keeps running
+  for about 90 s and its slot stays taken until another run frees it. Rerunning with the same <id> removes the leftover.
+  --host local|<name> forces a host (default auto; never an overflow host); keep --screenshots and lane reloads lean, the link is slow.
+ALWAYS finish with: sh e2e/lanes/lane.sh down <id>   (save what you need from "lane.sh logs <id>" first)
+```
+
+Capacity, shared by all runs:
+
+| Host | Lanes | Client stacks |
+|---|---|---|
+| This workstation (32 threads, 30 GiB for Docker; also runs every Gradle build) | 8 (Home Assistant only where needed) | 3 of 4 CPUs / 8 GB, enforced by `run.sh` (`MINEQTT_CLIENT_SLOTS`) |
+| A build host (64 CPUs, 125 GiB, shared with other services) | 20 (`MINEQTT_LANES_<NAME>`, checked by `auto`) | 16 of 3 CPUs / 5 GB, enforced by `run.sh` (`MINEQTT_SLOTS_<NAME>`) |
+| An overflow host (a shared machine; overflow only, see "Hosts") | 6 (`MINEQTT_LANES_<NAME>`) | 2 of 3 CPUs / 5 GB, pinned to half of its cores at a tenth of its own services' weight (`MINEQTT_SLOTS_<NAME>`) |
+
+A lane takes ~0.55 GiB and under 1 % of a CPU idle (~0.9 GiB with `--ha`); its caps are 1.5 GiB / 2 CPUs for the
+server and 1 GiB / 2 CPUs for Home Assistant. A client stack peaks at 4.5-4.8 GiB with the game's 2 GiB heap
+(`CLIENT_HEAP`; the JVM's own default, a quarter of the container, ran the game out of heap at 4 GB). `CLIENT_CPUS` /
+`CLIENT_MEMORY` override the size on every host.
+
+Measured on a 64-thread remote host on 2026-10-11 (full 24-suite runs started 5 s apart; runs per hour with the server kept full):
+
+| Stacks x size | Passed | Wall time per run | Runs per hour | Host at peak |
+|---|---|---|---|---|
+| 1 x 4 CPUs / 8 GB | 1/1 | 495 s | - | idle |
+| 10 x 4 CPUs / 8 GB | 10/10 | 481-511 s | ~72 | 39 % CPU idle, 53 GB used |
+| 10 x 2 CPUs / 5 GB | 10/10 | 585-841 s | - | 65 % CPU idle |
+| 20 x 2 CPUs / 5 GB | 19/20 | 589-839 s | ~107 | load 68 on 64 threads; one `controls` check missed its 2 s window during a 2 s server stall |
+| **16 x 3 CPUs / 5 GB** | **16/16** | **518-590 s** | **~106** | 30 % CPU idle, 77 GB used |
+
+More than 16 stacks add no throughput (the CPUs are full) and make timing-sensitive suites flaky; fewer CPUs per
+stack make every run slower. The 20 lanes fit beside them in practice (~0.9 GiB each) although their caps would not,
+so raise neither limit without measuring again.
+
+- `run.sh` counts stacks per host with mkdir slots on this workstation (every run starts here):
+  `%USERPROFILE%\.mineqtt-client-slots` for local stacks and `%USERPROFILE%\.mineqtt-client-slots-<remote>` for each
+  remote (`-<name>`, its name in the host table), and waits while all slots are taken (under `auto`: until any host it
+  may use has one). The slot dirs are shared with other projects' client tests (EscapeWorlds takes at most one local
+  slot and two slots of the build host, and does not use an overflow host); only `run.sh` writes a `stack` file into a slot. `run.sh` also records
+  the host each stack id last ran on (`%USERPROFILE%\.mineqtt-client-slots-ids`), so a rerun of the id looks for its
+  leftover only there and `auto` does not ask every remote on every run. A run removes its own
+  stack and slot when it ends, fails or is interrupted. A run killed outright (a command timeout on Windows kills the
+  process tree, so no trap runs) cannot: its client container then stops itself after about 90 s, as `run.sh` stops
+  feeding it heartbeats (a long-lived `docker exec -i ... mq beat` fed a line every 15 s, so it works the same over
+  SSH; `run.sh` opens it again when a connection drop ends it while the run goes on), and that also ends the Gradle
+  run inside it (killing the docker CLI does not stop a `docker exec`). A waiting
+  run breaks a slot whose client container no longer runs on its host (one `docker ps` per host and check), and
+  removes that dead stack; a slot older than 60 minutes is broken as well. A run whose id already has a stack on a
+  host it may use removes it, and its slot, before it starts.
+- Never edit `run.sh` while one of your runs is going: `sh` reads the script as it executes it.
+- **Every run ends with `sh e2e/lanes/lane.sh down <id>`**, also after a failure: a lane left running holds its
+  memory until someone removes it. After a batch of runs, check for leftovers with `sh e2e/lanes/lane.sh list`
+  (every host) and `sh docker/client-test/remote-gc.sh --hours 0` (dry run on every remote), and run `down` for each,
+  or `remote-gc.sh --apply` for old remote stacks (`--force` as well for lanes that still run).
+- Ports of local lanes are ephemeral and change on every container start: never cache them, `lane.sh` looks them up
+  each time. Every lane has its own copy of the jar (taken when it was shipped).
+- Client screenshots use software rendering (llvmpipe), so GPU-specific rendering bugs do not show. Treat a suite that
+  fails only in Docker as a real race, as `GroupNameScreen` was.
+- **NeoForge stays on the host path**: there is no NeoForge lane server image and no NeoForge client game test
+  harness, so NeoForge is tested with `:neoforge:runServer` / `:neoforge:runClient` against the compose brokers above.
+  The host path also stays the fallback when Docker Desktop is down.
 
 ## Checklist
 

@@ -1,0 +1,2 @@
+# These files run inside Linux containers or under sh; keep LF even in a core.autocrlf=true checkout.
+* text eol=lf

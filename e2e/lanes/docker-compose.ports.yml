@@ -1,0 +1,13 @@
+# Host ports of a lane on this workstation (lane.sh adds this file only for local lanes; a remote lane publishes none).
+# Each is an ephemeral loopback port, resolved with "docker compose port" (lane.sh ports <id>) and new on every start.
+services:
+  mosquitto:
+    ports:
+      - "127.0.0.1::1883"
+  server:
+    ports:
+      - "127.0.0.1::25575"
+      - "127.0.0.1::25565"
+  homeassistant:
+    ports:
+      - "127.0.0.1::8123"

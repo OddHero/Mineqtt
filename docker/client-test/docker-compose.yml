@@ -1,0 +1,65 @@
+# One isolated client game test stack: a private broker plus the headless client container. run.sh drives it, on this
+# workstation or on a remote Docker host of docker/hosts.sh (docker -H <endpoint> compose ...), and sets the variables
+# below; on a host with a cpuset and cpu shares it adds docker-compose.limits.yml.
+# No host ports are published and nothing is bind-mounted from the host (a remote daemon cannot see host files), so any
+# number of stacks (one compose project each) can run side by side on either host.
+#
+# Variables: MINEQTT_CLIENT_IMAGE (mineqtt-client:<recipe hash>, built by run.sh), MINEQTT_MOSQUITTO_CONF (the content
+# of mosquitto.conf), MINEQTT_WATCHDOG, MINEQTT_OWNER / MINEQTT_CREATED (labels), CLIENT_CPUS / CLIENT_MEMORY.
+name: mineqtt-client
+
+x-labels: &labels
+  mineqtt.owner: "${MINEQTT_OWNER:-}"
+  mineqtt.created: "${MINEQTT_CREATED:-}"
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    labels: *labels
+    configs:
+      - source: mosquitto_conf
+        target: /mosquitto/config/mosquitto.conf
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128m
+
+  client:
+    image: ${MINEQTT_CLIENT_IMAGE:-mineqtt-client}
+    pull_policy: never
+    labels: *labels
+    depends_on:
+      - mosquitto
+    environment:
+      MINEQTT_E2E_BROKER: tcp://mosquitto:1883
+      # run.sh sets it: the container stops itself when run.sh stops sending heartbeats (see in-container.sh watchdog).
+      MINEQTT_WATCHDOG: "${MINEQTT_WATCHDOG:-0}"
+    volumes:
+      # Read-only seed: Gradle cannot share a writable user home between containers (its cache locks rely on pinging
+      # the owning PID over localhost, which crosses neither PID nor network namespaces), so each run copies the seed
+      # into its own /root/.gradle on the container filesystem. "run.sh --warm" fills the seed.
+      - gradle:/gradle-seed:ro
+    deploy:
+      resources:
+        limits:
+          # run.sh sets both per host (4 CPUs / 8g here, a remote's row in docker/hosts.sh there). Measured: a stack peaks at 4.5-4.8 GiB with
+          # the game's 2g heap (CLIENT_HEAP); 16 stacks of 3 CPUs / 5g on a 64-thread host all passed (e2e/README.md, "Capacity").
+          cpus: "${CLIENT_CPUS:-4}"
+          memory: "${CLIENT_MEMORY:-8g}"
+
+networks:
+  default:
+    labels: *labels
+
+configs:
+  # Copied into the container at creation (not a bind mount, which a remote daemon would resolve on its own disk).
+  mosquitto_conf:
+    environment: MINEQTT_MOSQUITTO_CONF
+
+volumes:
+  # Seed shared read-only by every stack on the same Docker host (run.sh creates it), so only the warm-up downloads
+  # Minecraft and the deps.
+  gradle:
+    name: mineqtt-client-gradle
+    external: true

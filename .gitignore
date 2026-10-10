@@ -54,3 +54,6 @@ run/
 
 # Ignore options.txt
 **/options.txt
+
+# Private Docker host table (docker/hosts.example)
+docker/hosts.local

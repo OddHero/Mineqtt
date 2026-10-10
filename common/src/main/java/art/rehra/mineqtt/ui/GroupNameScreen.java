@@ -64,6 +64,8 @@ public class GroupNameScreen extends Screen {
                 .bounds(left + MARGIN, y, buttonW, BUTTON_H).build());
         addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), button -> onClose())
                 .bounds(left + PANEL_W - MARGIN - buttonW, y, buttonW, BUTTON_H).build());
+        // Inactive until a name is typed from the first frame on, not only once extractRenderState has run.
+        createButton.active = named();
     }
 
     /** What the server asked. */

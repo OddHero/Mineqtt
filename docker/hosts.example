@@ -1,0 +1,32 @@
+# MineQTT Docker host table: the remote Docker hosts that docker/client-test/run.sh, docker/client-test/remote-gc.sh and
+# e2e/lanes/lane.sh may use, in the order --host auto tries them (this workstation comes after all of them).
+#
+# The real table is not tracked. docker/hosts.sh reads the first of these files that exists:
+#   1. $MINEQTT_HOSTS_FILE
+#   2. <git common dir>/mineqtt-docker-hosts, e.g. .git/mineqtt-docker-hosts (shared by every worktree of the clone)
+#   3. docker/hosts.local (ignored by git)
+# Copy this file to one of them and replace the rows. Without a table there are no remotes and auto runs locally.
+#
+# One host per line, columns separated by blanks; lines starting with # and blank lines are skipped.
+#   name      short name: the --host value, the suffix of its client slot dir, the name in messages. Per-host
+#             overrides use it upper-cased with - as _: MINEQTT_SLOTS_BUILD_HOST, MINEQTT_LANES_BUILD_HOST
+#   endpoint  ssh://user@host (docker -H; docker.exe on Windows uses Windows OpenSSH, so the key and the known_hosts
+#             entry must be in %USERPROFILE%\.ssh), or the name of a Docker context
+#   slots     client test stacks at once (run.sh)
+#   cpus mem  size of one client stack (run.sh; CLIENT_CPUS / CLIENT_MEMORY override it)
+#   lanes     lanes at once (lane.sh, checked by auto)
+#   cpuset    CPUs every MineQTT container is pinned to (docker --cpuset-cpus, e.g. 4-7,12-15), or - for none
+#   shares    docker --cpu-shares of every MineQTT container (256: a quarter of Docker's default weight, so the
+#             host's own services win every CPU contention), or - for Docker's default weight. cpuset and shares are
+#             set together or not at all
+#   build     auto: images are built and the Gradle seed filled whenever a run needs them; manual: only on an
+#             explicit --host (lane.sh build, run.sh --warm), and auto skips the host until they exist
+#
+# The first row is a dedicated build host. The second is a shared machine that runs other services (production, for
+# example) and is used only as throttled overflow: few slots, MineQTT containers pinned to whole cores of its own
+# (lscpu -e shows which CPUs share a core) and weighted down with cpu shares, and build=manual, because image builds,
+# pulls and the Gradle warm-up cannot be pinned and so happen there only on request, at a quiet hour.
+#
+# name      endpoint                        slots cpus mem lanes cpuset     shares build
+build-host  ssh://user@build-host.example   16    3    5g  20    -          -      auto
+overflow    ssh://user@overflow.example      2    3    5g   6    4-7,12-15  256    manual

@@ -1,0 +1,4 @@
+# The build context crosses the link to a remote Docker host: only what the Dockerfile copies.
+*
+!Rcon.java
+!entrypoint.sh

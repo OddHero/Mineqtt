@@ -1,0 +1,5 @@
+# The image needs only these two files; everything else in this folder stays out of the build context, which crosses
+# the link to a remote Docker host.
+*
+!Dockerfile
+!in-container.sh
