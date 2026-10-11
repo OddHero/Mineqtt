@@ -56,8 +56,10 @@ public record DeviceLinks(BlockPos pos, List<Row> rows, int total) {
      * @param peer     the other end, as a name and a port: {@code Door Output.state}, or a group's name for a wire into a group
      * @param group    the name of the group the wire ends at, the other end's for an outgoing wire, the device's own for an
      *                 incoming one; empty when it ends at a device
+     * @param twin     whether it is derived from the device's Home Assistant binding (M3 plan §3.3): listed read-only, only to
+     *                 viewers who may configure the device, since its peer names the entity (D13 #7), and gone by unbinding
      */
-    public record Row(UUID wire, boolean outgoing, String port, String peer, String group, Mapping mapping, boolean enabled) {
+    public record Row(UUID wire, boolean outgoing, String port, String peer, String group, Mapping mapping, boolean enabled, boolean twin) {
         // Here rather than beside the list's codec, so the row's class needs nothing of the list's to initialise.
         private static final IntFunction<Mapping> MAPPING_BY_ID = ByIdMap.continuous(Enum::ordinal, Mapping.values(), ByIdMap.OutOfBoundsStrategy.ZERO);
         private static final StreamCodec<ByteBuf, Mapping> MAPPING_CODEC = ByteBufCodecs.idMapper(MAPPING_BY_ID, Enum::ordinal);
@@ -69,12 +71,23 @@ public record DeviceLinks(BlockPos pos, List<Row> rows, int total) {
                 ByteBufCodecs.stringUtf8(MAX_LABEL_BYTES), Row::group,
                 MAPPING_CODEC, Row::mapping,
                 ByteBufCodecs.BOOL, Row::enabled,
+                ByteBufCodecs.BOOL, Row::twin,
                 Row::new);
 
         /** A row with its texts cut to what the stream codec carries. */
         public static Row of(UUID wire, boolean outgoing, String port, String peer, String group, Mapping mapping, boolean enabled) {
             return new Row(wire, outgoing, DeviceView.cap(port, MAX_PORT_CHARS), DeviceView.cap(peer, MAX_LABEL_BYTES),
-                    DeviceView.cap(group, MAX_LABEL_BYTES), mapping, enabled);
+                    DeviceView.cap(group, MAX_LABEL_BYTES), mapping, enabled, false);
+        }
+
+        /** The wire derived from the device's binding, from the entity's port {@code peer} into the device's {@code port}. */
+        public static Row twin(UUID wire, String port, String peer) {
+            return new Row(wire, false, DeviceView.cap(port, MAX_PORT_CHARS), DeviceView.cap(peer, MAX_LABEL_BYTES), "", Mapping.FOLLOW, true, true);
+        }
+
+        /** A wire derived from one of the device's targets (M3-14): its out-port switches the entity {@code peer} names. */
+        public static Row twinTarget(UUID wire, String port, String peer) {
+            return new Row(wire, true, DeviceView.cap(port, MAX_PORT_CHARS), DeviceView.cap(peer, MAX_LABEL_BYTES), "", Mapping.FOLLOW, true, true);
         }
     }
 

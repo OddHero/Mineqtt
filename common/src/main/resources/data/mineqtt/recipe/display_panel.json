@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "G": "minecraft:black_stained_glass_pane",
+    "N": "mineqtt:network_chip",
+    "R": "minecraft:redstone",
+    "S": "minecraft:smooth_stone"
+  },
+  "pattern": [
+    "GGG",
+    "GNG",
+    "SRS"
+  ],
+  "result": {
+    "id": "mineqtt:display_panel"
+  }
+}

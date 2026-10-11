@@ -17,6 +17,7 @@ import art.rehra.mineqtt.ui.device.AdvancedTab;
 import art.rehra.mineqtt.ui.device.DeviceMenu;
 import art.rehra.mineqtt.ui.device.DiagnosticsTab;
 import art.rehra.mineqtt.ui.device.GeneralTab;
+import art.rehra.mineqtt.ui.device.TwinTab;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
@@ -57,11 +58,11 @@ public final class AdvancedGameTest implements FabricClientGameTest {
     private static final BlockPos OUTPUT_GROUND = new BlockPos(-2, GameTestSession.GROUND_Y, 0);
     private static final BlockPos OTHERS = new BlockPos(0, GameTestSession.GROUND_Y + 1, -2);
     private static final UUID OTHER_OWNER = UUID.fromString("8f4a5b6c-7d8e-4f90-a1b2-c3d4e5f6a7b8");
-    private static final String CHANNEL = "advanced_gametest";
-    private static final String MOVED = "advanced_gametest_moved";
-    private static final String TYPED = "mineqtt/shared/advanced_gametest_typed";
+    private static final String CHANNEL = "advanced_" + GameTestSession.BRIDGE_ID;
+    private static final String MOVED = "advanced_" + GameTestSession.BRIDGE_ID + "_moved";
+    private static final String TYPED = "mineqtt/shared/advanced_" + GameTestSession.BRIDGE_ID + "_typed";
     private static final String REFUSED = "zigbee2mqtt/advanced_gametest/set";
-    private static final String PAPER = "advanced_gametest_paper";
+    private static final String PAPER = "advanced_" + GameTestSession.BRIDGE_ID + "_paper";
     private static final int ANSWER_TICKS = 40;
     // Ample for a dropped change to have done something if it had not been dropped.
     private static final int DROP_TICKS = 20;
@@ -93,9 +94,9 @@ public final class AdvancedGameTest implements FabricClientGameTest {
     /** An empty Advanced tab, then a channel typed into the field: the server resolves it into the shared namespace. */
     private static void channel(GameTestSession session, BlockPos input) {
         session.openBlock(input);
-        session.check(session.tabIds().equals(List.of(GeneralTab.ID, AdvancedTab.ID, AccessTab.ID, DiagnosticsTab.ID)),
-                "the input's screen has General, Advanced, Access and Diagnostics, no Controls (it has no in-port) and no slot tabs (M2-12): "
-                        + session.tabIds());
+        session.check(session.tabIds().equals(List.of(GeneralTab.ID, TwinTab.ID, AdvancedTab.ID, AccessTab.ID, DiagnosticsTab.ID)),
+                "the input's screen has General, Twin (its Home Assistant target, M3-13), Advanced, Access and Diagnostics, no Controls (it has no "
+                        + "in-port) and no slot tabs (M2-12): " + session.tabIds());
         session.check(session.clickTab(AdvancedTab.ID), "the Advanced tab opens");
         session.check(label(session, isButton("Channel")).equals("Channel") && field(session, linkField()).isEmpty(),
                 "without a Raw Link the editor shows an empty channel");

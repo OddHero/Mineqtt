@@ -1,0 +1,13 @@
+{
+  "name": "Tasmota POWER",
+  "kind": "switch",
+  "state_topic": "stat/{device}/POWER",
+  "on": "ON",
+  "off": "OFF",
+  "command_topic": "cmnd/{device}/POWER",
+  "commands": {
+    "turn_on": "ON",
+    "turn_off": "OFF",
+    "toggle": "TOGGLE"
+  }
+}

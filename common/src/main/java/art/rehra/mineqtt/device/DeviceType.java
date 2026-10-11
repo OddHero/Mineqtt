@@ -2,6 +2,10 @@ package art.rehra.mineqtt.device;
 
 import art.rehra.mineqtt.flow.core.PortType;
 import art.rehra.mineqtt.ha.HaEntity;
+import art.rehra.mineqtt.twin.TwinAdapter;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.EntityDocument;
+import art.rehra.mineqtt.twin.core.PortRead;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
@@ -18,11 +22,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 
 /**
  * Everything about one kind of device, declared once (design §6.4): its state fields, its Home Assistant entities,
- * its settings, actions and events, its Raw Link, whether it can be grouped, and how often its state may be published.
+ * its settings, actions and events, its Raw Link, whether it can be grouped, how often its state may be published, and
+ * how it takes part in the Home Assistant twin ({@link TwinAdapter}, M3 plan §3.1).
  * Discovery, command parsing, validation and the device's ports (M2 plan §3.1) are derived from it.
  */
 public final class DeviceType {
@@ -43,6 +49,7 @@ public final class DeviceType {
     private final Map<String, Double> deadbands;
     private final CommandPreview preview;
     private final UnaryOperator<JsonObject> powerOn;
+    private final @Nullable TwinAdapter twin;
 
     private DeviceType(Builder builder) {
         this.id = builder.id;
@@ -62,6 +69,7 @@ public final class DeviceType {
         this.deadbands = Map.copyOf(builder.deadbands);
         this.preview = builder.preview != null ? builder.preview : this::applyFields;
         this.powerOn = builder.powerOn;
+        this.twin = builder.twin;
     }
 
     public static Builder builder(Identifier id) {
@@ -208,6 +216,27 @@ public final class DeviceType {
 
     public Optional<RawLinkSpec> rawLink() {
         return Optional.ofNullable(rawLink);
+    }
+
+    /** How the type takes part in the twin; empty for a type no binding fits (M3 plan §3.1). */
+    public Optional<TwinAdapter> twin() {
+        return Optional.ofNullable(twin);
+    }
+
+    /**
+     * The command a document of a binding's source gives a device of this type (M3 plan §3.4), as a wire's values reach
+     * it ({@link #inPortCommand}): the adapter's in-port values, merged into one command, with the adapter's read-only
+     * extras under {@link TwinAdapter#EXTRAS_KEY} when it has any ({@link TwinAdapter.Extras}). Empty for no change, and
+     * for a type without an adapter. Pure: reading never yields a call.
+     */
+    public Optional<JsonObject> twinCommand(EntityDocument document, Binding binding) {
+        if (twin == null) return Optional.empty();
+        JsonObject command = new JsonObject();
+        twin.read(document, binding).forEach((port, value) -> inPortCommand(port, value).entrySet().forEach(entry -> command.add(entry.getKey(), entry.getValue())));
+        if (command.isEmpty()) return Optional.empty();
+        JsonObject extras = twin.extras(document, binding);
+        if (!extras.isEmpty()) command.add(TwinAdapter.EXTRAS_KEY, extras);
+        return Optional.of(command);
     }
 
     public boolean groupable() {
@@ -381,6 +410,7 @@ public final class DeviceType {
         private final Map<String, Double> deadbands = new LinkedHashMap<>();
         private @Nullable CommandPreview preview;
         private UnaryOperator<JsonObject> powerOn = UnaryOperator.identity();
+        private @Nullable TwinAdapter twin;
 
         private Builder(Identifier id) {
             this.id = id;
@@ -472,6 +502,12 @@ public final class DeviceType {
             return this;
         }
 
+        /** How devices of this type take part in the twin (M3 plan §3.1); checked against the ports by {@link #build()}. */
+        public Builder twin(TwinAdapter twin) {
+            this.twin = twin;
+            return this;
+        }
+
         /**
          * @throws IllegalStateException when the declaration is inconsistent: duplicate keys, an entity or setting
          *                               over an undeclared field, a command entity over a read-only field, a writable
@@ -480,7 +516,8 @@ public final class DeviceType {
          *                               notify without its declared action, a switch or light without a {@code state}
          *                               in-port, an action that shadows a writable field, two ports of one key and
          *                               direction, a field named like a link setting, a writable inline field that
-         *                               is no light, or a use that is no declared action that toggles or fires
+         *                               is no light, a use that is no declared action that toggles or fires, or a
+         *                               twin adapter that does not fit the ports ({@link #checkTwin})
          */
         public DeviceType build() {
             if (model.isBlank()) fail("needs a model name");
@@ -506,8 +543,10 @@ public final class DeviceType {
                 if (used.get().handValue().isEmpty()) fail("is used by hand with " + use + ", which neither toggles nor fires");
             }
             Set<String> eventTypes = new HashSet<>();
+            Set<String> busOnly = new HashSet<>();
             for (EventSpec event : events) {
                 if (!eventTypes.add(event.type())) fail("declares event " + event.type() + " twice");
+                if (event.busOnly()) busOnly.add(event.type());
             }
             Set<Field<?>> commanded = new HashSet<>();
             Set<String> entityKeys = new HashSet<>();
@@ -526,11 +565,15 @@ public final class DeviceType {
                     }
                 }
                 switch (entity) {
-                    case HaEntity.Event event -> event.eventTypes().stream().filter(type -> !eventTypes.contains(type)).findFirst()
-                            .ifPresent(type -> fail("event entity " + entity.key() + " has event type " + type + ", which is no declared event"));
+                    case HaEntity.Event event -> event.eventTypes().forEach(type -> {
+                        if (!eventTypes.contains(type)) fail("event entity " + entity.key() + " has event type " + type + ", which is no declared event");
+                        // A bus-only event is never published on the action topic the event entity reads (M3 plan D16).
+                        if (busOnly.contains(type)) fail("event entity " + entity.key() + " has event type " + type + ", which only the bus carries");
+                    });
                     case HaEntity.DeviceTrigger trigger -> {
                         EventSpec event = events.stream().filter(spec -> spec.type().equals(trigger.event())).findFirst().orElse(null);
                         if (event == null) fail("device trigger " + entity.key() + " fires on " + trigger.event() + ", which is no declared event");
+                        if (event.busOnly()) fail("device trigger " + entity.key() + " fires on " + trigger.event() + ", which only the bus carries");
                         PortType attribute = event.attributes().get(trigger.attribute());
                         if (attribute == null) fail("device trigger " + entity.key() + " reads attribute " + trigger.attribute() + ", which event " + event.type() + " does not carry");
                         if (attribute.problem(new JsonPrimitive(trigger.subtype())).isPresent()) {
@@ -567,7 +610,51 @@ public final class DeviceType {
                 if (!keys.contains(deadband.getKey())) fail("has a deadband on undeclared field " + deadband.getKey());
                 if (!(deadband.getValue() > 0)) fail("has a deadband that is not positive on " + deadband.getKey());
             }
+            if (twin != null) checkTwin(twin);
             return new DeviceType(this);
+        }
+
+        /**
+         * The twin adapter's rules (M3 plan §3.1): the primary port and every port a source fills are writable in-ports;
+         * a mirrored key is an in-port, or a key of the type's writable inline light; the off values go to in-ports;
+         * targets attach to out-ports (fields or events), never to actions, so the Wall Switch's buttons are its
+         * {@code left}/{@code right} events (D16); a target is not named like a fixed twin key; and no entity or field is
+         * keyed like the {@code binding} sensor a bound device keeps and the state key it reads (D6), and no port like the
+         * key a twin apply carries its extras under ({@link TwinAdapter#EXTRAS_KEY}).
+         */
+        private void checkTwin(TwinAdapter twin) {
+            List<Port> ports = derivePorts(fields, settings, actions, events);
+            Predicate<String> inPort = key -> ports.stream().anyMatch(port -> port.direction() == Port.Direction.IN && port.key().equals(key));
+            boolean inlineLight = fields.stream().anyMatch(field -> field.inline() && field.access().writable() && field.kind() instanceof PortType.Light);
+            if (twin.hasSource() && !inPort.test(twin.primary())) fail("mirrors into " + twin.primary() + ", which is no in-port");
+            for (String key : twin.mirroredKeys()) {
+                if (twin.hasSource() && !inPort.test(key) && !inlineLight) fail("mirrors the command key " + key + ", which is no in-port");
+            }
+            for (String domain : twin.sourceDomains()) {
+                Map<String, PortRead> reads = twin.reads(domain, Binding.Settings.DEFAULT);
+                if (reads.isEmpty()) fail("mirrors " + domain + " entities but reads nothing from them");
+                for (String port : reads.keySet()) {
+                    if (!inPort.test(port)) fail("fills " + port + " from " + domain + " entities, which is no in-port");
+                    if (!twin.mirroredKeys().contains(port)) fail("fills " + port + " from " + domain + " entities without mirroring it");
+                }
+            }
+            for (String port : twin.off().keySet()) {
+                if (!inPort.test(port)) fail("turns " + port + " off while unavailable, which is no in-port");
+            }
+            for (Map.Entry<String, String> target : twin.targets().entrySet()) {
+                if (LinkSetting.TWIN_RESERVED_NAMES.contains(target.getKey())) fail("names a target " + target.getKey() + ", the name of a twin setting");
+                boolean outPort = ports.stream().anyMatch(port -> port.direction() == Port.Direction.OUT && port.key().equals(target.getValue()));
+                if (!outPort) fail("has target " + target.getKey() + " on " + target.getValue() + ", which is no out-port (an action is an in-port)");
+            }
+            if (entities.stream().anyMatch(entity -> entity.key().equals(TwinAdapter.BINDING_ENTITY))) {
+                fail("has a twin adapter and an entity keyed " + TwinAdapter.BINDING_ENTITY + ", the key of a bound device's binding sensor");
+            }
+            if (fields.stream().anyMatch(field -> field.key().equals(TwinAdapter.BINDING_ENTITY))) {
+                fail("has a twin adapter and a field keyed " + TwinAdapter.BINDING_ENTITY + ", the key a bound device publishes its binding under");
+            }
+            if (ports.stream().anyMatch(port -> port.key().equals(TwinAdapter.EXTRAS_KEY))) {
+                fail("has a twin adapter and a port keyed " + TwinAdapter.EXTRAS_KEY + ", the key its twin apply carries the extras under");
+            }
         }
 
         private void fail(String problem) {

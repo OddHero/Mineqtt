@@ -90,10 +90,16 @@ tasks.named('check') {
 
 def gameTestSuites = new groovy.json.JsonSlurper().parse(file('src/gametest/resources/fabric.mod.json'))
         .entrypoints['fabric-client-gametest'].size()
+// MINEQTT_GAMETEST_SUITES: comma-separated suite names as the report writes them; unset runs every suite.
+def gameTestSuiteFilter = providers.environmentVariable('MINEQTT_GAMETEST_SUITES').getOrElse('')
+def selectedGameTestSuites = gameTestSuiteFilter.split(',')*.trim().findAll { !it.isEmpty() } as LinkedHashSet<String>
 
 tasks.named('runClientGameTest') {
     group = 'verification'
-    description = 'Runs the MineQTT client game tests in a game window (set MINEQTT_E2E_BROKER to use a broker).'
+    description = 'Runs the MineQTT client game tests in a game window (set MINEQTT_E2E_BROKER to use a broker, ' +
+            'MINEQTT_GAMETEST_BRIDGE for the bridge id, MINEQTT_GAMETEST_SUITES to select suites).'
+    // The client reads the same selection the verdict below expects.
+    environment('MINEQTT_GAMETEST_SUITES', selectedGameTestSuites.join(','))
     // A passing run returns from the client's main method; the client's 15 s shutdown watchdog then ends the JVM with
     // -8 (248 on Unix) because the dev runtime leaves idle non-daemon threads. A failing test ends the JVM with 1 before
     // that. The verdict therefore comes from the exit value together with the report every suite writes.
@@ -103,11 +109,15 @@ tasks.named('runClientGameTest') {
         File report = new File(workingDir, 'mineqtt-gametest-report.txt')
         List<String> lines = report.exists() ? report.readLines() : []
         lines.findAll { it.startsWith('SKIP') }.each { logger.warn("Client game test {}", it) }
-        int passed = lines.count { it.startsWith('SUITE PASS') }
-        if (!(exit in [0, -8, 248]) || passed != gameTestSuites || lines.any { it.startsWith('FAIL') }) {
-            throw new GradleException("Client game tests failed: exit value $exit, $passed of $gameTestSuites suites passed, see $report")
+        Set<String> passed = lines.findAll { it.startsWith('SUITE PASS ') }.collect { it.substring('SUITE PASS '.length()).trim() } as Set<String>
+        int expected = selectedGameTestSuites.isEmpty() ? gameTestSuites : selectedGameTestSuites.size()
+        Set<String> missing = selectedGameTestSuites.findAll { !passed.contains(it) } as LinkedHashSet<String>
+        boolean complete = selectedGameTestSuites.isEmpty() ? passed.size() == gameTestSuites : missing.isEmpty()
+        if (!(exit in [0, -8, 248]) || !complete || lines.any { it.startsWith('FAIL') }) {
+            String notPassed = missing.isEmpty() ? '' : ", not passed: ${missing.join(', ')}"
+            throw new GradleException("Client game tests failed: exit value $exit, ${passed.size()} of $expected suites passed$notPassed, see $report")
         }
-        logger.lifecycle("Client game tests passed: $passed suites, report $report")
+        logger.lifecycle("Client game tests passed: ${passed.size()} suites, report $report")
     }
 }
 

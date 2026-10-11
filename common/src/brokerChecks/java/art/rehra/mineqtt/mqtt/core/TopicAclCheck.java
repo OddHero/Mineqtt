@@ -33,6 +33,7 @@ public final class TopicAclCheck {
         explorerScope(acl);
         explorerExposure(acl);
         mirroring(acl);
+        topicSources(acl);
         legacy(acl);
         rulesValidation();
         System.out.println("Topic ACL checks passed.");
@@ -68,7 +69,32 @@ public final class TopicAclCheck {
             expect(acl.checkPublish(subject, "mineqtt/world_7f3a/bridge/state"), Decision.DENY_BRIDGE, "the bridge state as " + who);
             expect(acl.checkPublish(subject, "mineqtt/world_7f3a"), Decision.DENY_BRIDGE, "the bridge root as " + who);
             expect(acl.checkPublish(subject, "ha_statestream/light/kitchen/state"), Decision.DENY_STATESTREAM, "statestream as " + who);
+            expect(acl.checkPublish(subject, "ha_statestream/_mineqtt/catalog/light"), Decision.DENY_STATESTREAM, "the catalog as " + who);
+            // Every bridge's bridge/ namespace (M3 plan D13): the shared namespace is allowlisted, but no request is forged there.
+            expect(acl.checkPublish(subject, "mineqtt/shared/bridge/ha_request"), Decision.DENY_FOREIGN_BRIDGE, "a request under shared as " + who);
+            expect(acl.checkPublish(subject, "mineqtt/otherbridge/bridge/x"), Decision.DENY_FOREIGN_BRIDGE, "another bridge's namespace as " + who);
+            expect(acl.checkPublish(subject, "mineqtt/otherbridge/bridge"), Decision.DENY_FOREIGN_BRIDGE, "another bridge's bare bridge level as " + who);
+            expect(acl.checkPublish(subject, "mineqtt/world_7f3a/bridge/ha_request"), Decision.DENY_BRIDGE, "this bridge's request topic as " + who);
+            expect(acl.checkLegacy("mineqtt/shared/bridge/ha_sync", true), Decision.DENY_FOREIGN_BRIDGE, "a v1 publisher into a bridge namespace");
         }
+        TopicAcl everything = new TopicAcl(rules(withDefaults("mineqtt/#", "home/#"), true, false));
+        for (Subject subject : List.of(PLAYER, OP, ADMIN, Subject.CONSOLE)) {
+            expect(everything.checkPublish(subject, "mineqtt/otherbridge/bridge/ha_request"), Decision.DENY_FOREIGN_BRIDGE,
+                    "an allowlisted mineqtt/# and the op bypass do not open other servers' twins");
+        }
+        expect(everything.checkPublish(PLAYER, "mineqtt/otherbridge/raw/door"), Decision.ALLOWED, "another bridge's raw subtree follows the allowlist");
+        expect(everything.checkPublish(PLAYER, "mineqtt/otherbridge/lamp/set"), Decision.ALLOWED, "only the bridge/ level is reserved");
+        expect(everything.checkPublish(PLAYER, "mineqtt/shared/bridgex/ha_request"), Decision.ALLOWED, "a level match, not a prefix match");
+        expect(everything.checkPublish(PLAYER, "mineqtt/a/b/bridge/ha_request"), Decision.ALLOWED, "the bridge level sits right below the bridge id");
+        // A server under another base topic: its own base and the shared base are both reserved.
+        TopicAcl home = new TopicAcl(new Rules("home/mc", BRIDGE, "homeassistant", "ha_statestream", withDefaults("home/#"), true, false));
+        for (Subject subject : List.of(PLAYER, OP, Subject.CONSOLE)) {
+            expect(home.checkPublish(subject, "home/mc/other/bridge/ha_request"), Decision.DENY_FOREIGN_BRIDGE, "under the own base topic");
+            expect(home.checkPublish(subject, "mineqtt/shared/bridge/ha_request"), Decision.DENY_FOREIGN_BRIDGE,
+                    "under the shared base, where the control blueprint listens by default");
+            expect(home.checkPublish(subject, "home/mc/world_7f3a/bridge/ha_sync"), Decision.DENY_BRIDGE, "the own namespace stays DENY_BRIDGE");
+        }
+        expect(home.checkPublish(PLAYER, "home/other/bridge/x"), Decision.ALLOWED, "not a bridge namespace under home/mc");
         expect(acl.checkPublish(PLAYER, "mineqtt/world_7f3a/raw/door"), Decision.ALLOWED, "the raw subtree is open");
         expect(acl.checkPublish(PLAYER, "homeassistantx/foo"), Decision.NOT_ALLOWLISTED, "a prefix match is not a level match");
         expect(acl.checkPublish(PLAYER, "mineqtt/world_7f3b/x"), Decision.NOT_ALLOWLISTED, "another bridge is not this bridge");
@@ -157,6 +183,40 @@ public final class TopicAclCheck {
         expect(brokerWide.checkListen(PLAYER, "#"), Decision.DENY_BROKER_WIDE, "a player even with explorerBrokerWide");
         check(acl.redactPayload("homeassistant/light/x/config") && acl.redactPayload("homeassistant"), "Discovery payloads are redacted");
         check(!acl.redactPayload("mineqtt/world_7f3a/lamp"), "Other payloads are shown");
+        statestreamListening();
+    }
+
+    /** Listening on the statestream namespace needs mineqtt.admin (M3 plan D13); mirrors still read it. */
+    private static void statestreamListening() {
+        TopicAcl acl = new TopicAcl(rules(withDefaults("ha_statestream/#", "home/#"), true, false));
+        for (Subject subject : List.of(PLAYER, OP)) {
+            String who = subject.op() ? "op" : "player";
+            expect(acl.checkListen(subject, "ha_statestream/#"), Decision.DENY_STATESTREAM_LISTEN, "the statestream namespace as " + who);
+            expect(acl.checkListen(subject, "ha_statestream/light/+/state"), Decision.DENY_STATESTREAM_LISTEN, "a statestream filter as " + who);
+            expect(acl.checkListen(subject, "ha_statestream"), Decision.DENY_STATESTREAM_LISTEN, "the bare statestream base as " + who);
+            expect(acl.checkListen(subject, "ha_statestream/_mineqtt/catalog/light"), Decision.DENY_STATESTREAM_LISTEN, "the catalog as " + who);
+        }
+        expect(acl.checkListen(ADMIN, "ha_statestream/#"), Decision.ALLOWED, "an admin listens on statestream (it is allowlisted here)");
+        expect(acl.checkListen(Subject.CONSOLE, "ha_statestream/light/kitchen/state"), Decision.ALLOWED, "so does the console");
+        expect(acl.checkListen(PLAYER, "ha_statestreamx/#"), Decision.NOT_ALLOWLISTED, "a level match, not a prefix match");
+        check(!acl.listenScope(PLAYER).contains("ha_statestream/#") && !acl.listenScope(OP).contains("ha_statestream/#"),
+                "An allowlisted statestream filter is left out of a non-admin's explorer scope: " + acl.listenScope(PLAYER));
+        check(acl.listenScope(ADMIN).contains("ha_statestream/#"), "But not out of an admin's: " + acl.listenScope(ADMIN));
+        expect(acl.checkMirror(PLAYER, "ha_statestream/light/kitchen/state"), Decision.ALLOWED, "a mirror still reads statestream");
+
+        // A multi-level base: wider filters that only partly reach it pass, and the explorer hides its messages instead.
+        TopicAcl multi = new TopicAcl(new Rules(BASE, BRIDGE, "homeassistant", "home/ha/statestream", withDefaults("home/#"), false, false));
+        expect(multi.checkListen(PLAYER, "home/ha/statestream/#"), Decision.DENY_STATESTREAM_LISTEN, "inside a multi-level base");
+        expect(multi.checkListen(PLAYER, "home/+/statestream/light/#"), Decision.DENY_STATESTREAM_LISTEN, "a + into a multi-level base");
+        expect(multi.checkListen(PLAYER, "home/#"), Decision.DENY_STATESTREAM_LISTEN, "a filter reaching into the base");
+        expect(multi.checkListen(PLAYER, "home/garage/#"), Decision.ALLOWED, "a filter beside the base");
+        TopicAcl partial = new TopicAcl(new Rules(BASE, BRIDGE, "homeassistant", "home/ha/statestream", List.of("home/#"), false, true));
+        check(partial.explorerExposure(PLAYER, "home/ha/statestream/light/kitchen/state").equals(Exposure.HIDE),
+                "A statestream message is hidden from non-admins whatever filter delivered it");
+        check(partial.explorerExposure(ADMIN, "home/ha/statestream/light/kitchen/state").equals(Exposure.SHOW), "and shown to admins");
+        check(partial.explorerExposure(PLAYER, "home/garage/door").equals(Exposure.SHOW), "the topics beside it are shown");
+        expect(new TopicAcl(new Rules(BASE, BRIDGE, "homeassistant", null, withDefaults("ha_statestream/#"), false, false))
+                .checkListen(PLAYER, "ha_statestream/#"), Decision.ALLOWED, "without a statestream base nothing is reserved");
     }
 
     private static void explorerScope(TopicAcl acl) {
@@ -191,6 +251,26 @@ public final class TopicAclCheck {
         check(acl.explorerExposure(PLAYER, "mineqtt/shared/door").equals(Exposure.SHOW), "an allowlisted namespace is shown");
         check(acl.explorerExposure(ADMIN, "mineqtt/world_7f3b/raw/players/" + STEVE + "/door").equals(Exposure.SHOW),
                 "another bridge's topics are shown to whoever may listen on them");
+
+        // The twin's traffic carries entity ids and player names: sizes only for non-admins, of this bridge and any other.
+        for (String leaf : TopicAcl.TWIN_TRAFFIC_LEAVES) {
+            for (String topic : List.of("mineqtt/world_7f3a/bridge/" + leaf, "mineqtt/shared/bridge/" + leaf, "mineqtt/world_7f3b/bridge/" + leaf + "/x")) {
+                for (Subject subject : List.of(PLAYER, OP)) {
+                    check(acl.explorerExposure(subject, topic).equals(Exposure.REDACT), topic + " is redacted for " + (subject.op() ? "an op" : "a player"));
+                }
+                check(acl.explorerExposure(ADMIN, topic).equals(Exposure.SHOW), topic + " is shown to an admin");
+                check(acl.explorerExposure(Subject.CONSOLE, topic).equals(Exposure.SHOW), topic + " is shown to the console");
+            }
+        }
+        check(acl.explorerExposure(PLAYER, "mineqtt/world_7f3a/bridge/info").equals(Exposure.SHOW), "the rest of the bridge telemetry is shown");
+        check(acl.explorerExposure(PLAYER, "mineqtt/world_7f3a/bridge/ha_requests").equals(Exposure.SHOW), "a leaf match, not a prefix match");
+        check(acl.explorerExposure(PLAYER, "mineqtt/world_7f3a/lamp/ha_request").equals(new Exposure(Exposure.Kind.DEVICE, "lamp")),
+                "only below the bridge level");
+        TopicAcl home = new TopicAcl(new Rules("home/mc", BRIDGE, "homeassistant", "ha_statestream", withDefaults(), false, false));
+        check(home.explorerExposure(PLAYER, "home/mc/other/bridge/ha_response").equals(Exposure.REDACT), "under another base topic");
+        check(home.explorerExposure(PLAYER, "mineqtt/shared/bridge/ha_request").equals(Exposure.REDACT), "and under the shared base");
+        check(acl.explorerExposure(PLAYER, "ha_statestream/light/kitchen/state").equals(Exposure.HIDE), "statestream messages are hidden from players");
+        check(acl.explorerExposure(ADMIN, "ha_statestream/light/kitchen/state").equals(Exposure.SHOW), "and shown to admins");
     }
 
     private static void mirroring(TopicAcl acl) {
@@ -217,6 +297,45 @@ public final class TopicAclCheck {
                 "the console has no private subtree of its own");
     }
 
+    // The state topic of an MQTT device preset (M3-17): checkMirror's rules for one topic, plus the statestream namespace
+    // and the twin traffic for everyone, since checkMirror lets the twin's own Home Assistant leaves through.
+    private static void topicSources(TopicAcl acl) {
+        expect(acl.checkTopicSource(PLAYER, "zigbee2mqtt/m3bulb"), Decision.ALLOWED, "a zigbee2mqtt device needs no allowlist entry to be read");
+        expect(acl.checkTopicSource(PLAYER, "stat/m3plug/POWER"), Decision.ALLOWED, "a Tasmota state topic");
+        for (Subject subject : List.of(PLAYER, OP, ADMIN, Subject.CONSOLE)) {
+            String who = subject == Subject.CONSOLE ? "console" : subject.admin() ? "admin" : subject.op() ? "op" : "player";
+            check(acl.checkMirror(subject, "ha_statestream/person/steve/state").allowed(), "checkMirror lets the twin's own leaves through for " + who);
+            expect(acl.checkTopicSource(subject, "ha_statestream/person/steve/state"), Decision.DENY_STATESTREAM_SOURCE,
+                    "a preset never reads a person's statestream (D2) for " + who);
+            expect(acl.checkTopicSource(subject, "ha_statestream/light/kitchen/state"), Decision.DENY_STATESTREAM_SOURCE,
+                    "nor an entity outside twin.allowedEntities for " + who);
+            expect(acl.checkTopicSource(subject, "ha_statestream"), Decision.DENY_STATESTREAM_SOURCE, "nor the bare base for " + who);
+            expect(acl.checkTopicSource(subject, "ha_statestream/_mineqtt/catalog/light"), Decision.DENY_STATESTREAM_SOURCE, "nor the catalog for " + who);
+            expect(acl.checkTopicSource(subject, "mineqtt/world_7f3a/bridge/ha_request"), Decision.DENY_TWIN_TRAFFIC, "nor this bridge's requests for " + who);
+            expect(acl.checkTopicSource(subject, "mineqtt/shared/bridge/ha_response"), Decision.DENY_TWIN_TRAFFIC, "nor shared answers for " + who);
+            expect(acl.checkTopicSource(subject, "homeassistant/light/x/config"), Decision.DENY_DISCOVERY, "nor discovery for " + who);
+        }
+        expect(acl.checkTopicSource(PLAYER, "ha_statestreamx/light/kitchen"), Decision.ALLOWED, "a level match, not a prefix match");
+        expect(acl.checkTopicSource(PLAYER, "zigbee2mqtt/+"), Decision.WILDCARD, "one topic, never a filter");
+        expect(acl.checkTopicSource(PLAYER, "#"), Decision.WILDCARD, "never the whole broker");
+        expect(acl.checkTopicSource(PLAYER, "mineqtt/world_7f3a/raw/players/" + ALEX + "/door"), Decision.DENY_FOREIGN_PRIVATE,
+                "another player's private topic");
+        expect(acl.checkTopicSource(PLAYER, "mineqtt/world_7f3a/raw/players/" + STEVE + "/door"), Decision.ALLOWED, "the owner's own private topic");
+        // Wave 6 review: a bound device's state names its entity (D13 #7), and the explorer shows a device's topics only
+        // to players who may configure it, so no preset mirrors this server's device or group topics, for anyone.
+        for (Subject subject : List.of(PLAYER, ADMIN, Subject.CONSOLE)) {
+            expect(acl.checkTopicSource(subject, "mineqtt/world_7f3a/kitchen_lamp"), Decision.DENY_DEVICE_TOPICS, "another device's retained state");
+        }
+        expect(acl.checkTopicSource(PLAYER, "mineqtt/world_7f3a/kitchen_lamp/availability"), Decision.DENY_DEVICE_TOPICS, "nor its availability");
+        expect(acl.checkTopicSource(PLAYER, "mineqtt/world_7f3a/group/hall"), Decision.DENY_DEVICE_TOPICS, "nor a group's state");
+        expect(acl.checkTopicSource(PLAYER, "mineqtt/world_7f3a/bridge/state"), Decision.ALLOWED, "the bridge's state stays open");
+        expect(acl.checkTopicSource(PLAYER, "mineqtt/world_7f3a/raw/door"), Decision.ALLOWED, "and so does its raw subtree");
+        expect(acl.checkTopicSource(PLAYER, "mineqtt/otherbridge/kitchen_lamp"), Decision.ALLOWED, "another server's device is not this server's to hide");
+        expect(acl.checkTopicSource(PLAYER, "$SYS/broker/load"), Decision.DOLLAR, "a $-topic");
+        TopicAcl off = new TopicAcl(new Rules(BASE, BRIDGE, "homeassistant", null, withDefaults(), false, false));
+        expect(off.checkTopicSource(PLAYER, "ha_statestream/light/kitchen/state"), Decision.ALLOWED, "without a statestream base nothing is that namespace");
+    }
+
     private static void legacy(TopicAcl acl) {
         expect(acl.checkLegacy("homeassistant/light/v1/config", true), Decision.DENY_DISCOVERY, "a v1 publisher into discovery");
         expect(acl.checkLegacy("mineqtt/world_7f3a/lamp/set", true), Decision.DENY_BRIDGE, "a v1 publisher into the bridge namespace");
@@ -234,6 +353,45 @@ public final class TopicAclCheck {
         expect(acl.checkLegacy("mineqtt/#", false), Decision.DENY_FOREIGN_PRIVATE, "a v1 subscription to the whole base topic");
         expect(acl.checkLegacy("mineqtt/world_7f3a/raw/+", false), Decision.ALLOWED, "a v1 subscription one level below raw");
         expect(acl.checkLegacy("homeassistant/status", false), Decision.ALLOWED, "a v1 listener on HA's birth topic");
+
+        // A v1 block has no admin and shows what it receives to anyone near it (M3 plan D13): no statestream, no twin traffic.
+        expect(acl.checkLegacy("ha_statestream/person/owner/state", false), Decision.DENY_STATESTREAM_LEGACY, "a v1 listener on a statestream topic");
+        expect(acl.checkLegacy("ha_statestream/#", false), Decision.DENY_STATESTREAM_LEGACY, "a v1 listener on the statestream namespace");
+        expect(acl.checkLegacy("ha_statestream", false), Decision.DENY_STATESTREAM_LEGACY, "a v1 listener on the bare statestream base");
+        expect(acl.checkLegacy("ha_statestreamx/door", false), Decision.ALLOWED, "a level match, not a prefix match");
+        expect(acl.checkLegacy("ha_statestream/lock/front_door/state", true), Decision.DENY_STATESTREAM, "a v1 publisher into statestream");
+        TopicAcl multi = new TopicAcl(new Rules(BASE, BRIDGE, "homeassistant", "home/ha/statestream", withDefaults(), false, false));
+        expect(multi.checkLegacy("home/#", false), Decision.DENY_STATESTREAM_LEGACY, "a v1 filter reaching into a multi-level base");
+        expect(multi.checkLegacy("home/+/statestream/light/+/state", false), Decision.DENY_STATESTREAM_LEGACY, "a + into a multi-level base");
+        expect(multi.checkLegacy("home/garage/door", false), Decision.ALLOWED, "a v1 listener beside the base");
+        expect(new TopicAcl(new Rules(BASE, BRIDGE, "homeassistant", null, withDefaults(), false, false)).checkLegacy("ha_statestream/#", false),
+                Decision.ALLOWED, "without a statestream base nothing is reserved for v1 listeners");
+        for (String leaf : TopicAcl.TWIN_TRAFFIC_LEAVES) {
+            expect(acl.checkLegacy("mineqtt/world_7f3a/bridge/" + leaf, false), Decision.DENY_TWIN_TRAFFIC, "this server's " + leaf + " for a v1 listener");
+            expect(acl.checkLegacy("mineqtt/otherbridge/bridge/" + leaf, false), Decision.DENY_TWIN_TRAFFIC, "another bridge's " + leaf + " for a v1 listener");
+            expect(acl.checkLegacy("mineqtt/+/bridge/" + leaf, false), Decision.DENY_TWIN_TRAFFIC, "every bridge's " + leaf + " for a v1 listener");
+        }
+        expect(acl.checkLegacy("mineqtt/otherbridge/bridge/#", false), Decision.DENY_TWIN_TRAFFIC, "a bridge level's whole subtree");
+        expect(acl.checkLegacy("mineqtt/otherbridge/+/ha_request", false), Decision.DENY_TWIN_TRAFFIC, "a + in place of the bridge level");
+        expect(acl.checkLegacy("mineqtt/otherbridge/bridge/ha_request/x", false), Decision.DENY_TWIN_TRAFFIC, "a topic below a leaf");
+        expect(acl.checkLegacy("mineqtt/otherbridge/bridge/state", false), Decision.ALLOWED, "a bridge's state stays open to v1 listeners");
+        expect(acl.checkLegacy("mineqtt/+/bridge/state", false), Decision.ALLOWED, "every bridge's state too");
+        expect(acl.checkLegacy("mineqtt/shared/garage/door", false), Decision.ALLOWED, "the shared namespace beside the bridges");
+        TopicAcl home = new TopicAcl(new Rules("home/mc", BRIDGE, "homeassistant", "ha_statestream", withDefaults(), false, false));
+        expect(home.checkLegacy("home/mc/world_7f3a/bridge/ha_response", false), Decision.DENY_TWIN_TRAFFIC, "under a multi-level base topic");
+        expect(home.checkLegacy("mineqtt/+/bridge/ha_request", false), Decision.DENY_TWIN_TRAFFIC, "and under the shared base beside it");
+        expect(home.checkLegacy("home/mc/world_7f3a/bridge/state", false), Decision.ALLOWED, "its bridge state stays open");
+
+        // Wave 6 review: this server's device and group topics are no v1 listener's (a Block Emitter shows what it gets).
+        expect(acl.checkLegacy("mineqtt/world_7f3a/kitchen_lamp", false), Decision.DENY_DEVICE_TOPICS, "a v1 listener on a device's state");
+        expect(acl.checkLegacy("mineqtt/+/kitchen_lamp", false), Decision.DENY_DEVICE_TOPICS, "a + in place of this bridge");
+        expect(acl.checkLegacy("mineqtt/world_7f3a/+", false), Decision.DENY_DEVICE_TOPICS, "every device of this bridge");
+        expect(acl.checkLegacy("mineqtt/world_7f3a/+/availability", false), Decision.DENY_DEVICE_TOPICS, "every device's availability");
+        expect(acl.checkLegacy("mineqtt/world_7f3a/group/#", false), Decision.DENY_DEVICE_TOPICS, "its groups");
+        expect(acl.checkLegacy("mineqtt/world_7f3a", false), Decision.ALLOWED, "the bare root is no device's");
+        expect(acl.checkLegacy("mineqtt/world_7f3a/bridge", false), Decision.ALLOWED, "nor is the bridge's telemetry");
+        expect(home.checkLegacy("home/mc/world_7f3a/kitchen_lamp/availability", false), Decision.DENY_DEVICE_TOPICS, "under a multi-level base topic");
+        expect(home.checkLegacy("home/+/world_7f3a/kitchen_lamp", false), Decision.DENY_DEVICE_TOPICS, "a + inside a multi-level base topic");
     }
 
     private static void rulesValidation() {
@@ -243,6 +401,12 @@ public final class TopicAclCheck {
         Rules noStatestream = new Rules(BASE, BRIDGE, "homeassistant", "", withDefaults(), false, false);
         check(noStatestream.statestreamBase() == null, "An empty statestream base means none");
         expect(new TopicAcl(noStatestream).checkPublish(PLAYER, "mineqtt/shared/x"), Decision.ALLOWED, "rules without statestream work");
+        Rules slash = new Rules(BASE, BRIDGE, "homeassistant", "ha_statestream/", withDefaults("ha_statestream/#"), true, false);
+        check(slash.statestreamBase().equals("ha_statestream"), "One trailing slash of the statestream base is dropped, as Home Assistant does");
+        for (Subject subject : List.of(PLAYER, OP, Subject.CONSOLE)) {
+            expect(new TopicAcl(slash).checkPublish(subject, "ha_statestream/_mineqtt/catalog/light"), Decision.DENY_STATESTREAM,
+                    "the catalog under a base written with a trailing slash");
+        }
     }
 
     private static List<String> withDefaults(String... extra) {

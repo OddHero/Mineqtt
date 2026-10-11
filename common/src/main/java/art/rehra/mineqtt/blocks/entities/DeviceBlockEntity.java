@@ -7,12 +7,15 @@ import art.rehra.mineqtt.integrations.MineqttPermission;
 import art.rehra.mineqtt.network.MineqttNetworking;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
 import art.rehra.mineqtt.security.DeviceAccess;
+import art.rehra.mineqtt.twin.core.TwinHealth;
 import art.rehra.mineqtt.ui.device.ControlsTab;
 import art.rehra.mineqtt.ui.device.DeviceMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedScreenHost;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.particles.DustParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
@@ -26,10 +29,12 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
@@ -49,10 +54,16 @@ import java.util.UUID;
 public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHost, TabbedScreenHost {
     /** How long after an edit its player counts as the one who made a change: 30 seconds. */
     public static final int EDITOR_NOTICE_TICKS = 30 * 20;
+    // The red of a refused or paused binding's particles.
+    private static final int REFUSED_RED = 0xE02020;
 
     // The player who last changed the device from its screen or with a paper, and the game time of that edit; never saved.
     private @Nullable UUID lastEditor;
     private long lastEditTime;
+    // What clients draw of the device's twin health (M3 plan D19); never saved, the runtime sets it from the attach on.
+    private TwinHealth.Hint twinHint = TwinHealth.Hint.NONE;
+    // Whether a request of the device waits for its Home Assistant entity to change (M3 plan D6); never saved.
+    private boolean twinPending;
 
     protected DeviceBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState blockState) {
         super(type, pos, blockState);
@@ -90,7 +101,11 @@ public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHos
     protected void loadAdditional(ValueInput input) {
         super.loadAdditional(input);
         if (RenderTag.dispatch(input) == RenderTag.Data.RENDER) {
+            TwinHealth.Hint before = twinHint;
+            twinHint = RenderTag.twinHint(input);
+            twinPending = RenderTag.twinPending(input);
             loadRender(input);
+            if (twinHint != before) twinHintChanged(before);
         } else {
             loadDevice(input);
         }
@@ -221,6 +236,110 @@ public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHos
 
     @Override
     public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
-        return RenderTag.updateTag(renderData());
+        return RenderTag.updateTag(renderData(), twinHint, twinPending);
+    }
+
+    /**
+     * Server: the device's twin health changed what its clients draw (M3 plan D6, D19); they get a render update. Only the
+     * hint travels, never the entity (D13 #7).
+     */
+    public void setTwinHint(TwinHealth.Hint hint) {
+        if (hint == twinHint) return;
+        twinHint = hint;
+        if (level != null && !level.isClientSide()) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_CLIENTS);
+    }
+
+    /**
+     * Server: the device's twin health as its runtime shows it now, null for an unbound device (M3 plan D6): its clients'
+     * hint follows ({@link #setTwinHint}), and the device may react ({@link #twinHealthChanged}). Only the hint travels,
+     * never the entity (D13 #7).
+     */
+    public void setTwinHealth(@Nullable TwinHealth health) {
+        setTwinHint(health == null ? TwinHealth.Hint.NONE : health.hint());
+        twinHealthChanged(health);
+    }
+
+    /**
+     * Server: the device's twin health changed ({@link #setTwinHealth}), e.g. a Display Panel that shows "Waiting for Home
+     * Assistant" and gives its comparator 0 while its source has no value; nothing by default.
+     */
+    protected void twinHealthChanged(@Nullable TwinHealth health) {
+    }
+
+    /**
+     * Server: a request of the device started or stopped waiting for its Home Assistant entity to change (M3 plan D6);
+     * its clients get a render update, and show a faint sparkle while it waits.
+     */
+    public void setTwinPending(boolean pending) {
+        if (pending == twinPending) return;
+        twinPending = pending;
+        if (level != null && !level.isClientSide()) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_CLIENTS);
+    }
+
+    /** Whether a request of the device waits for its Home Assistant entity to change. */
+    public boolean twinPending() {
+        return twinPending;
+    }
+
+    /** What the device's twin health makes clients draw: {@link TwinHealth.Hint#NONE} for an unbound or healthy device. */
+    public TwinHealth.Hint twinHint() {
+        return twinHint;
+    }
+
+    /**
+     * Client: a render update changed the twin hint; by default one red particle above the block as the binding becomes
+     * refused (D19).
+     */
+    protected void twinHintChanged(TwinHealth.Hint before) {
+        if (level != null && level.isClientSide() && twinHint == TwinHealth.Hint.REFUSED) refusedParticle(level, aboveBlock(worldPosition));
+    }
+
+    /** The middle of the top face of the block at {@code pos}, where a device's twin particles show by default. */
+    protected static Vec3 aboveBlock(BlockPos pos) {
+        return new Vec3(pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() + 0.5);
+    }
+
+    /**
+     * Client: the twin's particles above a device whose block draws nothing of its own (M3 plan D19): a smoke puff while its
+     * source has no value, red dust while its control is paused, a faint sparkle while a request waits for Home Assistant.
+     */
+    public static class TwinClientTicker<T extends BlockEntity> implements BlockEntityTicker<T> {
+        @Override
+        public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
+            if (!(blockEntity instanceof DeviceBlockEntity device) || device.twinHint == TwinHealth.Hint.NONE && !device.twinPending) return;
+            Vec3 at = aboveBlock(pos);
+            twinParticles(level, at, device.twinHint, level.getGameTime());
+            if (device.twinPending) pendingParticles(level, at, level.getGameTime());
+        }
+    }
+
+    /**
+     * Client: the particles of a twin hint at {@code at} (D19's visual language), for a block entity's client ticker: a
+     * smoke puff every 3 s while the source has no value, a red dust particle every 5 s while the write-back is paused.
+     */
+    protected static void twinParticles(Level level, Vec3 at, TwinHealth.Hint hint, long time) {
+        switch (hint) {
+            case UNAVAILABLE -> {
+                if (time % 60 == 0) level.addParticle(ParticleTypes.SMOKE, at.x, at.y + 0.2, at.z, 0, 0.02, 0);
+            }
+            case PAUSED -> {
+                if (time % 100 == 0) level.addParticle(new DustParticleOptions(REFUSED_RED, 1.0f), at.x, at.y + 0.3, at.z, 0, 0, 0);
+            }
+            case NONE, REFUSED -> {
+            }
+        }
+    }
+
+    /** Client: a faint white sparkle at {@code at} every few ticks while a request waits for Home Assistant (D19). */
+    protected static void pendingParticles(Level level, Vec3 at, long time) {
+        if (time % 6 != 0) return;
+        double dx = (level.getRandom().nextDouble() - 0.5) * 0.4;
+        double dz = (level.getRandom().nextDouble() - 0.5) * 0.4;
+        level.addParticle(ParticleTypes.WHITE_ASH, at.x + dx, at.y + 0.25, at.z + dz, 0, 0.01, 0);
+    }
+
+    /** Client: one red particle above {@code at}, as a binding becomes refused (D19). */
+    protected static void refusedParticle(Level level, Vec3 at) {
+        level.addParticle(new DustParticleOptions(REFUSED_RED, 1.5f), at.x, at.y + 0.4, at.z, 0, 0.01, 0);
     }
 }

@@ -1,0 +1,117 @@
+blueprint:
+  name: MineQTT catalog
+  description: >-
+    Tells Minecraft (the MineQTT mod) which Home Assistant entities it may show: every entity labelled "MineQTT read" or
+    "MineQTT control", or belonging to a device with one of those labels, with a fresh snapshot of its state. It publishes
+    one retained list per domain and a status under the mqtt_statestream base topic, when Home Assistant starts, when
+    labels, entities or devices change, every 10 minutes, and when a MineQTT server asks.
+  domain: automation
+  author: MineQTT
+  source_url: https://github.com/OddHero/Mineqtt/blob/main/docs/blueprints/automation/mineqtt/mineqtt_catalog.yaml
+  homeassistant:
+    min_version: "2025.2.0"
+  input:
+    statestream_base:
+      name: Statestream base topic
+      description: The base_topic of your mqtt_statestream setup; MineQTT's twin.statestreamBase must be the same.
+      default: ha_statestream
+      selector:
+        text: {}
+    read_label:
+      name: Read label
+      description: Entities, or devices, carrying this label are shown in Minecraft.
+      default: mineqtt_read
+      selector:
+        label: {}
+    control_label:
+      name: Control label
+      description: The control blueprint's label; entities with it are shown too, marked as controllable.
+      default: mineqtt_control
+      selector:
+        label: {}
+    sync_topic:
+      name: Sync topic
+      description: MineQTT servers ask for a fresh catalog here (after they connect, after Home Assistant starts, and on /mineqtt twin refresh).
+      default: mineqtt/+/bridge/ha_sync
+      selector:
+        text: {}
+
+mode: restart
+
+triggers:
+  - trigger: homeassistant
+    event: start
+  - trigger: event
+    event_type: automation_reloaded
+  - trigger: event
+    event_type: entity_registry_updated
+  - trigger: event
+    event_type: device_registry_updated
+  - trigger: event
+    event_type: label_registry_updated
+  - trigger: time_pattern
+    minutes: /10
+  - trigger: mqtt
+    topic: !input sync_topic
+    qos: 1
+
+variables:
+  version: 1
+  base: !input statestream_base
+  read_label: !input read_label
+  control_label: !input control_label
+  # mineqtt:attributes v1 (MineQTT's verifyHaCalls parses the next line as JSON and compares it with its own whitelist; keep it on one line)
+  attributes: {"light": ["friendly_name", "device_class", "brightness", "rgb_color", "color_temp_kelvin", "color_mode", "supported_color_modes", "min_color_temp_kelvin", "max_color_temp_kelvin"], "switch": ["friendly_name", "device_class"], "input_boolean": ["friendly_name", "device_class"], "fan": ["friendly_name", "device_class", "percentage", "percentage_step", "preset_mode"], "cover": ["friendly_name", "device_class", "current_position", "current_tilt_position"], "binary_sensor": ["friendly_name", "device_class"], "sensor": ["friendly_name", "device_class", "unit_of_measurement", "state_class"], "counter": ["friendly_name", "device_class", "minimum", "maximum", "step", "initial"], "input_number": ["friendly_name", "device_class", "min", "max", "step", "mode", "unit_of_measurement"], "number": ["friendly_name", "device_class", "min", "max", "step", "mode", "unit_of_measurement"], "input_select": ["friendly_name", "device_class", "options"], "select": ["friendly_name", "device_class", "options"], "input_text": ["friendly_name", "device_class", "min", "max", "mode", "pattern"], "text": ["friendly_name", "device_class", "min", "max", "mode", "pattern"], "scene": ["friendly_name", "device_class"], "script": ["friendly_name", "device_class", "last_triggered"], "button": ["friendly_name", "device_class"], "input_button": ["friendly_name", "device_class"], "lock": ["friendly_name", "device_class"], "climate": ["friendly_name", "device_class", "current_temperature", "temperature", "target_temp_low", "target_temp_high", "min_temp", "max_temp", "target_temp_step", "current_humidity", "hvac_action"]}
+
+actions:
+  # Mode restart: a burst of registry events collapses into one catalog.
+  - delay:
+      seconds: 2
+  - variables:
+      control_ids: >-
+        {%- set ns = namespace(ids=label_entities(control_label) | list) -%}
+        {%- for dev in label_devices(control_label) -%}{%- set ns.ids = ns.ids + (device_entities(dev) | list) -%}{%- endfor -%}
+        {{- ns.ids | unique | sort | list -}}
+      read_ids: >-
+        {%- set ns = namespace(ids=(label_entities(read_label) | list) + control_ids) -%}
+        {%- for dev in label_devices(read_label) -%}{%- set ns.ids = ns.ids + (device_entities(dev) | list) -%}{%- endfor -%}
+        {{- ns.ids | unique | sort | list -}}
+      shared: >-
+        {%- set ns = namespace(n=0) -%}
+        {%- for id in read_ids if id.split('.')[0] in attributes and states[id.split('.')[0]][id.split('.')[1]] is not none -%}{%- set ns.n = ns.n + 1 -%}{%- endfor -%}
+        {{- ns.n -}}
+  - repeat:
+      for_each: "{{ attributes.keys() | list }}"
+      sequence:
+        - action: mqtt.publish
+          data:
+            topic: "{{ base }}/_mineqtt/catalog/{{ repeat.item }}"
+            qos: 1
+            retain: true
+            payload: >-
+              {%- set domain = repeat.item -%}
+              {%- set ns = namespace(items=[]) -%}
+              {%- for id in read_ids if id.split('.')[0] == domain -%}
+                {%- set s = states[domain][id.split('.')[1]] -%}
+                {%- if s is defined and s is not none -%}
+                  {%- set attrs = namespace(d={}) -%}
+                  {#- A point in time (a script's last_triggered) is a datetime object, which to_json cannot write: its ISO text instead. -#}
+                  {%- for a in attributes[domain] if s.attributes[a] is defined -%}
+                    {%- set v = s.attributes[a] -%}
+                    {%- if v is not string and v.isoformat is defined -%}{%- set v = v.isoformat() -%}{%- endif -%}
+                    {%- set attrs.d = dict(attrs.d, **{a: v}) -%}
+                  {%- endfor -%}
+                  {%- set ns.items = ns.items + [{'id': id, 'name': s.name, 'area': area_name(id) or '', 'control': id in control_ids,
+                      'state': s.state, 'last_updated': s.last_updated.isoformat(), 'attributes': attrs.d}] -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {{- ns.items | to_json -}}
+  # The status last, so a server switching to catalog mode already has every list.
+  - action: mqtt.publish
+    data:
+      topic: "{{ base }}/_mineqtt/status"
+      qos: 1
+      retain: true
+      payload: >-
+        {{- {'v': version, 'blueprint': 'catalog', 'generated': now().isoformat(), 'read_label': read_label,
+             'control_label': control_label, 'entities': shared | int} | to_json -}}

@@ -6,6 +6,8 @@ import art.rehra.mineqtt.mqtt.core.TopicAcl;
 import art.rehra.mineqtt.security.AccessMode;
 import art.rehra.mineqtt.security.AclContext;
 import art.rehra.mineqtt.security.C2SGuard;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.ValuePath;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
@@ -17,6 +19,7 @@ import net.minecraft.server.permissions.PermissionSet;
 import net.minecraft.server.players.NameAndId;
 import org.jetbrains.annotations.Nullable;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -42,7 +45,121 @@ public final class DeviceConfig {
     }
 
     /** A validated change of one key. */
-    public sealed interface Change permits Command, Rename, Expose, Access, RawChannel, RawTopic, RawRetain, RawQos, RawPayload {
+    public sealed interface Change permits Command, Rename, Expose, Access, RawChannel, RawTopic, RawRetain, RawQos, RawPayload, Twin, TwinResume {
+    }
+
+    /**
+     * Resumes the Home Assistant control the circuit breaker paused ({@link LinkSetting#TWIN_RESUME}, M3 plan D10). No edit
+     * of the binding, so the twin gate does not apply: CONFIGURE, as {@code /mineqtt devices bind <device> resume}.
+     */
+    public record TwinResume() implements Change {
+    }
+
+    /**
+     * A change of the device's twin binding (M3 plan D19), applied by {@link TwinRules#edit}: the runtime composes the
+     * twin gate ({@code mineqtt:twin.bind}, {@code twin.allowedEntities}, {@code mineqtt:twin.control}) for the editor.
+     */
+    public sealed interface Twin extends Change permits TwinSource, TwinDevice, TwinPreset, TwinTarget, TwinControl, TwinInvert, TwinMin, TwinMax,
+            TwinDecimals, TwinUnavailable, TwinPath {
+        /** The setting key the change came from, for replies. */
+        String key();
+    }
+
+    /** @param entity the entity to mirror; empty unbinds the source */
+    public record TwinSource(String entity) implements Twin {
+        @Override
+        public String key() {
+            return LinkSetting.TWIN_ENTITY.key();
+        }
+    }
+
+    /**
+     * An MQTT device to mirror through a preset (M3-17): {@code twin.device <preset id> <device name>}.
+     *
+     * @param preset the preset's id; empty with an empty device unbinds the source
+     * @param device the device name its topics take
+     */
+    public record TwinDevice(String preset, String device) implements Twin {
+        @Override
+        public String key() {
+            return LinkSetting.TWIN_DEVICE.key();
+        }
+
+        /** Whether it unbinds the source instead of naming a device. */
+        public boolean unbinds() {
+            return preset.isEmpty() && device.isEmpty();
+        }
+    }
+
+    /** @param preset another preset for the MQTT device the source already names (M3-17) */
+    public record TwinPreset(String preset) implements Twin {
+        @Override
+        public String key() {
+            return LinkSetting.TWIN_PRESET.key();
+        }
+    }
+
+    /**
+     * @param name   the adapter's target name ({@code target}, {@code left})
+     * @param entity the entity the target switches; empty removes the target
+     */
+    public record TwinTarget(String name, String entity) implements Twin {
+        @Override
+        public String key() {
+            return LinkSetting.TWIN_PREFIX + name;
+        }
+    }
+
+    public record TwinControl(boolean control) implements Twin {
+        @Override
+        public String key() {
+            return LinkSetting.TWIN_CONTROL.key();
+        }
+    }
+
+    public record TwinInvert(boolean invert) implements Twin {
+        @Override
+        public String key() {
+            return LinkSetting.TWIN_INVERT.key();
+        }
+    }
+
+    /** @param min null for the entity's own minimum */
+    public record TwinMin(@Nullable BigDecimal min) implements Twin {
+        @Override
+        public String key() {
+            return LinkSetting.TWIN_MIN.key();
+        }
+    }
+
+    /** @param max null for the entity's own maximum */
+    public record TwinMax(@Nullable BigDecimal max) implements Twin {
+        @Override
+        public String key() {
+            return LinkSetting.TWIN_MAX.key();
+        }
+    }
+
+    public record TwinDecimals(int decimals) implements Twin {
+        @Override
+        public String key() {
+            return LinkSetting.TWIN_DECIMALS.key();
+        }
+    }
+
+    public record TwinUnavailable(Binding.Unavailable unavailable) implements Twin {
+        @Override
+        public String key() {
+            return LinkSetting.TWIN_UNAVAILABLE.key();
+        }
+    }
+
+    /** @param path null for the type's default */
+    public record TwinPath(@Nullable ValuePath path) implements Twin {
+        @Override
+        public String key() {
+            return LinkSetting.TWIN_PATH.key();
+        }
     }
 
     /** A setting of the type or a command to one of its writable fields, sent to the device as this command. */
@@ -174,14 +291,15 @@ public final class DeviceConfig {
     }
 
     /**
-     * The JSON of a value typed into a command: the text itself for a text key, without one pair of quotes around it
-     * (M2 plan D6), so {@code ""} is the empty text; for any other key the text read like a {@code /set/<field>}
-     * payload, a number, a boolean or a name.
+     * The JSON of a value typed into a command: the text itself for a text or an enum key, without one pair of quotes
+     * around it (M2 plan D6), so {@code ""} is the empty text and {@code 0} the name {@code "0"}; for any other key the
+     * text read like a {@code /set/<field>} payload, a number, a boolean or a name.
      */
     public static JsonElement commandValue(DeviceType type, String key, String text) {
         PortType kind = type.setting(key).map(Setting::kind).or(() -> type.linkSetting(key).map(LinkSetting::kind))
                 .or(() -> commandPort(type, key).map(Port::kind)).orElse(null);
-        return kind instanceof PortType.Text ? new JsonPrimitive(ValueCodecs.unquote(text.strip())) : ValueCodecs.plainValue(text);
+        // An enum's values are names, also when they look like numbers (twin.decimals 0), so they stay text like a text's.
+        return kind instanceof PortType.Text || kind instanceof PortType.Enum ? new JsonPrimitive(ValueCodecs.unquote(text.strip())) : ValueCodecs.plainValue(text);
     }
 
     /** Whether the grants hold what a link setting's gate asks for. */
@@ -191,6 +309,8 @@ public final class DeviceConfig {
             case CONFIGURE -> grants.configure();
             case EXPOSE -> grants.configure() && grants.expose();
             case ACCESS -> grants.access();
+            // The twin rights are server-wide and judged by the runtime for the editor (TwinRules), on top of CONFIGURE.
+            case TWIN, TWIN_CONTROL -> grants.configure();
         };
     }
 
@@ -201,6 +321,7 @@ public final class DeviceConfig {
             case CONFIGURE -> "You may not configure this device";
             case EXPOSE -> "Exposing devices to Home Assistant needs operator rights or mineqtt:ha.expose";
             case ACCESS -> "Only the owner or an operator may change who has access";
+            case TWIN, TWIN_CONTROL -> "You may not configure this device";
         };
     }
 
@@ -244,6 +365,22 @@ public final class DeviceConfig {
         if (setting == LinkSetting.RAW_QOS) return LinkSetting.RAW_QOS.parse(value).map(RawQos::new);
         if (setting == LinkSetting.RAW_ON) return LinkSetting.RAW_ON.parse(value).map(payload -> new RawPayload(true, payload.isEmpty() ? null : payload));
         if (setting == LinkSetting.RAW_OFF) return LinkSetting.RAW_OFF.parse(value).map(payload -> new RawPayload(false, payload.isEmpty() ? null : payload));
+        if (setting == LinkSetting.TWIN_ENTITY) return LinkSetting.TWIN_ENTITY.parse(value).map(TwinSource::new);
+        if (setting == LinkSetting.TWIN_DEVICE) return LinkSetting.TWIN_DEVICE.parse(value).map(device -> new TwinDevice(device.preset(), device.device()));
+        if (setting == LinkSetting.TWIN_PRESET) return LinkSetting.TWIN_PRESET.parse(value).map(TwinPreset::new);
+        if (setting == LinkSetting.TWIN_CONTROL) return LinkSetting.TWIN_CONTROL.parse(value).map(TwinControl::new);
+        if (setting == LinkSetting.TWIN_INVERT) return LinkSetting.TWIN_INVERT.parse(value).map(TwinInvert::new);
+        if (setting == LinkSetting.TWIN_MIN) return LinkSetting.TWIN_MIN.parse(value).map(min -> new TwinMin(min.orElse(null)));
+        if (setting == LinkSetting.TWIN_MAX) return LinkSetting.TWIN_MAX.parse(value).map(max -> new TwinMax(max.orElse(null)));
+        if (setting == LinkSetting.TWIN_DECIMALS) return LinkSetting.TWIN_DECIMALS.parse(value).map(TwinDecimals::new);
+        if (setting == LinkSetting.TWIN_UNAVAILABLE) return LinkSetting.TWIN_UNAVAILABLE.parse(value).map(TwinUnavailable::new);
+        if (setting == LinkSetting.TWIN_PATH) return LinkSetting.TWIN_PATH.parse(value).map(path -> new TwinPath(path.orElse(null)));
+        if (setting == LinkSetting.TWIN_RESUME) return LinkSetting.TWIN_RESUME.parse(value).map(pressed -> new TwinResume());
+        // A target's key is made per type ({@link LinkSetting#target}), so it is told by its prefix.
+        if (setting.twin()) {
+            String name = setting.key().substring(LinkSetting.TWIN_PREFIX.length());
+            return LinkSetting.target(name).parse(value).map(entity -> new TwinTarget(name, entity));
+        }
         throw new IllegalStateException("No change for link setting " + setting.key());
     }
 }

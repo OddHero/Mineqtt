@@ -7,6 +7,9 @@ import art.rehra.mineqtt.mqtt.core.SubOptions;
 import art.rehra.mineqtt.mqtt.core.Subscription;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.function.LongSupplier;
 import java.util.random.RandomGenerator;
 
@@ -15,7 +18,9 @@ import java.util.random.RandomGenerator;
  * (re)started, so discovery, availability and state are republished after a random 0-3 s delay, which spreads the
  * load when many bridges share a broker. Births arriving while one is pending fold into it. A retained birth is
  * ignored: the republish after every connect already covers it. What it last heard there, the birth or Home Assistant's
- * last will {@code offline}, is kept for the Bridge Console ({@link #heard()}). Server thread only.
+ * last will {@code offline}, is kept for the Bridge Console ({@link #heard()}). Listeners ({@link #onBirth}) hear every
+ * live birth at once, before the delay: the twin makes its values retained and asks for a fresh catalog (M3 plan D3),
+ * while the delayed republish runs the discovery cleanups of M3-7b. Server thread only.
  */
 public final class BirthWatcher {
     public static final String ONLINE = "online";
@@ -29,6 +34,7 @@ public final class BirthWatcher {
     private final Runnable republish;
     private final LongSupplier clock;
     private final RandomGenerator random;
+    private final List<Runnable> listeners = new ArrayList<>();
     private @Nullable Subscription subscription;
     private String topic;
     private long dueMillis = -1;
@@ -52,6 +58,18 @@ public final class BirthWatcher {
      */
     public record Heard(Status status, long atMillis) {
         public static final Heard NOTHING = new Heard(Status.NOTHING, -1);
+
+        /**
+         * Whether this proves Home Assistant online now (M3-7b): a birth heard on the current connection, which is still
+         * up, and no republish it asked for still due. A birth of a lost connection proves nothing, also while the
+         * connection is down: Home Assistant (and the broker with it) may be restarting unheard.
+         *
+         * @param connectedAtMillis when the current connection came up (on the watcher's clock); {@link Long#MAX_VALUE}
+         *                          before the first
+         */
+        public boolean provesOnline(boolean connected, long connectedAtMillis, boolean republishPending) {
+            return connected && status == Status.BIRTH && atMillis >= connectedAtMillis && !republishPending;
+        }
     }
 
     /** @param clock milliseconds */
@@ -62,6 +80,11 @@ public final class BirthWatcher {
         this.random = random;
         this.topic = MineQTTConfig.haBirthTopic;
         this.subscription = mqtt.subscribe(topic, BIRTH, this::onBirth);
+    }
+
+    /** Runs {@code listener} at every live birth, at once (a birth folded into a pending republish included). */
+    public void onBirth(Runnable listener) {
+        listeners.add(Objects.requireNonNull(listener, "listener"));
     }
 
     /** After a config change: follows a changed {@code haBirthTopic}. */
@@ -100,11 +123,13 @@ public final class BirthWatcher {
     }
 
     private void onBirth(Inbound message) {
-        if (stopped || !message.topic().equals(topic)) return;
+        // The subscription drops retained messages already; a stored birth says nothing about a restart now.
+        if (stopped || message.retained() || !message.topic().equals(topic)) return;
         String text = message.text().strip();
         if (text.equals(OFFLINE)) heard = new Heard(Status.WILL, clock.getAsLong());
         if (!text.equals(ONLINE)) return;
         heard = new Heard(Status.BIRTH, clock.getAsLong());
+        listeners.forEach(Runnable::run);
         if (dueMillis >= 0) return;
         dueMillis = clock.getAsLong() + random.nextLong(MAX_JITTER_MILLIS + 1);
     }

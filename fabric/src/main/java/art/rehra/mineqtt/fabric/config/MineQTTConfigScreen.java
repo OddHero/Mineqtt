@@ -170,6 +170,53 @@ public class MineQTTConfigScreen {
                 .setSaveConsumer(value -> MineQTTConfig.limitsMaxWiresPerPlayer = value)
                 .build());
 
+        // Home Assistant Twin Category (M3 plan D13)
+        ConfigCategory twinCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.twin"));
+
+        twinCategory.addEntry(entryBuilder.startStrField(Component.translatable("config.mineqtt.twin_statestream_base"), MineQTTConfig.twinStatestreamBase)
+                .setDefaultValue(StaticDefaults.DEFAULT_TWIN_STATESTREAM_BASE)
+                .setTooltip(Component.translatable("config.mineqtt.twin_statestream_base.tooltip"))
+                .setErrorSupplier(value -> ConfigValidation.statestreamBaseError(ConfigValidation.normalizeStatestreamBase(value),
+                        MineQTTConfig.discoveryPrefix, MineQTTConfig.baseTopic).map(Component::literal))
+                .setSaveConsumer(value -> MineQTTConfig.twinStatestreamBase = ConfigValidation.normalizeStatestreamBase(value))
+                .build());
+
+        twinCategory.addEntry(entryBuilder.startStrList(Component.translatable("config.mineqtt.twin_allowed_entities"), MineQTTConfig.twinAllowedEntities)
+                .setDefaultValue(StaticDefaults.DEFAULT_TWIN_ALLOWED_ENTITIES)
+                .setTooltip(Component.translatable("config.mineqtt.twin_allowed_entities.tooltip"))
+                .setCellErrorSupplier(value -> ConfigValidation.allowedEntityError(value).map(problem -> Component.translatable("config.mineqtt.error.allowed_entity")))
+                .setSaveConsumer(value -> MineQTTConfig.twinAllowedEntities = value.stream().map(String::strip).filter(entry -> !entry.isEmpty()).toList())
+                .build());
+
+        twinCategory.addEntry(entryBuilder.startStrList(Component.translatable("config.mineqtt.twin_ha_action_allowlist"), MineQTTConfig.twinHaActionAllowlist)
+                .setDefaultValue(StaticDefaults.DEFAULT_TWIN_HA_ACTION_ALLOWLIST)
+                .setTooltip(Component.translatable("config.mineqtt.twin_ha_action_allowlist.tooltip"))
+                .setCellErrorSupplier(error(ConfigValidation::isValidHaActionDomain, "config.mineqtt.error.ha_action_domain"))
+                .setSaveConsumer(value -> MineQTTConfig.twinHaActionAllowlist = value.stream().map(String::strip).filter(domain -> !domain.isEmpty()).toList())
+                .build());
+
+        twinCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.twin_max_requests_per_second"), MineQTTConfig.twinMaxRequestsPerSecond)
+                .setDefaultValue(StaticDefaults.DEFAULT_TWIN_MAX_REQUESTS_PER_SECOND)
+                .setTooltip(Component.translatable("config.mineqtt.twin_max_requests_per_second.tooltip"))
+                .setMin(1)
+                .setMax(StaticDefaults.MAX_TWIN_REQUESTS_PER_SECOND)
+                .setSaveConsumer(value -> MineQTTConfig.twinMaxRequestsPerSecond = value)
+                .build());
+
+        twinCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.twin_catalog"), MineQTTConfig.twinCatalog)
+                .setDefaultValue(StaticDefaults.DEFAULT_TWIN_CATALOG)
+                .setTooltip(Component.translatable("config.mineqtt.twin_catalog.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.twinCatalog = value)
+                .build());
+
+        twinCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.twin_catalog_max"), MineQTTConfig.twinCatalogMax)
+                .setDefaultValue(StaticDefaults.DEFAULT_TWIN_CATALOG_MAX)
+                .setTooltip(Component.translatable("config.mineqtt.twin_catalog_max.tooltip"))
+                .setMin(1)
+                .setMax(StaticDefaults.MAX_TWIN_CATALOG_MAX)
+                .setSaveConsumer(value -> MineQTTConfig.twinCatalogMax = value)
+                .build());
+
         // Dedicated Server Category
         ConfigCategory serverCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.server"));
 

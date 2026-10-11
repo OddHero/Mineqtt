@@ -56,7 +56,7 @@ public final class ClimateGameTest implements FabricClientGameTest {
     private static final BlockPos LEGACY = new BlockPos(-2, Y, 2);
     private static final BlockPos LEGACY_ITEM_GROUND = new BlockPos(2, GameTestSession.GROUND_Y, -2);
     private static final BlockPos CRAFTER = new BlockPos(0, Y, 4);
-    private static final String LEGACY_TOPIC = "climate_gametest/humidity";
+    private static final String LEGACY_TOPIC = "climate_" + GameTestSession.BRIDGE_ID + "/humidity";
     private static final String FORGED_TOPIC = "zigbee2mqtt/climate_gametest/set";
     private static final UUID VICTIM = UUID.fromString("11111111-2222-3333-4444-555555555555");
     private static final int ANSWER_TICKS = 60;

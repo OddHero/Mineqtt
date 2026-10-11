@@ -4,7 +4,6 @@ import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.integrations.MineqttPermission;
 import art.rehra.mineqtt.items.CyberdeckItem;
-import art.rehra.mineqtt.mqtt.core.BrokerSettings;
 import art.rehra.mineqtt.mqtt.core.Inbound;
 import art.rehra.mineqtt.mqtt.core.Outbound;
 import art.rehra.mineqtt.mqtt.core.SubOptions;
@@ -56,7 +55,7 @@ public final class CyberdeckSessionManager {
     public static final int FORWARDED_PER_SECOND = 50;
     public static final int PUBLISHES_PER_SECOND = 2;
     // Retained state included; this server's own publishes arrive through the loopback, also with the broker down.
-    private static final SubOptions LISTEN_OPTIONS = new SubOptions(1, true, true, BrokerSettings.DEFAULT_MAX_INBOUND_BYTES, null);
+    private static final SubOptions LISTEN_OPTIONS = new SubOptions(1, true, true, SubOptions.MIRROR.maxPayloadBytes(), null);
     private static final String ELLIPSIS = "…";
 
     private static final Map<UUID, Session> sessions = new HashMap<>();

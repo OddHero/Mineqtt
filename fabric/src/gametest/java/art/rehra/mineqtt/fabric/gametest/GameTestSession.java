@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.fabric.gametest;
 
 import art.rehra.mineqtt.blocks.Interaction;
+import art.rehra.mineqtt.config.ConfigValidation;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceLink;
@@ -46,6 +47,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -55,19 +58,36 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * One client game test session: an in-process dedicated server that the real client joins as a non-op player, plus the
  * helpers the suites drive it with (place, open, click, read chat, screenshots).
  * <p>
  * With {@value #BROKER_ENV} set to a {@code tcp://} or {@code ws://} URI, the server's MineQTT connects to that broker
- * under the bridge id {@value #BRIDGE_ID}; when the session ends, the retained topics of that bridge, the world's Home
+ * under the bridge id {@link #BRIDGE_ID}; when the session ends, the retained topics of that bridge, the world's Home
  * Assistant discovery topics and the Raw Link topics a suite named ({@link #clearAtClose}) are cleared.
  * Without it MQTT stays disabled, and the suites report what they cannot check as skipped.
+ * <p>
+ * {@value #SUITES_ENV} selects suites by the names they report; the others return at once, without a server.
  */
 final class GameTestSession implements AutoCloseable {
     static final String BROKER_ENV = "MINEQTT_E2E_BROKER";
-    static final String BRIDGE_ID = "gametest";
+    static final String BRIDGE_ENV = "MINEQTT_GAMETEST_BRIDGE";
+    static final String SUITES_ENV = "MINEQTT_GAMETEST_SUITES";
+    static final String DEFAULT_BRIDGE_ID = "gametest";
+    /**
+     * The bridge id of this run: {@value #BRIDGE_ENV}, or {@value #DEFAULT_BRIDGE_ID}. Runs that share a broker each take
+     * their own, and the suites fold it into the topics they publish to outside the bridge, so no run reads or clears
+     * another run's topics.
+     */
+    static final String BRIDGE_ID = env(BRIDGE_ENV).orElse(DEFAULT_BRIDGE_ID);
+    /** The suites {@value #SUITES_ENV} names; empty runs every suite. */
+    private static final Set<String> SELECTED_SUITES = env(SUITES_ENV)
+            .map(names -> Arrays.stream(names.split(",")).map(String::strip).filter(name -> !name.isEmpty())
+                    .collect(Collectors.toCollection(LinkedHashSet::new)))
+            .map(Collections::unmodifiableSet)
+            .orElse(Set.of());
     /** The surface blocks of the flat test world; players stand one block higher. */
     static final int GROUND_Y = -61;
     private static final int CONNECT_TIMEOUT_TICKS = 30 * 20;
@@ -97,6 +117,10 @@ final class GameTestSession implements AutoCloseable {
     /** Runs one suite in its own session and server; the client ends on the title screen, as the runner requires. */
     static void run(ClientGameTestContext context, String suite, Consumer<GameTestSession> body) {
         SuiteReport report = new SuiteReport(suite);
+        if (!SELECTED_SUITES.isEmpty() && !SELECTED_SUITES.contains(suite)) {
+            report.info("not run: " + SUITES_ENV + " selects " + SELECTED_SUITES);
+            return;
+        }
         try {
             try (GameTestSession session = new GameTestSession(context, report)) {
                 session.start();
@@ -115,7 +139,14 @@ final class GameTestSession implements AutoCloseable {
         context.runOnClient(mc -> CyberdeckScreen.clearDiscoveredTopics());
         // The in-process server shares this JVM's configuration, which the client loaded at start; MineQTT reads it
         // when the server starts.
-        MineQTTConfig.broker = Optional.ofNullable(System.getenv(BROKER_ENV)).orElse("").strip();
+        // MineQTT would replace an unusable bridge id with one per world, which the cleanup would then miss.
+        if (!ConfigValidation.isValidBridgeId(BRIDGE_ID)) {
+            throw new IllegalStateException(BRIDGE_ENV + " '" + BRIDGE_ID + "' must be 1-64 of a-z, 0-9, _ and -");
+        }
+        ConfigValidation.bridgeNamespaceError(BRIDGE_ID, MineQTTConfig.baseTopic).ifPresent(error -> {
+            throw new IllegalStateException(BRIDGE_ENV + ": " + error);
+        });
+        MineQTTConfig.broker = env(BROKER_ENV).orElse("");
         MineQTTConfig.bridgeId = BRIDGE_ID;
         try {
             broker = MineQTTConfig.brokerConfig("mineqtt_" + BRIDGE_ID).orElse(null);
@@ -182,6 +213,11 @@ final class GameTestSession implements AutoCloseable {
                 MineQTTConfig.aclRawAllow = savedRawAllow;
             }
         }
+    }
+
+    /** An environment variable, stripped; empty when it is unset or blank. */
+    private static Optional<String> env(String name) {
+        return Optional.ofNullable(System.getenv(name)).map(String::strip).filter(value -> !value.isEmpty());
     }
 
     /** Every discovery topic this world may have published: the bridge's and one per device and group. */

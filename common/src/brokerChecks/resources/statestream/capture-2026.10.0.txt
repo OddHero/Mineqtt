@@ -1,0 +1,153 @@
+# Home Assistant mqtt_statestream capture, HA 2026.10.0 (ghcr.io/home-assistant/home-assistant:2026.10.0, broker
+# eclipse-mosquitto:2), 2026-10-10. Replayed in order by verifyStatestreamParse (StatestreamParseCheck).
+#
+# Source: the M3 plan, Appendix A.5 (cap §9), whose samples are verbatim lines of ss_raw.log, recorded with
+#   mosquitto_sub -V mqttv5 --retain-as-published -q 2 -t 'ha_statestream/#' -F '%I r=%r q=%q %t %p'
+# The raw log itself was not available to M3-2, so this file is rebuilt from the plan:
+# - The %I receive timestamps are dropped.
+# - The plan shows the r=/q= flags only on §9.1; every statestream publish is retain=1, QoS 1 (hard-coded in
+#   mqtt_statestream, cap §2 and §4), so every line carries r=1 q=1. These are Home Assistant's publish flags: the
+#   recorder subscribed live with --retain-as-published, so the check replays the lines as live deliveries.
+# - Elisions of the plan ("...") and its prose notes are left out; lines the plan only describes in prose are marked
+#   "reconstructed" and come after the verbatim lines of their section.
+# - person.mineqtt_e2e's user_id is blanked.
+#
+# Format: "r=<retain> q=<qos> <topic> <payload>". The payload is everything after the space that follows the topic;
+# a line that ends at the topic (with or without that space) is a zero-length payload. "## <section>" starts a
+# section; other lines starting with "#" are comments.
+
+## 9.1 toggle input_boolean.ss_flag on (drives template light.ss_lamp)
+r=1 q=1 ha_statestream/input_boolean/ss_flag/state on
+r=1 q=1 ha_statestream/light/ss_lamp/state on
+r=1 q=1 ha_statestream/input_boolean/ss_flag/last_updated 2026-10-10T16:58:38.284900+00:00
+r=1 q=1 ha_statestream/light/ss_lamp/last_updated 2026-10-10T16:58:38.285151+00:00
+r=1 q=1 ha_statestream/input_boolean/ss_flag/last_changed 2026-10-10T16:58:38.284900+00:00
+r=1 q=1 ha_statestream/light/ss_lamp/last_changed 2026-10-10T16:58:38.285151+00:00
+r=1 q=1 ha_statestream/input_boolean/ss_flag/editable false
+r=1 q=1 ha_statestream/light/ss_lamp/supported_color_modes ["brightness"]
+r=1 q=1 ha_statestream/input_boolean/ss_flag/icon "mdi:flag"
+r=1 q=1 ha_statestream/light/ss_lamp/color_mode "brightness"
+r=1 q=1 ha_statestream/input_boolean/ss_flag/friendly_name "SS Flag"
+r=1 q=1 ha_statestream/light/ss_lamp/brightness 0
+r=1 q=1 ha_statestream/light/ss_lamp/friendly_name "SS Lamp"
+r=1 q=1 ha_statestream/light/ss_lamp/supported_features 0
+
+## 9.2 demo light on with colour: light.turn_on bed_light rgb_color [255,120,10] brightness 200
+r=1 q=1 ha_statestream/light/bed_light/state on
+r=1 q=1 ha_statestream/light/bed_light/last_updated 2026-10-10T16:58:44.639470+00:00
+r=1 q=1 ha_statestream/light/bed_light/last_changed 2026-10-10T16:58:44.639470+00:00
+r=1 q=1 ha_statestream/light/bed_light/min_color_temp_kelvin 2000
+r=1 q=1 ha_statestream/light/bed_light/max_color_temp_kelvin 6535
+r=1 q=1 ha_statestream/light/bed_light/effect_list ["rainbow", "off"]
+r=1 q=1 ha_statestream/light/bed_light/supported_color_modes ["color_temp", "hs"]
+r=1 q=1 ha_statestream/light/bed_light/effect "rainbow"
+r=1 q=1 ha_statestream/light/bed_light/color_mode "hs"
+r=1 q=1 ha_statestream/light/bed_light/brightness 200
+r=1 q=1 ha_statestream/light/bed_light/color_temp_kelvin null
+r=1 q=1 ha_statestream/light/bed_light/hs_color [26.939, 96.078]
+r=1 q=1 ha_statestream/light/bed_light/rgb_color [255, 120, 10]
+r=1 q=1 ha_statestream/light/bed_light/xy_color [0.62, 0.366]
+r=1 q=1 ha_statestream/light/bed_light/friendly_name "Bed Light"
+r=1 q=1 ha_statestream/light/bed_light/supported_features 4
+
+## 9.3 RGBWW light (color_temp_kelvin 3000 requested)
+r=1 q=1 ha_statestream/light/living_room_rgbww_lights/state on
+r=1 q=1 ha_statestream/light/living_room_rgbww_lights/supported_color_modes ["rgbww"]
+r=1 q=1 ha_statestream/light/living_room_rgbww_lights/color_mode "rgbww"
+r=1 q=1 ha_statestream/light/living_room_rgbww_lights/brightness 180
+r=1 q=1 ha_statestream/light/living_room_rgbww_lights/rgb_color [93, 65, 40]
+r=1 q=1 ha_statestream/light/living_room_rgbww_lights/rgbww_color [0, 0, 0, 87, 93]
+
+## 9.4 light off: colour attributes become null (topics are not removed)
+r=1 q=1 ha_statestream/light/bed_light/state off
+r=1 q=1 ha_statestream/light/bed_light/effect null
+r=1 q=1 ha_statestream/light/bed_light/color_mode null
+r=1 q=1 ha_statestream/light/bed_light/brightness null
+r=1 q=1 ha_statestream/light/bed_light/color_temp_kelvin null
+r=1 q=1 ha_statestream/light/bed_light/hs_color null
+r=1 q=1 ha_statestream/light/bed_light/rgb_color null
+r=1 q=1 ha_statestream/light/bed_light/xy_color null
+r=1 q=1 ha_statestream/light/bed_light/supported_color_modes ["color_temp", "hs"]
+r=1 q=1 ha_statestream/light/bed_light/supported_features 4
+
+## 9.5 unavailable MQTT light (restored from the registry)
+r=1 q=1 ha_statestream/light/smart_lamp_bf9b/state unavailable
+r=1 q=1 ha_statestream/light/smart_lamp_bf9b/restored true
+r=1 q=1 ha_statestream/light/smart_lamp_bf9b/min_color_temp_kelvin 2000
+r=1 q=1 ha_statestream/light/smart_lamp_bf9b/max_color_temp_kelvin 6500
+r=1 q=1 ha_statestream/light/smart_lamp_bf9b/supported_color_modes ["color_temp", "rgb"]
+r=1 q=1 ha_statestream/light/smart_lamp_bf9b/friendly_name "Living Room Lamp"
+r=1 q=1 ha_statestream/light/smart_lamp_bf9b/supported_features 40
+# reconstructed from the prose: person.mineqtt_e2e published state unknown, user_id (blanked) and id
+r=1 q=1 ha_statestream/person/mineqtt_e2e/state unknown
+r=1 q=1 ha_statestream/person/mineqtt_e2e/user_id ""
+r=1 q=1 ha_statestream/person/mineqtt_e2e/id "mineqtt_e2e"
+
+## 9.6 number chain: input_number.set_value ss_level 42.5
+r=1 q=1 ha_statestream/input_number/ss_level/state 42.5
+r=1 q=1 ha_statestream/sensor/ss_temperature/state 10.62
+r=1 q=1 ha_statestream/light/ss_lamp/state on
+r=1 q=1 ha_statestream/input_number/ss_level/min 0.0
+r=1 q=1 ha_statestream/input_number/ss_level/max 100.0
+r=1 q=1 ha_statestream/input_number/ss_level/step 0.5
+r=1 q=1 ha_statestream/input_number/ss_level/mode "slider"
+r=1 q=1 ha_statestream/input_number/ss_level/initial null
+r=1 q=1 ha_statestream/input_number/ss_level/unit_of_measurement "%"
+r=1 q=1 ha_statestream/sensor/ss_temperature/state_class "measurement"
+r=1 q=1 ha_statestream/sensor/ss_temperature/a_list [1, 2.5, "x"]
+r=1 q=1 ha_statestream/sensor/ss_temperature/a_dict {"k": 1, "nested": {"b": true}}
+r=1 q=1 ha_statestream/sensor/ss_temperature/a_none null
+r=1 q=1 ha_statestream/sensor/ss_temperature/a_bool true
+r=1 q=1 ha_statestream/sensor/ss_temperature/a_float 1.0
+r=1 q=1 ha_statestream/sensor/ss_temperature/a_str_num "007"
+r=1 q=1 ha_statestream/sensor/ss_temperature/a_unicode "Grüße ✓"
+r=1 q=1 ha_statestream/sensor/ss_temperature/unit_of_measurement "°C"
+r=1 q=1 ha_statestream/sensor/ss_temperature/device_class "temperature"
+r=1 q=1 ha_statestream/light/ss_lamp/brightness 108
+
+## 9.7 helpers
+r=1 q=1 ha_statestream/input_select/ss_mode/state Turbo Mode
+r=1 q=1 ha_statestream/input_select/ss_mode/options ["Off", "Eco", "Turbo Mode"]
+r=1 q=1 ha_statestream/input_text/ss_note/state Grüße "quoted" / slash
+r=1 q=1 ha_statestream/input_text/ss_note/max 100
+r=1 q=1 ha_statestream/input_datetime/ss_alarm/state 07:30:00
+r=1 q=1 ha_statestream/input_datetime/ss_alarm/timestamp 27000
+r=1 q=1 ha_statestream/input_button/ss_button/state 2026-10-10T16:59:06.240029+00:00
+r=1 q=1 ha_statestream/counter/ss_counter/state 4
+
+## 9.8 devices (demo)
+r=1 q=1 ha_statestream/climate/hvac/state cool
+r=1 q=1 ha_statestream/climate/hvac/current_temperature 22
+r=1 q=1 ha_statestream/climate/hvac/temperature 22.5
+r=1 q=1 ha_statestream/climate/hvac/target_temp_high null
+r=1 q=1 ha_statestream/switch/decorative_lights/state off
+r=1 q=1 ha_statestream/lock/front_door/state unlocking
+r=1 q=1 ha_statestream/lock/front_door/state unlocked
+r=1 q=1 ha_statestream/fan/living_room_fan/state on
+r=1 q=1 ha_statestream/fan/living_room_fan/percentage 66
+r=1 q=1 ha_statestream/fan/living_room_fan/percentage_step 33.333333333333336
+
+## 9.9 sun and zone (privacy: zone.home carries GPS and occupancy)
+r=1 q=1 ha_statestream/zone/home/state 0
+r=1 q=1 ha_statestream/zone/home/latitude 52.52
+r=1 q=1 ha_statestream/zone/home/longitude 13.405
+r=1 q=1 ha_statestream/zone/home/persons []
+r=1 q=1 ha_statestream/sun/sun/state below_horizon
+r=1 q=1 ha_statestream/sensor/sun_next_dawn/state 2026-10-11T04:48:44+00:00
+r=1 q=1 ha_statestream/sun/sun/next_dawn "2026-10-11T04:48:44.089643+00:00"
+r=1 q=1 ha_statestream/sun/sun/elevation -6.29
+
+## 9.10 encoding probe via REST (POST /api/states/sensor.ss_rest)
+r=1 q=1 ha_statestream/sensor/ss_rest/state 12.5
+r=1 q=1 ha_statestream/sensor/ss_rest/null_attr null
+r=1 q=1 ha_statestream/sensor/ss_rest/int_attr 7
+r=1 q=1 ha_statestream/sensor/ss_rest/float_attr 0.1
+r=1 q=1 ha_statestream/sensor/ss_rest/big 1e+21
+r=1 q=1 ha_statestream/sensor/ss_rest/bool_attr false
+r=1 q=1 ha_statestream/sensor/ss_rest/list_attr [1, "two", null, true]
+r=1 q=1 ha_statestream/sensor/ss_rest/obj_attr {"a": [1, 2], "b": null}
+r=1 q=1 ha_statestream/sensor/ss_rest/empty_str ""
+r=1 q=1 ha_statestream/sensor/ss_rest/drop_me "x"
+
+## 9.10 then: state "" (reconstructed from the prose: a zero-length payload, which deletes the retained state)
+r=1 q=1 ha_statestream/sensor/ss_rest/state

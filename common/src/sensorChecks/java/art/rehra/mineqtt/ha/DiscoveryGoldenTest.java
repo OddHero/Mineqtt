@@ -8,7 +8,11 @@ import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.device.DeviceType;
 import art.rehra.mineqtt.device.EventSpec;
 import art.rehra.mineqtt.device.Field;
+import art.rehra.mineqtt.device.TwinTestTypes;
+import art.rehra.mineqtt.twin.TwinAdapter;
+import art.rehra.mineqtt.twin.core.Binding;
 import art.rehra.mineqtt.device.types.ClimateSensor;
+import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
@@ -73,8 +77,95 @@ public final class DiscoveryGoldenTest {
         smartPlug();
         climate();
         wallSwitch();
+        displayPanel();
         everyEntityKind();
+        mirrored();
         System.out.println("Discovery payload checks passed.");
+    }
+
+    /**
+     * M3 plan D6: a bound device keeps its device, identifiers and availability, but of its entities only the disabled
+     * {@code binding} diagnostic sensor; every entity it declares stays as a platform-only stub, which removes it in Home
+     * Assistant, in every reduced message. Unbinding gives the full message again, byte for byte, with the same
+     * unique_ids. A refused binding is still bound; a device with targets only is discovered in full.
+     */
+    private static void mirrored() {
+        DeviceType type = TwinTestTypes.TYPE;
+        DeviceRecord record = new DeviceRecord(LAMP_ID, type.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(3, 64, 3)), "Porch Mirror", "porch_mirror");
+        record.setLegacyUniqueId("home_porch");
+        JsonObject full = DiscoveryPublisher.deviceConfig(type, record, TOPICS, IDENTITY);
+        record.setTwin(TwinTestTypes.bound("switch.porch", true));
+        JsonObject reduced = DiscoveryPublisher.deviceConfig(type, record, TOPICS, IDENTITY);
+        for (String key : List.of("dev", "o", "avty", "avty_mode", "qos")) {
+            check(reduced.get(key).equals(full.get(key)), "A bound device keeps its " + key + ": " + reduced.get(key));
+        }
+        JsonObject components = reduced.getAsJsonObject("cmps");
+        Set<String> declared = full.getAsJsonObject("cmps").keySet();
+        check(components.keySet().containsAll(declared) && components.keySet().size() == declared.size() + 1 && components.has(TwinAdapter.BINDING_ENTITY),
+                "Every declared entity and the binding sensor: " + components.keySet());
+        for (String key : declared) {
+            JsonObject stub = components.getAsJsonObject(key);
+            check(stub.keySet().equals(Set.of("p")) && stub.get("p").equals(full.getAsJsonObject("cmps").getAsJsonObject(key).get("p")),
+                    "A declared entity is a platform-only stub, which removes it: " + key + " " + stub);
+        }
+        JsonObject sensor = components.getAsJsonObject(TwinAdapter.BINDING_ENTITY);
+        expect(sensor, "p", "sensor");
+        expect(sensor, "unique_id", "mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566_binding");
+        expect(sensor, "state_topic", "mineqtt/world_7f3a/porch_mirror");
+        expect(sensor, "json_attributes_topic", "mineqtt/world_7f3a/porch_mirror");
+        expect(sensor, "entity_category", "diagnostic");
+        check(!sensor.get("enabled_by_default").getAsBoolean() && sensor.get("value_template").getAsString().contains("value_json.binding.entity")
+                && !sensor.has("command_topic"), "The sensor is disabled by default, reads the binding's entity and commands nothing: " + sensor);
+        check(!reduced.toString().contains("switch.porch"), "The discovery never names the bound entity; the state carries it");
+        check(!components.has("output") || !components.getAsJsonObject("output").has("unique_id"), "No command entity survives");
+
+        record.setTwin(record.twin().withRefused("switch.porch is not in twin.allowedEntities"));
+        check(DiscoveryPublisher.deviceConfig(type, record, TOPICS, IDENTITY).equals(reduced), "A refused binding is still bound: the same reduced message");
+        record.setTwin(new Binding(null, Map.of(TwinTestTypes.PRESSED, TwinAdapter.targetEnd("scene.movie")), false, Binding.Settings.DEFAULT, null));
+        check(DiscoveryPublisher.deviceConfig(type, record, TOPICS, IDENTITY).equals(full), "Targets alone mirror nothing: the full message");
+        record.setTwin(null);
+        JsonObject unbound = DiscoveryPublisher.deviceConfig(type, record, TOPICS, IDENTITY);
+        check(unbound.equals(full) && DiscoveryPublisher.hash(unbound).equals(DiscoveryPublisher.hash(full)) && !DiscoveryPublisher.hash(reduced).equals(DiscoveryPublisher.hash(full)),
+                "Unbinding republishes the full message with the same unique_ids; binding changes the hash, so a refresh publishes it");
+        check(full.getAsJsonObject("cmps").getAsJsonObject("output").get("unique_id").getAsString().equals("home_porch"),
+                "...the primary entity keeping its v1 unique_id");
+        cleanupMessages(type, record, full, reduced, sensor);
+    }
+
+    /**
+     * M3-7b: the messages of a cleanup. The first is the full message plus the binding sensor, whichever way the device is
+     * bound, so Home Assistant discovers every component; the removal is the reduced message while bound, and every
+     * component as a stub once unbound, the binding sensor included (left out, the sensor would stay as an orphan).
+     */
+    private static void cleanupMessages(DeviceType type, DeviceRecord record, JsonObject full, JsonObject reduced, JsonObject sensor) {
+        JsonObject discoverUnbound = DiscoveryPublisher.discoverConfig(type, record, TOPICS, IDENTITY);
+        record.setTwin(TwinTestTypes.bound("switch.porch", true));
+        JsonObject discoverBound = DiscoveryPublisher.discoverConfig(type, record, TOPICS, IDENTITY);
+        check(discoverBound.equals(discoverUnbound), "The first message of a cleanup does not depend on the binding");
+        for (String key : List.of("dev", "o", "avty", "avty_mode", "qos")) {
+            check(discoverBound.get(key).equals(full.get(key)), "The first message keeps the device's " + key);
+        }
+        JsonObject everything = discoverBound.getAsJsonObject("cmps");
+        Set<String> declared = full.getAsJsonObject("cmps").keySet();
+        check(everything.keySet().size() == declared.size() + 1 && everything.keySet().containsAll(declared)
+                && everything.getAsJsonObject(TwinAdapter.BINDING_ENTITY).equals(sensor), "...with every declared entity and the binding sensor: " + everything.keySet());
+        for (String key : declared) {
+            check(everything.get(key).equals(full.getAsJsonObject("cmps").get(key)), "...each declared entity in full: " + key);
+        }
+        check(!discoverBound.toString().contains("switch.porch"), "...and never the bound entity");
+
+        check(DiscoveryPublisher.removalConfig(type, record, TOPICS, IDENTITY).equals(reduced), "Bound, the removal is the reduced message");
+        record.setTwin(null);
+        JsonObject removal = DiscoveryPublisher.removalConfig(type, record, TOPICS, IDENTITY);
+        JsonObject components = removal.getAsJsonObject("cmps");
+        check(components.getAsJsonObject(TwinAdapter.BINDING_ENTITY).keySet().equals(Set.of("p"))
+                && components.getAsJsonObject(TwinAdapter.BINDING_ENTITY).get("p").getAsString().equals("sensor"), "Unbound, the removal stubs the binding sensor: " + components);
+        check(components.keySet().size() == declared.size() + 1 && components.entrySet().stream().allMatch(entry -> entry.getValue().getAsJsonObject().keySet().equals(Set.of("p"))),
+                "...and every declared entity, which the full message after it discovers again: " + components);
+        for (String key : List.of("dev", "o", "avty", "avty_mode", "qos")) {
+            check(removal.get(key).equals(full.get(key)), "The removal keeps the device's " + key);
+        }
+        check(DiscoveryPublisher.deviceConfig(type, record, TOPICS, IDENTITY).equals(full), "The steady message after it is the full message alone");
     }
 
     private static void bridge() throws IOException {
@@ -110,6 +201,17 @@ public final class DiscoveryGoldenTest {
         check(ids(DiscoveryPublisher.deviceConfig(SmartLamp.TYPE, lamp, TOPICS, IDENTITY)).equals(List.of("mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566")),
                 "A lamp without a v1 unique_id has only its own identifier");
 
+        // M3-8: a lamp bound to a Home Assistant light keeps one disabled diagnostic entity; its light and sensors are
+        // platform-only stubs, which remove them in Home Assistant (M3 plan D6). The entity id is never in the discovery.
+        DeviceRecord mirrored = new DeviceRecord(LAMP_ID, SmartLamp.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(120, 64, -35)), "Kitchen Lamp", "kitchen_lamp");
+        mirrored.setTwin(Binding.of(SmartLamp.TWIN.sourceEnd("light.kitchen_ceiling")));
+        JsonObject mirroredConfig = DiscoveryPublisher.deviceConfig(SmartLamp.TYPE, mirrored, TOPICS, IDENTITY);
+        assertGolden("lamp_mirrored", mirroredConfig);
+        check(!mirroredConfig.toString().contains("kitchen_ceiling"), "A mirrored lamp's discovery never names its entity");
+        mirrored.setTwin(null);
+        check(DiscoveryPublisher.deviceConfig(SmartLamp.TYPE, mirrored, TOPICS, IDENTITY).equals(DiscoveryPublisher.deviceConfig(SmartLamp.TYPE, lamp, TOPICS, IDENTITY)),
+                "Unbinding the lamp gives its full golden message again");
+
         DeviceGroup group = new DeviceGroup(UUID.fromString("00000000-0000-4000-8000-0000000000aa"), "Hallway", "hallway");
         group.setLegacyUniqueId("home_hallway");
         group.setLegacyTopic("home/hallway");
@@ -141,6 +243,13 @@ public final class DiscoveryGoldenTest {
         JsonObject outputSwitch = outputConfig.getAsJsonObject("cmps").getAsJsonObject("output");
         check(outputSwitch.get("name").isJsonNull() && outputSwitch.get("unique_id").getAsString().equals("mineqtt_7a1e0c552b3d4e6f8091a2b3c4d5e6f7_output"),
                 "The output's switch is its primary entity");
+        // M3-12: an output bound to the real door contact keeps only the disabled binding sensor (M3 plan D6).
+        output.setTwin(Binding.of(RedstoneOutput.TWIN.sourceEnd("binary_sensor.front_door")));
+        JsonObject outputMirrored = DiscoveryPublisher.deviceConfig(RedstoneOutput.TYPE, output, TOPICS, IDENTITY);
+        assertGolden("output_mirrored", outputMirrored);
+        check(!outputMirrored.toString().contains("front_door"), "A mirrored output's discovery never names its entity");
+        output.setTwin(null);
+        check(DiscoveryPublisher.deviceConfig(RedstoneOutput.TYPE, output, TOPICS, IDENTITY).equals(outputConfig), "Unbinding the output gives its full golden message again");
 
         UUID inputId = UUID.fromString("0c4d8e2f-6a1b-4c3d-9e5f-708192a3b4c5");
         DeviceRecord input = new DeviceRecord(inputId, RedstoneInput.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(6, 64, 2)), "Doorbell", "doorbell");
@@ -166,11 +275,39 @@ public final class DiscoveryGoldenTest {
         JsonObject outlet = config.getAsJsonObject("cmps").getAsJsonObject("plug");
         check(outlet.get("name").isJsonNull() && outlet.get("device_class").getAsString().equals("outlet"), "The plug's outlet switch is its primary entity");
         check(config.getAsJsonObject("cmps").keySet().equals(Set.of("plug", "power_on_behaviour", "location")), "Plug entities: " + config.getAsJsonObject("cmps").keySet());
+        // M3-12: a plug mirroring the real coffee machine's switch (M3 plan D6).
+        plug.setTwin(Binding.of(SmartPlug.TWIN.sourceEnd("switch.coffee_machine")).withControl(true));
+        JsonObject plugMirrored = DiscoveryPublisher.deviceConfig(SmartPlug.TYPE, plug, TOPICS, IDENTITY);
+        assertGolden("plug_mirrored", plugMirrored);
+        check(!plugMirrored.toString().contains("coffee_machine"), "A mirrored plug's discovery never names its entity");
+        plug.setTwin(null);
+        check(DiscoveryPublisher.deviceConfig(SmartPlug.TYPE, plug, TOPICS, IDENTITY).equals(config), "Unbinding the plug gives its full golden message again");
 
         JsonObject group = DiscoveryPublisher.groupConfig(SmartPlug.TYPE, new DeviceGroup(UUID.randomUUID(), "Kitchen Plugs", "kitchen_plugs"), TOPICS, IDENTITY);
         check(group.getAsJsonObject("cmps").keySet().equals(Set.of("plug", "power_on_behaviour"))
                         && group.getAsJsonObject("cmps").getAsJsonObject("plug").get("device_class").getAsString().equals("outlet"),
                 "A plug group has the plug's command entities, the outlet among them: " + group.getAsJsonObject("cmps").keySet());
+    }
+
+    /**
+     * The Display Panel (M3-15) against its golden files: its message as a Home Assistant text of at most 255 characters,
+     * the comparator level and the location as disabled diagnostics; bound, the reduced message without the entity.
+     */
+    private static void displayPanel() throws IOException {
+        UUID panelId = UUID.fromString("d15e0a7e-1b2c-4d3e-8f40-5a6b7c8d9e0f");
+        DeviceRecord panel = new DeviceRecord(panelId, DisplayPanel.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(12, 64, 2)), "Laundry Panel", "laundry_panel");
+        JsonObject config = DiscoveryPublisher.deviceConfig(DisplayPanel.TYPE, panel, TOPICS, IDENTITY);
+        assertGolden("display_panel", config);
+        JsonObject components = config.getAsJsonObject("cmps");
+        check(components.keySet().equals(Set.of("message", "level", "location")), "Panel entities: " + components.keySet());
+        JsonObject message = components.getAsJsonObject("message");
+        check(message.get("p").getAsString().equals("text") && message.get("max").getAsInt() == 255 && message.get("name").isJsonNull()
+                        && message.get("command_topic").getAsString().equals("mineqtt/world_7f3a/laundry_panel/set/message"),
+                "The message is the panel's primary text entity of at most 255 characters, set on its own topic");
+        panel.setTwin(Binding.of(DisplayPanel.TWIN.sourceEnd("sensor.washer_status")));
+        JsonObject mirrored = DiscoveryPublisher.deviceConfig(DisplayPanel.TYPE, panel, TOPICS, IDENTITY);
+        assertGolden("display_panel_mirrored", mirrored);
+        check(!mirrored.toString().contains("washer_status"), "A mirrored panel's discovery never names its entity");
     }
 
     /** The Presence Sensor (§4.4) against its golden file: occupancy, count and its three settings. */

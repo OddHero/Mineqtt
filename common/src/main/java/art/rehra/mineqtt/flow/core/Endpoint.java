@@ -7,9 +7,8 @@ import java.util.regex.Pattern;
 /**
  * One end of a {@link Wire}, or the source of a {@link FlowMessage} (M2 plan §3.2): a port of a node, keyed by UUID and
  * port key, never by position, so it survives renames, moves and unloads. Both ends of a wire are endpoints, so MQTT-in
- * and Home Assistant sources fit later without a schema change. {@link TopicRef} and {@link HaEntityRef} are reserved:
- * declared so that every switch over endpoints stays exhaustive when they are built, but nothing makes them yet and the
- * registry codec refuses them.
+ * and Home Assistant sources fit without a schema change. {@link HaEntityRef} and {@link TopicRef} are the ends of wires
+ * derived from device bindings (M3 plan §3.2, §3.3), which are never persisted: the registry codec still refuses them.
  */
 public sealed interface Endpoint permits Endpoint.PortRef, Endpoint.GroupPortRef, Endpoint.TopicRef, Endpoint.HaEntityRef {
     /** A port key; device field and action keys are port ids, so they are checked against it too. */
@@ -28,7 +27,13 @@ public sealed interface Endpoint permits Endpoint.PortRef, Endpoint.GroupPortRef
         return PORT_KEY.matcher(key).matches();
     }
 
-    /** Whether this kind of endpoint is reserved for a later milestone. */
+    /**
+     * Home Assistant's entity id as statestream publishes it, {@code <domain>.<object_id>} (M3 plan D1); the same shape
+     * as {@code twin.core.StatestreamTopic.ENTITY_ID}, which this Minecraft-free core may not depend on.
+     */
+    Pattern ENTITY_ID = Pattern.compile("[a-z0-9][a-z0-9_]*\\.[a-z0-9_]+");
+
+    /** Whether this kind of endpoint is reserved for a later milestone; none is now. */
     default boolean reserved() {
         return false;
     }
@@ -62,37 +67,41 @@ public sealed interface Endpoint permits Endpoint.PortRef, Endpoint.GroupPortRef
         }
     }
 
-    /** Reserved: a standalone MQTT topic as a source or a sink. */
-    record TopicRef(String topic) implements Endpoint {
+    /**
+     * A standalone MQTT topic as a source or a sink (M3 plan §3.2): a preset binding's topic (M3-17).
+     *
+     * @param path where the value sits in the payload, as {@code twin.core.ValuePath} spells it; {@code ""} for the whole
+     *             payload
+     */
+    record TopicRef(String topic, String path) implements Endpoint {
         public TopicRef {
             if (topic.isEmpty()) throw new IllegalArgumentException("A topic endpoint needs a topic");
-        }
-
-        @Override
-        public boolean reserved() {
-            return true;
+            Objects.requireNonNull(path, "path");
         }
 
         @Override
         public String describe() {
-            return "topic " + topic;
+            return "topic " + topic + (path.isEmpty() ? "" : " " + path);
         }
     }
 
-    /** Reserved: a Home Assistant entity, as a state source or a service-call sink (M3). */
-    record HaEntityRef(String entityId) implements Endpoint {
+    /**
+     * A port of a Home Assistant entity (M3 plan §3.2, D8), as a state source or a service-call sink:
+     * {@code light.kitchen.brightness}.
+     *
+     * @param entityId the entity, {@code <domain>.<object_id>} ({@link #ENTITY_ID})
+     * @param port     a port key of its domain ({@code twin.core.HaDomains}), or {@code attr_<key>} or {@code value} for
+     *                 a generic read
+     */
+    record HaEntityRef(String entityId, String port) implements Endpoint {
         public HaEntityRef {
-            if (entityId.isEmpty()) throw new IllegalArgumentException("A Home Assistant endpoint needs an entity id");
-        }
-
-        @Override
-        public boolean reserved() {
-            return true;
+            if (!ENTITY_ID.matcher(entityId).matches()) throw new IllegalArgumentException("Not a Home Assistant entity id: " + entityId);
+            checkKey(port);
         }
 
         @Override
         public String describe() {
-            return "entity " + entityId;
+            return "entity " + entityId + "." + port;
         }
     }
 

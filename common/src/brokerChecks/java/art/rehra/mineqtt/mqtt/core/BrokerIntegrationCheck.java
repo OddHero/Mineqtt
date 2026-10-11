@@ -78,7 +78,8 @@ public final class BrokerIntegrationCheck {
             new NamedScenario("14 Retained raw loopback", BrokerIntegrationCheck::retainedRawLoopback),
             new NamedScenario("15 Own retained, late input", BrokerIntegrationCheck::ownRetainedForLateInput),
             new NamedScenario("16 Wake per burst", BrokerIntegrationCheck::wakePerBurst),
-            new NamedScenario("17 Ghost cleanup", BrokerIntegrationCheck::ghostCleanup));
+            new NamedScenario("17 Ghost cleanup", BrokerIntegrationCheck::ghostCleanup),
+            new NamedScenario("18 Statestream mirror", BrokerIntegrationCheck::statestreamMirror));
 
     static void main(String[] args) {
         try {
@@ -673,6 +674,66 @@ public final class BrokerIntegrationCheck {
      * the remote exactly once each, in order, never the device itself, also when the broker's copy carries the retain
      * flag; the broker holds the last level.
      */
+    /**
+     * The twin's per-leaf statestream subscriptions (M3 plan D1 #7, #8, D17), shared by two holders: the retained leaves
+     * reach the one handler once each, marked retained, and a leaf nobody holds never; a second holder subscribes nothing
+     * again, so no replay doubles them; a cleared state (a zero-length retained publish, cap §6) arrives as an empty
+     * payload; a leaf one holder lets go of still arrives for the other, and once its last holder lets go the broker no
+     * longer sends it.
+     */
+    private static void statestreamMirror(Target target, ProtocolVersion protocol, String root) throws Exception {
+        String entity = root + "/ss/light/m3_lamp/";
+        String state = entity + "state";
+        String brightness = entity + "brightness";
+        String unheld = entity + "effect_list";
+        // Moquette keeps the retain flag only at QoS 0; the real path is MIRROR's QoS 1 (Mosquitto, -PexternalBroker).
+        SubOptions mirror = target.retainFlagAtQos1() ? SubOptions.MIRROR
+                : new SubOptions(0, true, true, SubOptions.MIRROR.maxPayloadBytes(), null);
+        try (TcpProxy proxy = new TcpProxy(target.host(), target.port()); Remote remote = new Remote(target)) {
+            remote.publish(state, "on", 2, true);
+            remote.publish(brightness, "128", 2, true);
+            remote.publish(unheld, "[\"rainbow\"]", 2, true);
+            HiveMqttService service = service(target, proxy, protocol, root, BrokerSettings.DEFAULT_MAX_INBOUND_BYTES);
+            try {
+                Recorder leaves = new Recorder();
+                SharedSubscriptions<String> shared = new SharedSubscriptions<>(service, mirror, leaves);
+                check(shared.hold("porch", state) && shared.hold("porch", brightness), "The first holder opens each leaf");
+                connect(service);
+                tickUntil(service, () -> leaves.payloads().containsAll(List.of("on", "128")), "the retained leaves");
+                check(!shared.hold("kitchen", state) && !shared.hold("kitchen", brightness) && shared.holders(state) == 2,
+                        "A second holder opens nothing again");
+                tickFor(service, 300);
+                check(leaves.payloads().equals(List.of("on", "128")) || leaves.payloads().equals(List.of("128", "on")),
+                        "Each retained leaf reaches the handler once, a leaf nobody holds never: " + leaves.payloads());
+                check(leaves.received.stream().allMatch(Inbound::retained), "The replay is marked retained");
+
+                remote.publish(state, "", 1, true);
+                tickUntil(service, () -> leaves.received.size() == 3, "the cleared state");
+                Inbound cleared = leaves.received.getLast();
+                check(cleared.topic().equals(state) && cleared.payload().length == 0 && !cleared.retained(), "A cleared state arrives as a live empty payload");
+
+                check(!shared.release("porch", state) && shared.holders(state) == 1, "One holder lets go; the leaf stays open for the other");
+                awaitBrokerOperations(service);
+                remote.publish(state, "off", 1, false);
+                tickUntil(service, () -> leaves.payloads().contains("off"), "the leaf for the remaining holder");
+                check(shared.release("kitchen", state) && shared.holders(state) == 0 && shared.filters().equals(Set.of(brightness)),
+                        "The last holder closes the leaf");
+                awaitBrokerOperations(service);
+                long before = service.receivedFromBroker();
+                remote.publish(state, "on", 1, false);
+                remote.publish(brightness, "200", 1, false);
+                tickUntil(service, () -> leaves.payloads().contains("200"), "the leaf still held");
+                check(service.receivedFromBroker() == before + 1 && leaves.payloads().stream().filter("on"::equals).count() == 1,
+                        "After its last holder the broker no longer sends the leaf");
+                check(shared.releaseAll("porch").isEmpty() && shared.releaseAll("kitchen").equals(List.of(brightness)) && shared.filters().isEmpty(),
+                        "Letting go of everything closes what is left");
+            } finally {
+                service.close();
+                for (String topic : List.of(state, brightness, unheld)) remote.clearRetained(topic);
+            }
+        }
+    }
+
     private static void retainedRawLoopback(Target target, ProtocolVersion protocol, String root) throws Exception {
         String topic = root + "/shared/garage";
         UUID deviceA = UUID.randomUUID();

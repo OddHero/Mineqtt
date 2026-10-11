@@ -19,6 +19,7 @@ import art.rehra.mineqtt.device.ValueCodecs;
 import art.rehra.mineqtt.device.ValueCodecs.LightState;
 import art.rehra.mineqtt.device.ValueCodecs.Rgb;
 import art.rehra.mineqtt.device.types.ClimateSensor;
+import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
@@ -34,6 +35,8 @@ import art.rehra.mineqtt.network.MineqttNetworking.DeviceConfigPayload;
 import art.rehra.mineqtt.security.AccessMode;
 import art.rehra.mineqtt.ui.device.LightControl.HueSaturation;
 import art.rehra.mineqtt.ui.framework.MqttTab;
+import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
+import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -97,7 +100,12 @@ public final class DeviceTabsCheck {
                 // Its readings are out-ports only (M2-19).
                 ClimateSensor.TYPE, List.of("interval SLIDER CONFIGURE CONFIG", "raw_value CYCLE CONFIGURE CONFIG"),
                 // A button per press action (M2-22).
-                WallSwitch.TYPE, List.of("press_left PRESS USE ACTION", "press_right PRESS USE ACTION"));
+                WallSwitch.TYPE, List.of("press_left PRESS USE ACTION", "press_right PRESS USE ACTION"),
+                // Its message as a command, its look as settings: 4 of the 5 rows (M3-15); its twin keys go to the Twin tab (D19).
+                DisplayPanel.TYPE, List.of("message TEXT_FIELD USE CONFIG", "color CYCLE CONFIGURE CONFIG", "glow TOGGLE CONFIGURE CONFIG",
+                        "size CYCLE CONFIGURE CONFIG"));
+        check(ControlsTab.controls(DisplayPanel.TYPE).stream().mapToInt(control -> control.widget().rows()).sum() == 4 && ControlsTab.MAX_ROWS == 5,
+                "The panel's Controls tab takes 4 of its 5 rows");
         check(expected.keySet().containsAll(DeviceTypes.all()), "Every registered type has its expected controls listed here");
         // The Advanced tab's controls of each registered type: its Raw Link's link settings.
         List<String> valueLink = List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
@@ -115,14 +123,34 @@ public final class DeviceTabsCheck {
                 ClimateSensor.TYPE, valueLink,
                 // Events are never retained: QoS only (M2-22).
                 WallSwitch.TYPE, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
-                        "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG"));
+                        "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG"),
+                // Text in: no retain, QoS or custom payloads (M3-15).
+                DisplayPanel.TYPE, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
+                        "raw.topic TEXT_FIELD CONFIGURE CONFIG"));
         check(advanced.keySet().containsAll(DeviceTypes.all()), "Every registered type has its expected Advanced controls listed here");
+        // The Twin tab of each type with a twin adapter (M3 plan D19): its rows top to bottom, each cell as kind:key; the
+        // health line is always the fifth row.
+        Map<DeviceType, List<String>> twin = Map.of(
+                // M3-17: the source cycle's Home Assistant cells or MQTT device cells share the first two rows' places.
+                SmartLamp.TYPE, List.of(SOURCE_ROW, DETAILS_ROW, "twin.control", "twin.unavailable", "health"),
+                SmartPlug.TYPE, List.of(SOURCE_ROW, DETAILS_ROW, "twin.control", "twin.unavailable", "health"),
+                // Control and invert lead, then how it reads: path, range, unavailable.
+                RedstoneOutput.TYPE, List.of(SOURCE_ROW, DETAILS_ROW, "twin.control twin.invert", "twin.path twin.min twin.max twin.unavailable", "health"),
+                // Read-only: path and decimals lead.
+                DisplayPanel.TYPE, List.of(SOURCE_ROW, DETAILS_ROW, "twin.path twin.decimals", "twin.min twin.max twin.unavailable", "health"),
+                // Targets only (M3-14): a row per target, the entity it switches and its remover, its details below.
+                RedstoneInput.TYPE, List.of("pick:twin.target clear:twin.target", "info:twin.target", "", "", "health"),
+                WallSwitch.TYPE, List.of("pick:twin.left clear:twin.left", "info:twin.left", "pick:twin.right clear:twin.right", "info:twin.right", "health"));
+        check(twin.keySet().equals(DeviceTypes.all().stream().filter(type -> type.twin().isPresent()).collect(Collectors.toSet())),
+                "Every registered type with a twin adapter has its expected Twin tab listed here, and no other: " + twin.keySet());
         int controls = 0;
         for (DeviceType type : DeviceTypes.all()) {
             controls += tabs(type, expected.get(type));
             controls += advancedTab(type, advanced.get(type));
             controls += accessTab(type);
+            if (type.twin().isPresent()) controls += twinTab(type, twin.get(type));
         }
+        twinTabLimits();
         check(DeviceTypes.all().stream().filter(type -> new GeneralTab(type).grouping()).map(DeviceType::id).collect(Collectors.toSet())
                 .equals(Set.of(RedstoneOutput.TYPE.id(), SmartLamp.TYPE.id(), SmartPlug.TYPE.id())),
                 "Of the registered types only the output, the lamp and the plug have group pages");
@@ -145,10 +173,15 @@ public final class DeviceTabsCheck {
     private static int tabs(DeviceType type, List<String> expected) {
         List<MqttTab> tabs = DeviceTabs.forType(type);
         boolean inPorts = type.ports().stream().anyMatch(port -> port.direction() == Port.Direction.IN);
-        List<String> ids = inPorts ? List.of(GeneralTab.ID, ControlsTab.ID, AdvancedTab.ID, AccessTab.ID, DiagnosticsTab.ID)
-                : List.of(GeneralTab.ID, AdvancedTab.ID, AccessTab.ID, DiagnosticsTab.ID);
+        List<String> ids = new ArrayList<>(List.of(GeneralTab.ID));
+        if (inPorts) ids.add(ControlsTab.ID);
+        // M3-13 (D19): the Twin tab after Controls, for a type that takes part in the twin.
+        if (type.twin().isPresent()) ids.add(TwinTab.ID);
+        ids.addAll(List.of(AdvancedTab.ID, AccessTab.ID, DiagnosticsTab.ID));
         check(tabs.stream().map(MqttTab::id).toList().equals(ids), type.id() + ": the generated tabs are " + ids
-                + ", Controls exactly when it has in-ports, Advanced, Access and Diagnostics always: " + tabs);
+                + ", Controls exactly when it has in-ports, Twin exactly when it has a twin adapter, Advanced, Access and Diagnostics always: " + tabs);
+        check(TabbedMqttScreen.tabWidth(tabs.size()) * tabs.size() <= TabbedMqttMenu.GUI_WIDTH && TabbedMqttScreen.tabWidth(tabs.size()) >= 18,
+                type.id() + ": its " + tabs.size() + " tab buttons fit the panel's width");
         check(DeviceTabs.forViewer(type, false).stream().map(MqttTab::id).toList().equals(ids),type.id() + ": a player who may build gets every generated tab");
         List<String> controlsOnly = DeviceTabs.forViewer(type, true).stream().map(MqttTab::id).toList();
         check(controlsOnly.equals(inPorts ? List.of(ControlsTab.ID) : List.of()),
@@ -524,6 +557,14 @@ public final class DeviceTabsCheck {
                 }
             }
             case TEXT_FIELD -> {
+                if (control.key().equals("message")) {
+                    // The Display Panel's message (M3-15): any text up to its length, the empty text clears it.
+                    check(taken(type, control.send(POS, new JsonPrimitive("Washer done!")), USE_ONLY) && taken(type, control.send(POS, new JsonPrimitive("")), USE_ONLY)
+                            && taken(type, control.send(POS, new JsonPrimitive("€".repeat(control.maxLength()))), USE_ONLY), what + " takes text up to its length");
+                    check(!taken(type, control.send(POS, new JsonPrimitive("x".repeat(control.maxLength() + 1))), USE_AND_CONFIGURE),
+                            what + " refuses a text over " + control.maxLength() + " characters");
+                    break;
+                }
                 // The Presence Sensor's mob filter: ids, or nothing for every mob; unknown mobs are refused, not dropped.
                 check(taken(type, control.send(POS, new JsonPrimitive("zombie, pig")), USE_AND_CONFIGURE)
                         && taken(type, control.send(POS, new JsonPrimitive("")), USE_AND_CONFIGURE), what + " takes ids and the empty text");
@@ -694,6 +735,16 @@ public final class DeviceTabsCheck {
 
     // A sample of what each widget sends; any value the widget can send would do.
     private static JsonElement sample(DeviceTabs.Control control) {
+        // A twin key takes only what its reader parses (M3-7): an entity id, a value path, a plain number.
+        if (control.key().equals(LinkSetting.TWIN_ENTITY.key()) || control.key().equals("twin.target") || control.key().equals("twin.left")
+                || control.key().equals("twin.right")) {
+            return new JsonPrimitive("light.kitchen");
+        }
+        if (control.key().equals(LinkSetting.TWIN_PATH.key())) return new JsonPrimitive("attributes.brightness");
+        // M3-17: a preset and a device name, or a preset alone.
+        if (control.key().equals(LinkSetting.TWIN_DEVICE.key())) return new JsonPrimitive("mineqtt:zigbee2mqtt_light Porch");
+        if (control.key().equals(LinkSetting.TWIN_PRESET.key())) return new JsonPrimitive("mineqtt:tasmota_power");
+        if (control.key().equals(LinkSetting.TWIN_MIN.key()) || control.key().equals(LinkSetting.TWIN_MAX.key())) return new JsonPrimitive("12.5");
         return switch (control.widget()) {
             // A name, a channel, a topic, a payload and a mob filter alike.
             case TEXT_FIELD -> new JsonPrimitive("zombie");
@@ -703,6 +754,165 @@ public final class DeviceTabsCheck {
             case LIGHT -> LightControl.color(new HueSaturation(30, 80));
             case PRESS -> control.pressed();
         };
+    }
+
+    /**
+     * The Twin tab of a type with a twin adapter (M3 plan D19): its rows as expected, at most five ending by y 100, each
+     * row's cells side by side within the panel's width; every twin link setting of the type has exactly one place on
+     * it (the source and its pick, a setting's cell, Resume on the health line), with the kind and gate of its
+     * declaration, editable exactly when the server takes what it sends (the 16 grants; the TWIN and TWIN_CONTROL gates
+     * are CONFIGURE there, the runtime adds the twin rights), and its value within the bounds the server checks. Returns
+     * how many controls it has.
+     */
+    // The first two rows of a type with a source (M3-17): the cycle beside the entity's pick or the MQTT device's preset,
+    // then the entity's details or the device's name.
+    private static final String SOURCE_ROW = "source pick:twin.entity|preset:twin.preset";
+    private static final String DETAILS_ROW = "info:twin.entity|device:twin.device";
+
+    private static int twinTab(DeviceType type, List<String> expected) {
+        TwinTab tab = DeviceTabs.forType(type).stream().filter(TwinTab.class::isInstance).map(TwinTab.class::cast).findFirst().orElseThrow();
+        List<String> shown = tab.rows().stream().map(row -> row.cells().stream().map(DeviceTabsCheck::cell).collect(Collectors.joining(" "))).toList();
+        check(shown.equals(expected), type.id() + ": the Twin tab's rows are " + expected + ", not " + shown);
+        check(tab.rows().size() <= TwinTab.MAX_ROWS && TwinTab.rowY(tab.rows().size() - 1) + TwinTab.ROW_H <= TwinTab.CONTENT_BOTTOM
+                        && TwinTab.CONTENT_BOTTOM <= TabbedMqttMenu.GUI_HEIGHT_NO_INVENTORY,
+                type.id() + ": " + tab.rows().size() + " rows end by y " + TwinTab.CONTENT_BOTTOM + " (P1)");
+        check(tab.rows().getLast().cells().equals(List.of(new TwinTab.Health(1))), type.id() + ": the health line is the last row");
+        for (TwinTab.Row row : tab.rows()) {
+            int end = 0;
+            for (int i = 0; i < row.cells().size(); i++) {
+                int[] span = row.spans().get(i);
+                // A target's remover is one character wide (×); every other cell takes a word.
+                int least = row.cells().get(i) instanceof TwinTab.Clear ? 14 : 30;
+                check(span[0] >= end && span[1] >= least, type.id() + ": a cell of " + cells(row) + " starts after the one before it and is at least "
+                        + least + " px wide: " + span[1]);
+                end = span[0] + span[1] + TwinTab.GAP;
+            }
+            row.cells().stream().filter(TwinTab.Clear.class::isInstance).map(TwinTab.Clear.class::cast).forEach(clear -> check(
+                    row.cells().contains(new TwinTab.Pick(clear.key(), 8)) && TwinPicker.target(type.twin().orElseThrow(), clear.key()),
+                    type.id() + ": a remover sits next to its target's pick: " + cells(row)));
+            check(row.cells().isEmpty() || end - TwinTab.GAP == TwinTab.CONTENT_W, type.id() + ": the cells of " + cells(row) + " fill the row");
+        }
+        List<String> keys = LinkSetting.of(type).stream().map(LinkSetting::key).filter(key -> key.startsWith(LinkSetting.TWIN_PREFIX)).toList();
+        check(tab.controls().stream().map(DeviceTabs.Control::key).toList().equals(keys), type.id() + ": the Twin tab has every twin key of the type: " + keys);
+        List<String> placed = new ArrayList<>();
+        for (TwinTab.Row row : tab.rows()) {
+            for (TwinTab.Cell cell : row.cells()) {
+                if (cell instanceof TwinTab.BySource place) {
+                    check(place.homeAssistant().weight() == place.mqttDevice().weight() && !(place.homeAssistant() instanceof TwinTab.BySource),
+                            type.id() + ": both cells of a place share its width: " + cells(row));
+                    placed(place.homeAssistant()).ifPresent(placed::add);
+                    placed(place.mqttDevice()).ifPresent(placed::add);
+                } else {
+                    placed(cell).ifPresent(placed::add);
+                }
+            }
+        }
+        tab.resume().ifPresent(resume -> placed.add(resume.key()));
+        // Wave 7: the MQTT device's preset and name have their places too (TwinTab.NOT_ON_TAB is gone); every twin key has one.
+        check(placed.stream().sorted().toList().equals(keys.stream().sorted().toList()), type.id() + ": each twin key has exactly one place: " + placed);
+        check(type.twin().orElseThrow().hasSource() == (placed.contains(LinkSetting.TWIN_DEVICE.key()) && placed.contains(LinkSetting.TWIN_PRESET.key())),
+                type.id() + ": a type with a source places the MQTT device's name and preset (M3-17), a type with targets only neither");
+        check(tab.resume().isPresent() == LinkSetting.pausable(type.twin().orElseThrow()),
+                type.id() + ": Resume exactly where the breaker can pause it (control or targets)");
+        tab.resume().ifPresent(resume -> check(resume.widget() == DeviceTabs.Widget.PRESS && resume.gate() == LinkSetting.Gate.CONFIGURE
+                        && taken(type, resume.send(POS, resume.pressed()), CONFIGURE_ONLY) && !taken(type, resume.send(POS, resume.pressed()), USE_ONLY),
+                type.id() + ": Resume is a press that needs CONFIGURE, as /mineqtt devices bind <device> resume"));
+        for (DeviceTabs.Control control : tab.controls()) {
+            LinkSetting<?> setting = type.linkSetting(control.key()).orElseThrow(() -> new AssertionError(type.id() + " declares no " + control.key()));
+            check(control.kind().equals(setting.kind()) && control.gate() == setting.gate() && control.payload() == DeviceTabs.Control.Payload.CONFIG,
+                    type.id() + ": " + control.key() + " takes kind and gate from its declaration and is a link setting");
+            check(control.gate() != LinkSetting.Gate.USE, type.id() + ": no twin key is a player's to change who may only use the device");
+            permissions(type, control);
+        }
+        List<String> picked = new ArrayList<>();
+        if (type.twin().orElseThrow().hasSource()) picked.add(LinkSetting.TWIN_ENTITY.key());
+        type.twin().orElseThrow().targets().keySet().forEach(name -> picked.add(LinkSetting.TWIN_PREFIX + name));
+        check(tab.pickKeys().equals(picked), type.id() + ": the picker chooses its source and each target (M3-14): " + tab.pickKeys());
+        for (String key : tab.pickKeys()) {
+            boolean target = TwinPicker.target(type.twin().orElseThrow(), key);
+            check(TwinPicker.domains(type.twin().orElseThrow(), key).equals(target ? type.twin().orElseThrow().targetDomains() : type.twin().orElseThrow().sourceDomains())
+                            && !TwinPicker.domains(type.twin().orElseThrow(), key).isEmpty(),
+                    type.id() + ": " + key + " picks from its " + (target ? "target" : "source") + " domains");
+        }
+        return tab.controls().size();
+    }
+
+    // The twin key a cell sets, if it sets one: the pick its key, the MQTT device's preset and name theirs (M3-17).
+    private static Optional<String> placed(TwinTab.Cell cell) {
+        return switch (cell) {
+            case TwinTab.Pick pick -> Optional.of(pick.key());
+            case TwinTab.Preset preset -> Optional.of(LinkSetting.TWIN_PRESET.key());
+            case TwinTab.Device device -> Optional.of(LinkSetting.TWIN_DEVICE.key());
+            case TwinTab.Setting setting -> Optional.of(setting.control().key());
+            default -> Optional.empty();
+        };
+    }
+
+    private static String cell(TwinTab.Cell cell) {
+        return switch (cell) {
+            case TwinTab.Source source -> "source";
+            case TwinTab.Pick pick -> "pick:" + pick.key();
+            case TwinTab.Clear clear -> "clear:" + clear.key();
+            case TwinTab.Info info -> "info:" + info.key();
+            case TwinTab.Preset preset -> "preset:" + LinkSetting.TWIN_PRESET.key();
+            case TwinTab.Device device -> "device:" + LinkSetting.TWIN_DEVICE.key();
+            case TwinTab.BySource place -> cell(place.homeAssistant()) + "|" + cell(place.mqttDevice());
+            case TwinTab.Setting setting -> setting.control().key();
+            case TwinTab.Health health -> "health";
+        };
+    }
+
+    private static String cells(TwinTab.Row row) {
+        return row.cells().stream().map(DeviceTabsCheck::cell).toList().toString();
+    }
+
+    /**
+     * What the Twin tab and its picker share (M3 plan D4, D19): a type whose twin rows would not fit is refused, rows are
+     * grouped by area in ranking order, the free-text row offers an entity id of the key's domains that no row lists, and
+     * the block name a pick gives is a valid device name.
+     */
+    private static void twinTabLimits() {
+        TwinPicker.Row kitchen = row("light.kitchen", "Kitchen Light", "Kitchen");
+        TwinPicker.Row porch = row("light.porch", "Porch", "");
+        TwinPicker.Row fridge = row("switch.fridge", "Fridge", "Kitchen");
+        TwinPicker.Row hall = row("light.hall", "Hall", "Hallway");
+        check(TwinPicker.grouped(List.of(kitchen, porch, hall, fridge)).equals(List.of(kitchen, fridge, hall, porch)),
+                "Rows are grouped by area in the order of each area's best row, keeping their ranking, rows without an area last");
+        check(TwinPicker.grouped(List.of(row("light.a", "A", "kitchen"), row("light.b", "B", "Kitchen"))).size() == 2, "Areas group case-blind");
+        List<String> lamp = TwinPicker.domains(SmartLamp.TYPE.twin().orElseThrow(), LinkSetting.TWIN_ENTITY.key());
+        check(lamp.equals(SmartLamp.TYPE.twin().orElseThrow().sourceDomains()) && lamp.getFirst().equals("light"), "The lamp picks from its source domains, light first");
+        check(TwinPicker.domains(SmartLamp.TYPE.twin().orElseThrow(), "twin.unavailable").isEmpty(), "A key the picker does not choose for has no domains");
+        check(TwinPicker.searched(SmartLamp.TYPE.twin().orElseThrow(), LinkSetting.TWIN_ENTITY.key(), "switch").equals(List.of("switch"))
+                        && TwinPicker.searched(SmartLamp.TYPE.twin().orElseThrow(), LinkSetting.TWIN_ENTITY.key(), "sensor").equals(lamp)
+                        && TwinPicker.searched(SmartLamp.TYPE.twin().orElseThrow(), LinkSetting.TWIN_ENTITY.key(), "").equals(lamp),
+                "A domain chip narrows the search to one of the key's domains; another domain never widens it");
+        check(TwinPicker.freeText("light.xyz", List.of(kitchen), lamp).equals(Optional.of("light.xyz")), "An unlisted entity id of the key's domains is offered");
+        check(TwinPicker.freeText(" light.kitchen ", List.of(kitchen), lamp).isEmpty(), "A listed one is not offered twice");
+        check(TwinPicker.freeText("sensor.temperature", List.of(), lamp).isEmpty() && TwinPicker.freeText("kitchen", List.of(), lamp).isEmpty()
+                        && TwinPicker.freeText("Light.Kitchen", List.of(), lamp).isEmpty() && TwinPicker.freeText("light.kitchen lamp", List.of(), lamp).isEmpty(),
+                "Nothing is offered for another domain, a word, capitals or spaces");
+        // M3-14: the Wall Switch picks Left and Right separately, from the target domains; the Input its one target.
+        check(TwinPicker.keys(WallSwitch.TWIN).equals(List.of("twin.left", "twin.right")) && TwinPicker.keys(RedstoneInput.TWIN).equals(List.of("twin.target"))
+                        && TwinPicker.targetName(WallSwitch.TWIN, "twin.left").equals(Optional.of("left"))
+                        && TwinPicker.targetName(SmartLamp.TYPE.twin().orElseThrow(), "twin.entity").isEmpty(),
+                "The Wall Switch picks left and right, the Input its target, a mirror's source is no target");
+        check(TwinPicker.domains(WallSwitch.TWIN, "twin.left").containsAll(List.of("scene", "script", "button", "light"))
+                        && !TwinPicker.domains(WallSwitch.TWIN, "twin.left").contains("binary_sensor")
+                        && !TwinPicker.domains(RedstoneInput.TWIN, "twin.target").contains("sensor"),
+                "A target picks from the domains it can switch, never a sensor");
+        check(TwinPicker.blockName(kitchen).equals("Kitchen Light") && TwinPicker.blockName(row("light.x", "", "")).equals("light.x")
+                        && TwinPicker.blockName(row("light.y", "  " + "N".repeat(70), "")).length() <= LinkSetting.MAX_NAME_LENGTH,
+                "A pick names the block after the entity's name, else its id, within the name's length");
+        check(LinkSetting.NAME.parse(new JsonPrimitive(TwinPicker.blockName(kitchen))).isSuccess(), "The name a pick gives is one the server takes");
+        java.util.LinkedHashSet<String> recent = new java.util.LinkedHashSet<>();
+        for (int i = 0; i < TwinPicker.MAX_RECENT + 3; i++) TwinPicker.remember(recent, "light.l" + i);
+        TwinPicker.remember(recent, "light.l5");
+        check(recent.size() == TwinPicker.MAX_RECENT && recent.iterator().next().equals("light.l3") && List.copyOf(recent).getLast().equals("light.l5"),
+                "A player's recent bindings keep the newest " + TwinPicker.MAX_RECENT + ", a repeat moving to the end: " + recent);
+    }
+
+    private static TwinPicker.Row row(String id, String name, String area) {
+        return new TwinPicker.Row(id, name, area, "on", java.util.OptionalInt.empty(), false, false, false);
     }
 
     // Whether the server's validator takes the payload from a player with these grants, as its handler would.

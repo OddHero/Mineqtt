@@ -37,6 +37,24 @@ public record TopicScheme(String base, String bridgeId) {
         return bridge("response/" + command);
     }
 
+    /**
+     * Where the bridge asks Home Assistant's control blueprint to call a service (M3 plan D11, D12), and pings it:
+     * {@code bridge/ha_request}, QoS 1, never retained.
+     */
+    public String haRequest() {
+        return bridge("ha_request");
+    }
+
+    /** Where the control blueprint answers a request or a ping, {@code bridge/ha_response}: advisory, never retained. */
+    public String haResponse() {
+        return bridge("ha_response");
+    }
+
+    /** Where the bridge asks the catalog blueprint to publish the entity catalog anew (M3 plan D3), {@code bridge/ha_sync}. */
+    public String haSync() {
+        return bridge("ha_sync");
+    }
+
     /** A device's retained state JSON. */
     public String device(String slug) {
         return root() + "/" + slug;

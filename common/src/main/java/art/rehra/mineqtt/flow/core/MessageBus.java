@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /**
  * The flows message bus (M2 plan §3.3, §3.5), one per server, owned by the device runtime. A port's new value or event is
@@ -26,6 +27,12 @@ import java.util.function.LongSupplier;
  * or redstone through the world). Hops never go down a device's command path: the bus knows which delivery is running.
  * Messages with the same id are never deduplicated, so a diamond's two branches both arrive.
  * <p>
+ * <b>Roots.</b> Every message carries its {@link Root}, what caused its chain (M3 plan D10), as it carries its hops: what
+ * a target emits while a message is delivered to it takes that message's root, and a message emitted outside a delivery
+ * takes the root of the extent the runtime opened around its cause ({@link #withRoot}), or {@link Root#WORLD} when none
+ * is open (block tickers, neighbour updates). A value held back by the rate and a message a drain left halfway keep
+ * theirs. A target may refuse a message for its root ({@link Outcome#ROOT}), which counts as {@link Drop#ROOT}.
+ * <p>
  * <b>Limits.</b> Each source port may emit {@link #RATE_PER_SECOND} messages a second after a burst of
  * {@link #RATE_BURST}. Beyond that an event is dropped, while a value is held back until the port may emit again, the
  * newest replacing an older one, so the targets still end up with the port's last value. One drain carries messages
@@ -33,6 +40,12 @@ import java.util.function.LongSupplier;
  * wires may be left halfway; it and the rest stay queued in order. Beyond {@link #CAPACITY} queued messages the oldest
  * is dropped. A wire passes a value on only when it differs from the last one its target took; events always pass.
  * Every drop is counted by its {@link Drop} reason.
+ * <p>
+ * <b>Twin wires.</b> A {@link Scope#TWIN} wire, derived from a device's Home Assistant binding, carries its entity's
+ * document (a JSON object) as it is: the target's binding reads the port values out of it, so no mapping and no port
+ * kind applies, while hops, roots, the change filter and every counter do. A twin target wire, from a device's out-port
+ * to an entity's in-port, carries the out-port's value as it is, checked against the out-port's kind; the sink turns it
+ * into a call.
  * <p>
  * Minecraft-free; server thread only.
  */
@@ -62,6 +75,11 @@ public final class MessageBus {
         VALUE,
         /** The target did not take it, like an unloaded sensor. */
         REFUSED,
+        /**
+         * The target did not take it for its {@link Root} (M3 plan D10): a write-back to Home Assistant caused by incoming
+         * state, a broker topic or a restart.
+         */
+        ROOT,
         /** Delivering it threw. */
         FAILED
     }
@@ -89,10 +107,21 @@ public final class MessageBus {
          * Delivers {@code message} to {@code wire}'s target; its payload is already what the target port takes. A group
          * target fans it out to every member except the device {@code message.source()} names, on any of its ports, as a
          * wire's message never goes back into the device it came from. A group counts as one wire for the drain budget.
+         * Whatever the target emits meanwhile carries the message's hops and root.
          *
-         * @return whether the target took it
+         * @return whether the target took it, and if not, whether for the message's root
          */
-        boolean deliver(Wire wire, FlowMessage message);
+        Outcome deliver(Wire wire, FlowMessage message);
+    }
+
+    /** What became of a delivery ({@link Sink#deliver}). */
+    public enum Outcome {
+        /** The target took it. */
+        TAKEN,
+        /** The target did not take it; counted as {@link Drop#REFUSED}. */
+        REFUSED,
+        /** The target did not take it for the message's {@link Root}; counted as {@link Drop#ROOT}. */
+        ROOT
     }
 
     /** What the runtime logs. */
@@ -127,11 +156,14 @@ public final class MessageBus {
     private final Set<UUID> loopsReported = new HashSet<>();
     private final long[] drops = new long[Drop.values().length];
     private long emitted;
+    private final long[] emittedByRoot = new long[Root.values().length];
     private long delivered;
     private long suppressed;
     private boolean draining;
     // The message being delivered, whose hops a message emitted meanwhile takes over; null outside a delivery.
     private FlowMessage delivering;
+    // The root of the innermost open extent: the delivered message's, or one withRoot opened; null outside both.
+    private Root root;
 
     /** @param nanoClock a monotonic clock in nanoseconds, such as {@code System::nanoTime}, for the rates and the drain budget */
     public MessageBus(Wiring wiring, Sink sink, Listener listener, LongSupplier nanoClock) {
@@ -145,7 +177,8 @@ public final class MessageBus {
      * Queues a new value or event of {@code source}. A port without an enabled wire emits nothing, and uses none of its
      * rate. Beyond its rate, an event is dropped and a value is held back until the port may emit again; a newer value
      * replaces the one held back, whether it is held back too or queued. Emitted while a message is delivered, the new
-     * message carries that message's hops, also when it is held back; otherwise none.
+     * message carries that message's hops, also when it is held back; otherwise none. It carries the
+     * {@linkplain #currentRoot current root}, or {@link Root#WORLD} when none is current.
      *
      * @param topic the message's topic; null for none
      * @return whether it was queued or held back; false when no enabled wire leaves {@code source}, or it was dropped
@@ -162,7 +195,7 @@ public final class MessageBus {
             return false;
         }
         int hops = delivering == null ? 0 : delivering.hops();
-        FlowMessage message = new FlowMessage(UUID.randomUUID(), kind, payload.deepCopy(), topic, source, hops, gameTime);
+        FlowMessage message = new FlowMessage(UUID.randomUUID(), kind, payload.deepCopy(), topic, source, hops, root == null ? Root.WORLD : root, gameTime);
         // Only a port's newest value matters.
         if (kind == FlowMessage.Kind.VALUE && held.remove(source) != null) count(Drop.RATE);
         if (allowed) {
@@ -171,6 +204,37 @@ public final class MessageBus {
             held.put(source, message);
         }
         return true;
+    }
+
+    /**
+     * Runs {@code action} in an extent of {@code root}: what it emits outside a delivery carries that root. An extent
+     * opened inside another one, or inside a delivery, takes {@link Root#nested} of the two, so it never clears a root
+     * from outside the game; the one before is current again afterwards, also when {@code action} throws.
+     */
+    public void withRoot(Root root, Runnable action) {
+        withRoot(root, () -> {
+            action.run();
+            return null;
+        });
+    }
+
+    /** {@link #withRoot(Root, Runnable)} for an action with a result. */
+    public <T> T withRoot(Root root, Supplier<T> action) {
+        Root before = this.root;
+        this.root = Root.nested(before, root);
+        try {
+            return action.get();
+        } finally {
+            this.root = before;
+        }
+    }
+
+    /**
+     * The root a message emitted now would carry, when one is current: the innermost {@linkplain #withRoot extent}'s, or
+     * the delivered message's; empty outside both, where a message carries {@link Root#WORLD}.
+     */
+    public Optional<Root> currentRoot() {
+        return Optional.ofNullable(root);
     }
 
     /**
@@ -247,6 +311,10 @@ public final class MessageBus {
             return;
         }
         Optional<? extends PortSpec> to = wiring.in(wire.to());
+        if (wire.scope() == Scope.TWIN) {
+            routeTwin(message, wire, from, to.isPresent());
+            return;
+        }
         if (from.isEmpty() || to.isEmpty() || !wire.mapping().compatible(from.get().kind(), to.get().kind(), to.get().toggles())) {
             count(Drop.UNROUTABLE);
             return;
@@ -275,25 +343,65 @@ public final class MessageBus {
         if (deliver(wire, message.traversed(mapped.get()))) {
             if (value) lastValues.put(wire.id(), message.payload());
         } else {
-            // The target may hold anything now, so the next value passes, even an equal one sent again.
+            // Refused for its root too: the target may hold anything now, so the next value passes, even an equal one sent again.
             lastValues.remove(wire.id());
         }
     }
 
-    // Whether the target took it.
+    /**
+     * A {@link Scope#TWIN} wire, derived from a device's binding (M3 plan §3.3). A source wire carries its entity's whole
+     * document, and the target's binding reads its port values out of it (the binding's reads are the wire's transform,
+     * §3.5); a target wire (M3-14) carries its out-port's value as it is, which the device type's adapter turns into a
+     * call at the sink (a redstone edge, a press). So neither the mapping nor the target's port kind applies; the source
+     * port's kind, hops, the root, the change filter and the counters do.
+     *
+     * @param from     the source's port, if it still names one
+     * @param routable whether the target still names a port
+     */
+    private void routeTwin(FlowMessage message, Wire wire, Optional<? extends PortSpec> from, boolean routable) {
+        if (from.isEmpty() || !routable) {
+            count(Drop.UNROUTABLE);
+            return;
+        }
+        // A source wire, from an entity or a preset's state topic (M3-17), carries a JSON object the target reads itself.
+        boolean source = wire.from() instanceof Endpoint.HaEntityRef || wire.from() instanceof Endpoint.TopicRef;
+        boolean fits = source ? message.payload().isJsonObject() : from.get().kind().problem(message.payload()).isEmpty();
+        if (!fits) {
+            count(Drop.VALUE);
+            return;
+        }
+        boolean value = message.kind() == FlowMessage.Kind.VALUE;
+        if (value && message.payload().equals(lastValues.get(wire.id()))) {
+            suppressed++;
+            return;
+        }
+        if (deliver(wire, message.traversed(message.payload()))) {
+            if (value) lastValues.put(wire.id(), message.payload());
+        } else {
+            lastValues.remove(wire.id());
+        }
+    }
+
+    // Whether the target took it. The delivery is the extent of the message's root, whatever was current before.
     private boolean deliver(Wire wire, FlowMessage message) {
+        Root before = root;
         delivering = message;
+        root = message.root();
         try {
-            if (sink.deliver(wire, message)) {
-                delivered++;
-                return true;
+            switch (sink.deliver(wire, message)) {
+                case TAKEN -> {
+                    delivered++;
+                    return true;
+                }
+                case REFUSED -> count(Drop.REFUSED);
+                case ROOT -> count(Drop.ROOT);
             }
-            count(Drop.REFUSED);
         } catch (RuntimeException e) {
             count(Drop.FAILED);
             listener.failed(wire, message, e);
         } finally {
             delivering = null;
+            root = before;
         }
         return false;
     }
@@ -301,6 +409,7 @@ public final class MessageBus {
     private void enqueue(FlowMessage message) {
         queue.addLast(new Pending(message, null));
         emitted++;
+        emittedByRoot[message.root().ordinal()]++;
         if (queue.size() > CAPACITY) {
             queue.removeFirst();
             count(Drop.OVERFLOW);
@@ -348,6 +457,11 @@ public final class MessageBus {
     /** The messages queued so far, held-back values once they were released. */
     public long emitted() {
         return emitted;
+    }
+
+    /** The messages of {@code root} {@linkplain #emitted queued} so far: what each root the runtime opened caused. */
+    public long emitted(Root root) {
+        return emittedByRoot[root.ordinal()];
     }
 
     /** The deliveries a target took. */

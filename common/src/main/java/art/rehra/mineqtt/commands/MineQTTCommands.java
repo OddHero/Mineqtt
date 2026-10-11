@@ -16,6 +16,7 @@ import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.device.LinkSetting;
 import art.rehra.mineqtt.device.Port;
 import art.rehra.mineqtt.device.Setting;
+import art.rehra.mineqtt.device.TwinRules;
 import art.rehra.mineqtt.device.ValueCodecs;
 import art.rehra.mineqtt.flow.core.Endpoint;
 import art.rehra.mineqtt.flow.core.Mapping;
@@ -31,6 +32,20 @@ import art.rehra.mineqtt.runtime.MineqttRuntime;
 import art.rehra.mineqtt.security.AccessMode;
 import art.rehra.mineqtt.security.AclContext;
 import art.rehra.mineqtt.security.DeviceAccess;
+import art.rehra.mineqtt.twin.BindingPresets;
+import art.rehra.mineqtt.twin.TwinAdapter;
+import art.rehra.mineqtt.twin.core.HaCalls;
+import art.rehra.mineqtt.twin.TwinRequests;
+import art.rehra.mineqtt.twin.TwinRuntime;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.BindingPreset;
+import art.rehra.mineqtt.twin.core.CatalogParser;
+import art.rehra.mineqtt.twin.core.EntityDocument;
+import art.rehra.mineqtt.twin.core.EntityDocuments;
+import art.rehra.mineqtt.twin.core.EntitySearch;
+import art.rehra.mineqtt.twin.core.HaTime;
+import art.rehra.mineqtt.twin.core.StatestreamValue;
+import art.rehra.mineqtt.twin.core.TwinHealth;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
@@ -44,6 +59,7 @@ import com.mojang.brigadier.suggestion.SuggestionProvider;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.commands.arguments.IdentifierArgument;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
@@ -58,12 +74,16 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
 public class MineQTTCommands {
     private static final int MAX_SHOWN_FAULTS = 5;
+    // At most this many rows of /mineqtt twin entities, as the picker shows (M3 plan D4), and suggested entity ids.
+    private static final int MAX_ENTITY_ROWS = 40;
+    private static final int MAX_SUGGESTED_ENTITIES = 200;
 
     private static final SuggestionProvider<CommandSourceStack> DEVICE_SLUGS = (context, builder) ->
             SharedSuggestionProvider.suggest(running(context.getSource()).map(runtime -> runtime.registry().records().stream()
@@ -75,6 +95,23 @@ public class MineQTTCommands {
     private static final SuggestionProvider<CommandSourceStack> FAULTED_SLUGS = (context, builder) ->
             SharedSuggestionProvider.suggest(running(context.getSource()).map(runtime -> runtime.registry().records().stream()
                     .filter(record -> runtime.devices().fault(record.pos()).isPresent()).map(DeviceRecord::slug).toList()).orElse(List.of()), builder);
+    // Devices whose type mirrors Home Assistant (M3 plan D19).
+    private static final SuggestionProvider<CommandSourceStack> TWIN_SLUGS = (context, builder) ->
+            SharedSuggestionProvider.suggest(running(context.getSource()).map(runtime -> runtime.registry().records().stream()
+                    .filter(record -> type(record).flatMap(DeviceType::twin).isPresent()).map(DeviceRecord::slug).toList())
+                    .orElse(List.of()), builder);
+    // The targets of the device named before them (M3-14): twin.target, twin.left, twin.right.
+    private static final SuggestionProvider<CommandSourceStack> TARGET_NAMES = (context, builder) ->
+            SharedSuggestionProvider.suggest(namedType(context).flatMap(DeviceType::twin).map(twin -> List.copyOf(twin.targets().keySet())).orElse(List.of()), builder);
+    // The entities the twin knows: those bound devices mirror, and those the catalog (or the scan) shares (M3-11).
+    private static final SuggestionProvider<CommandSourceStack> TWIN_ENTITIES = (context, builder) ->
+            SharedSuggestionProvider.suggest(running(context.getSource()).map(runtime -> Stream.concat(runtime.devices().attachedBindings().stream()
+                            .flatMap(binding -> binding.sourceEntity().stream()),
+                    runtime.twin().entities("", List.of(), Set.of(), MAX_SUGGESTED_ENTITIES).stream().map(EntitySearch.Candidate::entityId))
+                    .distinct().toList()).orElse(List.of()), builder);
+    // The MQTT device presets the datapacks loaded (M3-17).
+    private static final SuggestionProvider<CommandSourceStack> PRESET_IDS = (context, builder) ->
+            SharedSuggestionProvider.suggest(BindingPresets.all().stream().map(BindingPreset::id).toList(), builder);
     private static final SuggestionProvider<CommandSourceStack> RAW_SLUGS = (context, builder) ->
             SharedSuggestionProvider.suggest(running(context.getSource()).map(runtime -> runtime.registry().records().stream()
                     .filter(record -> type(record).flatMap(DeviceType::rawLink).isPresent()).map(DeviceRecord::slug).toList()).orElse(List.of()), builder);
@@ -197,6 +234,36 @@ public class MineQTTCommands {
                                 .then(Commands.literal("off")
                                         .then(Commands.argument("payload", StringArgumentType.greedyString())
                                                 .executes(context -> rawText(context, LinkSetting.RAW_OFF, "payload"))))))
+                // The twin's source: an entity, or none to unbind (M3 plan D19); the command twin of twin.entity. resume
+                // ends a pause of the circuit breaker (D10), the twin of the Twin tab's Resume.
+                .then(Commands.literal("bind")
+                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .then(Commands.argument("device", StringArgumentType.word()).suggests(TWIN_SLUGS)
+                                .then(Commands.literal("none")
+                                        .executes(context -> withDevice(context, (runtime, record) ->
+                                                configure(context.getSource(), runtime, record, LinkSetting.TWIN_ENTITY.key(), new JsonPrimitive("")))))
+                                .then(Commands.literal("resume")
+                                        .executes(context -> withDevice(context, (runtime, record) ->
+                                                reply(context.getSource(), runtime.devices().resumeTwin(record, editor(context.getSource()))))))
+                                // An MQTT device through a preset (M3-17), the command twin of twin.device.
+                                .then(Commands.literal("preset")
+                                        .then(Commands.argument("preset", IdentifierArgument.id()).suggests(PRESET_IDS)
+                                                .then(Commands.argument("name", StringArgumentType.greedyString())
+                                                        .executes(context -> withDevice(context, (runtime, record) -> configure(context.getSource(), runtime, record,
+                                                                LinkSetting.TWIN_DEVICE.key(), new JsonPrimitive(IdentifierArgument.getId(context, "preset") + " "
+                                                                        + StringArgumentType.getString(context, "name"))))))))
+                                // A target: the entity an out-port switches (M3-14), the command twin of twin.<target>.
+                                .then(Commands.literal("target")
+                                        .then(Commands.argument("target", StringArgumentType.word()).suggests(TARGET_NAMES)
+                                                .then(Commands.literal("none")
+                                                        .executes(context -> withDevice(context, (runtime, record) ->
+                                                                bindTarget(context.getSource(), runtime, record, StringArgumentType.getString(context, "target"), ""))))
+                                                .then(Commands.argument("entity", StringArgumentType.word())
+                                                        .executes(context -> withDevice(context, (runtime, record) -> bindTarget(context.getSource(), runtime, record,
+                                                                StringArgumentType.getString(context, "target"), StringArgumentType.getString(context, "entity")))))))
+                                .then(Commands.argument("entity", StringArgumentType.word()).suggests(TWIN_ENTITIES)
+                                        .executes(context -> withDevice(context, (runtime, record) -> configure(context.getSource(), runtime, record,
+                                                LinkSetting.TWIN_ENTITY.key(), new JsonPrimitive(StringArgumentType.getString(context, "entity"))))))))
                 .then(Commands.literal("action")
                         .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
                         .then(Commands.argument("device", StringArgumentType.word()).suggests(DEVICE_SLUGS)
@@ -345,8 +412,30 @@ public class MineQTTCommands {
                                         .executes(context -> withRuntime(context, runtime ->
                                                 clearRetained(context.getSource(), runtime, StringArgumentType.getString(context, "old")))))));
 
+        // The Home Assistant twin's read side (M3 plan D19): what it reads, and one entity as it knows it.
+        LiteralArgumentBuilder<CommandSourceStack> twin = Commands.literal("twin")
+                .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                .then(Commands.literal("status")
+                        .executes(context -> withRuntime(context, runtime -> twinStatus(context.getSource(), runtime))))
+                .then(Commands.literal("show")
+                        .then(Commands.argument("entity", StringArgumentType.word()).suggests(TWIN_ENTITIES)
+                                .executes(context -> withRuntime(context, runtime ->
+                                        twinShow(context.getSource(), runtime, StringArgumentType.getString(context, "entity"))))))
+                // Whether the control blueprint answers (M3 plan D12), and a fresh entity catalog (D3).
+                .then(Commands.literal("ping")
+                        .executes(context -> withRuntime(context, runtime -> twinPing(context.getSource(), runtime))))
+                .then(Commands.literal("refresh")
+                        .executes(context -> withRuntime(context, runtime -> twinRefresh(context.getSource(), runtime))))
+                // The entities Home Assistant shares (M3 plan D4), as the picker ranks them.
+                .then(Commands.literal("entities")
+                        .executes(context -> withRuntime(context, runtime -> twinEntities(context.getSource(), runtime, "")))
+                        .then(Commands.argument("query", StringArgumentType.greedyString())
+                                .executes(context -> withRuntime(context, runtime ->
+                                        twinEntities(context.getSource(), runtime, StringArgumentType.getString(context, "query"))))));
+
         mineqtt.then(publish);
         mineqtt.then(status);
+        mineqtt.then(twin);
         mineqtt.then(reconnect);
         mineqtt.then(devices);
         mineqtt.then(group);
@@ -439,7 +528,7 @@ public class MineQTTCommands {
                     + "/set, e.g. {\"state\":\"ON\"}"));
             return 0;
         }
-        return reply(source, runtime.devices().set(record, command));
+        return reply(source, runtime.devices().set(record, command, source.getPlayer()));
     }
 
     /**
@@ -449,6 +538,23 @@ public class MineQTTCommands {
      */
     private static int configure(CommandSourceStack source, MineqttRuntime runtime, DeviceRecord record, String key, JsonElement value) {
         return reply(source, runtime.devices().configure(record, key, value, editor(source)));
+    }
+
+    /**
+     * {@code /mineqtt devices bind <device> target <target> <entity>|none} (M3 plan D19, M3-14): {@code devices setting
+     * <device> twin.<target> <entity>} in short. The target is named as its setting names it ({@code target},
+     * {@code left}) or by its out-port ({@code powered}).
+     */
+    private static int bindTarget(CommandSourceStack source, MineqttRuntime runtime, DeviceRecord record, String target, String entity) {
+        Optional<TwinAdapter> adapter = type(record).flatMap(DeviceType::twin);
+        Optional<String> name = adapter.flatMap(twin -> twin.targets().containsKey(target) ? Optional.of(target)
+                : twin.targets().entrySet().stream().filter(entry -> entry.getValue().equals(target)).map(Map.Entry::getKey).findFirst());
+        if (name.isEmpty()) {
+            String known = adapter.map(twin -> String.join(", ", twin.targets().keySet())).filter(names -> !names.isEmpty()).orElse(null);
+            source.sendFailure(Component.literal(record.slug() + " has no target " + target + (known == null ? "" : " (its targets: " + known + ")")));
+            return 0;
+        }
+        return configure(source, runtime, record, LinkSetting.TWIN_PREFIX + name.get(), new JsonPrimitive(entity));
     }
 
     /**
@@ -483,7 +589,9 @@ public class MineQTTCommands {
 
     // The command twins act with an operator's rights; the ACL judges a typed topic for the source.
     private static DeviceRuntime.Editor editor(CommandSourceStack source) {
-        return new DeviceRuntime.Editor(DeviceView.Grants.ALL, AclContext.of(source), source.getPlayer());
+        return new DeviceRuntime.Editor(DeviceView.Grants.ALL, AclContext.of(source), source.getPlayer(),
+                TwinRules.Rights.of(source.permissions(), source.getServer().isDedicatedServer())
+                        .withTopics(TwinRules.topics(source.getServer(), AclContext.of(source))));
     }
 
     private static int reply(CommandSourceStack source, DeviceRuntime.Configured result) {
@@ -547,6 +655,7 @@ public class MineQTTCommands {
                 .append("\nHome Assistant: ").append(MineQTTConfig.haExpose(runtime.server().isDedicatedServer()))
                 .append(" under ").append(MineQTTConfig.discoveryPrefix).append(", ").append(runtime.discovery().discovered())
                 .append(" devices and groups discovered, ").append(runtime.discovery().migration().pending()).append(" v1 discoveries to migrate")
+                .append("\nTwin: ").append(MineQTTConfig.twinSummary(runtime.server().isDedicatedServer()))
                 .append("\nDropped: ").append(stats.droppedInbound()).append(" inbound, ").append(stats.droppedOutbound()).append(" outbound")
                 .append("; queued: ").append(stats.queuedInbound()).append(" inbound, ").append(stats.outboxSize()).append(" in the outbox");
         if (runtime.server().isDedicatedServer()) {
@@ -601,18 +710,230 @@ public class MineQTTCommands {
                 + "\nOwner: " + (record.owner() == null ? "unknown" : record.owner()) + ", access " + record.access().getSerializedName()
                 + "\nExpose: " + (record.expose() == null ? "default (" + MineQTTConfig.haExpose(runtime.server().isDedicatedServer()) + ")" : record.expose())
                 + (record.discoveryHash() != null ? ", discovered as " + record.objectId() : ", not discovered")
+                + (record.discoveryCleanup() ? " (Home Assistant removes its old entities at its next start)" : "")
                 + (record.legacyUniqueId() == null ? "" : "\nv1 unique_id: " + record.legacyUniqueId()
                         + (runtime.registry().legacyDiscoveryMigrated(record.legacyUniqueId()) ? " (migrated)" : " (migration pending)"))
                 + "\nGroup: " + (group == null ? "none" : group.slug())
                 + (runtime.devices().legacyItems(record.id()) > 0
                 ? "\nLegacy items: " + runtime.devices().legacyItems(record.id()) + " from its old slots; /mineqtt devices eject " + record.slug() : "")
                 + runtime.devices().status(record.id()).map(status -> "\nStatus: " + status).orElse("")
+                + twinInfo(runtime, record)
                 + "\nState topic: " + runtime.topics().device(record.slug())
                 + "\nMessages: " + runtime.devices().trafficSummary(record.id())
                 + "\nLast state: " + DeviceRuntime.shown(record.lastState() == null ? "none" : record.lastState().toString())
                 + (record.pending() == null ? "" : "\nQueued: " + DeviceRuntime.shown(record.pending().toString()));
         source.sendSuccess(() -> Component.literal(text), false);
         return 1;
+    }
+
+    /**
+     * {@code devices info}'s twin line (M3 plan D6): what a bound device mirrors, how its source is doing and since when;
+     * an unloaded device reads nothing (D17).
+     */
+    private static String twinInfo(MineqttRuntime runtime, DeviceRecord record) {
+        Binding binding = record.twin();
+        if (binding == null) return "";
+        if (!binding.bound()) return targetInfo(runtime, record, binding);
+        StringBuilder text = new StringBuilder("\nTwin: mirrors ").append(binding.describeSource());
+        binding.sourceTopic().ifPresent(topic -> text.append(" on ").append(topic));
+        Optional<TwinHealth> health = runtime.devices().twinHealth(record.id());
+        if (health.isEmpty()) {
+            text.append(binding.active() ? ", reads nothing while unloaded" : ", refused: " + binding.refused());
+            return text.toString();
+        }
+        text.append(", ").append(health.get().key());
+        if (!binding.active()) text.append(": ").append(binding.refused());
+        if (runtime.devices().twinPaused(record.id())) text.append(" (resume with /mineqtt devices bind ").append(record.slug()).append(" resume)");
+        if (runtime.twinRequests().pending(record.id())) text.append(binding.preset().isPresent() ? ", a request waits for the device" : ", a request waits for Home Assistant");
+        runtime.twinRequests().answer(record.id()).ifPresent(answer -> text.append(", the control blueprint last answered ").append(answer.status()));
+        rateInfo(runtime, record, text);
+        binding.sourceEntity().flatMap(runtime.twin()::document).or(() -> runtime.twin().presetDocument(binding)).ifPresent(document -> text.append(" (")
+                .append(document.state().known() ? "state " + DeviceRuntime.shown(document.state().wire()) : document.state() instanceof StatestreamValue.Cleared ? "cleared" : document.state().wire())
+                .append(document.lastUpdated() == null ? "" : ", as of " + HaTime.format(document.lastUpdated())).append(")"));
+        return text.append(targetInfo(runtime, record, binding)).toString();
+    }
+
+    /**
+     * The targets part of {@code devices info}'s twin lines (M3-14): what each out-port switches and what the twin knows of
+     * that entity, and for a device with targets only whether its binding is refused, paused or waiting.
+     */
+    private static String targetInfo(MineqttRuntime runtime, DeviceRecord record, Binding binding) {
+        if (binding.targets().isEmpty()) return "";
+        StringBuilder text = new StringBuilder("\nTwin targets: ");
+        text.append(String.join("; ", binding.targets().entrySet().stream().map(target -> {
+            String entity = Binding.describe(target.getValue());
+            HaCalls.Mirror mirror = target.getValue() instanceof Endpoint.HaEntityRef end ? runtime.twin().mirror(end.entityId()) : HaCalls.Mirror.NONE;
+            return target.getKey() + " switches " + entity + (mirror.freshness() == HaCalls.Mirror.Freshness.NONE ? ""
+                    : " (" + mirror.freshness().name().toLowerCase(Locale.ROOT) + ", state " + DeviceRuntime.shown(mirror.state()) + ")");
+        }).toList()));
+        if (binding.bound()) return text.toString();
+        if (!binding.active()) text.append("; refused: ").append(binding.refused());
+        // A target whose entity left the catalog is not switched until Home Assistant labels it again (wave 5 finding 3).
+        if (runtime.devices().twinHealth(record.id()).orElse(null) == TwinHealth.NOT_SHARED) {
+            text.append("; not_shared: ").append(TwinRules.unsharedTarget(binding, runtime.twin()::readable).orElse("an entity"))
+                    .append(" is no longer shared by Home Assistant, so presses for it are not sent");
+        }
+        if (runtime.devices().twinPaused(record.id())) text.append(" (paused; resume with /mineqtt devices bind ").append(record.slug()).append(" resume)");
+        if (runtime.twinRequests().pending(record.id())) text.append(", a request waits for Home Assistant");
+        runtime.twinRequests().answer(record.id()).ifPresent(answer -> text.append(", the control blueprint last answered ").append(answer.status()));
+        rateInfo(runtime, record, text);
+        return text.toString();
+    }
+
+    // The device's requests the rates refused (wave 5 finding 1): how many, and the last one with its reason and age.
+    private static void rateInfo(MineqttRuntime runtime, DeviceRecord record, StringBuilder text) {
+        runtime.devices().twinRateRefusals(record.id()).ifPresent(rate -> text.append("; ").append(rate.refused())
+                .append(rate.refused() == 1 ? " request" : " requests").append(" refused by the rate, the last for ").append(rate.target())
+                .append(" ").append((Util.getMillis() - rate.at()) / 1000).append(" s ago (").append(rate.reason()).append(")"));
+    }
+
+    /** {@code /mineqtt twin status} (M3 plan D19): the twin's config line, what it subscribes and folds, and the bound devices' health. */
+    private static int twinStatus(CommandSourceStack source, MineqttRuntime runtime) {
+        TwinRuntime.Status status = runtime.twin().status(runtime.devices().attachedBindings());
+        EntityDocuments.Counters counters = status.counters();
+        StringBuilder text = new StringBuilder("Twin: ").append(MineQTTConfig.twinSummary(runtime.server().isDedicatedServer()))
+                .append("\nMirroring: ").append(status.devices()).append(" loaded devices, ").append(status.targetDevices())
+                .append(" with targets, ").append(status.entities()).append(" entities, ")
+                .append(status.subscriptions()).append(" statestream subscriptions");
+        if (status.refusedLeaves() > 0) text.append(", ").append(status.refusedLeaves()).append(" refused by the ACL");
+        text.append("\nKnown: ").append(status.documents()).append(" entity documents; applied ").append(status.applied()).append(" times");
+        text.append("\nMQTT devices: ").append(status.topicDevices()).append(" loaded devices on ").append(status.topics()).append(" topics");
+        if (status.refusedTopics() > 0) text.append(", ").append(status.refusedTopics()).append(" refused by the ACL");
+        text.append("; ").append(BindingPresets.all().size()).append(" presets loaded");
+        if (!BindingPresets.problems().isEmpty()) text.append(", ").append(BindingPresets.problems().size()).append(" skipped (see the server log)");
+        TwinRuntime.CatalogStatus catalog = status.catalog();
+        if (catalog.status() != null) {
+            text.append("\nCatalog: ").append(catalog.entities()).append(" entities shared, generated ")
+                    .append(catalog.status().generated() == null ? "at an unknown time" : HaTime.format(catalog.status().generated()));
+            if (catalog.stale()) text.append(" - older than 30 min: is the MineQTT catalog automation on?");
+        } else {
+            text.append("\nCatalog: none").append(catalog.open() ? " received" : MineQTTConfig.twinCatalog ? " yet" : " (twin.catalog is off)")
+                    .append(catalog.scanOpen() ? "; the statestream scan lists " + catalog.scanned() + " entities" : "")
+                    .append("; install the MineQTT catalog blueprint for a complete list and label control");
+        }
+        if (catalog.scanOverflow() > 0) text.append("; ").append(catalog.scanOverflow()).append(" entities over twin.catalogMax left out");
+        if (!catalog.refusals().isEmpty()) {
+            text.append("\nCatalog lists refused: ").append(String.join(", ", catalog.refusals().entrySet().stream()
+                    .map(entry -> entry.getKey() + " (" + (entry.getValue() == CatalogParser.Refusal.TOO_LARGE ? "larger than 64 KiB" : "not a JSON list") + ")")
+                    .toList()));
+        }
+        if (!catalog.drifting().isEmpty()) {
+            text.append("\nNo live updates: ").append(String.join(", ", catalog.drifting())).append(" - add them to the mqtt_statestream include");
+        }
+        text.append("\nHealth: ").append(status.health().isEmpty() ? "no bound devices loaded"
+                : String.join(", ", status.health().entrySet().stream().map(entry -> entry.getValue() + " " + entry.getKey().key()).toList()));
+        TwinRequests.Status requests = runtime.twinRequests().status();
+        text.append("\nRequests: ").append(requests.sent()).append(" sent, ").append(requests.held()).append(" held for the rate, ")
+                .append(requests.skipped()).append(" not needed; refused: ").append(requests.refused().isEmpty() ? "none"
+                        : String.join(", ", requests.refused().entrySet().stream().map(entry -> entry.getValue() + " " + entry.getKey().name().toLowerCase(Locale.ROOT)).toList()));
+        if (!requests.roots().isEmpty()) {
+            text.append(" (roots: ").append(String.join(", ", requests.roots().entrySet().stream()
+                    .map(entry -> entry.getValue() + " " + entry.getKey().name().toLowerCase(Locale.ROOT)).toList())).append(")");
+        }
+        text.append("\nWaiting: ").append(requests.pending()).append(" for Home Assistant, ").append(requests.waiting()).append(" for the rate; ")
+                .append(requests.paused()).append(requests.paused() == 1 ? " device" : " devices").append(" paused by the breaker");
+        text.append("\nAnswers: ").append(requests.answers().isEmpty() ? "none" : String.join(", ", requests.answers().entrySet().stream()
+                .map(entry -> entry.getValue() + " " + entry.getKey()).toList()));
+        if (requests.unmatched() > 0 || requests.droppedAnswers() > 0) {
+            text.append("; ").append(requests.unmatched()).append(" for no waiting request, ").append(requests.droppedAnswers()).append(" dropped (retained, oversized or malformed)");
+        }
+        text.append("\nIgnored: ").append(counters.ignoredTopics()).append(" topics, ").append(counters.oversize()).append(" oversize, ")
+                .append(counters.entityOverflow()).append(" over the entity limit, ").append(counters.attributeOverflow()).append(" over the attribute limit, ")
+                .append(counters.badTimestamps()).append(" bad timestamps");
+        source.sendSuccess(() -> Component.literal(text.toString()), false);
+        return status.devices();
+    }
+
+    /**
+     * {@code /mineqtt twin show <entity>} (M3 plan D19): one entity as the twin knows it, and the devices that mirror it.
+     * Only an entity {@code twin.allowedEntities} lets through, which nobody bypasses (D13).
+     */
+    private static int twinShow(CommandSourceStack source, MineqttRuntime runtime, String entity) {
+        if (!Endpoint.ENTITY_ID.matcher(entity).matches()) {
+            source.sendFailure(Component.literal("'" + entity + "' is not a Home Assistant entity id, like light.kitchen"));
+            return 0;
+        }
+        if (!MineQTTConfig.twinAllowedEntities(runtime.server().isDedicatedServer()).matches(entity)) {
+            source.sendFailure(Component.literal(entity + " is not in twin.allowedEntities"));
+            return 0;
+        }
+        List<String> devices = runtime.devices().mirroring(entity).stream().map(DeviceRecord::slug).toList();
+        Optional<EntityDocument> document = runtime.twin().document(entity);
+        StringBuilder text = new StringBuilder(entity).append(devices.isEmpty() ? ": no loaded device mirrors it" : ": mirrored by " + String.join(", ", devices));
+        if (document.isEmpty()) {
+            text.append("\nNothing known yet").append(devices.isEmpty() ? " (only mirrored entities are read)" : "; is it in the mqtt_statestream include?");
+        } else {
+            EntityDocument known = document.get();
+            text.append("\nState: ").append(known.state() instanceof StatestreamValue.Cleared ? "cleared" : DeviceRuntime.shown(known.state().wire()))
+                    .append(", ").append(known.freshness().name().toLowerCase(Locale.ROOT)).append(" from ").append(known.origin().name().toLowerCase(Locale.ROOT))
+                    .append(runtime.twin().readable(entity) ? "" : ", not shared (the catalog does not list it)")
+                    .append("\nLast updated: ").append(known.lastUpdated() == null ? "unknown" : HaTime.format(known.lastUpdated()))
+                    .append("\nAttributes: ").append(known.attributes().isEmpty() ? "none" : DeviceRuntime.shown(attributes(known).toString()));
+        }
+        source.sendSuccess(() -> Component.literal(text.toString()), false);
+        return document.isPresent() ? 1 : 0;
+    }
+
+    /**
+     * {@code /mineqtt twin ping} (M3 plan D12): asks the control blueprint to answer; the answer, or that none came within
+     * 5 s, reaches the source later.
+     */
+    private static int twinPing(CommandSourceStack source, MineqttRuntime runtime) {
+        // The answer comes later, so it is told to the operators and the log as well: an RCON source is gone by then.
+        Optional<String> refusal = runtime.twinRequests().ping(answer -> source.sendSuccess(() -> Component.literal("Control blueprint: " + answer), true));
+        if (refusal.isPresent()) {
+            source.sendFailure(Component.literal("No ping: " + refusal.get()));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Pinged the control blueprint on " + runtime.topics().haRequest() + "; waiting for its answer"), false);
+        return 1;
+    }
+
+    /**
+     * {@code /mineqtt twin entities [query]} (M3 plan D4): the entities the read gate lets through, from the catalog (or the
+     * statestream scan without one), best match first, at most {@value #MAX_ENTITY_ROWS}. Mirrored entities Home
+     * Assistant changes without statestream publishing them carry the drift warning.
+     */
+    private static int twinEntities(CommandSourceStack source, MineqttRuntime runtime, String query) {
+        if (MineQTTConfig.twinOffReason(runtime.server().isDedicatedServer()).isPresent()) {
+            source.sendFailure(Component.literal("The twin is " + MineQTTConfig.twinSummary(runtime.server().isDedicatedServer())));
+            return 0;
+        }
+        List<EntitySearch.Candidate> found = runtime.twin().entities(query, List.of(), Set.of(), MAX_ENTITY_ROWS);
+        TwinRuntime.CatalogStatus catalog = runtime.twin().status(List.of()).catalog();
+        StringBuilder text = new StringBuilder(catalog.status() != null ? "From the catalog (" + catalog.entities() + " entities)"
+                : catalog.scanOpen() ? "No catalog; from the statestream scan (" + catalog.scanned() + " entities)" : "No catalog yet");
+        if (found.isEmpty()) {
+            text.append(query.isBlank() ? "\nNo Home Assistant entities yet. In Home Assistant, enable mqtt_statestream (base "
+                    + MineQTTConfig.twinStatestreamBase + "), import the MineQTT catalog blueprint and label entities 'MineQTT read'."
+                    : "\nNothing matches '" + DeviceRuntime.shown(query) + "'");
+        }
+        for (EntitySearch.Candidate candidate : found) {
+            text.append("\n").append(candidate.entityId());
+            if (!candidate.name().equals(candidate.entityId())) text.append(" - ").append(DeviceRuntime.shown(candidate.name()));
+            if (!candidate.area().isEmpty()) text.append(" (").append(DeviceRuntime.shown(candidate.area())).append(")");
+            text.append(": ").append(candidate.state() instanceof StatestreamValue.Cleared ? "cleared" : DeviceRuntime.shown(candidate.state().wire()));
+            if (candidate.control()) text.append(", control");
+            if (runtime.twin().drifting(candidate.entityId())) text.append(", no live updates: add it to the mqtt_statestream include");
+        }
+        source.sendSuccess(() -> Component.literal(text.toString()), false);
+        return found.size();
+    }
+
+    /** {@code /mineqtt twin refresh} (M3 plan D3): asks the catalog blueprint to publish the entity catalog anew. */
+    private static int twinRefresh(CommandSourceStack source, MineqttRuntime runtime) {
+        if (!runtime.twinRequests().sync("command")) {
+            source.sendFailure(Component.literal("Not sent: the bridge is offline"));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Asked Home Assistant for a fresh entity catalog on " + runtime.topics().haSync()), true);
+        return 1;
+    }
+
+    private static JsonObject attributes(EntityDocument document) {
+        JsonObject attributes = new JsonObject();
+        document.attributes().forEach(attributes::add);
+        return attributes;
     }
 
     // A type's ports of one direction, as `devices info` lists them: "power (level), mode (enum level|switch)".

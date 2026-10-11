@@ -1,0 +1,127 @@
+blueprint:
+  name: MineQTT control
+  description: >-
+    Lets Minecraft (the MineQTT mod) switch the Home Assistant entities, or the entities of devices, you label
+    "MineQTT control". Only the domains, actions and data keys below are run, one entity per request, and every
+    accepted request is written to the logbook. Each request is answered on the matching ha_response topic.
+  domain: automation
+  author: MineQTT
+  source_url: https://github.com/OddHero/Mineqtt/blob/main/docs/blueprints/automation/mineqtt/mineqtt_control.yaml
+  homeassistant:
+    min_version: "2025.2.0"
+  input:
+    request_topic:
+      name: Request topic
+      description: >-
+        One server: mineqtt/<bridgeId>/bridge/ha_request (/mineqtt status in game shows it). The default serves every
+        MineQTT server on the broker. The answer goes to the same topic ending in ha_response.
+      default: mineqtt/+/bridge/ha_request
+      selector:
+        text: {}
+    control_label:
+      name: Control label
+      description: Entities, or devices, carrying this label may be switched from Minecraft.
+      default: mineqtt_control
+      selector:
+        label: {}
+    allowed_domains:
+      name: Allowed domains
+      description: Locks and climate devices are off unless you add them here.
+      default: ["light", "switch", "input_boolean", "fan", "cover", "scene", "script", "input_button", "button", "input_number", "number", "input_select", "select", "input_text", "text"]
+      selector:
+        select:
+          multiple: true
+          options: ["light", "switch", "input_boolean", "fan", "cover", "scene", "script", "input_button", "button", "input_number", "number", "input_select", "select", "input_text", "text", "lock", "climate"]
+    logbook:
+      name: Log accepted requests
+      description: Writes "turn on by <player> via <block>" to the entity's logbook for every accepted request.
+      default: true
+      selector:
+        boolean: {}
+
+mode: queued
+max: 20
+max_exceeded: warning
+
+triggers:
+  - trigger: mqtt
+    topic: !input request_topic
+    qos: 1
+
+variables:
+  version: 1
+  control_label: !input control_label
+  allowed_domains: !input allowed_domains
+  logbook: !input logbook
+  # mineqtt:services v1 (MineQTT's verifyHaCalls parses the next line as JSON and compares it with its own table; keep it on one line)
+  services: {"light": {"turn_on": ["brightness", "rgb_color", "color_temp_kelvin", "transition"], "turn_off": ["transition"], "toggle": []}, "switch": {"turn_on": [], "turn_off": [], "toggle": []}, "input_boolean": {"turn_on": [], "turn_off": [], "toggle": []}, "fan": {"turn_on": ["percentage"], "turn_off": [], "toggle": [], "set_percentage": ["percentage"]}, "cover": {"open_cover": [], "close_cover": [], "stop_cover": [], "toggle": [], "set_cover_position": ["position"]}, "scene": {"turn_on": ["transition"]}, "script": {"turn_on": []}, "input_button": {"press": []}, "button": {"press": []}, "input_number": {"set_value": ["value"]}, "number": {"set_value": ["value"]}, "input_select": {"select_option": ["option"]}, "select": {"select_option": ["option"]}, "input_text": {"set_value": ["value"]}, "text": {"set_value": ["value"]}, "lock": {"lock": [], "unlock": []}, "climate": {"set_temperature": ["temperature"]}}
+  # Every template below trims its own whitespace: a value such as " True" would not read back as a boolean.
+  req: >-
+    {{- trigger.payload_json if trigger.payload_json is defined and trigger.payload_json is mapping else {} -}}
+  # mineqtt:reply (the answer goes to the request topic with ha_request replaced; any other topic gets no answer)
+  reply_topic: >-
+    {{- trigger.topic | regex_replace('/ha_request$', '/ha_response') -}}
+  entity: >-
+    {{- req.target.entity_id if req.target is mapping and req.target.entity_id is string
+        and req.target.entity_id | length <= 255 else '' -}}
+  domain: >-
+    {{- entity.split('.')[0] if entity | regex_match('^[a-z0-9_]+\.[a-z0-9_]+$') else '' -}}
+  act_domain: >-
+    {{- req.action.split('.')[0] if req.action is string and req.action | regex_match('^[a-z0-9_]+\.[a-z0-9_]+$') else '' -}}
+  service: >-
+    {{- req.action.split('.')[1] if req.action is string and req.action | regex_match('^[a-z0-9_]+\.[a-z0-9_]+$') else '' -}}
+  labelled: >-
+    {%- set dev = device_id(entity) if domain != '' else none -%}
+    {{- domain != '' and (entity in label_entities(control_label)
+        or (dev is not none and dev in label_devices(control_label))) -}}
+  verdict: >-
+    {%- if req.ping is defined -%}pong
+    {%- elif domain == '' or service == '' -%}bad_request
+    {%- elif act_domain != domain -%}domain_mismatch
+    {%- elif expand(entity) | count == 0 -%}no_such_entity
+    {%- elif domain not in allowed_domains -%}domain_not_allowed
+    {%- elif service not in services.get(domain, {}) -%}action_not_allowed
+    {%- elif not labelled -%}not_labelled
+    {%- else -%}accepted{%- endif -%}
+  call_data: >-
+    {%- set ns = namespace(d={}) -%}
+    {%- if verdict == 'accepted' and req.data is mapping -%}
+    {%- for k, v in req.data.items() if k in services[domain][service] -%}{%- set ns.d = dict(ns.d, **{k: v}) -%}{%- endfor -%}
+    {%- endif -%}
+    {{- ns.d -}}
+  player: >-
+    {{- req.origin.player[:64] if req.origin is mapping and req.origin.player is string else 'a redstone signal' -}}
+  via: >-
+    {{- req.origin.name[:64] if req.origin is mapping and req.origin.name is string else 'MineQTT' -}}
+
+actions:
+  # The answer goes first, so even a call that fails (continue_on_error does not cover every error) is answered.
+  - if:
+      - condition: template
+        value_template: "{{ reply_topic != trigger.topic }}"
+    then:
+      - action: mqtt.publish
+        data:
+          topic: "{{ reply_topic }}"
+          qos: 1
+          retain: false
+          payload: "{{ {'id': (req.id | default('') | string)[:16], 'status': verdict, 'entity': entity, 'blueprint': version} | to_json }}"
+  - if:
+      - condition: template
+        value_template: "{{ verdict == 'accepted' }}"
+    then:
+      - action: "{{ domain ~ '.' ~ service }}"
+        target:
+          entity_id: "{{ entity }}"
+        data: "{{ call_data }}"
+        continue_on_error: true
+      - if:
+          - condition: template
+            value_template: "{{ logbook }}"
+        then:
+          - action: logbook.log
+            data:
+              name: Minecraft
+              entity_id: "{{ entity }}"
+              message: "{{ service | replace('_', ' ') }} by {{ player }} via {{ via }}"
+            continue_on_error: true

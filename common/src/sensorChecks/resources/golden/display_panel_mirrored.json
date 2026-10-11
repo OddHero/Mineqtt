@@ -1,0 +1,51 @@
+{
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/laundry_panel/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "cmps": {
+    "binding": {
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "icon": "mdi:link-variant",
+      "json_attributes_template": "{{ (value_json.binding if value_json.binding is defined else {}) | tojson }}",
+      "json_attributes_topic": "mineqtt/world_7f3a/laundry_panel",
+      "name": "Binding",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/laundry_panel",
+      "unique_id": "mineqtt_d15e0a7e1b2c4d3e8f405a6b7c8d9e0f_binding",
+      "value_template": "{{ value_json.binding.entity if value_json.binding is defined else '' }}"
+    },
+    "level": {
+      "p": "sensor"
+    },
+    "location": {
+      "p": "sensor"
+    },
+    "message": {
+      "p": "text"
+    }
+  },
+  "dev": {
+    "ids": [
+      "mineqtt_d15e0a7e1b2c4d3e8f405a6b7c8d9e0f"
+    ],
+    "mdl": "Display Panel",
+    "mdl_id": "mineqtt:display_panel",
+    "mf": "MineQTT",
+    "name": "Laundry Panel",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "qos": 1
+}

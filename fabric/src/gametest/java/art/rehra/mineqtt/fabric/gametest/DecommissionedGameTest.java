@@ -42,9 +42,9 @@ public final class DecommissionedGameTest implements FabricClientGameTest {
     private static final BlockPos POWER = new BlockPos(2, Y, 3);
     private static final BlockPos DYNAMIC = new BlockPos(3, Y, 3);
     private static final BlockPos PLACED_GROUND = new BlockPos(-2, Y - 1, 3);
-    private static final String SOURCE = "decom_gametest/in";
-    private static final String TARGET = "decom_gametest/out/relay";
-    private static final String DYNAMIC_TOPIC = "decom_gametest/out/dynamic";
+    private static final String SOURCE = "decom_" + GameTestSession.BRIDGE_ID + "/in";
+    private static final String TARGET = "decom_" + GameTestSession.BRIDGE_ID + "/out/relay";
+    private static final String DYNAMIC_TOPIC = "decom_" + GameTestSession.BRIDGE_ID + "/out/dynamic";
     private static final String TOOLTIP = "Retired in MineQTT 2 – break to recover parts";
     private static final String RELAY_REPLACEMENT = "Route topics in Home Assistant, Node-RED or a broker bridge";
     private static final int ANSWER_TICKS = 60;
@@ -72,7 +72,7 @@ public final class DecommissionedGameTest implements FabricClientGameTest {
         if (broker.isEmpty()) {
             session.skip("a message on the source topic and a pulse publish nothing", "no broker (" + GameTestSession.BROKER_ENV + " is not set)");
         } else {
-            try (BrokerProbe probe = BrokerProbe.connect(broker.get()); BrokerProbe.Listener listener = probe.listen("decom_gametest/out/#")) {
+            try (BrokerProbe probe = BrokerProbe.connect(broker.get()); BrokerProbe.Listener listener = probe.listen("decom_" + GameTestSession.BRIDGE_ID + "/out/#")) {
                 inert(session, probe, listener);
             }
         }

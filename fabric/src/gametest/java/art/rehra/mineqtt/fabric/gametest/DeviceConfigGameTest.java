@@ -41,7 +41,7 @@ public final class DeviceConfigGameTest implements FabricClientGameTest {
     private static final BlockPos GROUND = new BlockPos(2, GameTestSession.GROUND_Y, 0);
     private static final BlockPos OTHERS = new BlockPos(-2, GameTestSession.GROUND_Y + 1, 0);
     private static final UUID OTHER_OWNER = UUID.fromString("5c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f");
-    private static final String CHANNEL = "device_config_gametest";
+    private static final String CHANNEL = "device_config_" + GameTestSession.BRIDGE_ID;
     private static final int ANSWER_TICKS = 40;
     // Ample for a dropped payload to have done something if it had not been dropped.
     private static final int DROP_TICKS = 20;
@@ -89,7 +89,7 @@ public final class DeviceConfigGameTest implements FabricClientGameTest {
         session.check(link != null && link.topic().equals(RawTopics.shared(CHANNEL)) && link.active(), "the channel resolves to its shared form (" + link + ")");
         refused(session, new DeviceConfigPayload(output, "raw.topic", StringTag.valueOf("zigbee2mqtt/gametest/set")), "a typed topic outside the allowlist");
         session.check(RawTopics.shared(CHANNEL).equals(session.device(output, deviceLink -> deviceLink.raw().topic())), "the refused topic leaves the link as it was");
-        String typed = RawTopics.shared("device_config_typed");
+        String typed = RawTopics.shared("device_config_typed_" + GameTestSession.BRIDGE_ID);
         session.send(new DeviceConfigPayload(output, "raw.topic", StringTag.valueOf(typed)));
         session.check(awaitView(session, v -> v.raw().filter(raw -> raw.topic().equals(typed) && raw.channel().isEmpty()).isPresent()),
                 "an allowlisted typed topic is used as typed, without a channel");

@@ -64,6 +64,13 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     public static final ModConfigSpec.IntValue LIMITS_MAX_DEVICES_PER_PLAYER;
     public static final ModConfigSpec.IntValue LIMITS_MAX_WIRES_PER_PLAYER;
 
+    public static final ModConfigSpec.ConfigValue<String> TWIN_STATESTREAM_BASE;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> TWIN_ALLOWED_ENTITIES;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> TWIN_HA_ACTION_ALLOWLIST;
+    public static final ModConfigSpec.IntValue TWIN_MAX_REQUESTS_PER_SECOND;
+    public static final ModConfigSpec.BooleanValue TWIN_CATALOG;
+    public static final ModConfigSpec.IntValue TWIN_CATALOG_MAX;
+
     public static final ModConfigSpec.BooleanValue SERVER_KEEP_TICKING_WHEN_EMPTY;
 
     public static final ModConfigSpec.ConfigValue<String> LEGACY_V1_STATUS_TOPIC;
@@ -191,6 +198,43 @@ public class NeoForgeConfigHandler implements ConfigHandler {
 
         BUILDER.pop();
 
+        BUILDER.comment("Home Assistant twin: blocks that mirror and switch Home Assistant entities").translation("config.mineqtt.section.twin").push("twin");
+
+        TWIN_STATESTREAM_BASE = BUILDER
+                .comment("The base_topic of Home Assistant's mqtt_statestream. Players may not publish under it, and only mineqtt.admin may listen there.",
+                        "Must not overlap the discovery prefix, the base topic or mineqtt/shared. Empty: the twin reads nothing.")
+                .translation("config.mineqtt.twin_statestream_base")
+                .define("statestreamBase", StaticDefaults.DEFAULT_TWIN_STATESTREAM_BASE, NeoForgeConfigHandler::isValidStatestreamBase);
+
+        TWIN_ALLOWED_ENTITIES = BUILDER
+                .comment("Home Assistant entities the twin may read and bind, as globs over the entity id (* any run, ? one character),",
+                        "e.g. light.*, sensor.outdoor_temperature. Operators do not bypass it. Empty turns the twin off.",
+                        StaticDefaults.AUTO_ENTRY + " alone: every entity on integrated servers, none on dedicated servers.")
+                .translation("config.mineqtt.twin_allowed_entities")
+                .defineListAllowEmpty("allowedEntities", StaticDefaults.DEFAULT_TWIN_ALLOWED_ENTITIES, () -> "", NeoForgeConfigHandler::isString);
+
+        TWIN_HA_ACTION_ALLOWLIST = BUILDER
+                .comment("Home Assistant domains Minecraft may control. The control blueprint's allowed_domains and its labels gate them again in Home Assistant.")
+                .translation("config.mineqtt.twin_ha_action_allowlist")
+                .defineListAllowEmpty("haActionAllowlist", StaticDefaults.DEFAULT_TWIN_HA_ACTION_ALLOWLIST, () -> "", NeoForgeConfigHandler::isString);
+
+        TWIN_MAX_REQUESTS_PER_SECOND = BUILDER
+                .comment("Home Assistant requests per second for the whole server")
+                .translation("config.mineqtt.twin_max_requests_per_second")
+                .defineInRange("maxRequestsPerSecond", StaticDefaults.DEFAULT_TWIN_MAX_REQUESTS_PER_SECOND, 1, StaticDefaults.MAX_TWIN_REQUESTS_PER_SECOND);
+
+        TWIN_CATALOG = BUILDER
+                .comment("Read the entity catalog the MineQTT catalog blueprint publishes under the statestream base")
+                .translation("config.mineqtt.twin_catalog")
+                .define("catalog", StaticDefaults.DEFAULT_TWIN_CATALOG);
+
+        TWIN_CATALOG_MAX = BUILDER
+                .comment("Home Assistant entities the twin keeps at most")
+                .translation("config.mineqtt.twin_catalog_max")
+                .defineInRange("catalogMax", StaticDefaults.DEFAULT_TWIN_CATALOG_MAX, 1, StaticDefaults.MAX_TWIN_CATALOG_MAX);
+
+        BUILDER.pop();
+
         BUILDER.comment("Dedicated server").translation("config.mineqtt.section.server").push("server");
 
         SERVER_KEEP_TICKING_WHEN_EMPTY = BUILDER
@@ -284,6 +328,12 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         MineQTTConfig.blockPlacerEnabled = BLOCK_PLACER_ENABLED.get();
         MineQTTConfig.limitsMaxDevicesPerPlayer = LIMITS_MAX_DEVICES_PER_PLAYER.get();
         MineQTTConfig.limitsMaxWiresPerPlayer = LIMITS_MAX_WIRES_PER_PLAYER.get();
+        MineQTTConfig.twinStatestreamBase = TWIN_STATESTREAM_BASE.get();
+        MineQTTConfig.twinAllowedEntities = List.copyOf(TWIN_ALLOWED_ENTITIES.get());
+        MineQTTConfig.twinHaActionAllowlist = List.copyOf(TWIN_HA_ACTION_ALLOWLIST.get());
+        MineQTTConfig.twinMaxRequestsPerSecond = TWIN_MAX_REQUESTS_PER_SECOND.get();
+        MineQTTConfig.twinCatalog = TWIN_CATALOG.get();
+        MineQTTConfig.twinCatalogMax = TWIN_CATALOG_MAX.get();
         MineQTTConfig.serverKeepTickingWhenEmpty = SERVER_KEEP_TICKING_WHEN_EMPTY.get();
         MineQTTConfig.legacyV1StatusTopic = LEGACY_V1_STATUS_TOPIC.get();
         MineQTTConfig.sanitize().forEach(problem -> LOGGER.warn("Config: {}", problem));
@@ -322,6 +372,26 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                 v1Int(v1File, "connection.keepAlive"), v1String(v1File, "topics.baseTopic"), v1String(v1File, "topics.statusTopic"));
     }
 
+    /**
+     * A statestream base NeoForge keeps as written: empty, or a valid topic once one trailing {@code /} is dropped. The
+     * overlap with the other topics is judged by {@link MineQTTConfig#sanitize()}, which can see them all.
+     */
+    private static boolean isValidStatestreamBase(Object value) {
+        if (!(value instanceof String base)) return false;
+        String normalized = ConfigValidation.normalizeStatestreamBase(base);
+        return normalized.isEmpty() || ConfigValidation.isValidConfigTopic(normalized);
+    }
+
+    /**
+     * The element check of the twin's lists. NeoForge drops invalid elements, but resets a list whose elements are all
+     * invalid to its default, and the default of {@code allowedEntities} is {@code AUTO}: every entity on an integrated
+     * server. So NeoForge only checks the type, and {@link MineQTTConfig#sanitize()} drops invalid entries, which only
+     * ever narrows the list.
+     */
+    private static boolean isString(Object value) {
+        return value instanceof String;
+    }
+
     private static String v1String(UnmodifiableConfig v1File, String path) {
         return v1File.get(path) instanceof String value ? value : null;
     }
@@ -351,6 +421,12 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         sink.put(BLOCK_PLACER_ENABLED, MineQTTConfig.blockPlacerEnabled);
         sink.put(LIMITS_MAX_DEVICES_PER_PLAYER, MineQTTConfig.limitsMaxDevicesPerPlayer);
         sink.put(LIMITS_MAX_WIRES_PER_PLAYER, MineQTTConfig.limitsMaxWiresPerPlayer);
+        sink.put(TWIN_STATESTREAM_BASE, MineQTTConfig.twinStatestreamBase);
+        sink.put(TWIN_ALLOWED_ENTITIES, MineQTTConfig.twinAllowedEntities);
+        sink.put(TWIN_HA_ACTION_ALLOWLIST, MineQTTConfig.twinHaActionAllowlist);
+        sink.put(TWIN_MAX_REQUESTS_PER_SECOND, MineQTTConfig.twinMaxRequestsPerSecond);
+        sink.put(TWIN_CATALOG, MineQTTConfig.twinCatalog);
+        sink.put(TWIN_CATALOG_MAX, MineQTTConfig.twinCatalogMax);
         sink.put(SERVER_KEEP_TICKING_WHEN_EMPTY, MineQTTConfig.serverKeepTickingWhenEmpty);
         sink.put(LEGACY_V1_STATUS_TOPIC, MineQTTConfig.legacyV1StatusTopic);
     }

@@ -18,9 +18,11 @@ import java.util.UUID;
  * @param topic    Node-RED's {@code msg.topic}: the source port key, or the MQTT topic for a Raw Link input; null for none
  * @param source   the port that sent it
  * @param hops     the wires it travelled over; it travels in the message, never down a device's command path
+ * @param root     what caused the chain it belongs to (M3 plan D10); it travels with the message as its hops do, and is
+ *                 never persisted
  * @param gameTime when it was emitted, in game ticks (ordering and diagnostics)
  */
-public record FlowMessage(UUID msgId, Kind kind, JsonElement payload, String topic, Endpoint source, int hops, long gameTime) {
+public record FlowMessage(UUID msgId, Kind kind, JsonElement payload, String topic, Endpoint source, int hops, Root root, long gameTime) {
     /** 16 KiB of UTF-8 JSON. */
     public static final int MAX_PAYLOAD_BYTES = 16 * 1024;
     /** Objects and arrays nested at most this deep. */
@@ -38,6 +40,7 @@ public record FlowMessage(UUID msgId, Kind kind, JsonElement payload, String top
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(payload, "payload");
         Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(root, "root");
         if (hops < 0) throw new IllegalArgumentException("Hops must not be negative: " + hops);
     }
 
@@ -49,9 +52,9 @@ public record FlowMessage(UUID msgId, Kind kind, JsonElement payload, String top
         return bytes <= MAX_PAYLOAD_BYTES ? Optional.empty() : Optional.of(bytes + " bytes is larger than " + MAX_PAYLOAD_BYTES);
     }
 
-    /** This message as it arrives over one more wire, carrying {@code payload} as its target port takes it. */
+    /** This message as it arrives over one more wire, carrying {@code payload} as its target port takes it; its root stays. */
     FlowMessage traversed(JsonElement payload) {
-        return new FlowMessage(msgId, kind, payload, topic, source, hops + 1, gameTime);
+        return new FlowMessage(msgId, kind, payload, topic, source, hops + 1, root, gameTime);
     }
 
     // Whether an object or array nests more than `levels` deep; it never descends further than that.

@@ -3,7 +3,6 @@ package art.rehra.mineqtt.legacy;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.mqtt.ICallbackTarget;
-import art.rehra.mineqtt.mqtt.core.BrokerSettings;
 import art.rehra.mineqtt.mqtt.core.Inbound;
 import art.rehra.mineqtt.mqtt.core.OfflinePolicy;
 import art.rehra.mineqtt.mqtt.core.Outbound;
@@ -48,6 +47,9 @@ import java.util.function.Predicate;
  *     <li>Each block subscribes its filter itself, so wildcards deliver, every message is delivered in order (no
  *     coalescing), and the block's {@link #origin} keeps it from hearing its own publishes while blocks on the same
  *     server hear each other through the local loopback, also with the broker down.</li>
+ *     <li>A message is delivered in a {@link art.rehra.mineqtt.flow.core.Root#RAW} extent
+ *     ({@link art.rehra.mineqtt.device.DeviceRuntime#fromBroker}, M3 plan D10): a device that the Block Emitter's placed
+ *     block powers in the same tick emits RAW, not WORLD, so a broker message never switches a real device.</li>
  *     <li>Blocks register while chunks load, which can be before the server has started. Those registrations wait
  *     until {@link #attach}.</li>
  *     <li>A refused topic is logged once and told once to the player who just edited the block (M2 plan D1). A config
@@ -59,8 +61,8 @@ import java.util.function.Predicate;
 public final class LegacySubscriptionFacade {
     // Raw topics of v1: retained values are delivered, as v1 did.
     private static final boolean ACCEPT_RETAINED = true;
-    // v1 had no per-block limit, so blocks keep the broker-wide inbound cap instead of the 16 KiB of a Raw Link.
-    private static final int MAX_PAYLOAD_BYTES = BrokerSettings.DEFAULT_MAX_INBOUND_BYTES;
+    // v1 had no per-block limit, so blocks keep the 64 KiB of a mirror source instead of the 16 KiB of a Raw Link.
+    private static final int MAX_PAYLOAD_BYTES = SubOptions.MIRROR.maxPayloadBytes();
     private static final int MAX_LOGGED_REFUSALS = 256;
 
     // Target -> filter -> its subscription; null while not open (before attach, or refused by the ACL).
@@ -247,7 +249,8 @@ public final class LegacySubscriptionFacade {
             MineQTT.LOGGER.debug("Block at {} misses a message on {}: its chunk is not loaded", target.getBlockPos(), message.topic());
             return;
         }
-        target.onMessageReceived(message.topic(), message.text());
+        // A broker message: whatever the block changes in the world, and what that powers in the same tick, is RAW.
+        runtime.devices().fromBroker(() -> target.onMessageReceived(message.topic(), message.text()));
     }
 
     private static void unregister(ICallbackTarget target) {

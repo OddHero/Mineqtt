@@ -1,8 +1,8 @@
 #!/bin/sh
 # One of each MineQTT block entity, placed with data and checked again after a restart (M2 plan M2-3, D13).
-#   allblocks.sh place            force-load the row, place the 18 blocks with data, save
-#   allblocks.sh verify [log]     after a restart: every block entity has its data back and the nine devices
-#                                 re-attached, the six placed as devices with their ids; with the server log also no
+#   allblocks.sh place            force-load the row, place the 19 blocks with data, save
+#   allblocks.sh verify [log]     after a restart: every block entity has its data back and the ten devices
+#                                 re-attached, the seven placed as devices with their ids; with the server log also no
 #                                 block entity load warning. The humidity sensor converted into a Climate Sensor (M2-19),
 #                                 the Static Publisher into a Redstone Input of rising edges (M2-20); the Dynamic
 #                                 Publisher and the Topic Relay keep only their slot paper as legacy items (M2-21); the
@@ -12,7 +12,7 @@
 DIR=$(cd "$(dirname "$0")" && pwd)
 E="python $DIR/game.py"
 Y=-60
-# The devices' ids, at x 0, 2, 4, 6, 18 and 32. The Redstone Input reads a mineqtt compound without an id as v1 data.
+# The devices' ids, at x 0, 2, 4, 6, 18, 32 and 36. The Redstone Input reads a mineqtt compound without an id as v1 data.
 ID='[I;1296651345,1414541312,-2147483648,'
 # What 26.2 logs when it drops or cannot load a block entity (BlockEntity, LevelChunk; older versions said
 # "Skipping BlockEntity with id").
@@ -44,6 +44,7 @@ blocks() {
 30|topic_relay|{sourceTopic:"allblocks/relay_source",$(paper topic_relay)}|legacyItems[0].components|"allblocks/topic_relay"
 32|smart_plug|{mineqtt:{id:${ID}32],name:"Allblocks Plug",slug:"allblocks_plug"}}|mineqtt.name|"Allblocks Plug"
 34|terminal_block[facing=east]|{lastTabId:"console_devices"}|lastTabId|"console_devices"
+36|display_panel[facing=east]|{mineqtt:{id:${ID}36],name:"Allblocks Panel",slug:"allblocks_panel",state:{message:"Allblocks",color:"lime"}}}|mineqtt.state.message|"Allblocks"
 EOF
 }
 
@@ -53,7 +54,7 @@ value() {
 }
 
 place() {
-    $E rcon forceload add 0 0 34 0
+    $E rcon forceload add 0 0 36 0
     blocks | while IFS='|' read -r x block nbt path expected; do
         $E rcon setblock "$x" $Y 0 "mineqtt:$block$nbt" </dev/null
     done
@@ -89,7 +90,12 @@ verify() {
     else
         echo "FAIL the Bridge Console at x 34 lost its facing"; failed=1
     fi
-    for x in 0 2 4 6 18 32; do
+    if $E rcon execute if block 36 $Y 0 'mineqtt:display_panel[facing=east]' </dev/null | grep -q "Test passed"; then
+        echo "PASS the Display Panel at x 36 keeps its facing"
+    else
+        echo "FAIL the Display Panel at x 36 lost its facing"; failed=1
+    fi
+    for x in 0 2 4 6 18 32 36; do
         actual=$(value "$x" mineqtt.id | tr -d ' ')
         if [ "$actual" = "$ID$x]" ]; then
             echo "PASS device at x $x keeps its id $actual"
@@ -100,10 +106,10 @@ verify() {
     devices=$($E rcon mineqtt devices list)
     echo "$devices"
     loaded=$(echo "$devices" | grep -c "^allblocks_.* loaded at ")
-    if [ "$loaded" -eq 9 ] && echo "$devices" | grep -q "^9 devices:"; then
-        echo "PASS the nine devices are loaded"
+    if [ "$loaded" -eq 10 ] && echo "$devices" | grep -q "^10 devices:"; then
+        echo "PASS the ten devices are loaded"
     else
-        echo "FAIL expected exactly the nine allblocks devices, loaded"; failed=1
+        echo "FAIL expected exactly the ten allblocks devices, loaded"; failed=1
     fi
     if [ -n "$1" ]; then
         if grep -iE "$LOAD_WARNINGS" "$1"; then

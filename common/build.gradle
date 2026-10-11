@@ -148,6 +148,13 @@ tasks.register('verifyDiscoveryPublisher', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.ha.DiscoveryPublisherCheck'
 }
+// Incoming state never becomes a request (M3 plan D10, bootstrapped): the mirror route table, reading a synthetic twin type,
+// the skipped seeds, dropped pending commands and paused Raw Links of bound devices, and roots through a real message bus.
+tasks.register('verifyMirrorNoLoop', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.MirrorNoLoopCheck'
+}
 // The Catalog of blocks and items: assets, loot tables, lang keys, 26.2 recipes behind the Network Chip and their unlock
 // advancements (bootstrapped). It reads the source resources, so a deleted file cannot survive in build/resources.
 tasks.register('verifyCatalog', JavaExec) {
@@ -192,6 +199,31 @@ tasks.register('verifyMessageBus', JavaExec) {
     timeout = java.time.Duration.ofMinutes(2)
 }
 
+// The twin's value paths and value maps (M3 plan D7) and the Display Panel layout (D18), Minecraft-free on the same
+// isolated classpath: the path grammar, caps and statestream leaves; bool spellings, ranges, options, colours, the light
+// composite over the captured light states, text with decimals and units, timestamps, refused garbage, and 4 × 32 lines.
+[
+        verifyValuePath: 'ValuePathCheck',
+        verifyValueMap : 'ValueMapCheck',
+].each { taskName, checkClass ->
+    tasks.register(taskName, JavaExec) {
+        dependsOn brokerChecksClasses
+        classpath = sourceSets.brokerChecks.runtimeClasspath
+        mainClass = "art.rehra.mineqtt.twin.core.${checkClass}"
+        timeout = java.time.Duration.ofMinutes(2)
+    }
+}
+
+// The twin core (M3 plan D1, D3), Minecraft-free on the same isolated classpath: the statestream parser against the real
+// HA 2026.10.0 capture, entity documents with the catalog merge and freshness, the catalog's 64 KiB cap and the
+// twin.allowedEntities globs.
+tasks.register('verifyStatestreamParse', JavaExec) {
+    dependsOn brokerChecksClasses
+    classpath = sourceSets.brokerChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.twin.core.StatestreamParseCheck'
+    timeout = java.time.Duration.ofMinutes(2)
+}
+
 // HiveMqttService scenarios behind a TCP proxy: MQTT 3.1.1 against Moquette by default, both protocols against
 // -PexternalBroker=tcp://host:port (the Docker Mosquitto, E2E item 13), since Moquette refuses MQTT 5.
 tasks.register('verifyBrokerIntegration', JavaExec) {
@@ -203,20 +235,51 @@ tasks.register('verifyBrokerIntegration', JavaExec) {
     timeout = java.time.Duration.ofMinutes(5)
 }
 
+// Home Assistant entities as typed flow nodes (M3 plan D8), Minecraft-free on the same isolated classpath: every domain's
+// ports, the service-call table equal to the control blueprint's services line, the per-service data-key whitelist,
+// lock.open, codes and homeassistant.* impossible, one target, the privacy domains unreadable, D11 switching, D5 edges,
+// and the blueprint YAML files (D15), which are its inputs.
+tasks.register('verifyHaCalls', JavaExec) {
+    dependsOn brokerChecksClasses
+    classpath = sourceSets.brokerChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.twin.core.HaCallsCheck'
+    def blueprintsDir = rootProject.file('docs/blueprints/automation/mineqtt')
+    inputs.dir(blueprintsDir).withPropertyName('blueprints')
+    args blueprintsDir.absolutePath
+    timeout = java.time.Duration.ofMinutes(2)
+}
+
+// MQTT device presets (M3-17) on the same isolated classpath: every built-in in data/mineqtt/mineqtt/binding_presets parses
+// and renders what its device expects, placeholders take typed and JSON-escaped values only, a bad datapack preset is
+// skipped with a problem line, device names cannot make wildcards, payloads become the adapters' documents, and the ACL
+// judges command and state topics. The check lives outside twin/core, as it also runs mqtt.core's TopicAcl.
+tasks.register('verifyPresetLoad', JavaExec) {
+    dependsOn brokerChecksClasses
+    classpath = sourceSets.brokerChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.twin.PresetLoadCheck'
+    def resourcesDir = file('src/main/resources')
+    inputs.dir(file('src/main/resources/data')).withPropertyName('presets')
+    args resourcesDir.absolutePath
+    timeout = java.time.Duration.ofMinutes(2)
+}
+
 // The Minecraft-free cores stay testable without Minecraft (M2 plan §3.8 #7). Each scope is an allowlist of packages and
 // classes, since main's compile classpath also carries Netty 4.2, Guava, fastutil, slf4j and the loaders, which brokerChecks lacks:
 // - mqtt.core: the JDK, Gson, HiveMQ and itself; its checks also the embedded Moquette broker and ha.GhostCleanup
 // - flow.core (port kinds, coercion, wires and the message bus): the JDK, Gson, itself and security.TokenBucket
+// - twin.core (the statestream parser, entity documents, the catalog, value paths and maps, the panel layout, HA
+//   domains and the service-call table) and its checks: the JDK, Gson, flow.core and itself
 // - security/TokenBucket.java and RateLimit.java, which flow.core and the server share: the JDK only, and none of the
 //   other classes of their package, which they could name without an import
 // - ha/GhostCleanup.java, which the broker integration check runs against a real broker: what mqtt.core may use plus
 //   mqtt.core, and none of the other classes of its package
 tasks.register('verifyCoreIsolation') {
     group = 'verification'
-    description = 'Fails if a source of mqtt.core, flow.core, TokenBucket, RateLimit or GhostCleanup references a package or class outside its allowlist.'
+    description = 'Fails if a source of mqtt.core, flow.core, twin.core, TokenBucket, RateLimit or GhostCleanup references a package or class outside its allowlist.'
     def jdk = ['java', 'javax']
     def mqttAllowed = jdk + ['com.google.gson', 'com.hivemq.client', 'art.rehra.mineqtt.mqtt.core']
     def flowAllowed = jdk + ['com.google.gson', 'art.rehra.mineqtt.flow.core', 'art.rehra.mineqtt.security.TokenBucket']
+    def twinAllowed = jdk + ['com.google.gson', 'art.rehra.mineqtt.flow.core', 'art.rehra.mineqtt.twin.core']
     def securityDir = file('src/main/java/art/rehra/mineqtt/security')
     def haDir = file('src/main/java/art/rehra/mineqtt/ha')
     // A scope of single classes names the folder of their package third: its files must exist, and the other classes there are off limits.
@@ -226,6 +289,8 @@ tasks.register('verifyCoreIsolation') {
                                   mqttAllowed + ['io.moquette', 'art.rehra.mineqtt.ha.GhostCleanup']],
             'flow.core'        : [fileTree('src/main/java/art/rehra/mineqtt/flow/core') { include '**/*.java' }, flowAllowed],
             'flow.core checks' : [fileTree('src/brokerChecks/java/art/rehra/mineqtt/flow/core') { include '**/*.java' }, flowAllowed],
+            'twin.core'        : [fileTree('src/main/java/art/rehra/mineqtt/twin/core') { include '**/*.java' }, twinAllowed],
+            'twin.core checks' : [fileTree('src/brokerChecks/java/art/rehra/mineqtt/twin/core') { include '**/*.java' }, twinAllowed],
             'rate limits'      : [files(new File(securityDir, 'TokenBucket.java'), new File(securityDir, 'RateLimit.java')), jdk, securityDir],
             'ghost cleanup'    : [files(new File(haDir, 'GhostCleanup.java')), mqttAllowed, haDir],
     ]
@@ -294,7 +359,10 @@ tasks.named('check') {
     dependsOn tasks.named('verifyDiscoveryPayloads')
     dependsOn tasks.named('verifyDiscoveryPublisher')
     dependsOn tasks.named('verifyCatalog')
+    dependsOn tasks.named('verifyMirrorNoLoop')
     dependsOn tasks.named('verifyBrokerSmoke')
+    dependsOn tasks.named('verifyHaCalls')
+    dependsOn tasks.named('verifyPresetLoad')
     dependsOn tasks.named('verifyTopicTrie')
     dependsOn tasks.named('verifyBrokerUri')
     dependsOn tasks.named('verifyInboundQueue')
@@ -302,5 +370,8 @@ tasks.named('check') {
     dependsOn tasks.named('verifyTopicAcl')
     dependsOn tasks.named('verifyBrokerIntegration')
     dependsOn tasks.named('verifyMessageBus')
+    dependsOn tasks.named('verifyStatestreamParse')
     dependsOn tasks.named('verifyCoreIsolation')
+    dependsOn tasks.named('verifyValuePath')
+    dependsOn tasks.named('verifyValueMap')
 }

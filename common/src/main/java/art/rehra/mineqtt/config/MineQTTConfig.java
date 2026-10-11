@@ -3,6 +3,8 @@ package art.rehra.mineqtt.config;
 import art.rehra.mineqtt.mqtt.core.BrokerConfig;
 import art.rehra.mineqtt.mqtt.core.BrokerSettings;
 import art.rehra.mineqtt.mqtt.core.ProtocolVersion;
+import art.rehra.mineqtt.twin.core.EntityGlobs;
+import art.rehra.mineqtt.twin.core.HaDomains;
 
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -42,6 +44,16 @@ public class MineQTTConfig {
     public static int limitsMaxDevicesPerPlayer;
     public static int limitsMaxWiresPerPlayer;
 
+    // Home Assistant twin (M3 plan D13)
+    /** Normalized by {@link #sanitize()} (no trailing {@code /}); empty means no statestream base. */
+    public static String twinStatestreamBase;
+    /** Globs, or the single entry {@link StaticDefaults#AUTO_ENTRY}; {@link #twinAllowedEntities(boolean)} resolves them. */
+    public static List<String> twinAllowedEntities;
+    public static List<String> twinHaActionAllowlist;
+    public static int twinMaxRequestsPerSecond;
+    public static boolean twinCatalog;
+    public static int twinCatalogMax;
+
     // Dedicated server
     public static boolean serverKeepTickingWhenEmpty;
 
@@ -73,6 +85,12 @@ public class MineQTTConfig {
         blockPlacerEnabled = StaticDefaults.DEFAULT_BLOCK_PLACER_ENABLED;
         limitsMaxDevicesPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER;
         limitsMaxWiresPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER;
+        twinStatestreamBase = StaticDefaults.DEFAULT_TWIN_STATESTREAM_BASE;
+        twinAllowedEntities = StaticDefaults.DEFAULT_TWIN_ALLOWED_ENTITIES;
+        twinHaActionAllowlist = StaticDefaults.DEFAULT_TWIN_HA_ACTION_ALLOWLIST;
+        twinMaxRequestsPerSecond = StaticDefaults.DEFAULT_TWIN_MAX_REQUESTS_PER_SECOND;
+        twinCatalog = StaticDefaults.DEFAULT_TWIN_CATALOG;
+        twinCatalogMax = StaticDefaults.DEFAULT_TWIN_CATALOG_MAX;
         serverKeepTickingWhenEmpty = StaticDefaults.DEFAULT_SERVER_KEEP_TICKING_WHEN_EMPTY;
         legacyV1StatusTopic = StaticDefaults.DEFAULT_LEGACY_V1_STATUS_TOPIC;
     }
@@ -139,8 +157,111 @@ public class MineQTTConfig {
             problems.add("limits.maxWiresPerPlayer: " + limitsMaxWiresPerPlayer + " is negative, using " + StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER);
             limitsMaxWiresPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER;
         }
+        sanitizeTwin(problems);
         if (legacyV1StatusTopic == null) legacyV1StatusTopic = StaticDefaults.DEFAULT_LEGACY_V1_STATUS_TOPIC;
         return problems;
+    }
+
+    /**
+     * The {@code twin.*} keys (M3 plan D13). Invalid list entries are dropped, which only ever narrows what the twin may
+     * read or control. Runs after the discovery prefix and the base topic are sanitized, because the statestream base
+     * must not overlap them.
+     */
+    private static void sanitizeTwin(List<String> problems) {
+        String base = ConfigValidation.normalizeStatestreamBase(twinStatestreamBase == null ? StaticDefaults.DEFAULT_TWIN_STATESTREAM_BASE : twinStatestreamBase);
+        Optional<String> baseError = ConfigValidation.statestreamBaseError(base, discoveryPrefix, baseTopic);
+        if (baseError.isPresent()) {
+            String fallback = StaticDefaults.DEFAULT_TWIN_STATESTREAM_BASE;
+            if (ConfigValidation.statestreamBaseError(fallback, discoveryPrefix, baseTopic).isPresent()) {
+                // Only a discovery prefix or base topic inside ha_statestream gets here; the twin then reads nothing.
+                problems.add("twin.statestreamBase: " + baseError.get() + ", and so does the default '" + fallback
+                        + "'; the twin reads nothing until twin.statestreamBase is set");
+                fallback = "";
+            } else {
+                problems.add("twin.statestreamBase: " + baseError.get() + ", using '" + fallback + "'");
+            }
+            base = fallback;
+        }
+        twinStatestreamBase = base;
+
+        if (twinAllowedEntities == null) twinAllowedEntities = StaticDefaults.DEFAULT_TWIN_ALLOWED_ENTITIES;
+        List<String> globs = new ArrayList<>();
+        boolean auto = false;
+        for (String entry : twinAllowedEntities) {
+            Optional<String> error = ConfigValidation.allowedEntityError(entry);
+            if (error.isPresent()) {
+                problems.add("twin.allowedEntities: '" + entry + "' is ignored, " + error.get());
+            } else if (ConfigValidation.isAutoEntry(entry)) {
+                auto = true;
+            } else if (!globs.contains(entry.strip())) {
+                globs.add(entry.strip());
+            }
+        }
+        if (auto && !globs.isEmpty()) {
+            problems.add("twin.allowedEntities: " + StaticDefaults.AUTO_ENTRY + " stands alone and is ignored next to the globs " + globs);
+        }
+        twinAllowedEntities = auto && globs.isEmpty() ? StaticDefaults.DEFAULT_TWIN_ALLOWED_ENTITIES : List.copyOf(globs);
+
+        if (twinHaActionAllowlist == null) twinHaActionAllowlist = StaticDefaults.DEFAULT_TWIN_HA_ACTION_ALLOWLIST;
+        List<String> domains = new ArrayList<>();
+        for (String domain : twinHaActionAllowlist) {
+            if (!ConfigValidation.isValidHaActionDomain(domain)) {
+                problems.add("twin.haActionAllowlist: '" + domain + "' is ignored, it is not a domain Minecraft can control (one of "
+                        + HaDomains.controllableDomains() + ")");
+            } else if (!domains.contains(domain.strip())) {
+                domains.add(domain.strip());
+            }
+        }
+        twinHaActionAllowlist = List.copyOf(domains);
+
+        if (!ConfigValidation.isValidTwinMaxRequestsPerSecond(twinMaxRequestsPerSecond)) {
+            problems.add("twin.maxRequestsPerSecond: " + twinMaxRequestsPerSecond + " is outside 1-" + StaticDefaults.MAX_TWIN_REQUESTS_PER_SECOND
+                    + ", using " + StaticDefaults.DEFAULT_TWIN_MAX_REQUESTS_PER_SECOND);
+            twinMaxRequestsPerSecond = StaticDefaults.DEFAULT_TWIN_MAX_REQUESTS_PER_SECOND;
+        }
+        if (!ConfigValidation.isValidTwinCatalogMax(twinCatalogMax)) {
+            problems.add("twin.catalogMax: " + twinCatalogMax + " is outside 1-" + StaticDefaults.MAX_TWIN_CATALOG_MAX
+                    + ", using " + StaticDefaults.DEFAULT_TWIN_CATALOG_MAX);
+            twinCatalogMax = StaticDefaults.DEFAULT_TWIN_CATALOG_MAX;
+        }
+    }
+
+    /**
+     * The effective {@code twin.allowedEntities} (M3 plan D13): {@link StaticDefaults#AUTO_ENTRY} means every entity on
+     * integrated servers and none on dedicated servers. Nobody bypasses it, operators and the console included, so it
+     * depends on the server type alone. An entry {@link #sanitize()} has not judged yet (a screen saving right now)
+     * counts only when it is a valid glob.
+     */
+    public static EntityGlobs twinAllowedEntities(boolean dedicatedServer) {
+        List<String> entries = twinAllowedEntities;
+        if (entries.size() == 1 && ConfigValidation.isAutoEntry(entries.getFirst())) return dedicatedServer ? EntityGlobs.NONE : EntityGlobs.ALL;
+        return EntityGlobs.of(entries.stream().filter(entry -> EntityGlobs.problem(entry.strip()).isEmpty()).toList());
+    }
+
+    /**
+     * Why the twin is off, as a sentence that names the config key to set, or empty when it may read entities: no
+     * statestream base, or no allowed entities (the default on dedicated servers).
+     */
+    public static Optional<String> twinOffReason(boolean dedicatedServer) {
+        if (twinStatestreamBase.isEmpty()) return Optional.of("no statestream base: set twin.statestreamBase");
+        if (twinAllowedEntities(dedicatedServer).isEmpty()) return Optional.of("no allowed entities: set twin.allowedEntities");
+        return Optional.empty();
+    }
+
+    /**
+     * The twin line of {@code /mineqtt status} and the startup log (M3 plan D13): off with the key to set, or what the
+     * twin reads and may control.
+     */
+    public static String twinSummary(boolean dedicatedServer) {
+        Optional<String> off = twinOffReason(dedicatedServer);
+        if (off.isPresent()) return "off, " + off.get();
+        EntityGlobs allowed = twinAllowedEntities(dedicatedServer);
+        String entities = allowed.equals(EntityGlobs.ALL) ? "all entities" : allowed.patterns().size() == 1 ? "entities matching " + allowed.patterns().getFirst()
+                : allowed.patterns().size() + " entity patterns";
+        String auto = twinAllowedEntities.size() == 1 && ConfigValidation.isAutoEntry(twinAllowedEntities.getFirst()) ? " (" + StaticDefaults.AUTO_ENTRY + ")" : "";
+        return "reads " + entities + auto + " under " + twinStatestreamBase + ", catalog " + (twinCatalog ? "on (at most " + twinCatalogMax + " entities)" : "off")
+                + "; controls " + (twinHaActionAllowlist.isEmpty() ? "no domains" : twinHaActionAllowlist.size() + " domains")
+                + ", at most " + twinMaxRequestsPerSecond + " requests/s";
     }
 
     /** The password to send: {@value StaticDefaults#PASSWORD_ENV_VAR} wins over the config value. Null when neither is set. */

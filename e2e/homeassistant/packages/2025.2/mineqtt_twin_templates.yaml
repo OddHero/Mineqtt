@@ -1,0 +1,45 @@
+# MineQTT twin fixture, template light and lock for Home Assistant 2025.2.5 (the `homeassistant-floor` service).
+# This version's `template:` integration has no light or lock, so both use the legacy platform syntax. 2026.10.0 no
+# longer sets up legacy template platforms (only a repair issue), so packages/2026.10/mineqtt_twin_templates.yaml
+# defines the same two entities under `template:`. Keep both files equal in entity ids, names, unique ids and
+# behaviour; see that file for what the entities do.
+
+light:
+  - platform: template
+    lights:
+      m3_lamp:
+        friendly_name: M3 Lamp
+        unique_id: mineqtt_e2e_m3_lamp
+        value_template: "{{ is_state('input_boolean.m3_flag', 'on') }}"
+        level_template: "{{ (states('input_number.m3_level') | float(0) * 255 / 100) | round(0) | int }}"
+        turn_on:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.m3_flag
+        turn_off:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.m3_flag
+        set_level:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.m3_level
+            data:
+              value: "{{ (brightness | int * 200 / 255) | round(0) / 2 }}"
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.m3_flag
+
+lock:
+  - platform: template
+    name: M3 Lock
+    unique_id: mineqtt_e2e_m3_lock
+    value_template: "{{ is_state('input_boolean.m3_bolt', 'on') }}"
+    lock:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.m3_bolt
+    unlock:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.m3_bolt

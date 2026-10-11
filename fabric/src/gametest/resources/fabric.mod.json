@@ -31,7 +31,10 @@
       "art.rehra.mineqtt.fabric.gametest.LampEffectsGameTest",
       "art.rehra.mineqtt.fabric.gametest.DeviceLimitGameTest",
       "art.rehra.mineqtt.fabric.gametest.AdventureGameTest",
-      "art.rehra.mineqtt.fabric.gametest.LampMountGameTest"
+      "art.rehra.mineqtt.fabric.gametest.LampMountGameTest",
+      "art.rehra.mineqtt.fabric.gametest.DisplayPanelGameTest",
+      "art.rehra.mineqtt.fabric.gametest.MirrorGameTest",
+      "art.rehra.mineqtt.fabric.gametest.BindGameTest"
     ]
   },
   "depends": {

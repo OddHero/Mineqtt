@@ -316,7 +316,7 @@ public final class InteractionGameTest implements FabricClientGameTest {
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Configurator mode: Link"), ANSWER_TICKS).isPresent(),
                 "sneak + right-click into the air steps the mode to Link (messages: " + ChatLog.since(mark) + ")");
         session.check(session.onServer(s -> CyberdeckDataUtil.mode(session.player(s).getMainHandItem()) == ConfiguratorMode.LINK), "the Configurator is in Link mode");
-        for (String mode : List.of("Group", "Copy-Paste")) {
+        for (String mode : List.of("Group", "Copy-Paste", "Bind")) {
             mark = ChatLog.mark();
             session.sneakUse();
             session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Configurator mode: " + mode), ANSWER_TICKS).isPresent(),

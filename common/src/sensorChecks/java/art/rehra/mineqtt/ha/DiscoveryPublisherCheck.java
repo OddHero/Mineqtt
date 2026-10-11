@@ -8,6 +8,7 @@ import art.rehra.mineqtt.device.DeviceRegistry;
 import art.rehra.mineqtt.device.DeviceType;
 import art.rehra.mineqtt.device.DeviceTypes;
 import art.rehra.mineqtt.device.types.SmartLamp;
+import art.rehra.mineqtt.mqtt.core.BrokerSettings;
 import art.rehra.mineqtt.mqtt.core.ConnectionState;
 import art.rehra.mineqtt.mqtt.core.Inbound;
 import art.rehra.mineqtt.mqtt.core.InboundHandler;
@@ -18,6 +19,9 @@ import art.rehra.mineqtt.mqtt.core.Outbound;
 import art.rehra.mineqtt.mqtt.core.SubOptions;
 import art.rehra.mineqtt.mqtt.core.Subscription;
 import art.rehra.mineqtt.mqtt.core.TopicFilters;
+import art.rehra.mineqtt.twin.HaEntityCatalog;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.CatalogParser;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.SharedConstants;
@@ -43,7 +47,8 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * How discovery is published (design §4.2, §8.8, §9.3), run by Gradle's verifyDiscoveryPublisher task against a
  * recording MQTT service and a hand-driven clock: exposure and hashes, the rate limit, the v1 discovery migration with
- * its acknowledgements, the v1 status clear, a changed prefix, Home Assistant's birth, the bridge's requests and
+ * its acknowledgements, the v1 status clear, a changed prefix, Home Assistant's birth and its listeners, the twin's
+ * catalog subscriptions (M3-11), the discovery cleanups of bound and unbound devices (M3-7b), the bridge's requests and
  * telemetry, and the ghost cleanup (§4.5).
  */
 public final class DiscoveryPublisherCheck {
@@ -63,6 +68,13 @@ public final class DiscoveryPublisherCheck {
         v1Status();
         prefixChange();
         birth();
+        birthListeners();
+        catalogSubscriptions();
+        cleanupWhileOnline();
+        cleanupAfterBirth();
+        cleanupProvenByClear();
+        unbindCleanup();
+        cleanupEdges();
         bridgeRequestsAndTelemetry();
         ghostVerdicts();
         ghostScan();
@@ -395,6 +407,14 @@ public final class DiscoveryPublisherCheck {
         check(republished.get() == 1, "Births while one is pending fold into one republish, got " + republished.get());
         mqtt.deliver("homeassistant/status", "restarting");
         check(watcher.heard().status() == BirthWatcher.Status.BIRTH, "Another word changes nothing it heard");
+        // M3-7b: what proves Home Assistant online for a binding change (MineqttRuntime.haOnline).
+        BirthWatcher.Heard birth = watcher.heard();
+        check(birth.provesOnline(true, 1_010, false) && birth.provesOnline(true, 500, false), "A birth on the current connection, nothing pending, proves it online");
+        check(!birth.provesOnline(false, 1_010, false), "Not while the connection is down: Home Assistant and its broker may be restarting unheard");
+        check(!birth.provesOnline(true, 1_011, false) && !birth.provesOnline(true, Long.MAX_VALUE, false), "Not a birth of an earlier connection, nor before the first");
+        check(!birth.provesOnline(true, 1_010, true), "Not while the republish it asked for is still due");
+        check(!BirthWatcher.Heard.NOTHING.provesOnline(true, 0, false) && !new BirthWatcher.Heard(BirthWatcher.Status.WILL, 2_000).provesOnline(true, 0, false),
+                "Nothing heard, or its will, proves nothing");
 
         MineQTTConfig.haBirthTopic = "ha/status";
         try {
@@ -406,6 +426,423 @@ public final class DiscoveryPublisherCheck {
         }
         watcher.stop();
         check(mqtt.handlers.isEmpty(), "Stopping unsubscribes");
+    }
+
+    // M3-11: listeners hear every live birth at once (before the republish's delay), never a retained one or the will.
+    private static void birthListeners() {
+        FakeMqtt mqtt = new FakeMqtt();
+        AtomicLong clock = new AtomicLong(1_000);
+        AtomicInteger republished = new AtomicInteger();
+        AtomicInteger heard = new AtomicInteger();
+        BirthWatcher watcher = new BirthWatcher(mqtt, republished::incrementAndGet, clock::get, new Random(5));
+        watcher.onBirth(heard::incrementAndGet);
+        mqtt.deliver("homeassistant/status", "online", true);
+        mqtt.deliver("homeassistant/status", "offline");
+        check(heard.get() == 0, "A retained birth and the last will are not births");
+        mqtt.deliver("homeassistant/status", "online");
+        check(heard.get() == 1 && republished.get() == 0 && watcher.pending(), "A live birth is heard at once; the republish waits for its delay");
+        mqtt.deliver("homeassistant/status", "online");
+        check(heard.get() == 2, "A birth folded into the pending republish is heard too");
+        watcher.stop();
+    }
+
+    /**
+     * M3-11 (D4): the catalog's own SUBSCRIBE 5 s after the first CONNACK, the scan's 10 s after it while no status came,
+     * the scan closed by a status and opened again when it is cleared, the ACL asked once per setup, nothing while the
+     * twin is off, a reload setting both up again, a reconnect rescheduling nothing, and stop closing everything.
+     */
+    private static void catalogSubscriptions() {
+        FakeMqtt mqtt = new FakeMqtt();
+        boolean[] twinOn = {true};
+        boolean[] catalogMode = {false};
+        boolean[] mayMirror = {true};
+        AtomicInteger asked = new AtomicInteger();
+        List<String> sunk = new ArrayList<>();
+        HaEntityCatalog catalog = new HaEntityCatalog(mqtt, new HaEntityCatalog.Host() {
+            @Override
+            public String base() {
+                return "ha_statestream";
+            }
+
+            @Override
+            public boolean twinOn() {
+                return twinOn[0];
+            }
+
+            @Override
+            public boolean catalogEnabled() {
+                return true;
+            }
+
+            @Override
+            public boolean catalogMode() {
+                return catalogMode[0];
+            }
+
+            @Override
+            public int maxEntities() {
+                return 2;
+            }
+
+            @Override
+            public boolean mayMirror(String filter) {
+                asked.incrementAndGet();
+                return mayMirror[0];
+            }
+        }, message -> sunk.add(message.topic()));
+        String catalogFilter = "ha_statestream/_mineqtt/catalog/+";
+        String statusTopic = "ha_statestream/_mineqtt/status";
+        Set<String> scanFilters = Set.of("ha_statestream/+/+/state", "ha_statestream/+/+/friendly_name");
+
+        catalog.tick(100_000);
+        check(mqtt.handlers.isEmpty() && !catalog.pending(), "Nothing before the first CONNACK");
+        catalog.connected(1_000);
+        catalog.tick(5_999);
+        check(mqtt.handlers.isEmpty() && catalog.pending(), "The catalog waits 5 s after the CONNACK, as pending work");
+        catalog.tick(6_000);
+        check(mqtt.handlers.keySet().equals(Set.of(catalogFilter, statusTopic)) && catalog.catalogOpen(), "Then its own SUBSCRIBE: " + mqtt.handlers.keySet());
+        SubOptions options = mqtt.options.get(catalogFilter);
+        check(options.acceptRetained() && options.maxPayloadBytes() > CatalogParser.MAX_TOPIC_BYTES,
+                "Retained lists are taken, larger than the cap so the parser refuses them visibly");
+        // The service drops anything over the broker-wide inbound limit before a handler's own cap is looked at (and on
+        // MQTT 5 the broker withholds it): that limit must let the catalog's cap through, or the refusal never happens.
+        check(BrokerSettings.DEFAULT_MAX_INBOUND_BYTES >= options.maxPayloadBytes() && options.maxPayloadBytes() == HaEntityCatalog.CATALOG_MAX_BYTES,
+                "The broker-wide inbound limit (" + BrokerSettings.DEFAULT_MAX_INBOUND_BYTES + ") lets the catalog's " + options.maxPayloadBytes() + " bytes through");
+        mqtt.deliver("ha_statestream/_mineqtt/catalog/light", "[]", true);
+        check(sunk.equals(List.of("ha_statestream/_mineqtt/catalog/light")), "Catalog messages go to the documents");
+        catalog.tick(10_999);
+        check(!catalog.scanOpen(), "The scan waits 10 s");
+        catalog.tick(11_000);
+        check(catalog.scanOpen() && mqtt.handlers.keySet().containsAll(scanFilters), "No status by then: the scan opens");
+        mqtt.deliver("ha_statestream/light/kitchen/state", "on", true);
+        mqtt.deliver("ha_statestream/switch/a/state", "on", true);
+        mqtt.deliver("ha_statestream/switch/b/state", "on", true);
+        check(catalog.scan().size() == 2 && catalog.scan().overflow() == 1, "The scan is capped at twin.catalogMax");
+        catalogMode[0] = true;
+        catalog.tick(12_000);
+        check(!catalog.scanOpen() && catalog.scan().size() == 0 && mqtt.handlers.keySet().equals(Set.of(catalogFilter, statusTopic)),
+                "A status closes the scan");
+        catalogMode[0] = false;
+        catalog.tick(13_000);
+        check(catalog.scanOpen(), "A cleared status opens it again");
+        catalog.connected(20_000);
+        catalog.tick(20_000);
+        check(catalog.catalogOpen() && catalog.scanOpen() && mqtt.handlers.size() == 4, "A reconnect reschedules nothing; the subscriptions stay");
+
+        twinOn[0] = false;
+        catalog.configChanged();
+        check(mqtt.handlers.isEmpty(), "A reload closes both");
+        catalog.tick(21_000);
+        check(mqtt.handlers.isEmpty() && !catalog.pending(), "...and an off twin subscribes nothing, and has nothing pending");
+        twinOn[0] = true;
+        mayMirror[0] = false;
+        catalog.configChanged();
+        int before = asked.get();
+        catalog.tick(22_000);
+        catalog.tick(23_000);
+        check(mqtt.handlers.isEmpty() && asked.get() - before == 4, "A filter the ACL refuses is asked once per setup, never subscribed: " + (asked.get() - before));
+        mayMirror[0] = true;
+        catalog.configChanged();
+        catalog.tick(24_000);
+        check(catalog.catalogOpen() && catalog.scanOpen(), "A reload sets both up again at once, past their delays");
+        catalog.stop();
+        check(mqtt.handlers.isEmpty(), "Stopping closes everything");
+    }
+
+    // ---- cleanups (M3-7b) ----
+
+    /**
+     * Bound while Home Assistant is online: the reduced message at once, no mark. Home Assistant's clear of the config
+     * (once per removed entity) is answered with the reduced message after the last of them, while the watch lasts; an
+     * ordinary republish afterwards sends it once.
+     */
+    private static void cleanupWhileOnline() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        fixture.haOnline.set(true);
+        DeviceRecord lamp = discovered(fixture, "porch_lamp");
+        String topic = config(lamp.objectId());
+        bind(lamp);
+        fixture.publisher.bindingChanged(lamp);
+        fixture.publisher.tick();
+        Outbound reduced = fixture.mqtt.single();
+        JsonObject expected = DiscoveryPublisher.deviceConfig(SmartLamp.TYPE, lamp, DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY);
+        check(reduced.topic().equals(topic) && reduced.retain() && reduced.refresh() && json(reduced).equals(expected),
+                "Bound while Home Assistant is online: the reduced message at once, as a refresh");
+        check(!lamp.discoveryCleanup() && DiscoveryPublisher.hash(expected).equals(lamp.discoveryHash()), "...with no mark, and its hash retained");
+        SubOptions watch = fixture.mqtt.options.get(topic);
+        check(fixture.mqtt.handlers.containsKey(topic) && watch != null && !watch.acceptRetained() && watch.noLocal(),
+                "The device's own config topic is watched, live messages only");
+
+        fixture.mqtt.deliver(topic, reduced.text());
+        fixture.mqtt.deliver(topic, "", true);
+        check(fixture.after(2 * DiscoveryPublisher.RESTORE_DELAY_MILLIS).isEmpty(), "Its own message and a stored one change nothing");
+        fixture.mqtt.deliver(topic, "");
+        fixture.clock.addAndGet(DiscoveryPublisher.RESTORE_DELAY_MILLIS / 2);
+        fixture.mqtt.deliver(topic, "");
+        check(fixture.after(DiscoveryPublisher.RESTORE_DELAY_MILLIS - 1).isEmpty(), "The republish waits for Home Assistant's last clear");
+        List<Outbound> restored = fixture.after(1);
+        check(restored.size() == 1 && restored.getFirst().refresh() && json(restored.getFirst()).equals(expected),
+                "Home Assistant's clear is answered with the reduced message again, a refresh, got " + topics(restored));
+        check(fixture.publisher.hasPendingWork(), "A watch is pending work, so a paused server pumps it");
+
+        check(fixture.after(DiscoveryPublisher.WATCH_MILLIS).isEmpty() && !fixture.mqtt.handlers.containsKey(topic) && !fixture.publisher.hasPendingWork(),
+                "The watch ends after its time");
+        fixture.publisher.republishAll();
+        fixture.publisher.tick();
+        List<Outbound> again = fixture.mqtt.take();
+        check(again.size() == 2 && json(again.get(1)).equals(expected), "An ordinary republish sends the reduced message once: no churn, got " + topics(again));
+    }
+
+    /**
+     * Bound while Home Assistant is not known to be online: the reduced message and a mark. No clear comes, so the mark
+     * survives the watch and a republish of a connect. The republish of Home Assistant's birth sends the full device with
+     * its binding sensor, then the removal, which ends the mark; the next birth churns nothing.
+     */
+    private static void cleanupAfterBirth() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        DeviceRecord lamp = discovered(fixture, "hall_lamp");
+        String topic = config(lamp.objectId());
+        bind(lamp);
+        fixture.publisher.bindingChanged(lamp);
+        fixture.publisher.tick();
+        JsonObject reduced = DiscoveryPublisher.deviceConfig(SmartLamp.TYPE, lamp, DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY);
+        check(json(fixture.mqtt.single()).equals(reduced) && lamp.discoveryCleanup(),
+                "Bound while Home Assistant is not known to be online: the reduced message and a mark");
+        check(fixture.after(DiscoveryPublisher.WATCH_MILLIS).isEmpty() && !fixture.mqtt.handlers.containsKey(topic) && lamp.discoveryCleanup(),
+                "No clear came: the watch ends, the mark stays");
+
+        fixture.publisher.republishAll();
+        fixture.publisher.tick();
+        List<Outbound> connect = fixture.mqtt.take();
+        check(connect.size() == 2 && json(connect.get(1)).equals(reduced) && lamp.discoveryCleanup(),
+                "A republish while Home Assistant is not online is the plain one, got " + topics(connect));
+
+        fixture.haOnline.set(true);
+        fixture.publisher.republishAll();
+        fixture.publisher.tick();
+        List<Outbound> birth = fixture.mqtt.take();
+        JsonObject discover = DiscoveryPublisher.discoverConfig(SmartLamp.TYPE, lamp, DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY);
+        check(birth.size() == 2 && birth.get(1).topic().equals(topic) && birth.get(1).refresh() && json(birth.get(1)).equals(discover),
+                "Home Assistant's birth: the full device with its binding sensor first, got " + topics(birth));
+        check(lamp.discoveryCleanup(), "...the mark stays until the removal is out");
+        fixture.publisher.refresh(lamp);
+        check(fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS - 1).isEmpty(), "The removal, and a refresh meanwhile, wait for the components' set-up");
+        List<Outbound> removal = fixture.after(1);
+        check(removal.size() == 1 && removal.getFirst().refresh() && json(removal.getFirst()).equals(reduced) && !lamp.discoveryCleanup(),
+                "Then the reduced message removes them in a run that discovered them, and the mark is done, got " + topics(removal));
+        check(DiscoveryPublisher.hash(reduced).equals(lamp.discoveryHash()) && fixture.mqtt.handlers.containsKey(topic), "...its hash retained, its topic watched");
+        fixture.mqtt.deliver(topic, "");
+        List<Outbound> restored = fixture.after(DiscoveryPublisher.RESTORE_DELAY_MILLIS);
+        check(restored.size() == 1 && json(restored.getFirst()).equals(reduced), "Home Assistant's clear after the removal is answered");
+
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+        fixture.publisher.republishAll();
+        fixture.publisher.tick();
+        List<Outbound> next = fixture.mqtt.take();
+        check(next.size() == 2 && json(next.get(1)).equals(reduced) && fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).isEmpty(),
+                "The next birth sends the reduced message once: no churn, got " + topics(next));
+    }
+
+    /**
+     * Home Assistant's clear proves that it removed the entities, so a mark set while it was not known to be online ends
+     * with it. A mark still set when the binding changes while Home Assistant is online runs the whole cleanup at once.
+     */
+    private static void cleanupProvenByClear() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        DeviceRecord lamp = discovered(fixture, "stair_lamp");
+        String topic = config(lamp.objectId());
+        bind(lamp);
+        fixture.publisher.bindingChanged(lamp);
+        fixture.publisher.tick();
+        JsonObject reduced = json(fixture.mqtt.single());
+        check(lamp.discoveryCleanup(), "Marked while Home Assistant is not known to be online");
+        fixture.mqtt.deliver(topic, "");
+        check(!lamp.discoveryCleanup(), "Home Assistant's clear proves it removed the entities: the mark is done");
+        check(json(fixture.after(DiscoveryPublisher.RESTORE_DELAY_MILLIS).getFirst()).equals(reduced), "...and the reduced message goes out again");
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+
+        lamp.setDiscoveryCleanup(true);
+        fixture.haOnline.set(true);
+        lamp.setTwin(null);
+        fixture.publisher.bindingChanged(lamp);
+        fixture.publisher.tick();
+        JsonObject discover = DiscoveryPublisher.discoverConfig(SmartLamp.TYPE, lamp, DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY);
+        check(json(fixture.mqtt.single()).equals(discover), "A marked device changed while Home Assistant is online starts with the full message");
+        List<Outbound> removal = fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS);
+        JsonObject expectedRemoval = DiscoveryPublisher.removalConfig(SmartLamp.TYPE, lamp, DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY);
+        check(removal.size() == 1 && json(removal.getFirst()).equals(expectedRemoval) && !lamp.discoveryCleanup(), "...then the removal, which ends the mark");
+        List<Outbound> steady = fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS);
+        check(steady.size() == 1 && steady.getFirst().refresh()
+                && json(steady.getFirst()).equals(DiscoveryPublisher.deviceConfig(SmartLamp.TYPE, lamp, DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY)),
+                "...then the full message alone");
+    }
+
+    /**
+     * Unbinding: the full message with a stub for the binding sensor, so no orphan stays, then the full message alone; a
+     * clear from Home Assistant in between brings the full message sooner. While Home Assistant is not known to be online
+     * the record is marked, and its birth runs the three messages.
+     */
+    private static void unbindCleanup() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        fixture.haOnline.set(true);
+        DeviceRecord lamp = discovered(fixture, "attic_lamp");
+        String topic = config(lamp.objectId());
+        bind(lamp);
+        fixture.publisher.bindingChanged(lamp);
+        fixture.publisher.tick();
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+        fixture.mqtt.take();
+
+        lamp.setTwin(null);
+        fixture.publisher.bindingChanged(lamp);
+        fixture.publisher.tick();
+        JsonObject full = DiscoveryPublisher.deviceConfig(SmartLamp.TYPE, lamp, DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY);
+        JsonObject removal = DiscoveryPublisher.removalConfig(SmartLamp.TYPE, lamp, DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY);
+        check(json(fixture.mqtt.single()).equals(removal) && !lamp.discoveryCleanup(), "Unbound while Home Assistant is online: the full message with the binding stub");
+        check(fixture.mqtt.handlers.containsKey(topic), "...watched, since the stub removes the binding sensor");
+        check(fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS - 1).isEmpty(), "The full message alone waits");
+        List<Outbound> steady = fixture.after(1);
+        check(steady.size() == 1 && json(steady.getFirst()).equals(full) && DiscoveryPublisher.hash(full).equals(lamp.discoveryHash()),
+                "...then follows with the same hash as before the binding");
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+
+        bind(lamp);
+        fixture.publisher.bindingChanged(lamp);
+        fixture.publisher.tick();
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+        fixture.mqtt.take();
+        lamp.setTwin(null);
+        fixture.publisher.bindingChanged(lamp);
+        fixture.publisher.tick();
+        fixture.mqtt.take();
+        fixture.mqtt.deliver(topic, "");
+        List<Outbound> sooner = fixture.after(DiscoveryPublisher.RESTORE_DELAY_MILLIS);
+        check(sooner.size() == 1 && json(sooner.getFirst()).equals(full), "A clear after the stub brings the full message sooner");
+        check(fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).isEmpty(), "...and only once");
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+
+        bind(lamp);
+        fixture.publisher.bindingChanged(lamp);
+        fixture.publisher.tick();
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+        fixture.mqtt.take();
+        fixture.haOnline.set(false);
+        lamp.setTwin(null);
+        fixture.publisher.bindingChanged(lamp);
+        fixture.publisher.tick();
+        check(json(fixture.mqtt.single()).equals(removal) && lamp.discoveryCleanup(), "Unbound while Home Assistant is not known online: the stub and a mark");
+        check(json(fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).getFirst()).equals(full), "...then the full message");
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+        fixture.haOnline.set(true);
+        fixture.publisher.republishAll();
+        fixture.publisher.tick();
+        List<Outbound> birth = fixture.mqtt.take();
+        check(birth.size() == 2 && json(birth.get(1)).equals(DiscoveryPublisher.discoverConfig(SmartLamp.TYPE, lamp, DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY)),
+                "The birth discovers the binding sensor again");
+        check(json(fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).getFirst()).equals(removal) && !lamp.discoveryCleanup(), "...removes it in that run");
+        check(json(fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).getFirst()).equals(full), "...and ends with the full message");
+    }
+
+    /**
+     * What a cleanup does not touch or survive: a device never discovered or hidden, an own clear during the watch, a
+     * removed device, a discovery clear, a rename (the step runs at once), the broker gone (the steps wait) and a v1
+     * migration still pending.
+     */
+    private static void cleanupEdges() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        DeviceRecord fresh = fixture.lamp("fresh_lamp");
+        bind(fresh);
+        fixture.publisher.bindingChanged(fresh);
+        fixture.publisher.tick();
+        Outbound first = fixture.mqtt.single();
+        check(!first.refresh() && !fresh.discoveryCleanup() && !fixture.mqtt.handlers.containsKey(config(fresh.objectId())),
+                "A device Home Assistant never got is discovered plainly: nothing to remove, no mark, no watch");
+
+        fixture.haOnline.set(true);
+        DeviceRecord hidden = discovered(fixture, "hidden_lamp");
+        bind(hidden);
+        fixture.publisher.bindingChanged(hidden);
+        fixture.publisher.tick();
+        fixture.mqtt.take();
+        hidden.setExpose(false);
+        fixture.publisher.refresh(hidden);
+        fixture.publisher.tick();
+        check(fixture.mqtt.single().payload().length == 0 && hidden.discoveryHash() == null, "Hidden during the watch: its config is cleared");
+        fixture.mqtt.deliver(config(hidden.objectId()), "");
+        check(fixture.after(DiscoveryPublisher.RESTORE_DELAY_MILLIS).isEmpty(), "Its own clear coming back is no reason to publish it");
+        hidden.setTwin(null);
+        fixture.publisher.bindingChanged(hidden);
+        fixture.publisher.tick();
+        check(fixture.mqtt.take().isEmpty() && !hidden.discoveryCleanup(), "A hidden device's binding changes nothing in Home Assistant");
+
+        fixture.haOnline.set(false);
+        DeviceRecord gone = discovered(fixture, "gone_lamp");
+        bind(gone);
+        fixture.publisher.bindingChanged(gone);
+        fixture.publisher.tick();
+        fixture.mqtt.take();
+        fixture.haOnline.set(true);
+        fixture.publisher.republishAll();
+        fixture.publisher.tick();
+        fixture.mqtt.take();
+        fixture.publisher.removed(gone);
+        check(fixture.mqtt.single().payload().length == 0 && !fixture.mqtt.handlers.containsKey(config(gone.objectId())), "A removed device ends its cleanup");
+        check(fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).isEmpty(), "...so no step follows");
+
+        DeviceRecord renamed = discovered(fixture, "renamed_lamp");
+        renamed.setDiscoveryCleanup(true);
+        bind(renamed);
+        fixture.publisher.bindingChanged(renamed);
+        fixture.publisher.tick();
+        fixture.mqtt.take();
+        fixture.registry.rename(renamed, "Renamed Lamp", "renamed_lamp_2");
+        fixture.publisher.publishNow(renamed);
+        Outbound now = fixture.mqtt.single();
+        check(json(now).equals(DiscoveryPublisher.removalConfig(SmartLamp.TYPE, renamed, DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY))
+                && now.text().contains("renamed_lamp_2"), "A rename takes the cleanup's next step at once, on the new topics");
+
+        DeviceRecord waiting = discovered(fixture, "waiting_lamp");
+        waiting.setDiscoveryCleanup(true);
+        bind(waiting);
+        fixture.publisher.bindingChanged(waiting);
+        fixture.publisher.tick();
+        fixture.mqtt.take();
+        fixture.mqtt.state = ConnectionState.reconnecting("check");
+        check(fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).isEmpty(), "Without the broker the next step waits");
+        fixture.mqtt.state = ConnectionState.CONNECTED;
+        check(json(fixture.after(0).getFirst()).equals(DiscoveryPublisher.removalConfig(SmartLamp.TYPE, waiting, DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY)),
+                "...and runs once it is back");
+
+        fixture.publisher.clearAll();
+        fixture.mqtt.take();
+        check(fixture.mqtt.handlers.keySet().stream().noneMatch(filter -> filter.startsWith(PREFIX + "/device/"))
+                && fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).isEmpty(), "A discovery clear ends every cleanup and its watch");
+
+        DeviceRecord legacy = fixture.lamp("legacy_lamp");
+        legacy.setLegacyUniqueId("home_legacy");
+        legacy.setDiscoveryHash("old");
+        bind(legacy);
+        fixture.publisher.bindingChanged(legacy);
+        fixture.publisher.tick();
+        check(!legacy.discoveryCleanup() && !fixture.mqtt.handlers.containsKey(config(legacy.objectId())), "A device whose v1 migration is pending is left to it");
+    }
+
+    // A lamp the publisher discovered in full.
+    private static DeviceRecord discovered(Fixture fixture, String slug) {
+        DeviceRecord lamp = fixture.lamp(slug);
+        fixture.publisher.refresh(lamp);
+        fixture.publisher.tick();
+        fixture.mqtt.take();
+        check(lamp.discoveryHash() != null, "Discovered: " + slug);
+        return lamp;
+    }
+
+    private static void bind(DeviceRecord lamp) {
+        lamp.setTwin(Binding.of(SmartLamp.TWIN.sourceEnd("light.m3_lamp")));
+    }
+
+    private static JsonObject json(Outbound message) {
+        return JsonParser.parseString(message.text()).getAsJsonObject();
     }
 
     private static void bridgeRequestsAndTelemetry() {
@@ -619,6 +1056,7 @@ public final class DiscoveryPublisherCheck {
     private static final class Fixture {
         final FakeMqtt mqtt = new FakeMqtt();
         final AtomicLong clock = new AtomicLong(1_000);
+        final AtomicBoolean haOnline = new AtomicBoolean();
         final DeviceRegistry registry = new DeviceRegistry("world_7f3a", DiscoveryGoldenTest.WORLD);
         final DiscoveryPublisher publisher;
         final DeviceType lampType = SmartLamp.TYPE;
@@ -626,7 +1064,14 @@ public final class DiscoveryPublisherCheck {
         Fixture(HaExpose expose) {
             MineQTTConfig.resetToDefaults();
             MineQTTConfig.haExpose = expose;
-            publisher = new DiscoveryPublisher(registry, mqtt, () -> DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY, true, clock::get);
+            publisher = new DiscoveryPublisher(registry, mqtt, () -> DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY, true, clock::get, haOnline::get);
+        }
+
+        /** Advances the clock and ticks, returning what was published. */
+        List<Outbound> after(long millis) {
+            clock.addAndGet(millis);
+            publisher.tick();
+            return mqtt.take();
         }
 
         DeviceRecord lamp(String slug) {

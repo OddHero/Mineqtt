@@ -1,0 +1,14 @@
+{
+  "name": "zigbee2mqtt switch",
+  "kind": "switch",
+  "state_topic": "zigbee2mqtt/{device}",
+  "state": "state",
+  "on": "ON",
+  "off": "OFF",
+  "command_topic": "zigbee2mqtt/{device}/set",
+  "commands": {
+    "turn_on": { "state": "ON" },
+    "turn_off": { "state": "OFF" },
+    "toggle": { "state": "TOGGLE" }
+  }
+}

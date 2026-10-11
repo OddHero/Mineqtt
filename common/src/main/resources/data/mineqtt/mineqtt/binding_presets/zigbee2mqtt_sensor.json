@@ -1,0 +1,7 @@
+{
+  "name": "zigbee2mqtt sensor",
+  "kind": "sensor",
+  "state_topic": "zigbee2mqtt/{device}",
+  "state": "temperature",
+  "payload_attributes": true
+}

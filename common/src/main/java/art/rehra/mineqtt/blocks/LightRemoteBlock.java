@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks;
 
+import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
 import art.rehra.mineqtt.blocks.entities.LightRemoteBlockEntity;
 import art.rehra.mineqtt.device.DeviceRuntime;
 import art.rehra.mineqtt.device.types.WallSwitch;
@@ -126,6 +127,6 @@ public class LightRemoteBlock extends BaseMqttBlock {
     /** The server tells the gestures and lets go of the buttons; the client has nothing to tick. */
     @Override
     public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
-        return level.isClientSide() ? null : new LightRemoteBlockEntity.ServerTicker<>();
+        return level.isClientSide() ? new DeviceBlockEntity.TwinClientTicker<>() : new LightRemoteBlockEntity.ServerTicker<>();
     }
 }

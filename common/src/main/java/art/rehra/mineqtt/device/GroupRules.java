@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.device;
 
 import art.rehra.mineqtt.flow.core.PortType;
+import art.rehra.mineqtt.twin.core.Binding;
 import com.google.gson.JsonPrimitive;
 import com.mojang.serialization.DataResult;
 import io.netty.buffer.ByteBuf;
@@ -8,6 +9,7 @@ import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.Identifier;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Comparator;
 import java.util.List;
@@ -118,7 +120,21 @@ public final class GroupRules {
      */
     public static Optional<String> joinProblem(DeviceGroup group, Identifier type, boolean groupable, UUID device, Predicate<UUID> configures,
                                                Function<String, Optional<String>> topicRefusal) {
+        return joinProblem(group, type, groupable, device, null, configures, topicRefusal);
+    }
+
+    /**
+     * {@link #joinProblem(DeviceGroup, Identifier, boolean, UUID, Predicate, Function)} of a device with a twin binding: a
+     * bound device joins no group (M3 plan D6), since a group's state fans out to its members and a mirror follows its
+     * source alone.
+     *
+     * @param binding the device's binding; null when unbound
+     */
+    public static Optional<String> joinProblem(DeviceGroup group, Identifier type, boolean groupable, UUID device, @Nullable Binding binding,
+                                               Predicate<UUID> configures, Function<String, Optional<String>> topicRefusal) {
         if (!groupable) return Optional.of(type + " devices cannot be grouped");
+        Optional<String> mirrored = TwinRules.groupProblem(binding);
+        if (mirrored.isPresent()) return mirrored;
         if (group.memberType() != null && !group.memberType().equals(type)) return Optional.of("group " + group.name() + " holds " + group.memberType() + " devices");
         if (group.members().contains(device)) return Optional.of("it already is in group " + group.name());
         if (group.members().isEmpty()) return Optional.of("group " + group.name() + " has no devices");
@@ -132,7 +148,7 @@ public final class GroupRules {
 
     /**
      * The groups a device may join, by name: those of its type, other than its own, whose every member the player may
-     * configure and whose v1 topic, if they replace one, the device's owner may use.
+     * configure and whose v1 topic, if they replace one, the device's owner may use; none for a bound device.
      *
      * @param topicRefusal why the device's owner may not use this topic; empty when they may
      */
@@ -141,7 +157,7 @@ public final class GroupRules {
         DeviceType type = DeviceTypes.get(record.type());
         boolean groupable = type != null && type.groupable();
         return registry.groups().stream()
-                .filter(group -> joinProblem(group, record.type(), groupable, record.id(), configures, topicRefusal).isEmpty())
+                .filter(group -> joinProblem(group, record.type(), groupable, record.id(), record.twin(), configures, topicRefusal).isEmpty())
                 .sorted(Comparator.comparing(DeviceGroup::name, String.CASE_INSENSITIVE_ORDER).thenComparing(DeviceGroup::slug))
                 .toList();
     }

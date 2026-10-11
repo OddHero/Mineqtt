@@ -15,6 +15,7 @@ import art.rehra.mineqtt.device.DeviceLinks;
 import art.rehra.mineqtt.device.DeviceRuntime;
 import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.device.GroupRules;
+import art.rehra.mineqtt.device.TwinView;
 import art.rehra.mineqtt.flow.core.Mapping;
 import art.rehra.mineqtt.integrations.MineqttPermission;
 import art.rehra.mineqtt.items.ConfiguratorGroup;
@@ -27,6 +28,7 @@ import art.rehra.mineqtt.ui.console.BridgeConsole;
 import art.rehra.mineqtt.ui.console.ConsoleMenu;
 import art.rehra.mineqtt.ui.console.ConsoleView;
 import art.rehra.mineqtt.ui.device.DeviceMenu;
+import art.rehra.mineqtt.ui.device.TwinPicker;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedScreenHost;
 import dev.architectury.networking.NetworkManager;
@@ -51,6 +53,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 public final class MineqttNetworking {
     public static final Identifier CYBERDECK_PUBLISH_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_publish");
@@ -82,6 +85,9 @@ public final class MineqttNetworking {
     public static final Identifier GROUP_NAME_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "group_name");
     public static final Identifier CONSOLE_VIEW_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "console_view");
     public static final Identifier BRIDGE_ACTION_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "bridge_action");
+    public static final Identifier TWIN_VIEW_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "twin_view");
+    public static final Identifier TWIN_SEARCH_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "twin_search");
+    public static final Identifier TWIN_RESULTS_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "twin_results");
 
     @Deprecated
     public static final Identifier CYBERDECK_PUBLISH = CYBERDECK_PUBLISH_ID;
@@ -247,6 +253,12 @@ public final class MineqttNetworking {
                 C2SGuard.require(player, payload, payload.pos(), TerminalBlockEntity.class, MineqttPermission.CONFIGURE)
                         .ifPresent(terminal -> BridgeConsole.act(player, payload.action())));
 
+        // A search of the Twin tab's entity picker (M3 plan D4): CONFIGURE on the device whose screen the player has open,
+        // then the twin rights, the search rate and the read gate (DeviceRuntime.twinSearch); only a binder gets rows.
+        receive(TwinSearchPayload.TYPE, TwinSearchPayload.CODEC, (player, payload) ->
+                C2SGuard.requireDevice(player, payload, payload.pos(), MineqttPermission.CONFIGURE)
+                        .ifPresent(device -> DeviceRuntime.twinSearch(player, device, payload)));
+
         // S2C: Cyberdeck topic update (topic, payload)
         // Architectury 17+ on Fabric requires the codec to be registered for S2C on the server
         // so that sendToPlayer can find it. registerReceiver with Side.S2C on the server
@@ -263,6 +275,8 @@ public final class MineqttNetworking {
             NetworkManager.registerReceiver(NetworkManager.Side.S2C, DeviceGroupsPayload.TYPE, DeviceGroupsPayload.CODEC, ClientPacketHandler::handleDeviceGroups);
             NetworkManager.registerReceiver(NetworkManager.Side.S2C, GroupPromptPayload.TYPE, GroupPromptPayload.CODEC, ClientPacketHandler::handleGroupPrompt);
             NetworkManager.registerReceiver(NetworkManager.Side.S2C, ConsoleViewPayload.TYPE, ConsoleViewPayload.CODEC, ClientPacketHandler::handleConsoleView);
+            NetworkManager.registerReceiver(NetworkManager.Side.S2C, TwinViewPayload.TYPE, TwinViewPayload.CODEC, ClientPacketHandler::handleTwinView);
+            NetworkManager.registerReceiver(NetworkManager.Side.S2C, TwinResultsPayload.TYPE, TwinResultsPayload.CODEC, ClientPacketHandler::handleTwinResults);
         } else {
             NetworkManager.registerS2CPayloadType(CyberdeckTopicUpdatePayload.TYPE, CyberdeckTopicUpdatePayload.CODEC);
             NetworkManager.registerS2CPayloadType(DeviceStatusPayload.TYPE, DeviceStatusPayload.CODEC);
@@ -273,6 +287,8 @@ public final class MineqttNetworking {
             NetworkManager.registerS2CPayloadType(DeviceGroupsPayload.TYPE, DeviceGroupsPayload.CODEC);
             NetworkManager.registerS2CPayloadType(GroupPromptPayload.TYPE, GroupPromptPayload.CODEC);
             NetworkManager.registerS2CPayloadType(ConsoleViewPayload.TYPE, ConsoleViewPayload.CODEC);
+            NetworkManager.registerS2CPayloadType(TwinViewPayload.TYPE, TwinViewPayload.CODEC);
+            NetworkManager.registerS2CPayloadType(TwinResultsPayload.TYPE, TwinResultsPayload.CODEC);
         }
     }
 
@@ -284,11 +300,17 @@ public final class MineqttNetworking {
      * @param problem why the device's Raw Link does nothing, or null while it works
      */
     public static void sendDeviceStatus(BlockEntity blockEntity, String status, @Nullable String problem) {
-        DeviceStatusPayload payload = null;
+        sendDeviceStatus(blockEntity, player -> status, problem);
+    }
+
+    /**
+     * {@link #sendDeviceStatus(BlockEntity, String, String)} with a status line per viewer: a device's twin names its
+     * entities only to those who may configure it (M3 plan D13 #7).
+     */
+    public static void sendDeviceStatus(BlockEntity blockEntity, Function<ServerPlayer, String> status, @Nullable String problem) {
         for (ServerPlayer player : viewers(blockEntity)) {
             if (DeviceMenu.controlsOnly(player)) continue;
-            if (payload == null) payload = DeviceStatusPayload.of(blockEntity.getBlockPos(), status, problem);
-            NetworkManager.sendToPlayer(player, payload);
+            NetworkManager.sendToPlayer(player, DeviceStatusPayload.of(blockEntity.getBlockPos(), status.apply(player), problem));
         }
     }
 
@@ -339,6 +361,20 @@ public final class MineqttNetworking {
     /** Sends a player with a Bridge Console's screen open their view of it. */
     public static void sendConsoleView(ServerPlayer player, ConsoleView view) {
         NetworkManager.sendToPlayer(player, new ConsoleViewPayload(view));
+    }
+
+    /**
+     * Sends a player with a device's screen open what its Twin tab shows them (M3 plan D19): when the screen opens and with
+     * every new view. A screen with the Controls tab alone (P2) gets none.
+     */
+    public static void sendTwinView(ServerPlayer player, TwinView view) {
+        if (DeviceMenu.controlsOnly(player)) return;
+        NetworkManager.sendToPlayer(player, new TwinViewPayload(view));
+    }
+
+    /** Answers a player's entity picker search ({@link TwinSearchPayload}). */
+    public static void sendTwinResults(ServerPlayer player, TwinResultsPayload results) {
+        NetworkManager.sendToPlayer(player, results);
     }
 
     /** The players whose open menu is the block entity's. */
@@ -907,6 +943,97 @@ public final class MineqttNetworking {
         }
     }
 
+    /** What a device's Twin tab shows one player with its screen open ({@link #sendTwinView}). */
+    public record TwinViewPayload(TwinView view) implements CustomPacketPayload {
+        public static final Type<TwinViewPayload> TYPE = new Type<>(TWIN_VIEW_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, TwinViewPayload> CODEC = TwinView.STREAM_CODEC.<RegistryFriendlyByteBuf>cast()
+                .map(TwinViewPayload::new, TwinViewPayload::view);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * The Twin tab's entity picker searches (M3 plan D4): for the binding key {@code key} of the device whose screen the
+     * player has open, the entities matching {@code query} (at most {@value TwinPicker#MAX_QUERY_LENGTH} characters), of
+     * one domain or, with {@code ""}, of every domain the key picks from. The client debounces it to
+     * {@value TwinPicker#DEBOUNCE_MILLIS} ms; the server answers with a {@link TwinResultsPayload}. With the kind
+     * {@link TwinPicker.SearchKind#PRESET} it asks instead for the MQTT device presets of the "MQTT device" source (M3-17,
+     * key {@code twin.device}, {@code domain} a preset kind), the same payload under the same guard.
+     */
+    public record TwinSearchPayload(BlockPos pos, TwinPicker.SearchKind kind, String key, String query, String domain) implements CustomPacketPayload {
+        public static final Type<TwinSearchPayload> TYPE = new Type<>(TWIN_SEARCH_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, TwinSearchPayload> CODEC = StreamCodec.composite(
+                BlockPos.STREAM_CODEC, TwinSearchPayload::pos,
+                TwinPicker.SearchKind.STREAM_CODEC.cast(), TwinSearchPayload::kind,
+                ByteBufCodecs.stringUtf8(DeviceConfigPayload.MAX_KEY_CHARS), TwinSearchPayload::key,
+                ByteBufCodecs.stringUtf8(TwinPicker.MAX_QUERY_LENGTH), TwinSearchPayload::query,
+                TwinPicker.DOMAIN_CODEC.cast(), TwinSearchPayload::domain,
+                TwinSearchPayload::new);
+
+        /** An entity search, as the entity picker sends it. */
+        public TwinSearchPayload(BlockPos pos, String key, String query, String domain) {
+            this(pos, TwinPicker.SearchKind.ENTITY, key, query, domain);
+        }
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * The answer to a picker search ({@link TwinSearchPayload}): at most {@value TwinPicker#MAX_ROWS} entities the player
+     * may bind, best first and grouped by area, and why there are none or what else to know.
+     *
+     * @param kind   what was searched, repeated: entities, or MQTT device presets (M3-17)
+     * @param key    the binding key searched for, repeated
+     * @param query  the query answered, repeated, so the picker drops an answer to an older one
+     * @param domain the domain filter answered (a chip, {@code ""} for all), repeated, so the picker drops an answer to a
+     *               chip it has left (wave 6 review low)
+     * @param detail what the notice names: why the twin is off; {@code ""} otherwise
+     */
+    public record TwinResultsPayload(BlockPos pos, TwinPicker.SearchKind kind, String key, String query, String domain, List<TwinPicker.Row> rows,
+                                     TwinPicker.Notice notice, String detail)
+            implements CustomPacketPayload {
+        public static final Type<TwinResultsPayload> TYPE = new Type<>(TWIN_RESULTS_ID);
+        private static final StreamCodec<RegistryFriendlyByteBuf, TwinPicker.Notice> NOTICE_CODEC = StreamCodec.of(
+                (buf, notice) -> VarInt.write(buf, notice.ordinal()),
+                buf -> {
+                    int ordinal = VarInt.read(buf);
+                    TwinPicker.Notice[] notices = TwinPicker.Notice.values();
+                    if (ordinal < 0 || ordinal >= notices.length) throw new DecoderException("Unknown picker notice " + ordinal);
+                    return notices[ordinal];
+                });
+        public static final StreamCodec<RegistryFriendlyByteBuf, TwinResultsPayload> CODEC = StreamCodec.composite(
+                BlockPos.STREAM_CODEC, TwinResultsPayload::pos,
+                TwinPicker.SearchKind.STREAM_CODEC.cast(), TwinResultsPayload::kind,
+                ByteBufCodecs.stringUtf8(DeviceConfigPayload.MAX_KEY_CHARS), TwinResultsPayload::key,
+                ByteBufCodecs.stringUtf8(TwinPicker.MAX_QUERY_LENGTH), TwinResultsPayload::query,
+                TwinPicker.DOMAIN_CODEC.cast(), TwinResultsPayload::domain,
+                TwinPicker.ROWS_CODEC.cast(), TwinResultsPayload::rows,
+                NOTICE_CODEC, TwinResultsPayload::notice,
+                ByteBufCodecs.stringUtf8(TwinView.MAX_REASON_LENGTH), TwinResultsPayload::detail,
+                TwinResultsPayload::new);
+
+        /** The answer with its texts cut to what the codec carries. */
+        public TwinResultsPayload {
+            rows = List.copyOf(rows);
+            if (rows.size() > TwinPicker.MAX_ROWS) throw new IllegalArgumentException("An answer has more than " + TwinPicker.MAX_ROWS + " rows");
+            key = key.length() <= DeviceConfigPayload.MAX_KEY_CHARS ? key : key.substring(0, DeviceConfigPayload.MAX_KEY_CHARS);
+            query = query.length() <= TwinPicker.MAX_QUERY_LENGTH ? query : query.substring(0, TwinPicker.MAX_QUERY_LENGTH);
+            domain = domain.length() <= TwinPicker.MAX_DOMAIN_LENGTH ? domain : domain.substring(0, TwinPicker.MAX_DOMAIN_LENGTH);
+            detail = detail.length() <= TwinView.MAX_REASON_LENGTH ? detail : detail.substring(0, TwinView.MAX_REASON_LENGTH);
+        }
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     private static class ClientPacketHandler {
         public static void handleTopicUpdate(CyberdeckTopicUpdatePayload payload, NetworkManager.PacketContext context) {
             String topic = payload.topic();
@@ -965,6 +1092,24 @@ public final class MineqttNetworking {
             context.queue(() -> {
                 if (context.getPlayer().containerMenu instanceof ConsoleMenu menu && payload.view().pos().equals(menu.blockPos)) {
                     menu.setView(payload.view());
+                }
+            });
+        }
+
+        // Only the screen of that device takes it, also while its entity picker covers it.
+        public static void handleTwinView(TwinViewPayload payload, NetworkManager.PacketContext context) {
+            context.queue(() -> {
+                if (context.getPlayer().containerMenu instanceof DeviceMenu menu && payload.view().pos().equals(menu.blockPos)) {
+                    menu.setTwinView(payload.view());
+                }
+            });
+        }
+
+        // Only the screen of that device takes it; its picker reads it from there.
+        public static void handleTwinResults(TwinResultsPayload payload, NetworkManager.PacketContext context) {
+            context.queue(() -> {
+                if (context.getPlayer().containerMenu instanceof DeviceMenu menu && payload.pos().equals(menu.blockPos)) {
+                    menu.setTwinResults(payload);
                 }
             });
         }

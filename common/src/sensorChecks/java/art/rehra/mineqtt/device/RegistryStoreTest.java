@@ -5,6 +5,8 @@ import art.rehra.mineqtt.flow.core.Mapping;
 import art.rehra.mineqtt.flow.core.Scope;
 import art.rehra.mineqtt.flow.core.Wire;
 import art.rehra.mineqtt.security.AccessMode;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.ValuePath;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.SharedConstants;
@@ -25,6 +27,8 @@ import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.util.Map;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -69,6 +73,8 @@ public final class RegistryStoreTest {
             brokenDevices(root.resolve("broken"));
             wireCodec();
             ownerCounts();
+            twinCopies();
+            discoveryCleanup();
         } finally {
             try (Stream<Path> files = Files.walk(root)) {
                 for (Path path : files.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
@@ -637,6 +643,109 @@ public final class RegistryStoreTest {
         }
     }
 
+    /**
+     * M3 plan D14: a record's copy of its twin binding is the nested {@code twin} compound, its 16th and last codec field.
+     * An unbound record writes no key, so it saves as an M2 record; an M2 file reads unbound; a bound record round-trips
+     * every part; defaults are left out; a {@code twin} compound that breaks the binding rules loses only the binding.
+     */
+    private static void twinCopies() {
+        DeviceRecord plain = new DeviceRecord(UUID.fromString("00000000-0000-0000-0000-0000000000c1"), LAMP, at(1, 64, 1), "Porch Lamp", "porch_lamp");
+        plain.setOwner(KITCHEN_OWNER);
+        plain.setLastState(JsonParser.parseString("{\"state\":\"ON\"}").getAsJsonObject());
+        CompoundTag unbound = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, plain).getOrThrow();
+        check(!unbound.contains("twin"), "An unbound record writes no twin key: " + unbound);
+        check(unbound.keySet().equals(Set.of("id", "type", "pos", "name", "slug", "owner", "lastState")),
+                "...and exactly the keys an M2 record writes: " + unbound.keySet());
+        DeviceRecord m2 = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, unbound).getOrThrow();
+        check(m2.twin() == null && DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, m2).getOrThrow().equals(unbound),
+                "An M2 record reads unbound and saves byte-identical");
+
+        Binding full = new Binding(new Endpoint.HaEntityRef("input_number.volume", "value"),
+                Map.of("pressed", new Endpoint.HaEntityRef("scene.movie_night", "activate")), true,
+                new Binding.Settings(true, new BigDecimal("-12.5"), new BigDecimal("100"), 2, Binding.Unavailable.OFF, ValuePath.parse("attributes.max")),
+                "input_number.volume is not in twin.allowedEntities");
+        DeviceRecord bound = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, unbound).getOrThrow();
+        bound.setTwin(full);
+        CompoundTag saved = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, bound).getOrThrow();
+        CompoundTag twin = saved.getCompound("twin").orElseThrow();
+        check(twin.keySet().equals(Set.of("source", "targets", "control", "invert", "min", "max", "decimals", "unavailable", "path", "refused")),
+                "Every part of a binding is stored: " + twin);
+        check(twin.getStringOr("min", "").equals("-12.5") && twin.getStringOr("unavailable", "").equals("off")
+                && twin.getCompound("source").orElseThrow().getStringOr("entity", "").equals("input_number.volume"), "...in its plain form: " + twin);
+        DeviceRecord read = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, saved).getOrThrow();
+        check(full.equals(read.twin()), "A binding round-trips: " + read.twin());
+        unbound.keySet().forEach(key -> check(saved.get(key).equals(unbound.get(key)), "Binding a record changes no other key: " + key));
+
+        DeviceRecord minimal = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, unbound).getOrThrow();
+        minimal.setTwin(Binding.of(new Endpoint.HaEntityRef("switch.porch", "state")));
+        CompoundTag small = ((CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, minimal).getOrThrow()).getCompound("twin").orElseThrow();
+        check(small.keySet().equals(Set.of("source")), "Defaults are left out: " + small);
+        Binding topic = new Binding(new Endpoint.TopicRef("zigbee2mqtt/porch", "state"), Map.of(), false, Binding.Settings.DEFAULT, null);
+        minimal.setTwin(topic);
+        check(topic.equals(DeviceRecord.CODEC.parse(NbtOps.INSTANCE, DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, minimal).getOrThrow()).getOrThrow().twin()),
+                "A topic source round-trips with its path");
+
+        for (String broken : List.of("{control:1b,targets:{pressed:{entity:\"scene.movie\",port:\"activate\"}}}", "{source:{entity:\"Light.Kitchen\",port:\"state\"}}",
+                "{source:{entity:\"light.kitchen\",topic:\"x\"}}", "{source:{topic:\"x\",path:\"[\"}}", "{}", "{source:{entity:\"light.kitchen\",port:\"state\"},decimals:9}")) {
+            CompoundTag withBroken = unbound.copy();
+            try {
+                withBroken.put("twin", net.minecraft.nbt.TagParser.parseCompoundFully(broken));
+            } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) {
+                throw new AssertionError(e);
+            }
+            DeviceRecord kept = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, withBroken).getOrThrow();
+            check(kept.twin() == null && kept.name().equals("Porch Lamp"), "A broken twin compound loses the binding, not the record: " + broken);
+        }
+
+        DeviceRegistry registry = new DeviceRegistry("world_7f3a", UUID.randomUUID());
+        registry.add(bound);
+        CompoundTag encoded = registry.encode();
+        DeviceRegistry decoded = DeviceRegistry.decode(encoded, problem -> {
+            throw new AssertionError("A bound record is valid: " + problem);
+        });
+        check(full.equals(decoded.record(bound.id()).twin()) && decoded.encode().equals(encoded), "The registry keeps the copy, schema " + DeviceRegistry.SCHEMA);
+    }
+
+    /**
+     * M3-7b: a pending discovery cleanup is the flat key {@code discoveryCleanup}, written only while true, beside
+     * {@code discoveryHash} in the same codec field. A record without it saves exactly as before; one with it round-trips,
+     * through the registry too, and changes no other key; an older MineQTT reading it ignores the unknown key.
+     */
+    private static void discoveryCleanup() {
+        DeviceRecord plain = new DeviceRecord(UUID.fromString("00000000-0000-0000-0000-0000000000c2"), LAMP, at(2, 64, 1), "Hall Lamp", "hall_lamp");
+        plain.setOwner(KITCHEN_OWNER);
+        plain.setDiscoveryHash("4f2a");
+        CompoundTag before = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, plain).getOrThrow();
+        check(before.keySet().equals(Set.of("id", "type", "pos", "name", "slug", "owner", "discoveryHash")) && !plain.discoveryCleanup(),
+                "No pending cleanup writes no key: " + before.keySet());
+        DeviceRecord read = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, before).getOrThrow();
+        check(!read.discoveryCleanup() && "4f2a".equals(read.discoveryHash()) && DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, read).getOrThrow().equals(before),
+                "A record from before M3-7b reads without a cleanup and saves byte-identical");
+
+        read.setDiscoveryCleanup(true);
+        CompoundTag marked = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, read).getOrThrow();
+        check(marked.getBooleanOr("discoveryCleanup", false) && marked.keySet().size() == before.keySet().size() + 1,
+                "A pending cleanup is one flat key beside the hash: " + marked);
+        before.keySet().forEach(key -> check(marked.get(key).equals(before.get(key)), "Marking a record changes no other key: " + key));
+        DeviceRecord again = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, marked).getOrThrow();
+        check(again.discoveryCleanup() && "4f2a".equals(again.discoveryHash()), "A pending cleanup round-trips");
+        again.setDiscoveryHash(null);
+        CompoundTag withoutHash = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, again).getOrThrow();
+        check(!withoutHash.contains("discoveryHash") && DeviceRecord.CODEC.parse(NbtOps.INSTANCE, withoutHash).getOrThrow().discoveryCleanup(),
+                "The two keys are independent");
+        again.setDiscoveryCleanup(false);
+        check(!((CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, again).getOrThrow()).contains("discoveryCleanup"), "A done cleanup leaves no key");
+
+        DeviceRegistry registry = new DeviceRegistry("world_7f3a", UUID.randomUUID());
+        DeviceRecord kept = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, marked).getOrThrow();
+        registry.add(kept);
+        CompoundTag encoded = registry.encode();
+        DeviceRegistry decoded = DeviceRegistry.decode(encoded, problem -> {
+            throw new AssertionError("A marked record is valid: " + problem);
+        });
+        check(decoded.record(kept.id()).discoveryCleanup() && decoded.encode().equals(encoded), "The registry keeps the mark, schema " + DeviceRegistry.SCHEMA);
+    }
+
     // The wire codec (M2 plan §3.2) round-trips what M2 builds and refuses the reserved endpoints and the cable scope.
     private static void wireCodec() {
         UUID input = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
@@ -653,8 +762,29 @@ public final class RegistryStoreTest {
         check(WireCodecs.WIRE.parse(NbtOps.INSTANCE, WireCodecs.WIRE.encodeStart(NbtOps.INSTANCE, disabled).getOrThrow()).getOrThrow().equals(disabled),
                 "A disabled wire round-trips");
 
-        check(WireCodecs.ENDPOINT.encodeStart(NbtOps.INSTANCE, new Endpoint.TopicRef("a/b")).isError()
-                && WireCodecs.ENDPOINT.encodeStart(NbtOps.INSTANCE, new Endpoint.HaEntityRef("light.kitchen")).isError(), "Reserved endpoints are not written");
+        // Home Assistant and topic ends, and the twin scope, exist only on wires derived from bindings (M3 plan §3.3).
+        Endpoint entity = new Endpoint.HaEntityRef("light.kitchen", "state");
+        Endpoint topic = new Endpoint.TopicRef("a/b", "");
+        check(WireCodecs.ENDPOINT.encodeStart(NbtOps.INSTANCE, topic).isError()
+                && WireCodecs.ENDPOINT.encodeStart(NbtOps.INSTANCE, entity).isError(), "Topic and Home Assistant ends are not written");
+        check(WireCodecs.ENDPOINT.encodeStart(NbtOps.INSTANCE, entity).error().orElseThrow().message().contains("derived from device bindings"),
+                "The refusal says why");
+        check(WireCodecs.WIRE.encodeStart(NbtOps.INSTANCE, new Wire(wire.id(), entity, wire.to(), Mapping.FOLLOW, Scope.TWIN, KITCHEN_OWNER, true)).isError()
+                && WireCodecs.WIRE.encodeStart(NbtOps.INSTANCE, new Wire(wire.id(), wire.from(), entity, Mapping.FOLLOW, Scope.TWIN, KITCHEN_OWNER, true)).isError(),
+                "A derived twin wire is not written");
+        check(WireCodecs.WIRE.encodeStart(NbtOps.INSTANCE, new Wire(wire.id(), wire.from(), wire.to(), Mapping.FOLLOW, Scope.TWIN, KITCHEN_OWNER, true)).isError(),
+                "Nor is the twin scope between device ports");
+        CompoundTag entityTag = new CompoundTag();
+        entityTag.putString("type", "ha_entity");
+        entityTag.putString("entity_id", "light.kitchen");
+        entityTag.putString("port", "state");
+        CompoundTag fromEntity = compound.copy();
+        fromEntity.put("from", entityTag);
+        check(WireCodecs.WIRE.parse(NbtOps.INSTANCE, fromEntity).isError(), "A stored wire from a Home Assistant end is refused");
+        CompoundTag twin = compound.copy();
+        twin.putString("scope", "twin");
+        check(WireCodecs.WIRE.parse(NbtOps.INSTANCE, twin).error().orElseThrow().message().contains("derived from device bindings"),
+                "A stored wire of the twin scope is refused");
         for (String type : List.of("topic", "ha_entity", "cable", "")) {
             CompoundTag endpoint = new CompoundTag();
             endpoint.putString("type", type);

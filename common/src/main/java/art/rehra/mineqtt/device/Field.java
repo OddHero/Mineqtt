@@ -31,7 +31,12 @@ public record Field<T>(String key, Codec<T> codec, T defaultValue, Access access
     }
 
     public static Field<Boolean> bool(String key, Access access) {
-        return new Field<>(key, ValueCodecs.BOOL, false, access, false, PortType.BOOL);
+        return bool(key, false, access);
+    }
+
+    /** A boolean with its own default, e.g. a setting that starts on. */
+    public static Field<Boolean> bool(String key, boolean defaultValue, Access access) {
+        return new Field<>(key, ValueCodecs.BOOL, defaultValue, access, false, PortType.BOOL);
     }
 
     /** A redstone or light level 0–15; defaults to 0. */
@@ -64,7 +69,12 @@ public record Field<T>(String key, Codec<T> codec, T defaultValue, Access access
 
     /** One of an enum's serialized names; defaults to its first constant. */
     public static <E extends Enum<E> & StringRepresentable> Field<E> enumOf(String key, Class<E> type, Access access) {
-        return new Field<>(key, ValueCodecs.enumOf(type), type.getEnumConstants()[0], access, false, PortType.enumOf(names(type)));
+        return enumOf(key, type, type.getEnumConstants()[0], access);
+    }
+
+    /** One of an enum's serialized names, with its own default. */
+    public static <E extends Enum<E> & StringRepresentable> Field<E> enumOf(String key, Class<E> type, E defaultValue, Access access) {
+        return new Field<>(key, ValueCodecs.enumOf(type), defaultValue, access, false, PortType.enumOf(names(type)));
     }
 
     /**
@@ -84,6 +94,11 @@ public record Field<T>(String key, Codec<T> codec, T defaultValue, Access access
     /** Free text, sanitised and capped at {@link ValueCodecs#MAX_TEXT_LENGTH}. */
     public static Field<String> text(String key, Access access) {
         return new Field<>(key, ValueCodecs.TEXT, "", access, false, PortType.text(ValueCodecs.MAX_TEXT_LENGTH));
+    }
+
+    /** Free text that keeps its line breaks, sanitised and capped at {@code maxLength} code points ({@link ValueCodecs#lines}). */
+    public static Field<String> lines(String key, int maxLength, Access access) {
+        return new Field<>(key, ValueCodecs.lines(maxLength), "", access, false, PortType.text(maxLength));
     }
 
     /** A structured value, e.g. a location; a {@code JSON} port. */

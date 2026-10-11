@@ -1,12 +1,17 @@
 package art.rehra.mineqtt.device;
 
 import art.rehra.mineqtt.flow.core.Endpoint;
+import art.rehra.mineqtt.flow.core.PortSpec;
 import art.rehra.mineqtt.flow.core.Mapping;
 import art.rehra.mineqtt.flow.core.MessageBus;
+import art.rehra.mineqtt.flow.core.PortType;
+import art.rehra.mineqtt.flow.core.Scope;
 import art.rehra.mineqtt.flow.core.Wire;
+import art.rehra.mineqtt.twin.core.HaDomains;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -18,24 +23,72 @@ import java.util.UUID;
  * without members' type and a type this MineQTT does not know have none, which the bus counts as unroutable.
  */
 final class RegistryWiring implements MessageBus.Wiring {
-    private final DeviceRegistry registry;
+    /**
+     * The out-port of a preset's state topic (M3-17): a {@link Scope#TWIN} source wire carries a fingerprint of each new
+     * payload as a JSON object, and the device reads the payload itself through its preset, so no port kind applies.
+     */
+    static final PortSpec TOPIC_SOURCE = new PortSpec() {
+        @Override
+        public PortType kind() {
+            return PortType.text(HaDomains.MAX_TEXT);
+        }
 
+        @Override
+        public boolean toggles() {
+            return false;
+        }
+    };
+
+    private final DeviceRegistry registry;
+    private final TwinWiring twin;
+
+    /** Without derived wires: the registry's alone. */
     RegistryWiring(DeviceRegistry registry) {
-        this.registry = registry;
+        this(registry, new TwinWiring());
     }
 
+    /** The registry's wires and the ones derived from device bindings ({@link TwinWiring}, M3 plan §3.3). */
+    RegistryWiring(DeviceRegistry registry, TwinWiring twin) {
+        this.registry = registry;
+        this.twin = twin;
+    }
+
+    /**
+     * An entity's or a preset state topic's derived source wires; a device out-port's registry wires, then its derived
+     * target wire.
+     */
     @Override
     public List<Wire> from(Endpoint source) {
-        return registry.wiresFrom(source);
+        if (source instanceof Endpoint.HaEntityRef || source instanceof Endpoint.TopicRef) return twin.from(source);
+        List<Wire> registered = registry.wiresFrom(source);
+        List<Wire> targets = source instanceof Endpoint.PortRef ? twin.from(source) : List.of();
+        if (targets.isEmpty()) return registered;
+        List<Wire> wires = new ArrayList<>(registered);
+        wires.addAll(targets);
+        return wires;
     }
 
+    /**
+     * A device's or group's out-port, a Home Assistant entity's ({@link HaDomains.Domain#readPort}), or a preset state
+     * topic's, which carries a payload fingerprint ({@link #TOPIC_SOURCE}, M3-17).
+     */
     @Override
-    public Optional<Port> out(Endpoint source) {
+    public Optional<? extends PortSpec> out(Endpoint source) {
+        if (source instanceof Endpoint.HaEntityRef entity) {
+            int dot = entity.entityId().indexOf('.');
+            return HaDomains.domain(entity.entityId().substring(0, dot)).flatMap(domain -> domain.readPort(entity.port()));
+        }
+        if (source instanceof Endpoint.TopicRef) return Optional.of(TOPIC_SOURCE);
         return port(registry, source, Port.Direction.OUT);
     }
 
+    /** A device's or group's in-port, or a Home Assistant entity's ({@link HaDomains.Domain#inPort}), a target wire's end. */
     @Override
-    public Optional<Port> in(Endpoint target) {
+    public Optional<? extends PortSpec> in(Endpoint target) {
+        if (target instanceof Endpoint.HaEntityRef entity) {
+            int dot = entity.entityId().indexOf('.');
+            return HaDomains.domain(entity.entityId().substring(0, dot)).flatMap(domain -> domain.inPort(entity.port()));
+        }
         return port(registry, target, Port.Direction.IN);
     }
 

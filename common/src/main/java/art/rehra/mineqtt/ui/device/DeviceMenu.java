@@ -6,12 +6,18 @@ import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceLinks;
 import art.rehra.mineqtt.device.DeviceRuntime;
 import art.rehra.mineqtt.device.DeviceView;
+import art.rehra.mineqtt.device.LinkSetting;
+import art.rehra.mineqtt.device.TwinView;
 import art.rehra.mineqtt.integrations.MineqttPermission;
+import art.rehra.mineqtt.network.MineqttNetworking.DeviceConfigPayload;
+import art.rehra.mineqtt.network.MineqttNetworking.TwinResultsPayload;
 import art.rehra.mineqtt.security.C2SGuard;
 import art.rehra.mineqtt.security.DeviceAccess;
 import art.rehra.mineqtt.ui.MineqttMenuTypes;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
+import dev.architectury.networking.NetworkManager;
 import dev.architectury.registry.menu.MenuRegistry;
+import net.minecraft.nbt.StringTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Util;
@@ -45,6 +51,19 @@ public class DeviceMenu extends TabbedMqttMenu {
     private @Nullable Refusal refusal;
     private @Nullable DeviceLinks links;
     private @Nullable DeviceGroups groups;
+    private @Nullable TwinView twinView;
+    private @Nullable TwinResultsPayload twinResults;
+    // The last answer to the Twin tab's preset search (client, M3-17): the presets its "MQTT device" source cycles through.
+    private @Nullable TwinResultsPayload presetResults;
+    // The binding key the Configurator's Bind mode asked the picker to open for, until the Twin tab takes it (client).
+    private @Nullable String pickRequest;
+    // The name the block gets once the server shows the entity picked for it bound (client, "Name the block after it").
+    private @Nullable PendingRename pendingRename;
+    // The Twin tab's source cycle as the player stepped it while the device is unbound (client, M3-17), kept across the
+    // tab's views (the picker replaces the screen); forgotten when the device's source changes.
+    private @Nullable TwinTab.SourceMode sourceChoice;
+    // The preset the Twin tab's "MQTT device" source shows before the device is bound to one (client, M3-17).
+    private @Nullable String presetChoice;
     // When the current view arrived (client, Util.getMillis): the ages it gives grow from there.
     private long viewArrived;
 
@@ -61,6 +80,13 @@ public class DeviceMenu extends TabbedMqttMenu {
         public boolean answers(DeviceView view) {
             return link.equals(view.raw());
         }
+    }
+
+    /**
+     * A rename the picker asked for (client): sent once the next {@link TwinView} shows {@code entity} bound under
+     * {@code key}, so a refused bind leaves the name alone; dropped when the bind is refused.
+     */
+    public record PendingRename(String key, String entity, String name) {
     }
 
     /**
@@ -85,10 +111,21 @@ public class DeviceMenu extends TabbedMqttMenu {
      * has one.
      */
     public static void open(ServerPlayer player, DeviceBlockEntity device) {
+        open(player, device, device.getLastTabId(), null);
+    }
+
+    /**
+     * {@link #open(ServerPlayer, DeviceBlockEntity)} on the tab {@code tab} when the player's screen has it (else the first),
+     * and with the entity picker opening for the binding key {@code pick} (the Configurator's Bind mode, M3 plan D19):
+     * the Twin tab opens it when its first view arrives, which comes right after the screen.
+     *
+     * @param pick a binding key of the device's type, {@code ""} to ask which target first, or null for no picker
+     */
+    public static void open(ServerPlayer player, DeviceBlockEntity device, @Nullable String tab, @Nullable String pick) {
         boolean configurable = DeviceAccess.check(player, device, MineqttPermission.CONFIGURE);
         DeviceView view = DeviceRuntime.view(player, device);
         boolean controlsOnly = view.controlsOnly();
-        String tabId = initialTabId(DeviceTabs.forViewer(device.deviceType(), controlsOnly), device.getLastTabId());
+        String tabId = initialTabId(DeviceTabs.forViewer(device.deviceType(), controlsOnly), tab);
         MenuRegistry.openExtendedMenu(player,
                 new SimpleMenuProvider((containerId, inventory, viewer) -> new DeviceMenu(containerId, inventory, device, tabId, configurable, controlsOnly),
                         title(view, device)),
@@ -96,6 +133,7 @@ public class DeviceMenu extends TabbedMqttMenu {
         // A controls-only screen gets neither: MineqttNetworking drops both for it.
         DeviceRuntime.sendLinks(player, device);
         DeviceRuntime.sendGroups(player, device);
+        DeviceRuntime.sendTwin(player, device, pick);
     }
 
     /** Whether the screen is a player's who may only use the device: the Controls tab alone, no links, no group page. */
@@ -133,6 +171,8 @@ public class DeviceMenu extends TabbedMqttMenu {
     /** Client: the server refused a change from this screen, against the view it sent just before. */
     public void refused(String key, String reason) {
         this.refusal = new Refusal(key, reason, deviceView().flatMap(DeviceView::raw));
+        // A refused bind keeps the block's name.
+        if (pendingRename != null && pendingRename.key().equals(key)) pendingRename = null;
     }
 
     /** Client: forgets the last refusal, as a new change answers for itself. */
@@ -158,6 +198,81 @@ public class DeviceMenu extends TabbedMqttMenu {
     /** Client: the server sent the device's group page. */
     public void setGroups(DeviceGroups groups) {
         this.groups = groups;
+    }
+
+    /** What the Twin tab shows, as the server last sent it (client); empty until the first one arrives. */
+    public Optional<TwinView> twinView() {
+        return Optional.ofNullable(twinView);
+    }
+
+    /**
+     * Client: the server sent what the Twin tab shows. A picker request in it is kept for the tab ({@link #takePickRequest});
+     * a rename the picker asked for goes out once the view shows its entity bound.
+     */
+    public void setTwinView(TwinView view) {
+        view.pick().ifPresent(key -> pickRequest = key);
+        // A new source (bound, unbound, another kind) shows itself: the player's choice was for the one before.
+        if (twinView != null && TwinTab.SourceMode.of(twinView) != TwinTab.SourceMode.of(view)) {
+            sourceChoice = null;
+            presetChoice = null;
+        }
+        this.twinView = view.withoutPick();
+        PendingRename rename = pendingRename;
+        if (rename != null && view.entity(rename.key()).map(TwinView.Entity::id).filter(rename.entity()::equals).isPresent()) {
+            pendingRename = null;
+            NetworkManager.sendToServer(new DeviceConfigPayload(blockPos, LinkSetting.NAME.key(), StringTag.valueOf(rename.name())));
+        }
+    }
+
+    /** The source the Twin tab's cycle shows while the device is unbound, as the player stepped it (client, M3-17). */
+    public Optional<TwinTab.SourceMode> sourceChoice() {
+        return Optional.ofNullable(sourceChoice);
+    }
+
+    /** Client: the player stepped the Twin tab's source cycle of the unbound device. */
+    public void chooseSource(TwinTab.SourceMode mode) {
+        this.sourceChoice = mode;
+    }
+
+    /** The preset the Twin tab's "MQTT device" source shows before the device is bound to one (client, M3-17). */
+    public Optional<String> presetChoice() {
+        return Optional.ofNullable(presetChoice);
+    }
+
+    /** Client: the player stepped the preset of the unbound device's "MQTT device" source. */
+    public void choosePreset(String preset) {
+        this.presetChoice = preset;
+    }
+
+    /** Client: the binding key the picker should open for, once; empty when nothing asked for it since. */
+    public Optional<String> takePickRequest() {
+        String key = pickRequest;
+        pickRequest = null;
+        return Optional.ofNullable(key);
+    }
+
+    /** Client: the picker asks for the block to be named after the entity it binds, once the bind shows. */
+    public void renameOnBind(@Nullable PendingRename rename) {
+        this.pendingRename = rename;
+    }
+
+    /** The last answer to a picker search (client); empty until one arrives. */
+    public Optional<TwinResultsPayload> twinResults() {
+        return Optional.ofNullable(twinResults);
+    }
+
+    /** The last answer to the Twin tab's preset search (client, M3-17); empty until one arrives. */
+    public Optional<TwinResultsPayload> presetResults() {
+        return Optional.ofNullable(presetResults);
+    }
+
+    /** Client: the server answered a search: the picker's, or the Twin tab's preset search (M3-17), by its kind. */
+    public void setTwinResults(TwinResultsPayload results) {
+        if (results.kind() == TwinPicker.SearchKind.PRESET) {
+            this.presetResults = results;
+        } else {
+            this.twinResults = results;
+        }
     }
 
     /**

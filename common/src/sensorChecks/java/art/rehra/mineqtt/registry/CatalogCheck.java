@@ -47,8 +47,9 @@ import java.util.stream.Stream;
  *     definition, loot table and block or item name in the lang file belongs to an entry.</li>
  *     <li>Every recipe parses with the vanilla codec after its {@code mineqtt:} ids are replaced by {@code minecraft:stone}
  *     (mod items are not registered under a bare bootstrap), names only vanilla items that exist and Catalog entries, and
- *     makes a craftable entry. Every craftable entry has a recipe; no recipe makes a converter or a decommissioned block,
- *     a converter is used only by a shapeless 1:1 recipe, and a decommissioned block by none. A converter with a successor
+ *     makes a craftable entry. Every craftable entry has a recipe; no recipe makes a converter, a decommissioned or an
+ *     unreleased block, a converter is used only by a shapeless 1:1 recipe, and a decommissioned or an unreleased block by
+ *     none; an unreleased block is hidden from the creative tab and drops itself. A converter with a successor
  *     is hidden from the creative tab and has exactly one shapeless 1:1 recipe, into its craftable successor.</li>
  *     <li>Every recipe is unlocked by an advancement that parses and whose criteria name only vanilla items, Catalog
  *     entries and MineQTT recipes that exist; a recipe that takes the Network Chip unlocks when the player obtains the
@@ -83,13 +84,15 @@ public final class CatalogCheck {
         System.out.println("Catalog checks passed: " + Catalog.ENTRIES.size() + " entries, " + recipes.size() + " recipes.");
     }
 
-    /** Each entry once, in the mineqtt namespace; decommissioned blocks are hidden from the creative tab. */
+    /** Each entry once, in the mineqtt namespace; decommissioned and unreleased blocks are hidden from the creative tab. */
     private static void table() {
         Set<Identifier> seen = new HashSet<>();
         for (Catalog.Entry entry : Catalog.ENTRIES) {
             expect(seen.add(entry.id()), "Catalog lists " + entry.id() + " twice");
             expect(entry.id().getNamespace().equals(NAMESPACE), "Catalog entry " + entry.id() + " is not in the mineqtt namespace");
             expect(!entry.decommissioned() || !entry.creative(), "The decommissioned " + entry.id() + " is still in the creative tab");
+            expect(!entry.unreleased() || !entry.creative() && entry.kind() == Catalog.Kind.BLOCK,
+                    "The unreleased " + entry.id() + " must be a block hidden from the creative tab");
         }
         expect(Catalog.find(Identifier.parse(CHIP)).filter(Catalog.Entry::craftable).isPresent(), "The Network Chip is a craftable entry");
     }
@@ -121,6 +124,10 @@ public final class CatalogCheck {
                     // A decommissioned block gives its part back, not itself, which could only be placed again.
                     if (entry.decommissioned()) {
                         expect(drops.equals(List.of(CHIP)), "The decommissioned " + entry.id() + " must drop the Network Chip alone, drops " + drops);
+                    }
+                    // An unreleased block, which no recipe makes, gives itself back to whoever placed it.
+                    if (entry.unreleased()) {
+                        expect(drops.equals(List.of(entry.id().toString())), "The unreleased " + entry.id() + " must drop itself alone, drops " + drops);
                     }
                 }
                 expect(lang.has("block.mineqtt." + path), entry.id() + " has no lang key block.mineqtt." + path);
@@ -233,6 +240,7 @@ public final class CatalogCheck {
         if (!itemExists(ingredient, "Recipe " + recipe)) return;
         Catalog.find(Identifier.parse(ingredient)).ifPresent(entry -> {
             expect(!entry.decommissioned(), "Recipe " + recipe + " uses the decommissioned " + entry.id());
+            expect(!entry.unreleased(), "Recipe " + recipe + " uses the unreleased " + entry.id());
             if (entry.converter()) {
                 expect(type.equals("minecraft:crafting_shapeless") && ingredients.size() == 1,
                         "Recipe " + recipe + " uses the converter " + entry.id() + " other than as the one ingredient of a shapeless recipe");

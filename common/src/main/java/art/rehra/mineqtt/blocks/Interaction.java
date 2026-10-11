@@ -23,8 +23,8 @@ import java.util.Optional;
  * has a natural use (the lamp toggles) and opens the screen of every other block; sneak + right-click configures, so it
  * opens the screen; a renamed paper fills a device's Raw Link channel and a named name tag renames a device, neither
  * used up; the Configurator configures. A sneaking player holding a block places it against the block, as vanilla lets
- * them place against a chest. In Link, Group and Copy-Paste mode the Configurator's plain click is a step of that mode
- * (M2-16, M2-17), and sneaking it opens the screen as in Configure mode. {@link #decide} is the pure table;
+ * them place against a chest. In Link, Group, Copy-Paste and Bind mode the Configurator's plain click is a step of that
+ * mode (M2-16, M2-17, M3 plan D19), and sneaking it opens the screen as in Configure mode. {@link #decide} is the pure table;
  * {@link BaseMqttBlock#click} carries it out, except for a spectator, who only looks, as into a chest: their click
  * opens the screen, where they change nothing.
  */
@@ -47,7 +47,9 @@ public final class Interaction {
         /** A step of the Configurator's Group mode ({@code ConfiguratorGroup}). */
         GROUP,
         /** A step of the Configurator's Copy-Paste mode ({@code ConfiguratorCopy}). */
-        COPY
+        COPY,
+        /** The Configurator's Bind mode ({@code ConfiguratorBind}): the device's Twin tab with the entity picker. */
+        BIND
     }
 
     /** What the clicking hand holds, as far as a click on a MineQTT block cares. */
@@ -67,7 +69,9 @@ public final class Interaction {
         /** The Configurator in Group mode. */
         CONFIGURATOR_GROUP,
         /** The Configurator in Copy-Paste mode. */
-        CONFIGURATOR_COPY;
+        CONFIGURATOR_COPY,
+        /** The Configurator in Bind mode. */
+        CONFIGURATOR_BIND;
 
         public static Held of(ItemStack stack) {
             if (stack.getItem() instanceof CyberdeckItem) return of(CyberdeckDataUtil.mode(stack));
@@ -84,6 +88,7 @@ public final class Interaction {
                 case LINK -> CONFIGURATOR_LINK;
                 case GROUP -> CONFIGURATOR_GROUP;
                 case COPY_PASTE -> CONFIGURATOR_COPY;
+                case BIND -> CONFIGURATOR_BIND;
             };
         }
 
@@ -112,6 +117,7 @@ public final class Interaction {
             case CONFIGURATOR_LINK -> Outcome.LINK;
             case CONFIGURATOR_GROUP -> Outcome.GROUP;
             case CONFIGURATOR_COPY -> Outcome.COPY;
+            case CONFIGURATOR_BIND -> Outcome.BIND;
             default -> null;
         };
         if (configurator != null) return sneaking ? Outcome.SCREEN : configurator;

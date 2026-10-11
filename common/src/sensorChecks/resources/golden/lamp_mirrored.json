@@ -1,0 +1,35 @@
+{
+  "dev": {
+    "ids": ["mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566"],
+    "name": "Kitchen Lamp",
+    "mf": "MineQTT",
+    "mdl": "Smart Lamp",
+    "mdl_id": "mineqtt:smart_lamp",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": { "name": "MineQTT", "sw": "2.0.0", "url": "https://github.com/OddHero/Mineqtt" },
+  "avty": [
+    { "t": "mineqtt/world_7f3a/bridge/state" },
+    { "t": "mineqtt/world_7f3a/kitchen_lamp/availability" }
+  ],
+  "avty_mode": "all",
+  "qos": 1,
+  "cmps": {
+    "light": { "p": "light" },
+    "light_level": { "p": "sensor" },
+    "location": { "p": "sensor" },
+    "binding": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566_binding",
+      "name": "Binding",
+      "state_topic": "mineqtt/world_7f3a/kitchen_lamp",
+      "value_template": "{{ value_json.binding.entity if value_json.binding is defined else '' }}",
+      "json_attributes_topic": "mineqtt/world_7f3a/kitchen_lamp",
+      "json_attributes_template": "{{ (value_json.binding if value_json.binding is defined else {}) | tojson }}",
+      "icon": "mdi:link-variant",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  }
+}

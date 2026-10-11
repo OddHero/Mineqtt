@@ -1,0 +1,35 @@
+{
+  "dev": {
+    "ids": ["mineqtt_9b2c4d6e8f1a4b3c8d5e6f708192a3b4"],
+    "name": "Coffee Maker",
+    "mf": "MineQTT",
+    "mdl": "Smart Plug",
+    "mdl_id": "mineqtt:smart_plug",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": { "name": "MineQTT", "sw": "2.0.0", "url": "https://github.com/OddHero/Mineqtt" },
+  "avty": [
+    { "t": "mineqtt/world_7f3a/bridge/state" },
+    { "t": "mineqtt/world_7f3a/coffee_maker/availability" }
+  ],
+  "avty_mode": "all",
+  "qos": 1,
+  "cmps": {
+    "plug": { "p": "switch" },
+    "power_on_behaviour": { "p": "select" },
+    "location": { "p": "sensor" },
+    "binding": {
+      "p": "sensor",
+      "unique_id": "mineqtt_9b2c4d6e8f1a4b3c8d5e6f708192a3b4_binding",
+      "name": "Binding",
+      "state_topic": "mineqtt/world_7f3a/coffee_maker",
+      "value_template": "{{ value_json.binding.entity if value_json.binding is defined else '' }}",
+      "json_attributes_topic": "mineqtt/world_7f3a/coffee_maker",
+      "json_attributes_template": "{{ (value_json.binding if value_json.binding is defined else {}) | tojson }}",
+      "icon": "mdi:link-variant",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  }
+}

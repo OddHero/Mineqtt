@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": {"model": "mineqtt:block/display_panel"},
+    "facing=east": {"model": "mineqtt:block/display_panel", "y": 90},
+    "facing=south": {"model": "mineqtt:block/display_panel", "y": 180},
+    "facing=west": {"model": "mineqtt:block/display_panel", "y": 270}
+  }
+}

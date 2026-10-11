@@ -28,7 +28,21 @@ services:
     ports:
       - "127.0.0.1:${MQTT15_PORT:-1885}:1883"
 
-  # Current stable Home Assistant.
+  # Prepares both Home Assistant volumes and exits: configuration.yaml includes automations.yaml (written by the
+  # automation editor, which `ha.py automation from-blueprint` uses), and an !include of a missing file would stop
+  # Home Assistant in recovery mode. An existing file is kept.
+  ha-config-init:
+    image: alpine:3
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - for f in /stable/automations.yaml /floor/automations.yaml; do test -s "$$f" || echo '[]' > "$$f"; done
+    volumes:
+      - ha-stable:/stable
+      - ha-floor:/floor
+
+  # Current stable Home Assistant. The twin fixture (M3): the packages shared by both versions, this version's
+  # template light and lock (no single syntax works on both), and the MineQTT blueprints, all read-only. The source
+  # folders exist in the repository, so the bind mounts never create stray directories.
   homeassistant:
     image: ghcr.io/home-assistant/home-assistant:2026.10.0
     ports:
@@ -36,11 +50,18 @@ services:
     volumes:
       - ha-stable:/config
       - ./homeassistant/configuration.yaml:/config/configuration.yaml:ro
+      - ./homeassistant/packages/common:/config/packages/common:ro
+      - ./homeassistant/packages/2026.10:/config/packages/version:ro
+      - ../docs/blueprints/automation/mineqtt:/config/blueprints/automation/mineqtt:ro
     depends_on:
-      - mosquitto
+      mosquitto:
+        condition: service_started
+      ha-config-init:
+        condition: service_completed_successfully
 
   # The oldest Home Assistant MineQTT supports (README "Home Assistant"). Older releases ignore the lamp's
-  # color_temp_kelvin/min_kelvin/max_kelvin discovery keys and treat colour temperature as mireds.
+  # color_temp_kelvin/min_kelvin/max_kelvin discovery keys and treat colour temperature as mireds. Mounts as above,
+  # with the legacy-syntax template light and lock of packages/2025.2.
   homeassistant-floor:
     image: ghcr.io/home-assistant/home-assistant:2025.2.5
     ports:
@@ -48,8 +69,14 @@ services:
     volumes:
       - ha-floor:/config
       - ./homeassistant/configuration.yaml:/config/configuration.yaml:ro
+      - ./homeassistant/packages/common:/config/packages/common:ro
+      - ./homeassistant/packages/2025.2:/config/packages/version:ro
+      - ../docs/blueprints/automation/mineqtt:/config/blueprints/automation/mineqtt:ro
     depends_on:
-      - mosquitto
+      mosquitto:
+        condition: service_started
+      ha-config-init:
+        condition: service_completed_successfully
 
 volumes:
   ha-stable:

@@ -1,6 +1,6 @@
 # MineQTT v2 architecture
 
-How MineQTT is put together since v2 (milestones M1 and M2, version 0.6.0), and why. The full design, with every decision, open question and
+How MineQTT is put together since v2 (milestones M1 to M3, version 0.7.0), and why. The full design, with every decision, open question and
 roadmap item, is not part of this repository. This file is the map for
 anyone changing the code; read it before touching the MQTT core, a device type or the migration code.
 
@@ -40,14 +40,16 @@ v1's rules were workarounds for its own architecture. They no longer apply:
 
 | Package | Contents |
 |---|---|
-| `mqtt/core` | The transport. **Minecraft-free**: only the JDK, Gson and HiveMQ (`verifyCoreIsolation` fails the build otherwise). `BrokerConfig` (URI parsing), `HiveMqttService` with `Mqtt5ClientAdapter`/`Mqtt3ClientAdapter`, `TopicTrie`, `InboundQueue`, `OutboundBuffer`, `LocalLoopback`, `TopicAcl` (rules as data). |
+| `mqtt/core` | The transport. **Minecraft-free**: only the JDK, Gson and HiveMQ (`verifyCoreIsolation` fails the build otherwise). `BrokerConfig` (URI parsing), `HiveMqttService` with `Mqtt5ClientAdapter`/`Mqtt3ClientAdapter`, `TopicTrie`, `InboundQueue`, `OutboundBuffer`, `LocalLoopback`, `TopicAcl` (rules as data; `checkTopicSource` judges an MQTT device preset's state topic, M3-17), `SharedSubscriptions` (one handler per filter for many holders, ref-counted; the twin's statestream leaves). |
 | `runtime` | `MineqttRuntime` (one per server run), `ServerHooks` (lifecycle wiring), `ReplaceableMqttService` (survives config reconnects), `TopicScheme`, `Slf4jMqttLog`. |
-| `flow/core` | The flows seed (M2 plan §3, [Flows](#flows)). **Minecraft-free**: only the JDK, Gson and `security.TokenBucket` (`verifyCoreIsolation` scans it, and keeps `TokenBucket`/`RateLimit` JDK-only). `PortType` (the kind of a port: bool, level, number, enum, text, color, light, json, event; strict validators), `Coerce` (the coercion table, the bool spellings and the text sanitiser the device codecs use), `Endpoint`/`Wire`/`Mapping`/`Scope`, `FlowMessage`, `PortSpec` and the `MessageBus`. |
-| `device` | `DeviceType`/`Field`/`Setting`/`Action`/`EventSpec`/`LinkSetting` declarations, derived `Port`s, `DeviceView` (a screen's snapshot), `DeviceLink` (per-BE state), `DeviceRuntime` (attach, routing, groups, pending commands), `DeviceRegistry` + `RegistryStore`, `RawLink`, `Slugs`, `ValueCodecs`. `device/types` holds `SmartLamp`, `RedstoneOutput`, `RedstoneInput`, `PresenceSensor`, `SmartPlug`, `ClimateSensor`, `WallSwitch`. |
+| `flow/core` | The flows seed (M2 plan §3, [Flows](#flows)). **Minecraft-free**: only the JDK, Gson and `security.TokenBucket` (`verifyCoreIsolation` scans it, and keeps `TokenBucket`/`RateLimit` JDK-only). `PortType` (the kind of a port: bool, level, number, enum, text, color, light, json, event; strict validators), `Coerce` (the coercion table, the bool spellings, the guarded `Coerce.number` and the text sanitiser the device codecs use), `Colors` (colour parsing and conversion: hex, `rgb()`, dye names, `{r,g,b}`, hs, xy, kelvin), `Endpoint`/`Wire`/`Mapping`/`Scope`, `FlowMessage`, `Root` (what caused a message's chain), `PortSpec` and the `MessageBus`. |
+| `twin/core` | The digital twin's pure core (M3 plan D1, D3, D7, D18). **Minecraft-free**: only the JDK, Gson, `flow.core` and itself (`verifyCoreIsolation`). `StatestreamTopic` (`<base>/<domain>/<object_id>/<leaf>`, the `_mineqtt` catalog topics, everything else ignored by reason), `StatestreamValue` (the raw state: text, unknown, unavailable, cleared; never JSON), `HaTime`, `EntityDocument` (one shared snapshot per entity; stale and null attributes held back), `EntityDocuments` (the fold of statestream and catalog with the D3 merge, freshness and bounds), `CatalogParser`/`CatalogEntry`, `EntityGlobs` (`twin.allowedEntities`), `ValuePath` (the path grammar, statestream leaves, raw payloads ≤ 64 KiB), `ValueMap` (bool, level by bool/range/option, number, colour, text with decimals and unit, timestamp, the light composite; empty means hold), `DisplayText` (the Display Panel's server-side layout, at most 4 × 32), `HaDomains` (HA entities as typed flow nodes: per domain the out-ports with their statestream leaves, the in-ports, the attribute whitelist; the D2 privacy domains unreadable), `HaCalls` and `Call` (the one service-call table with its per-service data-key whitelist, D11 freshness-aware switching and the D5 edge mapping; a `Call` outside the table cannot be constructed), `Binding` (a device's source, targets, control, settings and refusal; its reads are derived from the type's adapter, not stored), `PortRead`, `TwinHealth` (a bound device's health and the render hint clients draw), `TwinCoalescer` (D9: a burst of leaves applies once, at most 4 times a second per entity), `EntityScan` (M3-11: the fallback scan of `<base>/+/+/state` and `friendly_name` while no catalog answers; readable domains only, capped at `twin.catalogMax`), `EntitySearch` (D4's ranking, shared by `/mineqtt twin entities` and the picker; since M3-13 also the candidates and the read gate of a listing, `candidates`/`readable`), `BindingPreset` (M3-17: an MQTT device preset as a document synthesizer for one Home Assistant kind: the state topic's payload as an `EntityDocument`, the adapter's `Call` rendered into the preset's command through typed placeholders, the device-name rules), `PresetCodec` (strict parsing of preset files with problem lines; a bad file is skipped). `HaDomains.TRIGGER_DOMAINS` (scene, script, button, input_button) never infer drift. |
+| `twin` | The twin's server side (M3). `TwinAdapter` (Minecraft-free: how a type takes part in the twin: primary port, mirrored keys, source domains with their reads, the statestream leaves to hold, forward to `HaCalls` outcomes, targets on out-ports with a per-target `Target` translation (M3-14; `targetsOnly()` adapters have no primary, no mirrored key and no source), `Extras` (M3-15: read-only values a source gives besides the in-port values, under the command key `twin`, honoured only from a twin apply), and extra statestream leaves (`Builder.leaves`: attributes a type reads, such as a unit; `Builder.extraLeaves`: per-domain leaves a write-back needs, such as an `input_number`'s `step`)), `BindingCodecs` (the `twin` compound of blocks and records), `TwinRuntime` (the read side: shared per-leaf statestream subscriptions of loaded bound devices, entity documents, coalescing and the apply cap, health, the mirror freshness; target holdings for devices with targets, M3-14; the catalog's share gate `shareProblem`, entity search and drift, M3-11; topic holdings of preset sources with their own coalescer, `presetDocument`, M3-17), `BindingPresets` (M3-17: the `SERVER_DATA` reload listener for `data/<ns>/mineqtt/binding_presets/*.json`; a reload judges every binding again), `HaEntityCatalog` (M3-11: the catalog's own subscription 5 s after the first CONNACK and the fallback scan 10 s after it while no catalog status came), `TwinGate` (the root gate: only `PLAYER` and `WORLD` may request), `TwinRequests` (the write-back: `twin.haActionAllowlist`, sliding-window rates per device, player and bridge (a world-caused explicit state over a rate is held, newest wins, `holds`; every rate refusal is counted per device and logged once per burst, `RateRefusals`), the circuit breaker (world-caused rate refusals count as attempts), `forwardPreset`/`sendPreset` for a preset source's commands (M3-17), `bridge/ha_request`, the advisory `bridge/ha_response`, ping and `bridge/ha_sync`), `PendingRequests` (requests waiting for their entity), `HaSink` (the bus's sink for Home Assistant ends: target wires and forwards). |
+| `device` | `DeviceType`/`Field`/`Setting`/`Action`/`EventSpec`/`LinkSetting` declarations, derived `Port`s, `DeviceView` (a screen's snapshot), `DeviceLink` (per-BE state), `DeviceRuntime` (attach, routing, groups, pending commands), `DeviceRegistry` + `RegistryStore`, `RawLink`, `Slugs`, `ValueCodecs`, `TwinRules` (the twin gate for edits, the judgement for owner and placer, what a bound device refuses; `Rights` carries a `Topics` judge, the ACL for a preset's topics, M3-17; `targetHealth` for targets-only devices), `TwinWiring` (the derived `Scope.TWIN` wires of bound devices: source and target wires, a preset's topic source wire carrying a payload fingerprint, `targetDevices` for catalog changes), `TwinView` (M3-13: what the Twin tab shows one viewer; no entity, refusal or answer without CONFIGURE). `device/types` holds `SmartLamp`, `RedstoneOutput`, `RedstoneInput`, `PresenceSensor`, `SmartPlug`, `ClimateSensor`, `WallSwitch`, `DisplayPanel`. Blocks live in `blocks` (the panel: `DisplayPanelBlock`, `DisplayPanelBlockEntity`) and client renderers in `client` (`DisplayPanelRenderer`). |
 | `ha` | `DiscoveryPublisher`, `BirthWatcher`, `BridgeDevice`, `LegacyDiscoveryMigration`, `GhostCleanup`, `Ha`/`HaEntity` component builders. |
 | `legacy` | `LegacySubscriptionFacade` (the Block Sensor and the Block Emitter, the two v1 blocks that are no devices yet), `LegacyNbtV1` (v1 NBT reader), `LegacyTopicStateImport` (v1 topic-state file), `LegacyConverterBlock` (retiring blocks that turn into their successor, M2-19), `DecommissionedBlock` and `DecommissionedBlockEntity` (retired blocks that only wait to be broken for their parts, M2-21). |
 | `security` | `AclContext` (player → ACL subject), `C2SGuard` + `TokenBucket`/`RateLimit`, `DeviceAccess`, `AccessMode`. |
-| `registry` | `Catalog` (every block and item: craftable, creative, converter or decommissioned; the creative tab's order; a plain id table that `verifyCatalog` reads under a bare bootstrap), `MineqttDataComponents`. Recipes live in `data/mineqtt/recipe/` (26.2 format; every block and the Configurator need the Network Chip) and unlock through `data/mineqtt/advancement/recipes/`. |
+| `registry` | `Catalog` (every block and item: craftable, creative, converter, decommissioned or unreleased (M3-15: hidden, no recipe makes or uses it, it drops itself); the creative tab's order; a plain id table that `verifyCatalog` reads under a bare bootstrap), `MineqttDataComponents`. Recipes live in `data/mineqtt/recipe/` (26.2 format; every block and the Configurator need the Network Chip) and unlock through `data/mineqtt/advancement/recipes/`. |
 
 ## MQTT core
 
@@ -62,8 +64,11 @@ v1's rules were workarounds for its own architecture. They no longer apply:
   runtime classpaths exclude HiveMQ's Netty 4.1 too (a stray 4.1 `netty-codec` broke WebSocket connects in dev).
 - **Inbound.** HiveMQ's global publish callback enqueues into a bounded `InboundQueue` (entry count and byte budget,
   drop-oldest, counted). `drainInbound` runs in `SERVER_PRE` with a time and message budget and dispatches through the
-  `TopicTrie`. Handlers therefore always run on the server thread, in broker order. Per handler: retained messages are
-  dropped unless the subscription accepts them, payloads above its cap are dropped.
+  `TopicTrie`. Handlers therefore always run on the server thread, in broker order. A payload over the broker-wide
+  `BrokerSettings.DEFAULT_MAX_INBOUND_BYTES` (256 KiB, the largest subscription cap: the HA catalog's) is dropped before
+  the queue, and on MQTT 5 the CONNECT maximum packet size keeps the broker from sending it at all. Per handler:
+  retained messages are dropped unless the subscription accepts them, payloads above its cap are dropped (mirror
+  sources 64 KiB, commands and Raw Links 16 KiB).
 - **Covering subscriptions.** Broker subscriptions are ref-counted per filter. A filter covered by another registered
   filter is served by that one's broker subscription (Mosquitto sends one copy per matching subscription). Filters that
   only partly overlap still get broker-dependent duplicates.
@@ -136,6 +141,9 @@ crash never survives.
   `LinkSetting`s (name, expose, access, Raw Link channel/topic/retain/QoS/payloads, with design §8.5's bounds) parse a
   client's NBT strictly through the kind: out of range is refused, while HA's `/set` stays lenient (clamped).
   `/mineqtt devices info` lists the ports.
+  `EventSpec.busOnly` (M3-14) declares an event that wires and twin targets carry but nothing publishes (no action topic,
+  Raw Link or HA entity; `build()` refuses an HA event entity or device trigger on one): the Wall Switch's `left` and
+  `right` (attribute `gesture`), emitted next to `press`/`double_press`/`hold` for every gesture of that button.
 - **Identity per block.** Each device BE holds a `DeviceLink` with a random UUID (`mineqtt.id`), name, slug, owner,
   access mode, expose flag, Raw Link and state. Discovery object id `mineqtt_<uuid32>`, unique_ids
   `mineqtt_<uuid32>_<key>`; renaming changes the slug and topics but never the unique_ids.
@@ -157,7 +165,7 @@ crash never survives.
   `devices info` and `devices list` show faulted devices.
 - **Registry.** `<world>/data/mineqtt/devices.nbt`, written atomically by `RegistryStore` (not `SavedData`: a `null`
   `DataFixTypes` wipes it on the second start). It holds the bridge id, world UUID, records (type, position, slug,
-  pending command, last state, discovery hash, legacy unique_id), groups and migration flags. Saved when created, on
+  pending command, last state, discovery hash, legacy unique_id, the twin binding's copy), groups and migration flags. Saved when created, on
   overworld saves when dirty, and at `SERVER_STOPPED`. A structural change (device or group added or removed, slug,
   name or membership changed, owner literal added) is saved at the end of its tick (`tickEnd`, also in a paused
   server's pump), at most once a second counted from the last save; a failed one is tried again a second later (the
@@ -166,6 +174,11 @@ crash never survives.
   once, but the structural saves keep its record (with its membership) until the next level save, because vanilla saves
   the changed chunk only some seconds later (at most once every 10 s per chunk); a crash in between restores block and
   record together.
+- **Twin bindings** (M3-7) live in the block (`DeviceLink`'s optional `twin` key, `VERSION` stays 3; an unbound device
+  saves unchanged) with a copy in the record (`DeviceRecord.twin`, lenient: a broken compound loses only the binding).
+  It is the record codec's 16th field, DFU's `group()` limit: later twin fields nest inside the binding. The record's
+  discovery state is one codec field of two flat keys (`discoveryHash`, `discoveryCleanup`, M3-7b; the compound layout is
+  unchanged and `discoveryCleanup` is written only while true), which shows how a later key fits.
 - **One command path** (M2-5, M2 plan §3.8 #2). `DeviceRuntime.command(target, json, source, origin)` is how every
   command reaches a device: HA's `/set` and `/set/<field>`, group commands and joins, Raw Link inputs (also a legacy
   group's v1 topic), `/mineqtt devices set`, the device screens and their command twins, and wires; the timers will use it too (M4). The pure
@@ -173,6 +186,14 @@ crash never survives.
   unloaded `QUEUE` device queues through `DeviceType.preview`, a group fans out, and the rest drops (an unloaded
   sensor, an unknown type). A group's members always see `CommandSource.GROUP`. Only the attach applies a queued
   command itself, as the second half of the `QUEUE` route. No block entity calls another or publishes MQTT directly.
+  `route` has `FORWARD` and `REFUSE` (M3): a command to a port a bound device's source owns is forwarded (players and
+  wires, with control on and the owner's `mineqtt:twin.control`, asked at route time) or refused (Home Assistant, groups,
+  the paused Raw Link, control off, a refused binding) before any queue; `TWIN` applies only to a loaded device and is
+  never queued or forwarded. A forward applies nothing (non-optimistic); it goes to the `MirrorForwarder`
+  (`MineqttRuntime.forwardToTwin` → `TwinRequests`) with the current root and the acting player. A seed into a mirrored
+  port is skipped, a bound device's queued command is dropped at its attach, and a bound device joins no group. A
+  device with a source skips its type's power-on (at the attach and in `powerOnRecords`, M3-12): the source owns its
+  state, so a restart never drops a door or a piston.
 - **Device config protocol** (M2-6). `DeviceConfig` (pure) validates every player change: a key is a `Setting` of the
   type (CONFIGURE; it reaches the device as the command `{"<key>": value}` through `DeviceRuntime.set` → `command`) or a
   `LinkSetting` with its gate (CONFIGURE, EXPOSE = CONFIGURE + `mayExpose`, ACCESS = owner or op); an action must be
@@ -196,7 +217,17 @@ crash never survives.
   `mineqtt` compound is v2 data, a render compound alone a client's render update (`loadRender` replaces only what it
   carries; the `DeviceLink` stays as it was), neither is v1 data, so a client never runs the v1 migrator on an update
   packet. The device screens read the `DeviceView` only. Blocks that are no devices (the legacy blocks and the timers)
-  still send `saveWithFullMetadata`, which their screens read.
+  still send `saveWithFullMetadata`, which their screens read. The Display Panel's render compound (M3-15) holds either
+  `lines` (at most 4 × 32, laid out on the server by `DisplayText`, under the device name as `title` while bound) or
+  `at` (a point in time in epoch millis that each client words itself), plus the resolved size, the colour as a dye id,
+  `glow` and `waiting` (bound, no value yet); it is sent at most 4 times a second (the last one always). The client
+  bounds what it reads the same way. `DeviceBlockEntity.twinHealthChanged` lets a device react to its twin health (the
+  panel's comparator reads 0 while its source has no value) and `DeviceHost.identityChanged` to a rename.
+- **Display Panel renderer** (M3-16). `client/DisplayPanelRenderer` uses the 26.2 render-state API
+  (`DisplayPanelRenderState`, `submitText(pose, x, y, text, shadow, POLYGON_OFFSET, light, colour, background, outline)`:
+  the light comes before the colour, pinned with `javap` on `AbstractSignRenderer`; glow is `LightCoordsUtil.FULL_BRIGHT`).
+  It is registered through Architectury on Fabric and through `EntityRenderersEvent.RegisterRenderers` on NeoForge
+  (Architectury's NeoForge registry fills the provider map too late for the first resource load).
 - **Lamp transitions and effects** (M2-25). A light command's `transition` (seconds, `ValueCodecs.transitionTicks`) is no
   state: `LightState.merge` and so the queued preview ignore it. The lamp's `light` (saved, published, in the view) is
   the target at once, so one state goes out per command; the block shows a transient `LightTransition` from what it
@@ -289,6 +320,33 @@ crash never survives.
   (`BaseMqttBlock.click`, `AdvancedTab.paperChannel`) goes through `DeviceRuntime.paperChannel`, the same
   `configure(raw.channel)` path with the player's grants (`raw.private` for a device in private mode), and answers in
   the action bar; it is not consumed.
+- **Twin tab** (M3-13, M3-14, plan D19). Every type with a twin adapter has a Twin tab after Controls: `ui/device/TwinTab`
+  (server-safe) lays the type's twin link settings out in at most five rows ending by y 95 (the source cycle and the
+  entity's pick, the entity's name, id and area, the settings, and last the health line with Resume; a type with targets
+  a row per target with its pick and a remover, its details below), and `TwinTabView` draws it. Every change is the
+  binding key's `DeviceConfigPayload`, the command twin's key. What it shows comes as a `TwinView` (`TwinViewPayload`,
+  apart from the `DeviceView`, with every view of a twin type and when a request starts or ends waiting), built per
+  viewer by `DeviceRuntime.twinView`: without CONFIGURE it names no entity and no MQTT device. The source cycle
+  (`TwinTab.SourceMode`: This block, Home Assistant, MQTT device; wave 7) unbinds a bound device in one press and steps
+  an unbound one This block → Home Assistant (opening the picker) → MQTT device; the step is kept on the `DeviceMenu`
+  (`sourceChoice`) across the picker. A `BySource(homeAssistant, mqttDevice)` place shows the Home Assistant cell or
+  the MQTT device cell (`Preset`: the preset cycle, `twin.preset`; `Device`: the device-name field, `twin.device
+  "<preset> <name>"` on Enter, a click elsewhere or leaving the tab), so every twin key has exactly one place. The preset
+  list is a `PRESET` search (`TwinPicker.presets`, CONFIGURE plus `twin.bind`, the type's source kinds, at most 40,
+  resent after 1 s up to 3 times), kept on the menu (`presetResults`, `presetChoice`). `TwinView.device`
+  (`Device(preset, name, device, topic, kind)`, `Device.HIDDEN` without CONFIGURE; at most one source per view) makes a
+  preset-bound device read as bound with the Home Assistant twin off. `TwinView.rateRefused` (every viewer) and
+  `rateLast` (CONFIGURE only) put the rate refusals on the health line; `TwinRequests.Listener.rateRefused` marks the
+  view stale. The entity picker (`ui/TwinPickerScreen`) is a client screen over the device screen, whose menu stays
+  open, so its payloads pass the device screen's guard: `TwinSearchPayload(pos, kind, key, query, domain)` (typing and
+  the domain chip debounced 250 ms; the server's per-player bucket allows bursts of 6 and 4 a second; an unanswered
+  search is resent after 1 s, at most 3 times, `TwinPicker.resendDue`) answered by `TwinResultsPayload` (repeating the
+  kind, query and domain, so the screen shows only the answer to its last search, `TwinPicker.answers`; at most 40 rows
+  grouped by area, or a notice) from the pure `ui/device/TwinPicker.answer`. On a device bound to an MQTT device its
+  warning line reads "Binding replaces its MQTT device <name> (<preset>)." A target's search keeps only what Minecraft may control
+  (`TwinPicker.ControlFilter`: controllable domain, `twin.haActionAllowlist`, the control label while the catalog
+  decides); on a type with several targets the picker first asks which one (the Left/Right step). Resume is the press
+  `twin.resume` (CONFIGURE), never copied.
 - **Interaction grammar and Configurator** (M2-13, design §7.4). `blocks/Interaction.decide(sneaking, Held, type)` is
   the pure table `BaseMqttBlock.click` carries out (USE needed for anything but PASS): the Configurator opens the
   screen; sneaking opens it, except with a block item (PASS, vanilla places it); a block that is no device opens it;
@@ -449,9 +507,11 @@ crash never survives.
 The seed of the Node-RED-style flows (M2 plan §3; design §13). Devices are nodes, their derived `Port`s are the node
 ports, and wires join an out-port to an in-port. `flow/core` holds the Minecraft-free part:
 
-- **`Endpoint`** is sealed: `PortRef(node, port)` and `GroupPortRef(group, port)` are built; `TopicRef` and
-  `HaEntityRef` are declared so switches stay exhaustive, and the registry codec (`device/WireCodecs`, DFU, so it lives
-  outside `flow/core`) refuses them, as it refuses `Scope.NETWORK` until data cables exist.
+- **`Endpoint`** is sealed: `PortRef(node, port)` and `GroupPortRef(group, port)` are built by wires;
+  `HaEntityRef(entityId, port)` and `TopicRef(topic, path)` are the ends of wires derived from device bindings (M3).
+  The registry codec (`device/WireCodecs`, DFU, so it lives outside `flow/core`) never stores those ends nor
+  `Scope.TWIN` (derived wires are never stored), and refuses `Scope.NETWORK` until data cables exist;
+  `RegistryWiring.problem` refuses them as wire ends.
 - **`Wire(id, from, to, mapping, scope, owner, enabled)`**: `Mapping.FOLLOW` (the coerced value), `INVERT` (into a bool
   or level) and `PULSE_TOGGLE` (every event and every rising edge toggles a switch state). `Mapping.compatible` decides
   whether a pair may be wired, `Mapping.apply` is the pure transform.
@@ -462,13 +522,72 @@ ports, and wires join an out-port to an in-port. `flow/core` holds the Minecraft
   10 000 queued (the oldest dropped). Per source port a `TokenBucket` of 20/s with a burst of 40: beyond it an event is
   dropped, and a value is held back (the newest per port) until a token is free, so targets end up with the last
   value; a port without an enabled wire emits nothing. Per wire, a VALUE equal to the last one its target took is
-  suppressed; a refused or failed delivery is not remembered, and events are never suppressed. A wire back to the
+  suppressed; a refused or failed delivery is not remembered, and events are never suppressed. `Sink.deliver`
+  returns `MessageBus.Outcome` (`TAKEN`, `REFUSED`, or `ROOT` for a refusal because of the message's root). A wire back to the
   message's own source port is skipped, and the `Sink` skips the source's own member when it fans out to a group.
   Every drop is counted by `MessageBus.Drop`.
 - **Hops** count the wires a message travelled over. Whatever is emitted while the bus delivers a message (on the same
   stack, through `applyCommand`, `publishState` or a neighbour update) carries that message's hops, so hops never go down
   the command path, and a zero-delay cycle is cut after 16 wires (`Listener.loopCut`, once per wire). There is no
   same-msgId dedupe, so a diamond delivers both branches. A delivery may not drain the bus again.
+- **Roots (M3).** Every message carries a `Root` (`WORLD`, `PLAYER`, `RAW`, `HA`, `TWIN`, `STARTUP`): what caused its
+  chain. `MessageBus` keeps one current root: a delivery's is the delivered message's, and the runtime opens extents
+  with `withRoot` (a command: its source's root per `DeviceRuntime.root`, GROUP and BINDING inherit; `powerOnRecords`
+  and the attach: `STARTUP`; a v1 Block Emitter's broker message: `RAW`, through `DeviceRuntime.fromBroker`, which
+  `LegacySubscriptionFacade` delivers in). A message emitted outside both is `WORLD` (block tickers, neighbour updates,
+  hands), so a same-tick neighbour cascade inside a command inherits that command's root. Held values and drain
+  carry-over keep their root. A nested extent never clears `RAW`, `HA`, `TWIN` or `STARTUP` (`Root.nested`). A sink
+  refuses for a root with `Outcome.ROOT`, counted as the drop `root`. Roots are transient and never persisted; the bus
+  counts emitted messages by root (`FlowCounters.roots`, shown by `/mineqtt status`), which the `wires` client suite
+  reads. The twin's gate (`TwinGate.mayRequest`, M3-9) lets only `WORLD` and `PLAYER` (`Root.inGame()`) cause a Home
+  Assistant request: a forward or a delivery to a Home Assistant end refused for its root is `Outcome.ROOT`, logged
+  once per device and root. The TWIN apply path has no call edge to `TwinRequests`, and every request passes
+  `TwinGate` first (step 1 of the D10 loop-safety proof).
+- **Twin wires (M3-8).** A bound device's source wire `HaEntityRef(entity, port) → PortRef(device, primary)` is
+  derived (`TwinWiring`, `Scope.TWIN`, never stored) while the device is loaded with a working binding and the twin is
+  on. It carries the entity's whole document unmapped (no mapping or kind coercion; hops, root, change filter and
+  counters apply); `DeviceRuntime.applyTwin` emits it in a `TWIN` extent, and the sink lets the device's binding read
+  it (`DeviceType.twinCommand`) and applies it as `CommandSource.TWIN`. A forwarded command becomes requests through `TwinRequests`; a request waits for
+  its entity's next apply, a refusal or 5 s, and the device's clients see it pending. More than 8 requests the world
+  caused in 10 s pause the device's control (`CONTROL_PAUSED`) until a player resumes it; a player's own commands are
+  capped by the device and player windows instead (`TwinRequests.countsForBreaker`). An unloaded device routes by its
+  record's copy of the binding judged for its owner under the rules in force (`DeviceRuntime.binding`).
+- **Mirroring types (M3-12, M3-15).** The Redstone Output and the Smart Plug mirror like the lamp: the Output reads
+  on/off as 15/0 (`twin.invert` swaps), numbers over `[twin.min, twin.max]` (else a default per attribute, else the
+  entity's own range), option indexes and `twin.path` attributes; switch or analog is chosen by the source and the path,
+  not by its `mode`. It writes back switching, `set_value`/`set_percentage`/`set_cover_position`/a light's brightness
+  and `select_option`, mapped back through the entity's document (`HaCalls.Mirror.document`). The Display Panel mirrors
+  any readable domain read-only (no control key; `TwinRules.edit` refuses it), its comparator level riding as
+  `TwinAdapter.Extras`.
+- **Target wires (M3-14).** A targets-only adapter maps an out-port's values to calls (`TwinAdapter.Target`: the
+  Redstone Input's edge rules on `powered`, the Wall Switch's press on `left`/`right`). `TwinWiring` derives one
+  `Scope.TWIN` wire per working target, `PortRef(device, outPort) → HaEntityRef(entity, inPort)`, which
+  `RegistryWiring` routes (`in` gives the entity's in-port) and `MessageBus.routeTwin` carries as the out-port's value,
+  checked against its kind. `DeviceRuntime.delivers` sends a wire that ends at an entity to `deliverTarget` before the
+  TWIN-scope test (a target wire is a TWIN wire too), and `HaSink` applies the root gate, then the adapter's
+  translation, then `TwinRequests`. The target entity's `state` and `last_updated` are held (`TwinRuntime.holdTargets`)
+  for toggles, dedupe and the pending state. Target requests carry no player (the bus has no actor). A new source or
+  target must be shared by the catalog while one answers (`TwinRuntime.shareProblem`). A catalog change refreshes the
+  devices whose targets switch the entity (`TwinWiring.targetDevices`); `TwinRules.targetHealth` gives `NOT_SHARED`
+  while a target's entity is unreadable and heals when it is listed again, and `deliverTarget` drops a press to an
+  unshared entity in catalog mode with one warning per device and entity.
+- **MQTT device presets (M3-17).** A preset source is `TopicRef(stateTopic, "")` with `Settings.preset` (id, device,
+  kind). `TwinRuntime` holds the state topic (one shared `SubOptions.MIRROR` subscription per topic, judged with
+  `TopicAcl.checkTopicSource` for the owner), keeps its last payload and coalesces it; the topic source wire carries a
+  fingerprint (`{"payload":"<hex>"}`), and the device reads the payload through its own loaded preset
+  (`presetDocument`), so the adapters read it as an entity of the preset's kind. The write-back renders the adapter's
+  `Call` through the preset and publishes it on the command topic (QoS 1, not retained, never late) behind the same
+  root gate, rates and breaker, after `checkPublish` for the owner at every send. Presets need `mineqtt:twin.bind`
+  but not the Home Assistant twin (`twin.allowedEntities`, a statestream base); an edit of the preset or the device's
+  name (`TwinRules.presetSource`) always drops control, whatever the kind; `TwinRules.recheck` follows a moved
+  topic, drops control on a new kind and refuses while the preset is gone.
+- **Catalog (M3-11).** `HaEntityCatalog` subscribes `<base>/_mineqtt/catalog/+` and `<base>/_mineqtt/status` (retained,
+  up to 256 KiB, so an over-cap list is refused visibly) 5 s after the first CONNACK, and the fallback scan 10 s after it
+  while no status came; a status closes the scan and a cleared one reopens it. `MineqttRuntime` publishes
+  `bridge/ha_sync` 5 s after every CONNACK and every Home Assistant birth (`BirthWatcher.onBirth` listeners hear each
+  live birth at once; retained births are ignored), and the twin downgrades freshness at the birth itself. Drift
+  (two catalog `last_updated` moves without a live statestream value) is reported for mirrored entities only, never for
+  `HaDomains.TRIGGER_DOMAINS`.
 
 How the server runs it (M2-15):
 
@@ -494,8 +613,10 @@ How the server runs it (M2-15):
   loaded device applies it, an unloaded output or lamp queues it and an unloaded sensor drops it (`REFUSED`), as for
   Home Assistant; a group fans it out and skips the member the message came from (`skipsMember`). A `REJECTED`
   result counts as refused. No broker is involved.
-- **Drains**: after `drainInbound` (`MineqttRuntime.handleInbound`, so also in the paused-server pump), and at the
-  start of `DeviceRuntime.tickEnd`, before the throttled states, the views and the flush. `emit` marks work for a
+- **Drains**: after `drainInbound` (`MineqttRuntime.handleInbound`, so also in the paused-server pump: attaches →
+  inbound drain → twin drain, which emits the settled entities in a `TWIN` extent → bus drain → twin health refresh),
+  and at the start of `DeviceRuntime.tickEnd`, before the throttled states, the views and the flush. The runtime's
+  end of tick runs the twin requests (held values, timeouts) before the devices' `tickEnd`. `emit` marks work for a
   paused server (`workQueued`), and `hasPendingWork` counts what the bus still holds. `stop()` clears the bus;
   removing a wire, a device or a group forgets what the bus kept for them.
 - `/mineqtt wires list | add | remove` is the command twin of Link mode (a port is `<device>.<port>` or
@@ -543,6 +664,11 @@ Who wires what, and the Configurator's Link mode (M2-16):
   type's settings, `expose` and `access` (last), as link setting keys with values taken from the copier's view; a paste
   (`DeviceRuntime.paste`) sends each through `configure(record, key, value, Editor.of(paster, target))`, so every one
   is checked for the paster, and skips the rest of the Raw Link when its channel or topic is refused.
+- **Bind mode** (M3-13): `ConfiguratorMode.BIND`, last in the cycle; `Held.CONFIGURATOR_BIND` gives `Outcome.BIND`
+  (sneaking opens the screen). `items/ConfiguratorBind` checks the clicked device (`ConfiguratorTarget`, CONFIGURE) and
+  opens its screen on the Twin tab with a one-shot picker request in its first `TwinView` (`""` asks which target
+  first); a device without a twin adapter is told so. No offer is kept: the picker's payloads pass the device screen's
+  guard.
 - **Links list**: `DeviceLinks` (rows of wire id, direction, the device's port, the other end as name and port, the
   group, mapping, enabled; at most 64 with the total) is its own S2C payload, not part of the `DeviceView`, whose bytes
   it would crowd: sent right after a device screen's open data (`DeviceRuntime.sendLinks`) and at the end of a tick to
@@ -557,6 +683,20 @@ Who wires what, and the Configurator's Link mode (M2-16):
   only command entities), a **MineQTT Bridge** device (keyed by the world
   UUID, so a `bridgeId` change does not orphan it) as `via_device` of every device. The primary entity has
   `name: null`, so HA names it after the device (`light.kitchen`).
+- **Reduced discovery of bound devices** (M3-7). A device bound to a source keeps its `dev`, `o`, availability and
+  identifiers, but its `cmps` hold every declared entity as a platform-only stub `{"p": …}` plus the disabled
+  diagnostic `binding` sensor (`<objectId>_binding`, reading `binding.entity` and `binding.health` from the device's
+  state topic, which carries them only while bound). Home Assistant applies a stub only to a component it discovered in
+  its current run, and clears the device's config itself after removing entities. So a binding that comes or goes
+  publishes the removal (`DiscoveryPublisher.bindingChanged`, M3-7b: the reduced message while bound; once unbound
+  every component stubbed, the binding sensor included, then the full message 2 s later) and watches the device's
+  config topic for 30 s, publishing the steady message again 1 s after Home Assistant's clear. While Home Assistant is
+  not known to be online (`MineqttRuntime.haOnline`: no birth heard on this connection) the record is marked
+  (`DeviceRecord.discoveryCleanup`), and the next birth's republish sends the full device with the binding sensor, then
+  2 s later the removal, and ends the mark; Home Assistant's clear ends it too. Unmarked devices republish as always.
+  The stubs stay in the retained reduced message. One mark serves one Home Assistant per broker. A refused binding is
+  still reduced; targets alone give the full config. 2025.2.5 cannot remove a disabled, unloaded entity through
+  discovery, so a disabled Binding entity stays there after unbinding.
 - **Availability** is `[bridge/state, <slug>/availability]` with `availability_mode: all`. The bridge's own
   connectivity sensor has no availability, so it shows `off` (not unavailable) when the bridge is offline.
 - **Connect sequence** (every CONNACK): bridge `online`, one batched SUBSCRIBE, force unattached sensors `offline`,
@@ -593,11 +733,163 @@ Who wires what, and the Configurator's Link mode (M2-16):
   unique_id names it as its second device identifier (`dev.ids`, for good, also after the migration), so HA reuses
   the v1 device entry (M2 plan D7, F12).
 
+## Home Assistant twin
+
+Milestone 3 (version 0.7.0) mirrors Home Assistant entities and MQTT devices onto
+devices and lets devices switch them back. It is built on the flows bus, not beside it: Home Assistant entities are
+flow nodes with typed ports (`twin/core/HaDomains`), and a binding compiles into derived wires on the one
+`MessageBus`, so bindings share its caps, change filter, counters, hop limit and roots. The details of each piece are
+in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wires, presets, catalog),
+[Home Assistant](#home-assistant) (reduced discovery), [Devices](#devices) (the Twin tab, persistence) and
+[Security](#security); this section is the map.
+
+```
+ Home Assistant ──mqtt_statestream──► <base>/<domain>/<object>/<leaf> ─┐  (only the leaves bound devices need)
+ catalog blueprint ─────────────────► <base>/_mineqtt/{catalog/+,status} ─┤  (HaEntityCatalog, 5 s after CONNACK)
+                                                                         ▼
+   TwinRuntime: EntityDocuments (one document per entity: statestream and catalog layers, merge, freshness, read gate)
+                │ TwinCoalescer (a burst applies once, ≤ 4/s per entity), drained after the inbound drain
+                ▼
+   DeviceRuntime.applyTwin ── TWIN extent ──► derived source wire HaEntityRef → PortRef(device, primary) (Scope.TWIN)
+                ▼
+   deliverTwin → DeviceType.twinCommand (the adapter's reads) → command(…, CommandSource.TWIN) → APPLY (loaded only)
+
+   player / wire / Controls tab ──► route FORWARD ──► MirrorForwarder → TwinRequests ──► <bridge>/bridge/ha_request
+   out-port of a target device  ──► derived target wire PortRef → HaEntityRef ──► HaSink → TwinRequests ──┘
+                                     TwinRequests: TwinGate (root) → adapter/HaCalls → allowlist → breaker →
+                                     connection → rates → publish; answers on bridge/ha_response are advisory
+```
+
+- **Packages.** `twin/core` is the pure core (Minecraft-free, `verifyCoreIsolation`): the statestream parser and the
+  `EntityDocuments` hub, value paths and maps, `HaDomains`/`HaCalls`/`Call`, `Binding`, `TwinHealth`, `TwinCoalescer`,
+  `EntityScan`, `EntitySearch`, `BindingPreset`/`PresetCodec`. `twin` holds the server side: `TwinAdapter` (pure too),
+  `TwinRuntime` (read side), `HaEntityCatalog`, `TwinGate`, `TwinRequests`, `PendingRequests`, `HaSink`,
+  `BindingPresets`, `BindingCodecs`. The device side is `device/TwinRules` (who may bind what, judged for editor, owner
+  and placer), `device/TwinWiring` (the derived wires), `device/TwinView` (the Twin tab's per-viewer data) and the
+  `FORWARD`/`REFUSE` routes of `DeviceRuntime`. Each type that takes part declares a `TwinAdapter`
+  (`DeviceType.Builder.twin`): its primary port, the source domains with their reads, the forward through `HaCalls`,
+  targets on out-ports, extras and extra leaves; `build()` refuses an adapter that breaks the rules (a target on an
+  action, a read into a port it does not mirror).
+- **Read side.** A loaded device with a working binding *holds* exactly the statestream leaves its adapter reads
+  (`TwinAdapter.leaves`: `state`, `last_updated` and the attributes the reads and `twin.path` need, never `+`), one
+  shared `SubOptions.MIRROR` subscription per leaf for every holder (`mqtt/core/SharedSubscriptions`), after
+  `TopicAcl.checkMirror`. Every leaf folds into the one `EntityDocuments`: the raw state (never JSON), strict JSON
+  attributes, timestamps, and per entity a statestream layer and a catalog layer. The newer `last_updated` wins
+  (`EntityDocuments.merge`): a live statestream value always applies, a retained one with an older or missing
+  timestamp loses to the catalog, so a stale retained value after a Home Assistant restart is corrected by the next
+  catalog. Freshness is LIVE, RETAINED or NONE; a Home Assistant birth downgrades every LIVE entity to RETAINED until
+  the next live value or catalog. Attributes are not delivered while the state is unavailable, unknown or cleared, and
+  a null colour keeps the last one. The last holder of an entity closes its leaves and forgets its document, so the
+  broker's retained replay restores it at the next attach (D17); nothing of it is ever saved.
+- **Gates on reading.** `twin.allowedEntities` (globs; empty, the dedicated default, turns the Home Assistant twin
+  off; nobody bypasses it) and, while the catalog answers (catalog mode: a status was received), membership in the
+  catalog, which Home Assistant's labels decide; a domain list over 64 KiB is refused and its domain shares nothing
+  (fails closed). The D2 privacy domains are unreadable in `HaDomains`, and every attribute read is whitelisted per
+  domain. A new source or target must pass the share gate when it is bound (`TwinRules.shareRefusal`); a bound
+  entity that leaves the catalog shows `NOT_SHARED`.
+- **Apply.** `TwinRuntime.drain` (after `drainInbound`, also in the paused-server pump) hands each settled entity to
+  `DeviceRuntime.applyTwin`, which emits the document on the derived source wires inside `bus.withRoot(Root.TWIN)`.
+  A `Scope.TWIN` wire carries the whole document unmapped; the sink reads the entity's newest document through the
+  device's binding (`DeviceType.twinCommand`) and applies it as `CommandSource.TWIN`, which routes `APPLY` for a
+  loaded device and `DROP` for an unloaded one (never queued). The device's `publishState` then emits its out-ports
+  with root `TWIN`, so ordinary wires carry the real house on. Health (`TwinHealth`) goes to the render hint byte, the
+  state topic's `binding` object (Home Assistant's *Binding* entity) and the open screens.
+- **Write side.** A non-TWIN command to a mirrored port of a bound device routes `FORWARD` (players and wires, with
+  control on and the owner's `mineqtt:twin.control` at route time) or `REFUSE` (Home Assistant `/set`, groups, the
+  paused Raw Link, control off, a refused binding), before any queue; a forward applies nothing (non-optimistic) and
+  goes to `MineqttRuntime.forwardToTwin` → `TwinRequests` with the current root and the acting player. A target
+  device's out-port reaches `HaSink` over its derived target wire. `TwinRequests` runs, in order: the root gate
+  (`TwinGate.mayRequest`: `PLAYER` and `WORLD` only), the adapter's translation through `HaCalls` (D11: the opposite
+  of a LIVE state, a `toggle` of a RETAINED one, a local refusal while nothing or unavailable is known, a dedupe
+  skip when the entity already shows the value), `twin.haActionAllowlist`, the breaker, the connection (offline: refused,
+  `OfflinePolicy.DROP`), the sliding one-second windows per device, player and bridge, then the publish on
+  `bridge/ha_request` (QoS 1, not retained). A request waits for the entity's next apply, a refusal or 5 s
+  (`PendingRequests`); `bridge/ha_response` only ends the wait and explains a refusal, it never changes a device.
+- **Rates and the breaker.** Over a rate, a value with data and a world-caused explicit state wait (one slot per device
+  and entity, newest wins, dropped on a pause, a binding change or offline, checked again when sent), while a
+  player's switch, a toggle and a press are refused, counted per device (status line, `devices info`, the Twin tab
+  through `TwinRequests.Listener.rateRefused`) and logged once per burst. A dedupe skip drops
+  a held state it contradicts (`TwinRequests.supersede`). More than 8 world-caused requests or attempts in 10 s pause
+  the device (`CONTROL_PAUSED`) until a player with CONFIGURE resumes it; requests with an `origin.player` never count
+  towards the breaker (`countsForBreaker`).
+- **Root provenance.** Every bus message carries a transient `Root`, assigned where the cause enters (see the Roots
+  bullet under [Flows](#flows) for the mechanics):
+
+  | Cause | Root |
+  |---|---|
+  | a twin apply (`command(…, TWIN)`) | `TWIN` |
+  | a device's `/set` topic | `HA` |
+  | a player's use, a C2S payload, a command twin | `PLAYER` |
+  | a Raw Link, a legacy group's v1 topic, a v1 Block Emitter's broker message (`DeviceRuntime.fromBroker`) | `RAW` |
+  | `powerOnRecords` and the whole attach (queued commands landing included) | `STARTUP` |
+  | group fan-out and wire seeds | the outer root |
+  | block tickers, neighbour updates, hands | the current root, else `WORLD` |
+
+  A delivery runs in its message's root, held values and drain carry-over keep theirs, and a nested `PLAYER` or
+  `WORLD` extent never clears an outer `RAW`, `HA`, `TWIN` or `STARTUP` (`Root.nested`). A refused root is the bus drop
+  `root`, logged once per device and root. Wire seeds into mirrored and Home Assistant targets are skipped, since a
+  seed is a command, not a bus message.
+- **Loop safety (D10 proof sketch).** (1) The TWIN apply path (`TwinRuntime` → `applyTwin` → `command(…, TWIN)` →
+  `applyCommand` → `publishState`) has no call edge to `TwinRequests`; every request passes `TwinGate` first. (2)
+  Everything emitted in a TWIN extent carries `TWIN`, and the bus keeps it through hops, holds and carry-over. (3) No
+  nested extent clears an outside root, and the attach and the queue's landing are `STARTUP`, so neither a nested
+  command nor a queued `/set` turns incoming state into a player's or the world's. (4) Every path on which a broker
+  message changes the world synchronously opens an outside root: `/set` topics (`HA`), Raw Links and legacy groups and
+  the v1 Block Emitter (`RAW`), the twin (`TWIN`). (5) So no request is causally downstream of incoming state within
+  one tick's synchronous chain. Outside the proof: delayed redstone (repeaters, observers, scheduled ticks start a new
+  `WORLD` chain, also after a `RAW`, `HA` or `TWIN` cause) and Home Assistant automations that write raw topics; the
+  rates, the dedupe and the breaker bound them (`verifyMirrorNoLoop`'s repeater loops). M6's logic nodes must carry
+  the root through; only an explicit, rate-capped node may ever clear it.
+- **Catalog.** `HaEntityCatalog` opens its own SUBSCRIBE 5 s after the first CONNACK (after the device-critical retained
+  messages) and, while no status came within 10 s, the fallback scan of `<base>/+/+/state` and `friendly_name`
+  (`EntityScan`, capped at `twin.catalogMax`). `MineqttRuntime` (not `TwinRuntime`, which can never publish) sends
+  `bridge/ha_sync` 5 s after every CONNACK and Home Assistant birth. The picker and `/mineqtt twin entities` rank
+  through `EntitySearch`; drift (a catalog entry moving twice without a live statestream value, where a move counts only
+  when the state or the whitelisted attributes changed, so Home Assistant's re-dating of restored entities at a start
+  is none; `EntityDocuments.changedContent`, wave 7) is reported for mirrored entities only, never for trigger domains.
+- **Presets.** An MQTT device preset is a document synthesiser for one Home Assistant kind (`BindingPreset`): its state
+  topic's payload becomes an `EntityDocument`, the adapter reads and forwards it unchanged, and `render` turns the
+  adapter's `Call` into the device's command through typed placeholders. The source is `TopicRef(stateTopic, "")`
+  with `Binding.Settings.preset`; its wire carries a payload fingerprint, and the device reads the payload through its
+  own loaded preset. Presets need `mineqtt:twin.bind` but not the Home Assistant twin; the ACL gates them
+  (`checkTopicSource` for the state topic, `checkPublish` for the owner at every send), behind the same root gate,
+  rates and breaker.
+- **Persistence.** A binding lives in the block (`DeviceLink`'s optional `twin` key) with a copy in the record
+  (`DeviceRecord.twin`, the codec's last `group()` slot), never entity documents or the catalog. Unbound devices save
+  byte-identical to 0.6.0, `DeviceLink.VERSION` stays 3, the registry schema 1 and `configVersion` 2.
+
 ## Security
 
 - `TopicAcl` (pure, in `mqtt/core`) decides every topic a player, a block or a command uses. Hard denies (discovery
-  prefix, bridge namespace, `$SYS`, other players' private subtrees) apply even to ops; the raw allowlist
-  (`acl.rawAllow`) comes from the config; v1 topics of migrated devices are grandfathered per owner.
+  prefix, this server's bridge namespace except `raw/`, every server's `bridge/` level under the base topic and under
+  `mineqtt` (`DENY_FOREIGN_BRIDGE`), the statestream base (`DENY_STATESTREAM`), `$SYS`, other players' private
+  subtrees) apply even to ops; listening on the statestream base needs `mineqtt.admin` (`mineqtt:admin` or op level 3,
+  `DENY_STATESTREAM_LISTEN`), and the explorer shows non-admins only the size of the twin's `bridge/ha_*` messages and
+  hides statestream topics. v1 blocks (`checkLegacy`) have no admin and show what they receive, so they never listen
+  on the statestream base (`DENY_STATESTREAM_LEGACY`) or on any bridge's `bridge/ha_*` (`DENY_TWIN_TRAFFIC`). An MQTT
+  device preset's state topic (`checkTopicSource`, M3-17) follows `checkMirror` but, for every subject including admins
+  and the console, never overlaps the statestream base (`DENY_STATESTREAM_SOURCE`) or the twin's traffic; its command
+  topic needs `checkPublish`. Neither a preset's state topic nor a v1 listener reaches this server's device and group
+  topics (`DENY_DEVICE_TOPICS`, wave 6 review: a bound device's state names its entity, and the explorer shows those
+  topics only to players who may configure the device); its `bridge/` and `raw/` subtrees stay open. A binding's entities (Twin tab, status line, Raw Link status) reach only viewers with
+  CONFIGURE (M3-13). The raw allowlist (`acl.rawAllow`) comes from the config; v1 topics of migrated devices are
+  grandfathered per owner. `MineqttRuntime.createAcl` always passes the normalised `twin.statestreamBase`, so a reload
+  that moves it re-judges Raw Links.
+- Twin permissions `mineqtt:twin.bind`/`mineqtt:twin.control` (`AclContext`, AUTO: everyone integrated, op level 2 or
+  the permission dedicated) and `twin.allowedEntities`, which nobody bypasses (`AclContext.twinBindRefusal` takes no
+  subject). They are server-wide atoms, not `MineqttPermission` claim permissions: a twin edit also needs CONFIGURE on
+  the block, which carries the P2 rule (no CONFIGURE for a player who may not build).
+- The Twin tab's preset search (`TwinSearchPayload` of kind `PRESET`, wave 7) shares the entity search's guard
+  (`requireDevice`, CONFIGURE), per-player bucket and `twin.bind` requirement, is answered only for `twin.device` on a
+  type with a source (`TwinPicker.searchable`), and never asks the Home Assistant twin.
+- Twin keys (`twin.*`, M3-7) need CONFIGURE plus the twin gate (`TwinRules.edit`): `mineqtt:twin.bind` and
+  `twin.allowedEntities` for an entity or a `twin.path`, `mineqtt:twin.control` to turn control on (turning it off
+  needs none). The binding is judged for the editor and for the device's owner, again for the owner at every attach and
+  config reload (`twinRulesChanged`; a refused binding stays bound, reads and forwards nothing, and heals when the
+  rules allow it again), and for the placer of a copied block (control dropped). `/mineqtt devices bind` acts with an
+  operator's grants and the source's twin rights. Player-facing texts, the render data and the links list for viewers
+  without CONFIGURE never name the entity (D13 #7); the device's state topic does (`binding.entity`), and so does its
+  status line.
 - `C2SGuard` validates every client-to-server payload: rate limit first, then no spectator, then menu/BE lookup, reach
   (16 blocks with a Configurator in hand where the level lets the player interact, `reaches`), claim permission
   (`MineqttPermission.USE`/`CONFIGURE`, Flan when present; CONFIGURE never for a player who may not build, P2) and
@@ -710,16 +1002,28 @@ Who wires what, and the Configurator's Link mode (M2-16):
   timers, value codecs, registry round trip, lifecycle guards, legacy NBT migration, discovery payload golden files,
   config migration, security guards, `verifyDeviceTypes` (derived and frozen ports, strict settings and link settings,
   which port pairs a wire may join, the default wiring and the bus routing over a registry, the device view's stream
-  codec and 32 KiB cap), and `verifyCatalog`: every `Catalog` entry's assets, loot table and lang keys,
+  codec and 32 KiB cap), `verifyMirrorNoLoop` (the mirror route table, the twin type build rules, reading and
+  forwarding of a synthetic twin type and the Smart Lamp, the side doors of bound devices, 1000 seeded statestream sequences through a real bus, roots through a real `MessageBus` and the real `TwinRequests`: the root gate, dedupe,
+  rates, the breaker, answers, `powerOnRecords` as `STARTUP`; M3-12's Output and Plug level sequences and forwards;
+  M3-14's targets through the real `DeviceRegistry`, `TwinWiring` and `RegistryWiring` and the repeater loop against the
+  breaker; M3-15's read-only panel; wave 6: presets through the real bus and `TwinRequests`, the fast repeater loop
+  ending paused, rate refusals, target sharing; wave 7: the rate listener), `verifyDeviceTabs` (since M3-13 the Twin
+  tab: rows per type, every twin key placed exactly once since wave 7 (no exemption for `twin.device`/`twin.preset`),
+  editable exactly when the server takes it, the picker's area groups, free text and control filter),
+  `verifySecurityGuards` (32 payloads; the picker's wire caps, views without details, the search bucket; preset
+  bindings; wave 7: `presetSearch()` and `pickerAnswersAndRates()`: the search kind, the answer's domain, resends, the
+  view's preset source and rate fields), and `verifyCatalog`: every `Catalog` entry's assets, loot table and lang keys,
   every 26.2 recipe and unlock advancement parsed with the vanilla codecs) and `brokerChecks` (no Minecraft: topic
-  trie, broker URIs, ACL, queues, outbound buffer, `verifyMessageBus` (the flows bus and the coercion table), and `verifyBrokerIntegration` against an in-process Moquette, MQTT
+  trie, broker URIs, ACL, queues, outbound buffer, `verifyMessageBus` (the flows bus and the coercion table; a target wire carries the out-port value as it is, M3-14), `verifyStatestreamParse` (the twin core against the HA 2026.10.0 statestream capture: raw states, strict attributes, the catalog and the merge table), `verifyValuePath` and `verifyValueMap` (the twin's value paths, value maps and panel layout), `verifyHaCalls` (HA domain ports, the service-call table, the data-key whitelist, impossible calls, one target, privacy domains, D11 switching, D5 edges; it reads `docs/blueprints/automation/mineqtt/` (its task input and argument) through the brokerChecks helper `BlueprintFile`: the control blueprint's services line, defaults, reply rule and guards, M3-10, and the catalog blueprint's attributes line, triggers and topics, M3-11), `verifyStatestreamParse` also covers M3-11's restart snapshot, drift (never for trigger domains; since wave 7 never for a re-dating alone, e.g. two Home Assistant restarts), catalog health, scan and search and targets leaving the catalog, `verifyPresetLoad` (M3-17: the built-in presets, rendering, hostile values, bad datapack files, device names, documents, the ACL of preset topics), and `verifyBrokerIntegration` against an in-process Moquette (scenario 18: the twin's shared statestream subscriptions), MQTT
   3.1.1 only).
 - `e2e/` is the manual end-to-end environment: Mosquitto 2 (TCP, TLS, WebSockets), Mosquitto 1.5, and Home Assistant at
   the supported floor and current stable. Its README holds the checklist and the last recorded results, including the
   MQTT 5 integration run (`-PexternalBroker`).
 - `:fabric:runClientGameTest` runs the Fabric client game tests (`fabric/src/gametest`): a real client joins an
   in-process dedicated server as a non-op player. It opens a game window, so `check` only compiles them; how to run
-  them, the suites and the helpers are in `e2e/README.md`.
+  them, the suites (27 entrypoints since M3-13's `mirror` and `bind`; `TwinFixture` gives the twin suites a per-run
+  statestream base) and the helpers are in `e2e/README.md`. `e2e/tools/run-gametests.sh [suites]` runs them one window at a
+  time across worktrees (a machine-wide lock; `MINEQTT_LANE` sets the bridge id, `MINEQTT_GAMETEST_SUITES` filters suites).
 
 ## Pitfalls
 

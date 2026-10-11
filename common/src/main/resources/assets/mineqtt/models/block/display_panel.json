@@ -1,0 +1,22 @@
+{
+  "parent": "block/block",
+  "textures": {
+    "front": "mineqtt:block/display_panel",
+    "side": "mineqtt:block/display_panel_side",
+    "particle": "mineqtt:block/display_panel_side"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 14],
+      "to": [16, 16, 16],
+      "faces": {
+        "north": {"uv": [0, 0, 16, 16], "texture": "#front"},
+        "south": {"uv": [0, 0, 16, 16], "texture": "#side", "cullface": "south"},
+        "east": {"uv": [7, 0, 9, 16], "texture": "#side"},
+        "west": {"uv": [7, 0, 9, 16], "texture": "#side"},
+        "up": {"uv": [0, 7, 16, 9], "texture": "#side"},
+        "down": {"uv": [0, 7, 16, 9], "texture": "#side"}
+      }
+    }
+  ]
+}

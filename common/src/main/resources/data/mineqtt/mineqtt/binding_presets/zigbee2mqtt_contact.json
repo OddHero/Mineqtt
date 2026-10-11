@@ -1,0 +1,9 @@
+{
+  "name": "zigbee2mqtt contact",
+  "kind": "binary_sensor",
+  "state_topic": "zigbee2mqtt/{device}",
+  "state": "contact",
+  "on": false,
+  "off": true,
+  "payload_attributes": true
+}

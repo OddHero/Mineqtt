@@ -9,9 +9,11 @@ Or maybe you want to know if your virtual nuclear reactor is about to blow up, w
 airhorn/sirene to wake you up before its too late.
 
 MineQTT blocks are real smart-home devices: Home Assistant discovers each placed Smart Lamp, Redstone Output, Redstone
-Input, Smart Plug, Presence Sensor, Climate Sensor and Wall Switch as its own device under a **MineQTT Bridge** device
-for the world. Devices can also be wired to each other on the server, so local contraptions keep working without the
-broker. What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
+Input, Smart Plug, Presence Sensor, Climate Sensor, Wall Switch and Display Panel as its own device under a **MineQTT
+Bridge** device for the world. Devices can also be wired to each other on the server, so local contraptions keep
+working without the broker. The other way round, blocks can [mirror your house](#mirror-your-house): a lamp follows
+the real kitchen light, a Display Panel shows the outdoor temperature, and a pressure plate switches the real hallway
+light. What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Inter Server Communication - Signals Between Minecraft Worlds
 
@@ -43,12 +45,18 @@ and kept as `mineqtt.json.v1.bak` / `mineqtt.toml.v1.bak`.
 | `baseTopic` | `mineqtt` | Root of every MineQTT topic. |
 | `discoveryPrefix` | `homeassistant` | Home Assistant discovery prefix. |
 | `haBirthTopic` | `homeassistant/status` | Home Assistant's birth topic; `online` there republishes everything. |
-| `ha.expose` | `AUTO` | `ALL`, `OPT_IN`, `NONE`; `AUTO` means `ALL` in single player and `OPT_IN` on dedicated servers. See [Home Assistant](#home-assistant). |
+| `ha.expose` | `AUTO` | `ALL`, `OPT_IN`, `NONE`; `AUTO` means `ALL` in single player and LAN worlds and `OPT_IN` on dedicated servers. See [Home Assistant](#home-assistant). |
 | `acl.rawAllow` | `mineqtt/shared/#`, `<base>/<bridgeId>/raw/#` | Topics players may use for raw links and the Configurator's explorer. |
-| `acl.opsBypassAllowlist` | `AUTO` | Whether ops may use topics outside `acl.rawAllow`; `AUTO` = yes in single player, no on dedicated servers. |
+| `acl.opsBypassAllowlist` | `AUTO` | Whether ops may use topics outside `acl.rawAllow`; `AUTO` = yes in single player and LAN worlds, no on dedicated servers. |
 | `acl.explorerBrokerWide` | false | Lets admins listen to the whole broker with the Configurator's explorer. |
 | `limits.maxDevicesPerPlayer` | 0 | Maximum devices one player may own, loaded or not; 0 is unlimited. A player who owns as many cannot place another device (the action bar says why) or claim an ownerless one; operators are not limited. Only placing and claiming are checked: devices made by `/setblock`, `/clone` or structures, and an owner's devices above a lowered limit, are kept. The Block Sensor, Block Emitter, timers and Bridge Console are no devices and do not count. |
 | `limits.maxWiresPerPlayer` | 256 | Maximum wires (Configurator links and `/mineqtt wires add` of a player) one player may own; 0 is unlimited. Wires made from the console or a command block count for nobody. |
+| `twin.statestreamBase` | `ha_statestream` | The `base_topic` of Home Assistant's `mqtt_statestream`. Read-only for players and ops; only admins (op level 3 or the `mineqtt:admin` permission) may listen there in the explorer. Must not overlap `discoveryPrefix`, `baseTopic` or `mineqtt/shared`; one trailing `/` is ignored. Empty: the twin reads nothing. |
+| `twin.allowedEntities` | `AUTO` | Home Assistant entities the twin may read and bind, as globs over the entity id (`*`, `?`), e.g. `light.*`. Operators do not bypass it. `[]` turns the twin off; `AUTO` alone means every entity in single player and LAN worlds and **none on dedicated servers** (the twin starts off there; `/mineqtt status` and the log name this key). Set it before you open a world to LAN or share it: every guest may then bind and control what it allows. |
+| `twin.haActionAllowlist` | the 15 domains of the control blueprint | Home Assistant domains Minecraft may control (`lock` and `climate` are opt-in). The control blueprint gates them again in Home Assistant. |
+| `twin.maxRequestsPerSecond` | 20 | Home Assistant requests per second for the whole server (1-1000). |
+| `twin.catalog` | true | Read the entity catalog of the MineQTT catalog blueprint. |
+| `twin.catalogMax` | 2000 | Home Assistant entities the twin keeps at most (1-10000). |
 | `blockPlacer.enabled` | false | Enables the block emitter (places blocks from MQTT payloads). |
 | `server.keepTickingWhenEmpty` | false | Dedicated servers only: never pause with nobody online, overriding `pause-when-empty-seconds`. See "Dedicated servers pause when empty" under [Home Assistant](#home-assistant). |
 
@@ -67,8 +75,9 @@ IPv6 literals go in brackets (`tcp://[::1]:1883`). Credentials, queries and frag
 need not be stored in the config file. It is never logged and is masked in the config screens and in `/mineqtt status`.
 
 **MQTT 3.1.1.** With `protocol: 5` against a broker that only speaks 3.1.1, the connection fails and `/mineqtt status`
-says "if it only supports MQTT 3.1.1 set protocol: 3.1.1". MineQTT drops inbound messages larger than 64 KiB. On
-MQTT 5 it tells the broker its maximum packet size, so the broker never sends such a message; MQTT 3.1.1 cannot, so a
+says "if it only supports MQTT 3.1.1 set protocol: 3.1.1". MineQTT drops inbound messages larger than 256 KiB
+(the Home Assistant catalog's lists; every other subscription takes at most 64 KiB). On MQTT 5 it tells the broker its
+maximum packet size, so the broker never sends such a message; MQTT 3.1.1 cannot, so a
 3.1.1 client reads every message whole before dropping an oversized one. A broker-side limit (Mosquitto 2:
 `max_packet_size`; Mosquitto 1.x: `message_size_limit`) keeps them away, but it applies to every client on the broker:
 pick a value above the largest payload your other publishers send (camera snapshots, for example), or give MineQTT its
@@ -101,8 +110,9 @@ broker cannot change a device when the server starts. Raw links are different, s
 | **Presence Sensor** (motion sensor) | `occupancy`, `count`, `detect`, `range`, `clear_delay`, `filter` | `/set/detect` (`players`/`mobs`/`all`), `/set/range` (1-8 blocks), `/set/clear_delay` (seconds). The count updates at once; occupancy stays on for `clear_delay` after the last detection. Spectators are never counted. `filter` (the Controls tab's *Mobs* field) names the mobs that count, up to 8 ids such as `zombie, pig`; empty counts every mob. Sensors migrated from v1 count mobs, as v1 did, and the spawn eggs in their old filter slots became their filter. |
 | **Wall Switch** (light remote) | `location` | Two buttons. A right-click presses the button it hits (left or right as you face the switch); its events on `…/action` are `{"event_type":"press","button":"left"}`, `double_press` (a second click within 8 ticks) and `hold` (the use key held for 10 ticks; fired once, nothing when you let go), each with the `button`. A single press is told 8 ticks after the click, once no second click came. `{"press_left":"PRESS"}` (or `/set/press_left` with `PRESS`, the Controls tab's buttons, `/mineqtt devices action <switch> press_right`) presses a button at once. Home Assistant shows an event entity and a device trigger per gesture and button ("left" pressed, double clicked, continuously pressed). Its raw link, if you give it one, publishes the event's name with the button (`press_left`, `double_press_right`, `hold_left`), never retained. Wire its `press` to a lamp, plug or output (Link mode or `/mineqtt wires`) to switch it without the broker; a wire carries both buttons' presses. |
 | **Climate Sensor** (temperature sensor; humidity sensors convert into it) | `temperature` °C, `humidity` %, `illuminance` lx, `biome`, `interval`, `raw_value` | Takes a reading every `interval` seconds (`/set/interval`, 1-3600, default 10). The state is published when the temperature moved by 0.2 °C, the humidity by 1 % or anything else changed, at most once per second. The readings come from the spot: the biome's temperature and whether it rains or snows there, the height, day and night, rain, an open sky or a roof, heat (fire, lava, magma, campfires) and water or ice within 5 blocks, and daylight plus block light. Its raw link publishes the reading `raw_value` names (`temperature`, `humidity` or `illuminance`) at every reading, as v1 sensors did, with a decimal point whatever the server's language (`21.5`). |
+| **Display Panel** | `message` (up to 255 characters, line breaks kept), `level` 0-15, `color`, `glow`, `size`, `location` | A wall plate that shows up to four lines of text: `{"message":"Washer done!"}`, `/set/message`, its Home Assistant text entity, a wire into `message` or its Raw Link (which follows the topic's retained value; blank text clears it). Settings `color` (the 16 dye colours, default `cyan`), `glow` (on by default; off draws in the block's light) and `size` (`auto`, `large`, `medium`, `small`). A comparator reads `level`: a number as a gauge (0..15, or over the mirrored entity's range or `twin.min`/`twin.max`), on/off words as 15/0, one of a mirrored entity's options as its index, any other text as 15, nothing, `unknown` or `unavailable` as 0. A point in time (a timestamp sensor's state) is worded by each player's game ("in 2 h 14 min", "07:30") and keeps moving. A right-click opens its screen. |
 
-Lamps, outputs and plugs stay `online` while their chunk is unloaded: a command is queued and applied when the chunk loads.
+Lamps, outputs, plugs and Display Panels stay `online` while their chunk is unloaded: a command is queued and applied when the chunk loads.
 Sensors and Wall Switches go `offline` when unloaded.
 
 **Raw link.** The topic a device had in its v1 item slots (named paper) still works as a *raw link* next to the device
@@ -145,7 +155,8 @@ right to configure the device.
 **Configurator** (formerly the Cyberdeck; same item id). A right-click opens the screen of the device you point at
 from up to 16 blocks away, e.g. a ceiling lamp; the screen stays open while you hold the Configurator and stay within
 that range. Pointing at nothing, it opens the topic explorer (listen, publish). Sneak + right-click into
-the air steps its mode: *Configure*, *Link*, *Group* and *Copy-Paste*. Blocks that are not devices open from
+the air steps its mode: *Configure*, *Link*, *Group*, *Copy-Paste* and *Bind* (the
+[Twin tab](#bind-a-block)). Blocks that are not devices open from
 close by only. The explorer no longer keeps anything on the item: whether you listen is kept by the
 server (it resumes when you rejoin, until the server restarts), and its topic slots give their items back when the
 screen closes. An old Cyberdeck gives back the items its slots held the first time you carry it.
@@ -243,13 +254,23 @@ All need op level 2 (`/mineqtt publish` level 3), except `devices expose`: a pla
 permission may use it on devices they may configure. Quotes around a name are dropped: `rename lamp "Living Room"`
 names it `Living Room`.
 
+`mineqtt:twin.bind` binds a device to a Home Assistant entity, `mineqtt:twin.control` turns its control on (the
+[Home Assistant twin](#mirror-your-house)). Everyone has both in single player and LAN worlds (every player on an
+integrated server); on dedicated servers ops (level 2) and holders of the permission.
+**A world opened to LAN** (or shared through a tunnel mod such as e4mc) **gives every guest both**: a guest binds the
+blocks they place to any entity `twin.allowedEntities` lets through (every one with `AUTO`), or to an MQTT device
+preset, and switches what Home Assistant labels *MineQTT control*. Set `twin.allowedEntities`, and label only what
+guests may switch, before you share a world. A binding is also judged for the device's owner (an
+ownerless device cannot be bound until it is claimed), again at every load and config reload.
+
 | Command | Purpose |
 |---|---|
 | `/mineqtt status` | Connection, broker, protocol, device counts, wires and their messages, Home Assistant mode, dropped messages |
 | `/mineqtt reconnect` | Rebuild the connection from the current config |
 | `/mineqtt devices list \| info <device> \| rename <device> <name> \| remove <device> \| prune` | Manage devices |
 | `/mineqtt devices set <device> <json>` | Command a device like its `…/set` topic, e.g. `set kitchen_lamp {"state":"ON"}`; an unloaded lamp or output queues it |
-| `/mineqtt devices setting <device> <key> <value>` | Change a setting, as the device screen does: the type's settings (`mode`, `range`, …), its other writable fields as the Controls tab sets them (`power 7`, `light {"state":"ON","brightness":128}`) and `name`, `expose`, `access`, `raw.channel`, `raw.private`, `raw.topic`, `raw.retain`, `raw.qos`, `raw.on`, `raw.off`; out-of-range values are refused |
+| `/mineqtt devices setting <device> <key> <value>` | Change a setting, as the device screen does: the type's settings (`mode`, `range`, …), its other writable fields as the Controls tab sets them (`power 7`, `light {"state":"ON","brightness":128}`) and `name`, `expose`, `access`, `raw.channel`, `raw.private`, `raw.topic`, `raw.retain`, `raw.qos`, `raw.on`, `raw.off`, and the Home Assistant twin's keys: on a Smart Lamp and a Smart Plug `twin.entity`, `twin.device "<preset> <name>"`, `twin.preset`, `twin.unavailable hold\|off`, `twin.control true\|false`, `twin.resume press`; on a Redstone Output `twin.entity`, `twin.device`, `twin.preset`, `twin.path`, `twin.invert`, `twin.min`, `twin.max`, `twin.unavailable`, `twin.control`, `twin.resume`; on a Display Panel `twin.entity`, `twin.device`, `twin.preset`, `twin.path`, `twin.min`, `twin.max`, `twin.decimals`, `twin.unavailable`; on a Redstone Input `twin.target`, `twin.resume`; on a Wall Switch `twin.left`, `twin.right`, `twin.resume`; out-of-range values are refused |
+| `/mineqtt devices bind <device> <entity> \| none \| resume`, `/mineqtt devices bind <device> target <target> <entity> \| none`, `/mineqtt devices bind <device> preset <preset> <name>` | Mirror a Home Assistant entity on a device (Smart Lamp, Redstone Output, Smart Plug, Display Panel), unbind it, or end the pause of its control after too many requests; `target` sets or removes what a Redstone Input (`target`) or a Wall Switch button (`left`, `right`) switches; `preset` mirrors an MQTT device through a preset instead. The entity must be in `twin.allowedEntities` and, while the catalog blueprint runs, labelled in Home Assistant; a preset's topics must pass the ACL |
 | `/mineqtt devices raw <device> channel <name> \| private <name> \| topic <topic> \| none \| retain on\|off \| qos 0\|1 \| on <payload> \| off <payload>` | Edit the Raw Link: a channel resolves like a v1 item or paper topic (`mineqtt/shared/<name>` unless allowed as written), a private channel into the owner's own subtree; a topic is used as typed when the ACL allows it for you and for the device's owner; `""` clears a payload |
 | `/mineqtt devices action <device> <action> [value]` | Perform an action the device declares, e.g. `action garage_door state TOGGLE` |
 | `/mineqtt devices expose <device> on \| off \| default` | Show a device to Home Assistant, hide it, or follow `ha.expose` again |
@@ -259,6 +280,7 @@ names it `Living Room`.
 | `/mineqtt devices eject <device>` | Drop the items a loaded device's old configuration slots held where it stands (`devices info` lists how many) |
 | `/mineqtt group create <name> \| add <group> <device> \| remove <group> [<device>] \| rename <group> <name> \| expose-members <group> on\|off \| list` | Manage groups. `rename` moves the group's topics to the new slug; `expose-members on` lets Home Assistant discover the members beside the group (each as its own exposure allows) |
 | `/mineqtt wires list [<device> \| group.<group>] \| add <from> <to> [follow\|invert\|pulse_toggle] \| remove <id>` | Wire a device's port to another device's or a group's port, e.g. `add garage_input.powered group.porch_lamps.state`. A wire works on the server alone, without the broker, and an unloaded lamp or output gets its value when its chunk loads. Without a mapping it follows (an event toggles). A following or inverted wire sets its target to the source's current value when it is made. A player's wires count against `limits.maxWiresPerPlayer`, the console's do not. `list` shows the ids `remove` takes, or enough of their start |
+| `/mineqtt twin status \| entities [query] \| show <entity> \| ping \| refresh` | The twin: what it reads, the catalog and how its bound devices are doing (requests, answers, pauses); the entities you may bind (up to 40, searched by name, id or area); one entity as the twin knows it and the devices mirroring it; ask the control blueprint to answer (`pong`, or no answer within 5 s); ask Home Assistant for a fresh entity catalog (`bridge/ha_sync`) |
 | `/mineqtt discovery republish \| clear [--bridge <oldId>]` | Republish or clear Home Assistant discovery |
 | `/mineqtt publish "<topic>" <payload>` | Publish a message (checked against the ACL) |
 
@@ -277,6 +299,8 @@ What appears in Home Assistant:
   "Kitchen Lamp" becomes `light.kitchen_lamp`. Renaming the device keeps the entity and its history.
 - All device entities become unavailable when the server stops or crashes; the bridge's connectivity sensor turns off.
 - When Home Assistant restarts, MineQTT republishes everything within a few seconds; no server restart is needed.
+- A block that mirrors a Home Assistant entity keeps only a disabled diagnostic *Binding* entity while it is bound
+  (see [What Home Assistant sees](#what-each-block-mirrors)).
 - Devices that are gone do not linger: for five seconds after every connect MineQTT reads the retained device configs
   under the discovery prefix and clears each one that names this world's bridge but no device or group the world knows,
   such as a device whose placement a crash undid. Home Assistant then removes it. Configs of other worlds' bridges and of
@@ -349,23 +373,333 @@ subscribe: yes" means it delivers. Outputs on other servers and on MQTT 3.1.1 ar
 Give other broker users write access to `mineqtt/shared/#` and to raw-link topics only if you trust them: a retained
 message there sets a Redstone Output or an unmigrated block when the server starts (see [Raw link](#devices-and-topics)).
 
-### Home Assistant to Minecraft (coming in M3)
+Keep `topic read ha_statestream/#` read-only for MineQTT's user. Inside the game, nobody (operators and the console
+included) can publish into the statestream namespace (`twin.statestreamBase`) nor into any MineQTT server's `bridge/`
+level (`<baseTopic>/+/bridge/#` and `mineqtt/+/bridge/#`, e.g. `mineqtt/shared/bridge/…`), even when `acl.rawAllow`
+covers it. A Block Emitter shows what it receives to every player nearby, so it never listens on the statestream
+namespace, on any server's `bridge/ha_request`, `ha_response` or `ha_sync`, or on this server's device and group
+topics (a bound device's state names its Home Assistant entity).
 
-Mirroring real Home Assistant entities onto blocks will read Home Assistant's state through `mqtt_statestream`. The
-configuration it will use:
+With the [Home Assistant twin](#mirror-your-house) on a broker that other clients share, keep the twin's topics to
+the two parties that own them: Home Assistant runs a request on `mineqtt/+/bridge/ha_request` as if Minecraft had sent
+it, and Minecraft trusts what arrives under `ha_statestream/#`. Only MineQTT's users may publish
+`mineqtt/+/bridge/ha_request` and `mineqtt/+/bridge/ha_sync`; only Home Assistant's user may publish
+`mineqtt/+/bridge/ha_response`, statestream (`ha_statestream/#`) and the catalog blueprint's
+`ha_statestream/_mineqtt/#`. Mosquitto's grants only add up, so give no other user a line that covers those topics
+(`#`, `mineqtt/#`, `ha_statestream/#`). With several MineQTT servers on one broker, give each its own user limited to
+its own bridge, so one server cannot send requests in another's name (set `bridgeId` in each server's config so the
+topic stays fixed), plus the raw-link lines above. For a server with `"bridgeId": "survival"`:
 
-```yaml
-# configuration.yaml (coming in M3, not used yet)
-mqtt_statestream:
-  base_topic: ha_statestream
-  publish_attributes: true
-  publish_timestamps: true
-  include:
-    domains:
-      - light
-      - switch
-      - input_boolean
 ```
+user mineqtt_survival
+topic readwrite mineqtt/survival/#
+topic readwrite mineqtt/shared/#
+topic readwrite homeassistant/#
+topic read ha_statestream/#
+```
+
+## Mirror your house
+
+Milestone 3 (0.7.0) brings real Home Assistant entities into Minecraft and lets Minecraft switch them back: a Smart
+Lamp lights up with the real kitchen light, a Redstone Output opens a piston door with the real front door, a Display
+Panel shows the outdoor temperature, and a pressure plate in the game switches the real hallway light. Home Assistant
+decides what Minecraft may see (a label and the statestream include) and what it may switch (a second label and a
+blueprint); the server decides who may bind blocks; loop protection makes sure a mirrored block never echoes Home
+Assistant's own changes back.
+
+### Set up Home Assistant (about five minutes)
+
+You need Home Assistant 2025.2 or newer with its MQTT integration on the same broker as MineQTT.
+
+1. **Publish the entities' states with `mqtt_statestream`.** Add this to `configuration.yaml` and restart Home
+   Assistant (statestream is configured in YAML only, and starts only after a restart that follows the MQTT
+   integration's setup):
+
+   ```yaml
+   mqtt_statestream:
+     base_topic: ha_statestream     # MineQTT's twin.statestreamBase; never "homeassistant", never under mineqtt/
+     publish_attributes: true       # colour, brightness, unit, min/max and options are attributes
+     publish_timestamps: true       # last_updated tells a fresh value from an old retained one
+     include:
+       entities:
+         - light.kitchen_ceiling
+         - binary_sensor.front_door
+         - sensor.outdoor_temperature
+         - scene.movie_night
+   ```
+
+   Keep the `include:` list tight: statestream publishes about 8 retained topics per entity (26 for a climate
+   entity) and keeps them on the broker for good. Including whole domains (`include: domains: [light, switch]`) is
+   fine for a small installation. Whatever you include, MineQTT never reads `person`, `device_tracker`, `zone`,
+   `camera` or `alarm_control_panel` entities (they carry locations, occupancy and alarm codes).
+2. **Create two labels** (Settings → Areas, labels & zones → Labels): *MineQTT read* and *MineQTT control*. Home
+   Assistant gives them the ids `mineqtt_read` and `mineqtt_control`, which the blueprints expect (with other names,
+   set the blueprints' label inputs).
+3. **Import both blueprints and create an automation from each.** The defaults fit the setup above.
+
+   [![Import the MineQTT catalog blueprint.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FOddHero%2FMineqtt%2Fblob%2Fmain%2Fdocs%2Fblueprints%2Fautomation%2Fmineqtt%2Fmineqtt_catalog.yaml)
+   **MineQTT catalog** ([`mineqtt_catalog.yaml`](docs/blueprints/automation/mineqtt/mineqtt_catalog.yaml)) publishes
+   the labelled entities, retained, one list per domain with a fresh snapshot of each, under
+   `ha_statestream/_mineqtt/`: at Home Assistant's start, when labels, entities or devices change, every 10 minutes and
+   whenever a MineQTT server asks (5 s after it connects, after each Home Assistant start, and on `/mineqtt twin
+   refresh`).
+
+   [![Import the MineQTT control blueprint.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FOddHero%2FMineqtt%2Fblob%2Fmain%2Fdocs%2Fblueprints%2Fautomation%2Fmineqtt%2Fmineqtt_control.yaml)
+   **MineQTT control** ([`mineqtt_control.yaml`](docs/blueprints/automation/mineqtt/mineqtt_control.yaml)) carries out
+   Minecraft's requests: only for entities, or entities of devices, labelled *MineQTT control*; only the domains you
+   allow (locks and climate devices are off unless you add them), only fixed actions and data keys (never a lock's
+   `open`, a code, `flash` or a script's variables), one entity per request. It answers every request on
+   `…/ha_response`, before it calls the action, so even a failing call is answered, and writes accepted requests to the
+   logbook: "Minecraft: turn on by Steve via Porch Lamp" ("by a redstone signal" when no player caused it; the
+   *Log accepted requests* input turns it off). Its *Request topic* input serves every MineQTT server on the broker by
+   default; enter `mineqtt/<bridgeId>/bridge/ha_request` to serve one.
+
+   The badges open your own Home Assistant's import dialog (through my.home-assistant.io) and need the files on the
+   repository's `main` branch, which they are from the 0.7.0 release on; you can also paste the file links into
+   Settings → Automations & scenes → Blueprints → Import blueprint.
+4. **Label what Minecraft may see and switch:** *MineQTT read* on entities (or whole devices) the game may show,
+   *MineQTT control* on those it may also switch (control implies read). A label change reaches the game within about
+   3 s, and removing a label takes the entity out of Minecraft's reach at once. A labelled entity also needs to be in
+   the statestream `include:` to change live in the game; this template (Developer Tools → Template) prints the
+   labelled entities, those of labelled devices included, as a list to paste after `entities:`:
+
+   ```jinja
+   {%- set ns = namespace(ids=[]) -%}
+   {%- for label in ['mineqtt_read', 'mineqtt_control'] -%}
+     {%- set ns.ids = ns.ids + (label_entities(label) | list) -%}
+     {%- for dev in label_devices(label) -%}{%- set ns.ids = ns.ids + (device_entities(dev) | list) -%}{%- endfor -%}
+   {%- endfor -%}
+   {{ ns.ids | unique | sort | list }}
+   ```
+
+   (Without devices, `{{ label_entities('mineqtt_read') | list }}` is enough.)
+5. **Check it from the game.** On a dedicated server the twin starts off: set `twin.allowedEntities` (for example
+   `["light.*", "binary_sensor.front_door", "sensor.outdoor_*"]`, or `["*"]` when every labelled entity may be bound)
+   and restart the server (NeoForge also reloads `mineqtt.toml` while it runs). `/mineqtt twin status` then says how many entities the catalog shares and when it was
+   generated, `/mineqtt twin entities` lists what you may bind, and `/mineqtt twin ping` answers "pong" when the control
+   blueprint runs.
+
+Without the catalog blueprint MineQTT lists what statestream publishes (after 10 s), every entity
+`twin.allowedEntities` lets through can be bound, and a value left stale on the broker by a Home Assistant restart
+stays until the entity changes. With it, only labelled entities can be bound, and a bound entity whose label goes away
+shows *Not shared*.
+
+### Bind a block
+
+Who may: on a dedicated server, an operator or a holder of `mineqtt:twin.bind` (binding) and `mineqtt:twin.control`
+(turning control on), who may also configure the block; in single player and LAN worlds everyone, every guest of a
+world opened to LAN included (see [Commands](#commands)). The entity must match
+`twin.allowedEntities`, which no one bypasses, and, while the catalog runs, be labelled in Home Assistant. A binding is
+also judged for the block's owner (an ownerless block cannot be bound until someone claims it), again whenever the
+block loads and the config is reloaded: a binding the rules no longer allow is *Refused* and works again once they do.
+
+**The Twin tab.** Every block that can follow or switch Home Assistant has a *Home Assistant* tab after Controls. A
+mirroring block (Smart Lamp, Redstone Output, Smart Plug, Display Panel) shows its source (*This block*, *Home
+Assistant* or *MQTT device*) with the bound entity, its name, id and area (or the [MQTT device](#mqtt-devices-without-home-assistant),
+its preset and state topic), then its settings: control, invert, path, decimals, range and what happens while the
+source is unavailable, as the type has them. On an unbound block the source button steps *This block* → *Home
+Assistant* (which opens the entity picker) → *MQTT device* → *This block*; on a bound block one press unbinds it. A
+Redstone Input shows its target, a Wall Switch its Left and Right targets, each with a × that removes it. The last line
+tells how the binding is doing (see [Troubleshooting](#troubleshooting-by-the-health-line)), with *Resume* while its
+control is paused, and counts the requests the [rates](#control-from-minecraft) refused since the block loaded or was
+resumed ("2 refused by the rate"; hovering it names the last one's entity for players who may configure the block).
+Every change on the tab is the command twin (`/mineqtt devices setting <device> twin.…`) and needs the same rights.
+
+**The entity picker.** Clicking the entity (or *Pick…*) opens it: type part of a name, id or area and the list (at
+most 40, grouped by Home Assistant area) narrows as you type; one button steps through the domains the block can
+take; rows show a colour swatch, the value and *control* and *stale* badges; an entity id typed in full that Home
+Assistant has not shared yet shows as "Use … (not seen yet)". Enter binds the selected row; *Rename* (on while the
+block has its default name) names the block after the entity once the bind went through. Before the first bind of a block
+Home Assistant knows, it warns that Home Assistant loses the block's own entities; on a block bound to an MQTT device it
+warns "Binding replaces its MQTT device <name> (<preset>)." instead. The list always shows the answer to the query and
+domain asked last. For a target the picker lists only entities Minecraft may
+control: their domain allowed by `twin.haActionAllowlist` and, while the catalog runs, labelled *MineQTT control*.
+
+**Configurator Bind mode.** Step the Configurator to *Bind* (sneak + right-click into the air; the cycle is
+Configure, Link, Group, Copy-Paste, Bind) and click a block, also from up to 16 blocks away: its Twin tab opens with
+the picker; on a Wall Switch it asks Left or Right first.
+
+**By command:** `/mineqtt devices bind <device> <entity>` (or `none` to unbind), `devices bind <input> target target
+<entity>`, `devices bind <switch> target left|right <entity>`, `devices bind <device> preset <preset> <name>`, and
+`devices setting <device> twin.<key> <value>` for every row of the tab (the keys per type are in
+[Commands](#commands)). Copy-Paste mode copies a binding too, each key checked for the player who pastes it as if
+they set it on the tab; a placed copy of a bound block is *Refused* unless its placer may bind it, and loses control
+unless they may turn it on.
+
+### What each block mirrors
+
+- **Smart Lamp**: a light's state, brightness and colour (in one step, never a flash of the old colour; a light on at
+  brightness 0 shows at 1), or the on/off of a `switch`, `input_boolean`, `fan` or `binary_sensor` in white at full
+  brightness. Its effect stays a setting of the lamp.
+- **Redstone Output**: on/off entities (switch, input_boolean, binary_sensor, light, fan, cover, lock: unlocked is on)
+  give 15 and 0, `twin.invert true` swaps them, and states in between (opening, unlocking) hold. Numbers map onto
+  0..15 over `twin.min`/`twin.max`, else the entity's own range (an `input_number` at 42.5 of 0..100 gives 6), else
+  0..15; `twin.path attributes.brightness` reads an attribute (a light's brightness over 0..255, a fan's percentage
+  over 0..100; an off light reads 0); option lists (`input_select`, `select`) give the option's index; a climate gives
+  its current temperature. Whether it acts as a switch or a gauge follows from the entity and the path, not from its
+  `mode`.
+- **Smart Plug**: a `switch`, `input_boolean`, `light` or `fan`.
+- **Display Panel**: any readable entity, read-only: its value with its unit (`20.0 °C`, `42.5%`) under the panel's
+  name, "Waiting for HA…" until a value arrives, a grey "Unavailable". `twin.path` picks an attribute (a value path:
+  `state`, `attributes.brightness`, `attributes.forecast[0].temperature`, `attributes["unit.of"]`), `twin.decimals`
+  (`auto`, 0-3) rounds numbers, `twin.min`/`twin.max` set the comparator's range. Edits by players, commands and Home
+  Assistant are refused while it is bound; change the entity in Home Assistant.
+
+Every mirroring block reads only while its chunk is loaded and catches up from the retained statestream topics when
+it loads. While the entity is unavailable or unknown it holds its last value, tinted grey with a puff of smoke now and
+then (`twin.unavailable off` turns it off instead), so a door piston does not move because a Zigbee stick rebooted. A
+mirrored block keeps its state over a server restart: its power-on behaviour applies only while it is unbound. While
+it is bound its Raw Link input is paused, it joins no group, and Home Assistant `/set` commands to it are refused.
+
+**What Home Assistant sees.** A bound block's own Home Assistant entities are replaced by one disabled diagnostic
+entity, *Binding*, which names the entity it follows and how it is doing; automations and dashboards that used the
+block's entities stop working. This also happens when Home Assistant is offline during the bind (at its next start;
+`devices info` says so meanwhile). Unbinding brings the entities back with the same unique_ids: Home Assistant 2026.x
+restores their names, areas and labels, older versions (2025.x) create new registry entries and keep the disabled
+*Binding* entity, which you delete by hand (Settings → Entities, show disabled). The Twin tab warns before a first
+bind.
+
+### Control from Minecraft
+
+Turn control on (the Twin tab's switch, or `/mineqtt devices setting <device> twin.control true`; needs
+`mineqtt:twin.control`, and the owner's permission counts at the time of use) and using a mirrored block (a
+right-click, its Controls tab, a command or a wire) asks Home Assistant to change the entity instead of changing the
+block. The block changes when Home Assistant reports the change; a faint sparkle shows a request that waits, for at
+most 5 s ("no change from Home Assistant"). A right-click sends the opposite of a live value (`turn_off` when the light
+is on, nothing when a wire asks for what the entity already shows), a `toggle` when the value is only retained, and
+nothing when the entity is unavailable (the action bar says why). A Redstone Output sets numbers back through the
+entity's range and step (`set_value`, a fan's percentage, a cover's position, a light's brightness) and option lists
+by index; sensors, binary sensors, counters and a climate's temperature are read-only, and so is the Display Panel.
+Anyone who may use the block switches the real entity (the Twin tab names the block's access mode). Requests go to
+`mineqtt/<bridgeId>/bridge/ha_request` and are never sent late: while the broker is down a click is refused ("not sent:
+the bridge is offline"). Home Assistant's answers only end the wait and explain refusals; the block's state only ever
+comes from statestream.
+
+**Rates.** At most 4 requests a second per block and per player, and `twin.maxRequestsPerSecond` (20) per server. Over
+a rate, a state the world asked for (a redstone edge's on or off, a wire's value) waits and the newest is sent as soon
+as the rate allows, so Home Assistant ends as the world left it; a brightness or colour dragged on the Controls tab is
+held, and the newest one is sent at the rate; a player's switch, a toggle and a press are refused instead, counted per block
+(`devices info`, the status line, the Twin tab's health line) and logged once per burst. A block that the world (a lever, a wire, a redstone loop)
+makes send, or try to send, more than 8 requests within 10 s has its control paused (*Control paused*, red particles,
+a warning in the log and a notice to its owner) until someone who may configure it presses *Resume*, runs
+`/mineqtt devices bind <device> resume` or `devices setting <device> twin.resume press`. A player's own clicks never
+pause a block: the rates cap them.
+
+### Minecraft as a Home Assistant trigger
+
+A Redstone Input switches an entity on its edges (`twin.target`): a rising edge turns it on, opens a cover, activates a
+scene or script or presses a button; a falling edge turns it off or closes the cover (nothing for a scene, script or
+button). Each Wall Switch button switches one (`twin.left`, `twin.right`): a press activates a scene or script,
+presses a button, or toggles a light, switch, input_boolean or fan; double presses and holds are not bound yet. Bind
+them on the Twin tab, with Bind mode or by command. The control blueprint and the *MineQTT control* label decide as
+above, and an edge sends nothing when the entity already shows it. Requests from triggers name no player in Home
+Assistant's logbook ("by a redstone signal"). A trigger whose entity Home Assistant no longer shares (its label removed
+while the catalog runs) is not switched: the block shows *Not shared*, logs one warning, and heals when the entity is
+labelled again. The Wall Switch's `left` and `right` events (with the gesture) also travel over wires: a wire from them
+fires on every gesture of that button (a press, a double press and a hold), unlike a wire from `press`.
+
+### Loops and what may send requests
+
+Every change in the game remembers what started it. Only a chain a player or the world started may send a request:
+
+| Started by | Example | May send a request |
+|---|---|---|
+| A player | a right-click, the Controls tab, `/mineqtt devices set` | yes |
+| The world | a lever, a pressure plate, a redstone clock, a wire from them | yes |
+| Home Assistant's state | a mirrored block changing because the entity changed, and everything it powers in the same tick | no |
+| A Home Assistant command | a device's `/set` topic, and wires from that device | no |
+| A raw topic | a Raw Link, a v1 Block Emitter's placed block | no |
+| A server start or chunk load | power-on behaviour, a queued command landing | no |
+
+So a mirrored block cannot echo Home Assistant's state back, a Home Assistant automation that switches a plain MineQTT
+block wired to a mirrored one does not bounce back, a restart never switches a real device, and anyone who may publish
+on `mineqtt/shared/#` cannot switch an owner's real light through a wireless link. It also means a wire from one
+mirrored block to another (real light A → real light B) never switches B in Home Assistant: link them in Home
+Assistant. A refused attempt is counted (`/mineqtt status`: `dropped: 1 root`) and logged once per block.
+
+**What the rule cannot see: delayed redstone.** A repeater, observer, comparator or any scheduled tick that reacts to
+a mirrored block a tick later starts a new chain that counts as the world's, and so does a Home Assistant automation
+that writes a raw topic. Such a chain may send requests: a mirrored Output driving a Redstone Input that targets the
+same entity through a repeater makes a real loop. The rates bound it, and the pause after more than 8 requests in 10 s
+ends it, with a warning naming the entity; take the repeater out and resume the block.
+
+### Privacy
+
+- What a mirrored block shows reaches every player near it: the lamp's colour, the output's level, the panel's text.
+  That is the feature, so mirror only what the players of your server may see.
+- The entity's id and name never go to players' games with the block. Only players who may configure a block see
+  which entity it follows or switches (the Twin tab, its status line, its links list); everyone else reads that it
+  mirrors a Home Assistant entity or an MQTT device. The picker answers only players who may bind, with allowed,
+  shared entities only.
+- A bound block's state topic on the broker names the entity (`binding.entity`, for the *Binding* entity in Home
+  Assistant): any broker client can read it, and so can players who may configure the block, in the explorer.
+- Requests carry the player's name (`origin.player`), which Home Assistant writes to its logbook. Turn the logbook line
+  off in the control blueprint if you do not want that.
+- The world saves only a block's own state and its binding, never Home Assistant's entity data or the catalog. The
+  catalog lists only whitelisted attributes (never locations, codes, tokens or pictures).
+
+### Troubleshooting by the health line
+
+The Twin tab's last line (and `/mineqtt devices info <device>`, `Twin:`) tells how a binding is doing:
+
+| Health line | Meaning | What to do |
+|---|---|---|
+| Waiting for Home Assistant | Nothing arrived for the entity yet | Is the entity in the statestream `include:` (and Home Assistant restarted since)? Does `twin.statestreamBase` equal statestream's `base_topic`? `/mineqtt twin show <entity>` shows what MineQTT knows |
+| Live | Values arrive as Home Assistant changes them | nothing |
+| Retained (may be old) | Only stored values since Home Assistant's last start | Normal right after a restart; it turns Live with the next change or catalog. If it stays, install the catalog blueprint. A right-click sends a toggle meanwhile |
+| Unavailable in Home Assistant / Unknown in Home Assistant | Home Assistant says so | Fix the device in Home Assistant; the block holds (or turns off with `twin.unavailable off`) |
+| Not shared by Home Assistant | The catalog runs and does not list the entity | Label it *MineQTT read* (or *MineQTT control*). If `/mineqtt twin status` names its domain's list as refused (larger than 64 KiB), share fewer entities of that domain |
+| Refused | The server's rules refuse the binding now (hover for the reason) | Usually `twin.allowedEntities`, the twin being off, or the owner's `mineqtt:twin.bind`; it heals when the rules allow it |
+| Control paused | More than 8 requests in 10 s | Remove the loop, then *Resume* |
+| a request waits, then "no change from Home Assistant" | Home Assistant did not report a change within 5 s | Is the control blueprint's automation on, and does its request topic match (`/mineqtt twin ping`)? Is the entity in the statestream include? |
+| answered not_labelled (or another answer) | The control blueprint refused | `not_labelled`: label it *MineQTT control*; `domain_not_allowed`: add the domain to the blueprint's allowed domains (and `twin.haActionAllowlist`); `no_such_entity`: the entity is gone (renamed in Home Assistant?), bind it again |
+| Twin off: … | The server reads no Home Assistant entities | Set what it names (`twin.allowedEntities`, `twin.statestreamBase`) |
+| Waiting for the MQTT device | Nothing arrived on the preset's state topic yet (an [MQTT device](#mqtt-devices-without-home-assistant)) | Is the device's name spelled as the device publishes it, and is it the right preset? The tab's tooltip (and `devices info`) shows the state topic: does the device publish there, retained? A device that publishes only on changes shows up with its next change |
+| The MQTT device reports unavailable | The device's state reads `unavailable` | Fix the device; the block holds (or turns off with `twin.unavailable off`). Its last will is not read: a device that drops off keeps its last state |
+| Unknown on the device's topic | A message arrived but the preset finds no state in it (not JSON, too large, nothing at the preset's state path, or `unknown`) | Choose the preset that matches the device's firmware and payload (a zigbee2mqtt light or switch, Tasmota, Shelly Gen2, ESPHome, or a generic topic) |
+| … · N refused by the rate | N requests of this device were refused by the rates (4 a second per device and per player, `twin.maxRequestsPerSecond` per server) since it loaded or was resumed | Click less often or slow the redstone. Hover for the last one's entity (players who may configure the block). A state the world asked for is not refused but waits |
+
+`/mineqtt twin status` also warns when the catalog is older than 30 minutes (is its automation on?) and names mirrored
+entities whose catalog value changes (another state or other attributes) twice while no live value arrives ("no live
+updates: add it to the mqtt_statestream include"; never scenes, scripts and buttons, which change only when triggered).
+Home Assistant restarts alone never cause it: a restart re-dates every restored entity without changing it.
+
+### MQTT devices without Home Assistant
+
+A Smart Lamp, Smart Plug, Redstone Output or Display Panel can also mirror an MQTT device directly through a
+*preset*, which makes the device's topics look like a Home Assistant entity of one kind: `/mineqtt devices bind
+<device> preset <preset> <name>` (or `devices setting <device> twin.device "<preset> <name>"`; `twin.preset <preset>`
+switches the preset of the device already named).
+On
+the Twin tab, step the source to *MQTT device*: the preset button cycles through the presets the block may follow (at
+most 40; more by command), and typing the device's name into *Device name* and pressing Enter (or leaving the field)
+binds it. Stepping the preset of a bound device switches its preset (`twin.preset`). Any change of the preset or the
+device's name turns control off, of the same kind too (the command topic changes and is checked again): turn it on
+again on the tab.
+Players who may configure the block see the device, the preset and its state topic; everyone else reads "Bound to an
+MQTT device". A block bound to an MQTT device works, and is not shown as "Twin off", on a server whose Home Assistant
+twin is off. To switch such a block to a Home Assistant entity, pick one (Bind mode or the picker): the picker warns
+that the binding replaces the MQTT device. Built-in presets: `mineqtt:zigbee2mqtt_light`,
+`zigbee2mqtt_switch`, `zigbee2mqtt_sensor`, `zigbee2mqtt_contact` (state on `zigbee2mqtt/<name>`, the light's and
+the switch's commands on `zigbee2mqtt/<name>/set`), `mineqtt:tasmota_power` (`stat/<name>/POWER`,
+`cmnd/<name>/POWER`), `mineqtt:shelly_gen2_switch` (`<name>/status/switch:0`, `<name>/command/switch:0`),
+`mineqtt:esphome_light` (`<name>/state`, `<name>/command`) and `esphome_sensor` (`<name>/state`),
+`mineqtt:generic_topic` (a sensor) and `mineqtt:generic_switch` (a read-only on/off), whose name is the whole topic.
+
+Binding needs `mineqtt:twin.bind` but not `twin.allowedEntities` or a statestream base: the broker ACL is the gate. A
+state topic is readable without an `acl.rawAllow` entry, but never inside the statestream namespace, the twin's own
+request traffic or this server's own device and group topics. Turning control on (`twin.control`,
+`mineqtt:twin.control`) needs the command topic in `acl.rawAllow` (e.g. `zigbee2mqtt/+/set`, `cmnd/+/POWER`), for the
+binder and the device's owner, and every command is checked again for the owner when it is sent. With control on,
+using the block publishes the preset's command (a toggle while the device's state is only retained, else the explicit
+state; typed values only) and the block follows when the device reports it; the rates, the pause and the rules of
+[Loops](#loops-and-what-may-send-requests) apply as for Home Assistant. Datapacks add presets as
+`data/<namespace>/mineqtt/binding_presets/<id>.json` (the kind, the state and command topics with `{device}`, the
+state's path and on/off spellings, attributes, command templates with typed placeholders such as `{brightness}`,
+`{red}`, `{color_temp_mired}`, and ranges that clamp them); a bad file is skipped with a warning naming its problems,
+and `/reload` loads them again and judges every binding anew. `/mineqtt twin status` counts the loaded presets and
+devices. Availability (last will) topics are not read yet, so an offline device keeps its last state, and presets
+cannot be triggers of a Redstone Input or Wall Switch.
 
 ## Upgrading from v1
 
@@ -467,6 +801,7 @@ a chip unlocks once you hold one. Each timer-cycle recipe unlocks once you hold 
 | Presence Sensor (formerly Motion Sensor) | `SHS / ONO / SSS` | H tripwire hook, O observer |
 | Climate Sensor (formerly Temperature Sensor) | `CDC / CNC / SSS` | C copper ingot, D daylight detector |
 | Wall Switch (formerly Light Remote) | `B B / SNS` | B stone button |
+| Display Panel | `GGG / GNG / SRS` | G black stained glass pane |
 | Alarm Clock | `SCS / RNR / SSS` | C clock |
 | Block Sensor | `SOS / ONO / SSS` | O observer |
 | Block Emitter | `SDS / RNR / SSS` | D dispenser |
@@ -576,10 +911,23 @@ Home Assistant) and the manual end-to-end checklist. The architecture is describ
 - Survival recipes for every block behind one Network Chip, unlocked through the recipe book
 - Portable topic explorer (listen and publish with the Configurator)
 
+### Implemented (MineQTT 0.7.0: milestone 3, the Home Assistant twin)
+
+- Mirror Home Assistant entities on the Smart Lamp, Redstone Output (switch and gauge), Smart Plug and Display Panel,
+  read through `mqtt_statestream` and the MineQTT catalog blueprint, with labels in Home Assistant deciding what
+  Minecraft sees
+- Switch them back through the MineQTT control blueprint (label, domain, action and data-key gates, logbook), with
+  loop protection by cause, rates, and a pause for loops through delayed redstone
+- The Redstone Input and the Wall Switch's buttons as Home Assistant triggers
+- The Display Panel: four lines of text from Home Assistant, wires or a raw topic, with a comparator output
+- The Twin tab, the searchable entity picker and the Configurator's Bind mode
+- MQTT devices without Home Assistant (zigbee2mqtt, Tasmota, Shelly, ESPHome, any topic) through datapack presets
+- Twin permissions, an allowlist of entities that is empty on dedicated servers by default, and binding details only
+  for players who may configure a block
+- Smart Lamps on walls and ceilings; adventure-mode players only use MineQTT blocks
+
 ### Planned
 
-- Milestone 3: mirror real Home Assistant entities and other MQTT devices onto blocks (digital twin), the Display Panel,
-  and the Configurator's Bind mode
 - Milestone 4: rooms (Home Assistant areas), the timers as devices and flow triggers, world telemetry and player
   presence, the Block Observer and a safe Block Placer
 - Milestone 5: hardening, localisation and a documentation site

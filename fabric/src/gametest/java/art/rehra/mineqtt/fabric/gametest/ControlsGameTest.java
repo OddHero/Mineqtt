@@ -18,6 +18,7 @@ import art.rehra.mineqtt.ui.device.ControlsTab;
 import art.rehra.mineqtt.ui.device.DiagnosticsTab;
 import art.rehra.mineqtt.ui.device.GeneralTab;
 import art.rehra.mineqtt.ui.device.LightControl;
+import art.rehra.mineqtt.ui.device.TwinTab;
 import art.rehra.mineqtt.ui.device.LightControl.HueSaturation;
 import art.rehra.mineqtt.ui.device.widgets.GradientSlider;
 import art.rehra.mineqtt.ui.device.widgets.IntSlider;
@@ -87,8 +88,8 @@ public final class ControlsGameTest implements FabricClientGameTest {
     private static void output(GameTestSession session) {
         BlockPos output = place(session, MineqttBlocks.REDSTONE_EMITTER_BLOCK.get(), OUTPUT_GROUND);
         session.openBlock(output);
-        session.check(session.tabIds().equals(List.of(GeneralTab.ID, ControlsTab.ID, AdvancedTab.ID, AccessTab.ID, DiagnosticsTab.ID)),
-                "the output's screen has General, Controls, Advanced, Access and Diagnostics, no slot tabs (M2-12): " + session.tabIds());
+        session.check(session.tabIds().equals(List.of(GeneralTab.ID, ControlsTab.ID, TwinTab.ID, AdvancedTab.ID, AccessTab.ID, DiagnosticsTab.ID)),
+                "the output's screen has General, Controls, Twin (M3-13), Advanced, Access and Diagnostics, no slot tabs (M2-12): " + session.tabIds());
         session.check(session.clickTab(ControlsTab.ID), "the Controls tab opens");
         session.check(label(session, isButton("Switch:")).equals("Switch: OFF") && label(session, isSlider("Level:")).equals("Level: 0")
                         && label(session, isButton("Mode:")).equals("Mode: Any level") && label(session, isButton("After a restart:")).equals("After a restart: As before"),
@@ -133,8 +134,8 @@ public final class ControlsGameTest implements FabricClientGameTest {
     private static void lamp(GameTestSession session) {
         BlockPos lamp = place(session, MineqttBlocks.RGB_LED_BLOCK.get(), LAMP_GROUND);
         session.openBlock(lamp);
-        session.check(session.tabIds().equals(List.of(GeneralTab.ID, ControlsTab.ID, AdvancedTab.ID, AccessTab.ID, DiagnosticsTab.ID)),
-                "the lamp's screen has General, Controls, Advanced, Access and Diagnostics: " + session.tabIds());
+        session.check(session.tabIds().equals(List.of(GeneralTab.ID, ControlsTab.ID, TwinTab.ID, AdvancedTab.ID, AccessTab.ID, DiagnosticsTab.ID)),
+                "the lamp's screen has General, Controls, Twin, Advanced, Access and Diagnostics: " + session.tabIds());
         session.check(session.clickTab(ControlsTab.ID), "the Controls tab opens");
         session.screenshot("controls_lamp_off");
 

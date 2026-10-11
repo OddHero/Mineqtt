@@ -1,8 +1,11 @@
 package art.rehra.mineqtt.device;
 
 import art.rehra.mineqtt.security.AccessMode;
+import art.rehra.mineqtt.twin.BindingCodecs;
+import art.rehra.mineqtt.twin.core.Binding;
 import com.google.gson.JsonObject;
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.UUIDUtil;
@@ -15,10 +18,27 @@ import java.util.UUID;
 /**
  * What the registry knows about one device, loaded or not: where it is, its name and slug (the registry is
  * authoritative for both), its owner and access mode, its group, the commands queued while it is unloaded, the
- * state it last published and its Home Assistant discovery (what was last published, and a v1 unique_id it keeps). Position, slug and group change only through {@link DeviceRegistry}, which keeps its
- * indexes in step. Server thread only.
+ * state it last published, its Home Assistant discovery (what was last published, and a v1 unique_id it keeps) and a copy
+ * of its twin binding. Position, slug and group change only through {@link DeviceRegistry}, which keeps its indexes in
+ * step. Server thread only.
+ * <p>
+ * <b>The codec is at its limit.</b> A DFU {@code RecordCodecBuilder} takes at most 16 fields in one {@code group()}, and
+ * {@link #CODEC} has 16 (M3 plan D14). A field is one {@link MapCodec}, not necessarily one key: the Home Assistant
+ * discovery state is one field of two flat keys ({@code discoveryHash}, {@code discoveryCleanup}, M3-7b), so the
+ * compound stays flat and a record without the new key saves as before. A later key joins such a group (or a new one
+ * built from neighbouring fields); every later twin field nests inside the {@code twin} compound ({@link BindingCodecs}).
  */
 public final class DeviceRecord {
+    // The discovery state: two flat keys of the record's own compound, one field of CODEC's group().
+    private record DiscoveryState(Optional<String> hash, boolean cleanup) {
+    }
+
+    private static final MapCodec<DiscoveryState> DISCOVERY = RecordCodecBuilder.mapCodec(instance -> instance.group(
+            Codec.STRING.optionalFieldOf("discoveryHash").forGetter(DiscoveryState::hash),
+            // Written only while true: a record without a pending cleanup saves exactly as before M3-7b.
+            Codec.BOOL.optionalFieldOf("discoveryCleanup", false).forGetter(DiscoveryState::cleanup)
+    ).apply(instance, DiscoveryState::new));
+
     public static final Codec<DeviceRecord> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             UUIDUtil.CODEC.fieldOf("id").forGetter(DeviceRecord::id),
             Identifier.CODEC.fieldOf("type").forGetter(DeviceRecord::type),
@@ -31,11 +51,14 @@ public final class DeviceRecord {
             UUIDUtil.CODEC.optionalFieldOf("group").forGetter(r -> Optional.ofNullable(r.group)),
             JsonCodecs.OBJECT.optionalFieldOf("pending").forGetter(r -> Optional.ofNullable(r.pending)),
             JsonCodecs.OBJECT.optionalFieldOf("lastState").forGetter(r -> Optional.ofNullable(r.lastState)),
-            Codec.STRING.optionalFieldOf("discoveryHash").forGetter(r -> Optional.ofNullable(r.discoveryHash)),
+            DISCOVERY.forGetter(r -> new DiscoveryState(Optional.ofNullable(r.discoveryHash), r.discoveryCleanup)),
             Codec.STRING.optionalFieldOf("legacyUniqueId").forGetter(r -> Optional.ofNullable(r.legacyUniqueId)),
             Codec.STRING.optionalFieldOf("legacyTopic").forGetter(r -> Optional.ofNullable(r.legacyTopic)),
-            Codec.STRING.optionalFieldOf("v1Topic").forGetter(r -> Optional.ofNullable(r.v1Topic))
-    ).apply(instance, (id, type, pos, name, slug, owner, access, expose, group, pending, lastState, discoveryHash, legacyUniqueId, legacyTopic, v1Topic) -> {
+            Codec.STRING.optionalFieldOf("v1Topic").forGetter(r -> Optional.ofNullable(r.v1Topic)),
+            // The 16th field, the last one DFU allows: see the class note.
+            BindingCodecs.CODEC.lenientOptionalFieldOf("twin").forGetter(r -> Optional.ofNullable(r.twin))
+    ).apply(instance, (id, type, pos, name, slug, owner, access, expose, group, pending, lastState, discovery, legacyUniqueId, legacyTopic, v1Topic,
+                       twin) -> {
         DeviceRecord record = new DeviceRecord(id, type, pos, name, slug);
         record.owner = owner.orElse(null);
         record.access = access;
@@ -43,10 +66,12 @@ public final class DeviceRecord {
         record.group = group.orElse(null);
         record.pending = pending.orElse(null);
         record.lastState = lastState.orElse(null);
-        record.discoveryHash = discoveryHash.orElse(null);
+        record.discoveryHash = discovery.hash().orElse(null);
+        record.discoveryCleanup = discovery.cleanup();
         record.legacyUniqueId = legacyUniqueId.orElse(null);
         record.legacyTopic = legacyTopic.orElse(null);
         record.v1Topic = v1Topic.orElse(null);
+        record.twin = twin.orElse(null);
         return record;
     }));
 
@@ -62,9 +87,11 @@ public final class DeviceRecord {
     private @Nullable JsonObject pending;
     private @Nullable JsonObject lastState;
     private @Nullable String discoveryHash;
+    private boolean discoveryCleanup;
     private @Nullable String legacyUniqueId;
     private @Nullable String legacyTopic;
     private @Nullable String v1Topic;
+    private @Nullable Binding twin;
 
     public DeviceRecord(UUID id, Identifier type, GlobalPos pos, String name, String slug) {
         this.id = id;
@@ -173,6 +200,20 @@ public final class DeviceRecord {
     }
 
     /**
+     * Whether Home Assistant may still hold entities this device no longer declares (M3-7b): its binding changed while
+     * Home Assistant was offline or not known to be online, and Home Assistant applies a removal only to a component it
+     * discovered in its current run. The next Home Assistant birth then publishes the full device once and the removal
+     * after it ({@code DiscoveryPublisher}). Stored, so a server restart keeps it.
+     */
+    public boolean discoveryCleanup() {
+        return discoveryCleanup;
+    }
+
+    public void setDiscoveryCleanup(boolean discoveryCleanup) {
+        this.discoveryCleanup = discoveryCleanup;
+    }
+
+    /**
      * The unique_id v1 gave the device's light ({@code sanitize(topic)}); its primary entity keeps it, so Home
      * Assistant keeps the entity and its history. Null for devices that did not exist in v1.
      */
@@ -207,5 +248,18 @@ public final class DeviceRecord {
 
     public void setV1Topic(@Nullable String v1Topic) {
         this.v1Topic = v1Topic;
+    }
+
+    /**
+     * The device's twin binding as its block last had it (M3 plan D14): the block is authoritative, the copy serves what
+     * needs it while the device is unloaded ({@code devices list}, links, status, and the route of a wire's message into
+     * an unloaded mirrored device). Null for an unbound device.
+     */
+    public @Nullable Binding twin() {
+        return twin;
+    }
+
+    public void setTwin(@Nullable Binding twin) {
+        this.twin = twin;
     }
 }

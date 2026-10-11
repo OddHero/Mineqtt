@@ -131,6 +131,7 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
                 case LINK -> step(serverPlayer, blockEntity, ConfiguratorMode.LINK);
                 case GROUP -> step(serverPlayer, blockEntity, ConfiguratorMode.GROUP);
                 case COPY -> step(serverPlayer, blockEntity, ConfiguratorMode.COPY_PASTE);
+                case BIND -> step(serverPlayer, blockEntity, ConfiguratorMode.BIND);
             }
         }
         return EventResult.interruptTrue();

@@ -3,6 +3,8 @@ package art.rehra.mineqtt.config;
 import art.rehra.mineqtt.mqtt.core.BrokerConfig;
 import art.rehra.mineqtt.mqtt.core.ProtocolVersion;
 import art.rehra.mineqtt.mqtt.core.TopicAcl;
+import art.rehra.mineqtt.twin.core.EntityGlobs;
+import art.rehra.mineqtt.twin.core.HaDomains;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -39,6 +41,7 @@ public final class ConfigMigrationCheck {
         lenientV2Reading();
         sanitize();
         serverTypeDefaults();
+        twinKeys();
         credentialsNeverLogged();
         brokerUrlCredentialsNeverLogged();
         validation();
@@ -62,6 +65,14 @@ public final class ConfigMigrationCheck {
         check(!MineQTTConfig.serverKeepTickingWhenEmpty, "An empty dedicated server pauses by default");
         check(MineQTTConfig.rawAllow("world_7f3a").equals(TopicAcl.defaultRawAllow("mineqtt", "world_7f3a")),
                 "The default raw allowlist resolves to TopicAcl's default: " + MineQTTConfig.rawAllow("world_7f3a"));
+        check(MineQTTConfig.twinStatestreamBase.equals("ha_statestream"), "The statestream base defaults to ha_statestream");
+        check(MineQTTConfig.twinAllowedEntities.equals(List.of("AUTO")), "The allowed entities default to AUTO");
+        check(MineQTTConfig.twinHaActionAllowlist.equals(HaDomains.DEFAULT_CONTROL_DOMAINS),
+                "The controllable domains default to the control blueprint's allowed_domains default (D15)");
+        check(MineQTTConfig.twinHaActionAllowlist.size() == 15 && !MineQTTConfig.twinHaActionAllowlist.contains("lock")
+                && !MineQTTConfig.twinHaActionAllowlist.contains("climate"), "lock and climate are opt-in");
+        check(MineQTTConfig.twinMaxRequestsPerSecond == 20 && MineQTTConfig.twinCatalog && MineQTTConfig.twinCatalogMax == 2000,
+                "20 requests/s, the catalog on, 2000 entities");
         check(MineQTTConfig.sanitize().isEmpty(), "The defaults need no correction");
     }
 
@@ -167,6 +178,37 @@ public final class ConfigMigrationCheck {
         check(written.has("server") && !written.getAsJsonObject("server").get("keepTickingWhenEmpty").getAsBoolean(),
                 "Its next save adds server.keepTickingWhenEmpty as false");
         check(written.getAsJsonObject("limits").get("maxWiresPerPlayer").getAsInt() == 256, "Its next save adds limits.maxWiresPerPlayer as 256");
+        checkTwinDefaultsWritten(written, "A Milestone 1 file");
+
+        // Exactly what MineQTT 0.6.0 (Milestone 2) wrote for its defaults: no twin section.
+        MineQTTConfig.twinAllowedEntities = List.of("light.*");
+        MineQTTConfig.twinCatalog = false;
+        JsonConfigFormat.Result m2 = read("""
+                {"configVersion": 2, "broker": "", "protocol": "5", "keepAliveSec": 60, "username": "", "password": "",
+                 "tls": {"caFile": "", "insecureSkipVerify": false}, "bridgeId": "", "baseTopic": "mineqtt",
+                 "discoveryPrefix": "homeassistant", "haBirthTopic": "homeassistant/status", "ha": {"expose": "AUTO"},
+                 "acl": {"rawAllow": ["mineqtt/shared/#", "<base>/<bridgeId>/raw/#"], "opsBypassAllowlist": "AUTO", "explorerBrokerWide": false},
+                 "blockPlacer": {"enabled": false}, "limits": {"maxDevicesPerPlayer": 0, "maxWiresPerPlayer": 256},
+                 "server": {"keepTickingWhenEmpty": false}, "legacy": {"v1StatusTopic": ""}}""");
+        check(!m2.migrated() && m2.messages().isEmpty(), "A 0.6.0 file reads without messages: " + m2.messages());
+        check(MineQTTConfig.twinAllowedEntities.equals(List.of("AUTO")) && MineQTTConfig.twinCatalog
+                && MineQTTConfig.twinStatestreamBase.equals("ha_statestream"), "A 0.6.0 file gets the twin defaults");
+        check(MineQTTConfig.configVersion == StaticDefaults.CONFIG_VERSION && StaticDefaults.CONFIG_VERSION == 2,
+                "configVersion stays 2: the twin keys are additive (D14)");
+        checkTwinDefaultsWritten(JsonConfigFormat.write(), "A 0.6.0 file");
+        check(MineQTTConfig.twinAllowedEntities(false).equals(EntityGlobs.ALL) && MineQTTConfig.twinAllowedEntities(true).isEmpty(),
+                "A 0.6.0 world gets every entity on integrated servers and the twin off on dedicated servers");
+    }
+
+    private static void checkTwinDefaultsWritten(JsonObject written, String what) {
+        check(written.has("twin"), what + ": the next save adds the twin section");
+        JsonObject twin = written.getAsJsonObject("twin");
+        check(twin.get("statestreamBase").getAsString().equals("ha_statestream"), what + ": twin.statestreamBase");
+        check(twin.getAsJsonArray("allowedEntities").size() == 1 && twin.getAsJsonArray("allowedEntities").get(0).getAsString().equals("AUTO"),
+                what + ": twin.allowedEntities as [\"AUTO\"]");
+        check(twin.getAsJsonArray("haActionAllowlist").size() == HaDomains.DEFAULT_CONTROL_DOMAINS.size(), what + ": twin.haActionAllowlist");
+        check(twin.get("maxRequestsPerSecond").getAsInt() == 20 && twin.get("catalog").getAsBoolean() && twin.get("catalogMax").getAsInt() == 2000,
+                what + ": twin.maxRequestsPerSecond, twin.catalog and twin.catalogMax");
     }
 
     /**
@@ -230,6 +272,12 @@ public final class ConfigMigrationCheck {
         MineQTTConfig.limitsMaxWiresPerPlayer = 0;
         MineQTTConfig.serverKeepTickingWhenEmpty = true;
         MineQTTConfig.legacyV1StatusTopic = "minecraft/status";
+        MineQTTConfig.twinStatestreamBase = "home/ha/statestream";
+        MineQTTConfig.twinAllowedEntities = List.of("light.*", "sensor.outdoor_?");
+        MineQTTConfig.twinHaActionAllowlist = List.of("light", "lock");
+        MineQTTConfig.twinMaxRequestsPerSecond = 5;
+        MineQTTConfig.twinCatalog = false;
+        MineQTTConfig.twinCatalogMax = 500;
         MineQTTConfig.ConnectionSettings before = MineQTTConfig.connectionSettings();
         JsonObject written = JsonConfigFormat.write();
         check(written.getAsJsonObject("tls").get("insecureSkipVerify").getAsBoolean(), "Dotted keys are nested objects");
@@ -246,6 +294,10 @@ public final class ConfigMigrationCheck {
                 && MineQTTConfig.limitsMaxWiresPerPlayer == 0, "Security keys survive, an unlimited wire cap too");
         check(MineQTTConfig.serverKeepTickingWhenEmpty, "The keep-ticking opt-in survives");
         check(MineQTTConfig.legacyV1StatusTopic.equals("minecraft/status"), "The migration record survives");
+        check(MineQTTConfig.twinStatestreamBase.equals("home/ha/statestream") && MineQTTConfig.twinAllowedEntities.equals(List.of("light.*", "sensor.outdoor_?"))
+                && MineQTTConfig.twinHaActionAllowlist.equals(List.of("light", "lock")) && MineQTTConfig.twinMaxRequestsPerSecond == 5
+                && !MineQTTConfig.twinCatalog && MineQTTConfig.twinCatalogMax == 500, "The twin keys survive");
+        check(written.getAsJsonObject("twin").get("catalogMax").getAsInt() == 500, "The twin keys are nested under twin");
         BrokerConfig broker = MineQTTConfig.brokerConfig("mineqtt_survival_01").orElseThrow();
         check(broker.tls() && broker.port() == 8883 && broker.insecureSkipVerify() && broker.keepAliveSec() == 0
                 && broker.protocol() == ProtocolVersion.MQTT_3_1_1, "The broker config carries every connection key");
@@ -351,6 +403,177 @@ public final class ConfigMigrationCheck {
         MineQTTConfig.haExpose = HaExpose.NONE;
         MineQTTConfig.aclOpsBypassAllowlist = AutoBoolean.TRUE;
         check(MineQTTConfig.haExpose(false) == HaExpose.NONE && MineQTTConfig.opsBypassAllowlist(true), "Explicit values win");
+
+        // twin.allowedEntities AUTO (M3 plan D13): every entity on integrated servers, the twin off on dedicated servers.
+        MineQTTConfig.resetToDefaults();
+        check(MineQTTConfig.twinAllowedEntities(false).equals(EntityGlobs.ALL), "AUTO allows every entity on integrated servers");
+        check(MineQTTConfig.twinAllowedEntities(true).isEmpty(), "AUTO allows none on dedicated servers");
+        check(MineQTTConfig.twinOffReason(false).isEmpty(), "The twin is on by default on integrated servers");
+        check(MineQTTConfig.twinOffReason(true).orElse("").equals("no allowed entities: set twin.allowedEntities"),
+                "and off on dedicated servers, naming the key: " + MineQTTConfig.twinOffReason(true));
+        check(MineQTTConfig.twinSummary(true).equals("off, no allowed entities: set twin.allowedEntities"),
+                "The status line of a dedicated server: " + MineQTTConfig.twinSummary(true));
+        check(MineQTTConfig.twinSummary(false).equals("reads all entities (AUTO) under ha_statestream, catalog on (at most 2000 entities); "
+                + "controls 15 domains, at most 20 requests/s"), "The status line of an integrated server: " + MineQTTConfig.twinSummary(false));
+        MineQTTConfig.twinAllowedEntities = List.of("*");
+        check(MineQTTConfig.twinAllowedEntities(true).equals(EntityGlobs.ALL) && MineQTTConfig.twinOffReason(true).isEmpty(),
+                "An explicit * opens a dedicated server");
+        check(MineQTTConfig.twinSummary(true).startsWith("reads all entities under ha_statestream"), "without the AUTO note: " + MineQTTConfig.twinSummary(true));
+        MineQTTConfig.twinAllowedEntities = List.of();
+        check(MineQTTConfig.twinAllowedEntities(false).isEmpty() && MineQTTConfig.twinOffReason(false).isPresent(),
+                "An empty list turns the twin off on integrated servers too");
+        MineQTTConfig.twinAllowedEntities = List.of("light.*", "sensor.outdoor_temperature");
+        EntityGlobs listed = MineQTTConfig.twinAllowedEntities(true);
+        check(listed.matches("light.kitchen") && listed.matches("sensor.outdoor_temperature") && !listed.matches("lock.front_door"),
+                "Listed globs are used as they are on either server type");
+        check(MineQTTConfig.twinAllowedEntities(false).equals(listed), "The server type does not change listed globs");
+        check(MineQTTConfig.twinSummary(true).startsWith("reads 2 entity patterns under ha_statestream"), MineQTTConfig.twinSummary(true));
+        MineQTTConfig.twinAllowedEntities = List.of("light.porch");
+        check(MineQTTConfig.twinSummary(true).startsWith("reads entities matching light.porch under"), MineQTTConfig.twinSummary(true));
+        MineQTTConfig.twinAllowedEntities = List.of("Light.Porch", "light.*");
+        check(MineQTTConfig.twinAllowedEntities(true).patterns().equals(List.of("light.*")), "An unsanitized invalid glob never counts");
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.twinStatestreamBase = "";
+        check(MineQTTConfig.twinOffReason(false).orElse("").equals("no statestream base: set twin.statestreamBase"),
+                "Without a statestream base the twin is off and says why");
+        MineQTTConfig.twinHaActionAllowlist = List.of();
+        MineQTTConfig.twinCatalog = false;
+        MineQTTConfig.twinStatestreamBase = "ha_statestream";
+        check(MineQTTConfig.twinSummary(false).contains("catalog off; controls no domains"), MineQTTConfig.twinSummary(false));
+    }
+
+    /** The twin keys' validation (M3 plan D13): the F1 overlap rule for the statestream base, globs and domains. */
+    private static void twinKeys() {
+        // The statestream base must not overlap the discovery prefix, the base topic (any bridge) or mineqtt/shared.
+        for (String base : List.of("homeassistant", "homeassistant/statestream", "mineqtt", "mineqtt/x", "mineqtt/x/statestream",
+                "mineqtt/shared/x", "mineqtt/shared", "homeassistant/")) {
+            MineQTTConfig.resetToDefaults();
+            MineQTTConfig.twinStatestreamBase = base;
+            List<String> problems = MineQTTConfig.sanitize();
+            check(MineQTTConfig.twinStatestreamBase.equals("ha_statestream") && problems.size() == 1 && problems.getFirst().startsWith("twin.statestreamBase")
+                    && problems.getFirst().contains("using 'ha_statestream'"), "An overlapping statestream base '" + base + "' is refused: " + problems);
+        }
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.twinStatestreamBase = "mineqtt/x";
+        check(MineQTTConfig.sanitize().getFirst().contains("overlaps the MineQTT base topic 'mineqtt'"), "The refusal names what it overlaps");
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.baseTopic = "home/mc";
+        MineQTTConfig.twinStatestreamBase = "home";
+        check(MineQTTConfig.sanitize().size() == 1 && MineQTTConfig.twinStatestreamBase.equals("ha_statestream"), "A base above a custom base topic");
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.baseTopic = "home/mc";
+        MineQTTConfig.twinStatestreamBase = "mineqtt/shared/states";
+        check(MineQTTConfig.sanitize().getFirst().contains("shared namespace"), "The shared namespace is refused under any base topic");
+        for (String base : List.of("ha_statestream/", " ha_statestream ", "home/ha/statestream", "statestream", "mineqttx", "home/mc/x", "homeassistantx/s")) {
+            MineQTTConfig.resetToDefaults();
+            MineQTTConfig.twinStatestreamBase = base;
+            List<String> problems = MineQTTConfig.sanitize();
+            check(problems.isEmpty() && MineQTTConfig.twinStatestreamBase.equals(ConfigValidation.normalizeStatestreamBase(base)),
+                    "The statestream base '" + base + "' is accepted: " + problems + " -> " + MineQTTConfig.twinStatestreamBase);
+        }
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.twinStatestreamBase = "ha_statestream/";
+        check(MineQTTConfig.sanitize().isEmpty() && MineQTTConfig.twinStatestreamBase.equals("ha_statestream"),
+                "One trailing slash is dropped once, as Home Assistant does, so the ACL and the twin see the same base");
+        for (String base : List.of("ha/+/s", "ha/#", "$SYS/ha", "ha//s", "ha_statestream//", "a".repeat(257))) {
+            MineQTTConfig.resetToDefaults();
+            MineQTTConfig.twinStatestreamBase = base;
+            List<String> problems = MineQTTConfig.sanitize();
+            check(MineQTTConfig.twinStatestreamBase.equals("ha_statestream") && problems.size() == 1 && problems.getFirst().contains("not a valid topic"),
+                    "An invalid statestream base '" + base + "' falls back: " + problems);
+        }
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.twinStatestreamBase = "";
+        check(MineQTTConfig.sanitize().isEmpty() && MineQTTConfig.twinStatestreamBase.isEmpty(), "An empty statestream base is kept: the twin reads nothing");
+        // The default itself collides only with a discovery prefix or base topic in ha_statestream: the twin then reads nothing.
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.discoveryPrefix = "ha_statestream/discovery";
+        MineQTTConfig.twinStatestreamBase = "ha_statestream";
+        List<String> collision = MineQTTConfig.sanitize();
+        check(MineQTTConfig.twinStatestreamBase.isEmpty() && collision.size() == 1 && collision.getFirst().contains("and so does the default"),
+                "When the default collides too, the twin reads nothing and says so: " + collision);
+        check(MineQTTConfig.sanitize().isEmpty() && MineQTTConfig.twinStatestreamBase.isEmpty(), "and the result is stable");
+
+        // Allowed entities: AUTO alone, else valid globs; invalid entries are dropped, which only narrows.
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.twinAllowedEntities = List.of(" light.* ", "Light.Kitchen", "sensor.temp[12]", "", "light.*", "switch.plug_?");
+        List<String> globs = MineQTTConfig.sanitize();
+        check(MineQTTConfig.twinAllowedEntities.equals(List.of("light.*", "switch.plug_?")), "Valid globs are kept stripped, once: " + MineQTTConfig.twinAllowedEntities);
+        check(globs.size() == 3 && globs.stream().allMatch(problem -> problem.startsWith("twin.allowedEntities")), "Each invalid entry is reported: " + globs);
+        check(globs.stream().anyMatch(problem -> problem.contains("lowercase")), "An uppercase glob says entity ids are lowercase: " + globs);
+        for (List<String> auto : List.of(List.of("auto"), List.of(" AUTO "), List.of("Auto"))) {
+            MineQTTConfig.resetToDefaults();
+            MineQTTConfig.twinAllowedEntities = auto;
+            check(MineQTTConfig.sanitize().isEmpty() && MineQTTConfig.twinAllowedEntities.equals(List.of("AUTO")), "AUTO in any spelling: " + auto);
+        }
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.twinAllowedEntities = List.of("AUTO", "light.*");
+        List<String> mixed = MineQTTConfig.sanitize();
+        check(MineQTTConfig.twinAllowedEntities.equals(List.of("light.*")) && mixed.size() == 1 && mixed.getFirst().contains("stands alone"),
+                "AUTO next to globs is ignored and reported: " + mixed);
+        check(MineQTTConfig.twinAllowedEntities(true).matches("light.porch") && !MineQTTConfig.twinAllowedEntities(true).matches("lock.door"),
+                "and does not open a dedicated server beyond the globs");
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.twinAllowedEntities = List.of("AUTO", "AUTO");
+        check(MineQTTConfig.sanitize().isEmpty() && MineQTTConfig.twinAllowedEntities.equals(List.of("AUTO")), "A repeated AUTO is AUTO");
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.twinAllowedEntities = List.of("Light.*");
+        MineQTTConfig.sanitize();
+        check(MineQTTConfig.twinAllowedEntities.isEmpty() && MineQTTConfig.twinAllowedEntities(false).isEmpty(),
+                "A list of only invalid globs allows nothing, never everything");
+
+        // Controllable domains: what HaDomains can control; the privacy domains and read-only domains are refused.
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.twinHaActionAllowlist = List.of("light", " lock ", "climate", "person", "binary_sensor", "sensor", "homeassistant", "light", "zone");
+        List<String> domains = MineQTTConfig.sanitize();
+        check(MineQTTConfig.twinHaActionAllowlist.equals(List.of("light", "lock", "climate")), "Controllable domains are kept once: " + MineQTTConfig.twinHaActionAllowlist);
+        check(domains.size() == 5 && domains.stream().allMatch(problem -> problem.startsWith("twin.haActionAllowlist")), "Each refused domain is reported: " + domains);
+        check(HaDomains.DEFAULT_CONTROL_DOMAINS.stream().allMatch(ConfigValidation::isValidHaActionDomain), "Every default domain is controllable");
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.twinHaActionAllowlist = List.of();
+        check(MineQTTConfig.sanitize().isEmpty() && MineQTTConfig.twinHaActionAllowlist.isEmpty(), "An empty list controls nothing and is valid");
+
+        // Numbers out of range fall back.
+        for (int[] values : new int[][]{{0, 0}, {-3, 10_001}, {1_001, -1}}) {
+            MineQTTConfig.resetToDefaults();
+            MineQTTConfig.twinMaxRequestsPerSecond = values[0];
+            MineQTTConfig.twinCatalogMax = values[1];
+            List<String> numbers = MineQTTConfig.sanitize();
+            check(MineQTTConfig.twinMaxRequestsPerSecond == 20 && MineQTTConfig.twinCatalogMax == 2000 && numbers.size() == 2,
+                    "Out-of-range twin numbers fall back: " + numbers);
+        }
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.twinMaxRequestsPerSecond = 1_000;
+        MineQTTConfig.twinCatalogMax = 10_000;
+        check(MineQTTConfig.sanitize().isEmpty(), "The upper bounds are allowed");
+
+        // Wrong JSON types fall back with a message, as for every other key; the two lists that grant fall back to granting
+        // nothing, since their defaults grant the most (an admin narrowing to one entity must not widen to all of them).
+        JsonConfigFormat.Result result = read("""
+                {"configVersion": 2, "twin": {"statestreamBase": 5, "allowedEntities": "light.*", "haActionAllowlist": ["light", 3],
+                 "maxRequestsPerSecond": "fast", "catalog": "yes", "catalogMax": 1.5}}""");
+        check(MineQTTConfig.twinStatestreamBase.equals("ha_statestream") && MineQTTConfig.twinAllowedEntities.isEmpty()
+                && MineQTTConfig.twinHaActionAllowlist.equals(List.of("light")) && MineQTTConfig.twinMaxRequestsPerSecond == 20
+                && MineQTTConfig.twinCatalog && MineQTTConfig.twinCatalogMax == 2000,
+                "Wrongly typed twin keys take their defaults, allowedEntities none: " + MineQTTConfig.twinAllowedEntities);
+        check(MineQTTConfig.twinOffReason(false).isPresent() && MineQTTConfig.twinOffReason(true).isPresent(),
+                "An allowedEntities that is no list turns the twin off on every server type");
+        for (String key : List.of("twin.statestreamBase", "twin.allowedEntities", "twin.haActionAllowlist", "twin.maxRequestsPerSecond",
+                "twin.catalog", "twin.catalogMax")) {
+            check(result.messages().stream().anyMatch(message -> message.startsWith(key)), "A problem with " + key + " is reported: " + result.messages());
+        }
+        JsonConfigFormat.Result notLists = read("""
+                {"configVersion": 2, "twin": {"allowedEntities": {"light.*": true}, "haActionAllowlist": "light"}}""");
+        check(MineQTTConfig.twinAllowedEntities.isEmpty() && MineQTTConfig.twinHaActionAllowlist.isEmpty(),
+                "A haActionAllowlist that is no list allows no domain, not all of them: " + MineQTTConfig.twinHaActionAllowlist);
+        check(notLists.messages().stream().anyMatch(message -> message.startsWith("twin.allowedEntities: expected a list"))
+                && notLists.messages().stream().anyMatch(message -> message.startsWith("twin.haActionAllowlist: expected a list")),
+                "Both are reported: " + notLists.messages());
+        read("{\"configVersion\": 2, \"twin\": {}}");
+        check(MineQTTConfig.twinAllowedEntities.equals(List.of("AUTO")) && MineQTTConfig.twinHaActionAllowlist.equals(HaDomains.DEFAULT_CONTROL_DOMAINS),
+                "Absent, both take their defaults");
+        check(read("{\"configVersion\": 2, \"twin\": []}").messages().contains("twin: expected an object, using the defaults of its keys"),
+                "A twin section that is no object is reported");
     }
 
     private static void credentialsNeverLogged() {

@@ -9,9 +9,15 @@ import art.rehra.mineqtt.device.EventSpec;
 import art.rehra.mineqtt.device.RawLinkSpec;
 import art.rehra.mineqtt.device.UnloadedPolicy;
 import art.rehra.mineqtt.flow.core.Coerce;
+import art.rehra.mineqtt.flow.core.Endpoint;
 import art.rehra.mineqtt.flow.core.PortType;
 import art.rehra.mineqtt.ha.Ha;
+import art.rehra.mineqtt.twin.TwinAdapter;
+import art.rehra.mineqtt.twin.core.HaCalls;
+import art.rehra.mineqtt.twin.core.HaDomains;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.StringRepresentable;
 
@@ -30,7 +36,8 @@ import java.util.Optional;
  * and wires carry it to lamps, plugs and outputs, also with the broker down ({@code press} toggles a {@code state} by
  * default). The actions {@code press_left} and {@code press_right} press a button from the screen, Home Assistant, a
  * wire or {@code /mineqtt devices action}. The Raw Link, if the switch has one, publishes each event's name with its
- * button ({@code press_left}), never retained.
+ * button ({@code press_left}), never retained. Every gesture is also a bus-only {@code left}/{@code right} event with
+ * its {@code gesture}, on which each button can switch a Home Assistant entity ({@link #TWIN}).
  * <p>
  * A hand tells its gestures apart by time ({@link Gestures}); an action is a press at once.
  */
@@ -82,11 +89,35 @@ public final class WallSwitch {
     }
 
     private static final PortType BUTTON_KIND = PortType.enumOf(Arrays.stream(Button.values()).map(Button::getSerializedName).toList());
+    private static final PortType GESTURE_KIND = PortType.enumOf(Arrays.stream(Gesture.values()).map(Gesture::eventType).toList());
     public static final EventSpec PRESS_EVENT = EventSpec.of(PRESS).attribute(BUTTON, BUTTON_KIND);
     public static final EventSpec DOUBLE_PRESS_EVENT = EventSpec.of(DOUBLE_PRESS).attribute(BUTTON, BUTTON_KIND);
     public static final EventSpec HOLD_EVENT = EventSpec.of(HOLD).attribute(BUTTON, BUTTON_KIND);
+    /** The attribute of the per-button events: which gesture. */
+    public static final String GESTURE = "gesture";
+    /**
+     * Every gesture of the left button, {@code {"event_type":"left","gesture":"press"}}: bus-only (M3 plan D16), so wires
+     * and the button's twin target carry it, while Home Assistant, the action topic and the Raw Link keep seeing
+     * {@code press} with its {@code button} only.
+     */
+    public static final EventSpec LEFT_EVENT = EventSpec.busOnly(Button.LEFT.getSerializedName()).attribute(GESTURE, GESTURE_KIND);
+    /** Every gesture of the right button, bus-only like {@link #LEFT_EVENT}. */
+    public static final EventSpec RIGHT_EVENT = EventSpec.busOnly(Button.RIGHT.getSerializedName()).attribute(GESTURE, GESTURE_KIND);
     public static final Action PRESS_LEFT = Action.press(Button.LEFT.action());
     public static final Action PRESS_RIGHT = Action.press(Button.RIGHT.action());
+    /** The Home Assistant domains a button switches, in the picker's order (M3 plan D5). */
+    public static final List<String> TARGET_DOMAINS = List.of("scene", "script", "button", "input_button", "light", "switch", "input_boolean", "fan");
+    /**
+     * How the buttons switch Home Assistant entities (M3 plan D5, D16): one target per button, {@code twin.left} and
+     * {@code twin.right}, on the bus-only {@code left}/{@code right} events (out-ports, never the {@code press_left}
+     * action). A press activates a scene or a script, presses a button, or toggles a light, switch, input_boolean or fan
+     * as D11's right-click does; double presses and holds stay unbound in M3.
+     */
+    public static final TwinAdapter TWIN = TwinAdapter.targetsOnly()
+            .target(Button.LEFT.getSerializedName(), LEFT_EVENT.type(), WallSwitch::pressCall)
+            .target(Button.RIGHT.getSerializedName(), RIGHT_EVENT.type(), WallSwitch::pressCall)
+            .targetDomains(TARGET_DOMAINS.toArray(String[]::new))
+            .build();
 
     public static final DeviceType TYPE = type();
 
@@ -98,7 +129,7 @@ public final class WallSwitch {
                 // A press queued for later is a stale click, which must never fire (design §3.2).
                 .model("Wall Switch").unloaded(UnloadedPolicy.UNAVAILABLE).remote()
                 .field(CommonFields.LOCATION)
-                .event(PRESS_EVENT).event(DOUBLE_PRESS_EVENT).event(HOLD_EVENT)
+                .event(PRESS_EVENT).event(DOUBLE_PRESS_EVENT).event(HOLD_EVENT).event(LEFT_EVENT).event(RIGHT_EVENT)
                 .action(PRESS_LEFT).action(PRESS_RIGHT)
                 // A right-click presses the button it hits; the block picks it and tells the gestures apart.
                 .use(PRESS_LEFT.key())
@@ -110,6 +141,7 @@ public final class WallSwitch {
         }
         return builder.entity(Ha.sensor("location", CommonFields.LOCATION).name("Location").diagnostic().disabledByDefault())
                 .rawLink(RawLinkSpec.events())
+                .twin(TWIN)
                 .build();
     }
 
@@ -122,6 +154,28 @@ public final class WallSwitch {
         };
         event.addProperty(BUTTON, button.getSerializedName());
         return event;
+    }
+
+    /** The bus-only event of a button's gesture (D16): {@code {"event_type":"left","gesture":"press"}}. */
+    public static JsonObject buttonEvent(Gesture gesture, Button button) {
+        JsonObject event = (button == Button.LEFT ? LEFT_EVENT : RIGHT_EVENT).payload();
+        event.addProperty(GESTURE, gesture.eventType());
+        return event;
+    }
+
+    /**
+     * What a button's gesture asks of the entity its target switches (D5): a press activates a scene or script, presses a
+     * button, or toggles a light, switch, input_boolean or fan (D11: the opposite of a LIVE state, {@code toggle} of a
+     * retained one, refused while nothing is known); a double press or a hold asks nothing in M3.
+     */
+    private static HaCalls.Outcome pressCall(String domain, Endpoint.HaEntityRef end, JsonElement event, HaCalls.Mirror mirror) {
+        JsonElement gesture = event.isJsonObject() ? event.getAsJsonObject().get(GESTURE) : null;
+        if (gesture == null || !gesture.isJsonPrimitive()) return new HaCalls.Refused(HaCalls.Reason.BAD_VALUE, "not a button event: " + event);
+        if (!gesture.getAsString().equals(Gesture.PRESS.eventType())) {
+            return new HaCalls.Skip("a " + gesture.getAsString().replace('_', ' ') + " switches nothing; only a press does");
+        }
+        boolean switches = HaDomains.domain(domain).flatMap(known -> known.inPort(end.port())).map(port -> port.kind() instanceof PortType.Bool).orElse(false);
+        return HaCalls.resolve(domain, end.port(), new JsonPrimitive(switches ? Coerce.TOGGLE : Coerce.PRESS), mirror);
     }
 
     /** What the Raw Link carries for a gesture: the event's name with its button, {@code press_left}. */

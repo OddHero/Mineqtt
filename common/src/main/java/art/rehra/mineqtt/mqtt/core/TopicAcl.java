@@ -12,10 +12,25 @@ import java.util.UUID;
  * <p>
  * Order of the checks for a publish or Raw Link topic: validation, hard deny (applies to ops too), the owner's private
  * subtree, a grandfathered v1 topic, the raw allowlist, the op bypass of the allowlist.
+ * <p>
+ * The hard deny also covers every other bridge's {@code bridge/} namespace, under this server's base topic and under
+ * {@value #SHARED_BASE}, the base of the shared namespace and of the control blueprint's default request topic
+ * {@code mineqtt/+/bridge/ha_request} (M3 plan D12, D13): nobody in game can forge a Home Assistant request, sync or
+ * response of any server, whatever the allowlist says.
  */
 public final class TopicAcl {
     /** The encoded length limit of a player-entered topic. */
     public static final int MAX_TOPIC_BYTES = 256;
+    /**
+     * The base topic of the shared namespace {@code mineqtt/shared}, which every server's default allowlist opens, and
+     * MineQTT's default base topic.
+     */
+    public static final String SHARED_BASE = "mineqtt";
+    /**
+     * The twin's leaves below a bridge's {@code bridge/} level. Their payloads carry entity ids and player names, so the
+     * explorer shows non-admins only their size (M3 plan D13).
+     */
+    public static final List<String> TWIN_TRAFFIC_LEAVES = List.of("ha_request", "ha_response", "ha_sync");
     // The reserved levels below <base>/<bridgeId> that are no device slugs.
     private static final String BRIDGE_LEVEL = "bridge";
     private static final String RAW_LEVEL = "raw";
@@ -33,6 +48,12 @@ public final class TopicAcl {
         DENY_BRIDGE(false, "this server's MineQTT namespace is reserved (only its raw/ subtree is open)"),
         DENY_FOREIGN_PRIVATE(false, "another player's private topics are reserved to them"),
         DENY_STATESTREAM(false, "the Home Assistant statestream namespace is read-only"),
+        DENY_FOREIGN_BRIDGE(false, "the bridge/ namespace of every MineQTT server is reserved"),
+        DENY_STATESTREAM_LISTEN(false, "listening on the Home Assistant statestream namespace needs mineqtt.admin"),
+        DENY_STATESTREAM_LEGACY(false, "v1 blocks do not listen on the Home Assistant statestream namespace"),
+        DENY_TWIN_TRAFFIC(false, "the twin's Home Assistant requests, responses and syncs of every MineQTT server are reserved"),
+        DENY_STATESTREAM_SOURCE(false, "the Home Assistant statestream namespace is mirrored through Home Assistant bindings only (twin.entity)"),
+        DENY_DEVICE_TOPICS(false, "this server's device and group topics are shown only to players who may configure them (only its bridge/ and raw/ subtrees are open)"),
         DENY_BROKER_WIDE(false, "listening on the whole broker needs mineqtt.admin and acl.explorerBrokerWide"),
         NOT_ALLOWLISTED(false, "not in the raw topic allowlist (acl.rawAllow)");
 
@@ -60,7 +81,8 @@ public final class TopicAcl {
      * @param base            the MineQTT base topic, e.g. {@code mineqtt}
      * @param bridgeId        this server's bridge id, one topic level
      * @param discoveryPrefix the Home Assistant discovery prefix, e.g. {@code homeassistant}
-     * @param statestreamBase the HA statestream base topic, or null/empty when none is configured
+     * @param statestreamBase the HA statestream base topic, or null/empty when none is configured; one trailing
+     *                        {@code /} is dropped
      * @param rawAllow        filters players may publish into and link raw topics under
      */
     public record Rules(String base, String bridgeId, String discoveryPrefix, String statestreamBase,
@@ -70,6 +92,9 @@ public final class TopicAcl {
             requireTopic("bridge id", bridgeId);
             if (bridgeId.indexOf('/') >= 0) throw new IllegalArgumentException("Bridge id must be a single topic level: " + bridgeId);
             requireTopic("discovery prefix", discoveryPrefix);
+            // One trailing slash is dropped, as Home Assistant and StatestreamTopic.normalizeBase do, so the deny
+            // filter covers the namespace the twin reads (base + "/#", not base + "//#").
+            if (statestreamBase != null && statestreamBase.endsWith("/")) statestreamBase = statestreamBase.substring(0, statestreamBase.length() - 1);
             if (statestreamBase != null && statestreamBase.isEmpty()) statestreamBase = null;
             if (statestreamBase != null) requireTopic("statestream base", statestreamBase);
             rawAllow = List.copyOf(rawAllow);
@@ -148,13 +173,19 @@ public final class TopicAcl {
         return allowlisted(subject, topic);
     }
 
-    /** A filter a player listens on with the Cyberdeck/Configurator explorer. */
+    /**
+     * A filter a player listens on with the Cyberdeck/Configurator explorer. Only admins listen on the statestream
+     * namespace: it carries the state of every Home Assistant entity the HA admin included, presence among them.
+     */
     public Decision checkListen(Subject subject, String filter) {
         Decision invalid = validate(filter, true);
         if (invalid != null) return invalid;
         boolean brokerWide = rules.explorerBrokerWide() && subject.admin();
         if (TopicFilters.isWildcard(TopicFilters.levels(filter)[0])) {
             return brokerWide ? Decision.ALLOWED : Decision.DENY_BROKER_WIDE;
+        }
+        if (!subject.admin() && rules.statestreamBase() != null && overlaps(rules.statestreamBase(), filter)) {
+            return Decision.DENY_STATESTREAM_LISTEN;
         }
         // Wider filters such as <base>/<bridgeId>/# pass here; the explorer hides other players' messages itself.
         if (!brokerWide && intoForeignPrivate(subject, filter)) return Decision.DENY_FOREIGN_PRIVATE;
@@ -176,10 +207,36 @@ public final class TopicAcl {
     }
 
     /**
+     * The state topic of an MQTT device preset a device mirrors (M3 plan M3-17), judged for the device's owner: what
+     * {@link #checkMirror} denies, one topic and no wildcard, and for every subject, admins included, the statestream
+     * namespace ({@link Decision#DENY_STATESTREAM_SOURCE}) and the twin's request, response and sync traffic. A preset
+     * such as the Generic topic takes any topic a player names, and what the device mirrors every client in range sees;
+     * Home Assistant entities are read only through Home Assistant bindings, which {@code twin.allowedEntities}, the
+     * catalog's labels and the privacy domains gate (D2, D13), and the twin traffic carries entity ids and player names.
+     * Nor this server's own device and group topics ({@link Decision#DENY_DEVICE_TOPICS}, wave 6 review): a bound
+     * device's state names its Home Assistant entity (D13 #7), and the explorer shows a device's topics only to players
+     * who may configure it, which a mirror's viewers need not.
+     */
+    public Decision checkTopicSource(Subject subject, String topic) {
+        Decision invalid = validate(topic, false);
+        if (invalid != null) return invalid;
+        Decision mirror = checkMirror(subject, topic);
+        if (!mirror.allowed()) return mirror;
+        if (rules.statestreamBase() != null && overlaps(rules.statestreamBase(), topic)) return Decision.DENY_STATESTREAM_SOURCE;
+        if (reachesDeviceTopics(topic)) return Decision.DENY_DEVICE_TOPICS;
+        return reachesTwinTraffic(topic) ? Decision.DENY_TWIN_TRAFFIC : Decision.ALLOWED;
+    }
+
+    /**
      * The hard deny alone, for unmigrated v1 blocks (the allowlist does not apply to them, so no world breaks). Only
-     * MQTT validity is checked, not the 256-byte limit, because v1 topics were never limited. A block owns no private
-     * subtree and nothing filters its messages afterwards, so like a mirror it listens on no filter that can reach a
-     * player's private topics. The discovery prefix stays open to listeners, which v1 blocks use for HA's birth topic.
+     * MQTT validity is checked, not the 256-byte limit, because v1 topics were never limited. A block has no admin, owns
+     * no private subtree, and nothing filters its messages afterwards: any player who can place one reads what it
+     * receives (the Block Emitter shows its last payload). So it listens on no filter that can reach a player's private
+     * topics, the statestream namespace (M3 plan D13: only admins listen there) or the twin's request, response and sync
+     * traffic of any bridge, whose payloads the explorer shows non-admins only as sizes, nor this server's device and
+     * group topics (wave 6 review: a bound device's state names its entity, and the explorer shows them only to players
+     * who may configure the device). The discovery prefix stays open to listeners, which v1 blocks use for HA's birth
+     * topic.
      */
     public Decision checkLegacy(String topicOrFilter, boolean publish) {
         if (publish) {
@@ -191,7 +248,27 @@ public final class TopicAcl {
         if (!TopicFilters.isValidFilter(topicOrFilter)) return Decision.INVALID;
         if (topicOrFilter.startsWith("$")) return Decision.DOLLAR;
         if (TopicFilters.isWildcard(TopicFilters.levels(topicOrFilter)[0])) return Decision.DENY_BROKER_WIDE;
-        return reachesForeignPrivate(Subject.CONSOLE, topicOrFilter) ? Decision.DENY_FOREIGN_PRIVATE : Decision.ALLOWED;
+        if (rules.statestreamBase() != null && overlaps(rules.statestreamBase(), topicOrFilter)) return Decision.DENY_STATESTREAM_LEGACY;
+        if (reachesForeignPrivate(Subject.CONSOLE, topicOrFilter)) return Decision.DENY_FOREIGN_PRIVATE;
+        if (reachesDeviceTopics(topicOrFilter)) return Decision.DENY_DEVICE_TOPICS;
+        return reachesTwinTraffic(topicOrFilter) ? Decision.DENY_TWIN_TRAFFIC : Decision.ALLOWED;
+    }
+
+    /**
+     * Whether the topic or filter can match one of this server's device or group topics: anything below
+     * {@code <base>/<bridgeId>} but its {@code bridge/} and {@code raw/} subtrees and the bare root, which the explorer
+     * shows everyone ({@link #explorerExposure}).
+     */
+    private boolean reachesDeviceTopics(String filter) {
+        if (!overlaps(bridgeRoot, filter)) return false;
+        String[] levels = TopicFilters.levels(filter);
+        int first = TopicFilters.levels(bridgeRoot).length;
+        // A "#" above the first level below the root reaches every device.
+        for (int i = 0; i < Math.min(first, levels.length); i++) {
+            if (levels[i].equals("#")) return true;
+        }
+        if (levels.length == first) return false;
+        return !levels[first].equals(BRIDGE_LEVEL) && !levels[first].equals(RAW_LEVEL);
     }
 
     /** Whether the explorer shows only the payload size of a message on this topic. */
@@ -220,9 +297,15 @@ public final class TopicAcl {
 
     /**
      * What the explorer may show a subject of a message it received on one of the {@link #listenScope} filters. The
-     * scope reaches further than a player may look, so every message is judged on its own (design §8.4).
+     * scope reaches further than a player may look, so every message is judged on its own (design §8.4). Non-admins see
+     * the twin's request, response and sync traffic of any bridge only as sizes, and no statestream message at all (a
+     * filter wider than a multi-level statestream base can still deliver one).
      */
     public Exposure explorerExposure(Subject subject, String topic) {
+        if (!subject.admin() && twinTraffic(topic)) return Exposure.REDACT;
+        if (!subject.admin() && rules.statestreamBase() != null && TopicFilters.covers(rules.statestreamBase() + "/#", topic)) {
+            return Exposure.HIDE;
+        }
         if (TopicFilters.covers(bridgeRoot + "/#", topic)) {
             String[] levels = TopicFilters.levels(topic);
             int first = TopicFilters.levels(bridgeRoot).length;
@@ -284,7 +367,38 @@ public final class TopicAcl {
         if (TopicFilters.covers(bridgeRoot + "/#", topic) && !TopicFilters.covers(bridgeRoot + "/raw/#", topic)) {
             return Decision.DENY_BRIDGE;
         }
+        if (inBridgeNamespace(topic)) return Decision.DENY_FOREIGN_BRIDGE;
         return null;
+    }
+
+    /** Whether the topic lies in any bridge's {@code bridge/} namespace, under this base topic or the shared one. */
+    private boolean inBridgeNamespace(String topic) {
+        return TopicFilters.covers(rules.base() + "/+/" + BRIDGE_LEVEL + "/#", topic)
+                || TopicFilters.covers(SHARED_BASE + "/+/" + BRIDGE_LEVEL + "/#", topic);
+    }
+
+    /** Whether the topic is a twin request, response or sync of any bridge, or lies below one. */
+    private boolean twinTraffic(String topic) {
+        String[] levels = TopicFilters.levels(topic);
+        for (String base : List.of(rules.base(), SHARED_BASE)) {
+            // <base>/<bridge>/bridge/<leaf>: the leaf is two levels below the base's own.
+            int leaf = TopicFilters.levels(base).length + 2;
+            if (levels.length > leaf && TopicFilters.covers(base + "/+/" + BRIDGE_LEVEL + "/#", topic)
+                    && TWIN_TRAFFIC_LEAVES.contains(levels[leaf])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether the filter can match a twin request, response or sync of any bridge, or a topic below one. */
+    private boolean reachesTwinTraffic(String filter) {
+        for (String base : List.of(rules.base(), SHARED_BASE)) {
+            for (String leaf : TWIN_TRAFFIC_LEAVES) {
+                if (overlaps(base + "/+/" + BRIDGE_LEVEL + "/" + leaf, filter)) return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -320,7 +434,10 @@ public final class TopicAcl {
         return subject.op() && rules.opsBypassAllowlist() ? Decision.ALLOWED_OP_BYPASS : Decision.NOT_ALLOWLISTED;
     }
 
-    /** Whether the subtree under {@code prefix} and the topics matched by {@code filter} share any topic. */
+    /**
+     * Whether the subtree under {@code prefix} and the topics matched by {@code filter} share any topic. A {@code +} in
+     * the prefix stands for any one level, so {@code mineqtt/+/bridge} is the subtree of every bridge's level.
+     */
     private static boolean overlaps(String prefix, String filter) {
         String[] prefixLevels = TopicFilters.levels(prefix);
         String[] filterLevels = TopicFilters.levels(filter);
@@ -328,7 +445,7 @@ public final class TopicAcl {
             if (i >= filterLevels.length) return false;
             String level = filterLevels[i];
             if (level.equals("#")) return true;
-            if (!level.equals("+") && !level.equals(prefixLevels[i])) return false;
+            if (!level.equals("+") && !prefixLevels[i].equals("+") && !level.equals(prefixLevels[i])) return false;
         }
         return true;
     }

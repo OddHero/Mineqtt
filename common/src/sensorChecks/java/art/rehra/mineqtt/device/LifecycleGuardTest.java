@@ -8,13 +8,26 @@ import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.WallSwitch;
+import art.rehra.mineqtt.flow.core.Endpoint;
+import art.rehra.mineqtt.flow.core.FlowMessage;
+import art.rehra.mineqtt.flow.core.Mapping;
+import art.rehra.mineqtt.flow.core.MessageBus;
+import art.rehra.mineqtt.flow.core.PortSpec;
+import art.rehra.mineqtt.flow.core.PortType;
+import art.rehra.mineqtt.flow.core.Root;
+import art.rehra.mineqtt.flow.core.Scope;
+import art.rehra.mineqtt.flow.core.Wire;
 import art.rehra.mineqtt.ha.Ha;
 import art.rehra.mineqtt.items.ConfiguratorMode;
 import art.rehra.mineqtt.legacy.LegacyNbtV1;
 import art.rehra.mineqtt.mqtt.core.TopicAcl;
 import art.rehra.mineqtt.security.AccessMode;
+import art.rehra.mineqtt.twin.TwinRequests;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.EntityGlobs;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
@@ -54,8 +67,8 @@ import java.util.function.Predicate;
  * The server-only lifecycle without a running game, run by Gradle's verifyLifecycleGuards task: the predicates the
  * block entity hooks use (no attach without a server level, destroy versus detach), the attach guard that isolates a
  * failing device and hands back what its attach used up, the untrusted-data sanitiser, the {@code mineqtt} compound, a
- * claim of a device without an owner, the attach's exposure merge, the routing table of the one command path, what a
- * right-click on a MineQTT block does, and the per-type publish limits.
+ * claim of a device without an owner, the attach's exposure merge, the routing table of the one command path, the root
+ * each command brings to the message bus, what a right-click on a MineQTT block does, and the per-type publish limits.
  */
 public final class LifecycleGuardTest {
     private static final Field<Integer> POWER = Field.intRange("power", 0, 15, Access.READ_WRITE);
@@ -77,6 +90,7 @@ public final class LifecycleGuardTest {
         claim();
         exposeMerge();
         commandRoutes();
+        commandRoots();
         interaction();
         compoundRoundTrip();
         throttle();
@@ -116,6 +130,20 @@ public final class LifecycleGuardTest {
         DeviceLink allowed = linkWithCopiedData();
         allowed.sanitizePlaced(PLACER, "Alex", raw -> Optional.empty());
         check(allowed.raw().active() && allowed.raw().grandfathered() == null, "An allowed topic stays usable, still without its grandfather flag");
+
+        // M3 plan D13 #6: a copied binding is judged for the placer.
+        Binding copiedBinding = TwinTestTypes.bound("switch.porch", true);
+        TwinRules.Rights mayBind = new TwinRules.Rights(true, false, EntityGlobs.ALL, Optional.empty());
+        DeviceLink bound = new DeviceLink(TwinTestTypes.TYPE);
+        bound.setTwin(copiedBinding);
+        bound.sanitizePlaced(PLACER, "Alex", raw -> Optional.empty(), mayBind);
+        check(bound.twin().active() && !bound.twin().control() && bound.twin().sourceEntity().orElse("").equals("switch.porch"),
+                "A placer who may bind but not control keeps the binding without control: " + bound.twin());
+        DeviceLink stranger = new DeviceLink(TwinTestTypes.TYPE);
+        stranger.setTwin(copiedBinding);
+        stranger.sanitizePlaced(PLACER, "Alex", raw -> Optional.empty());
+        check(stranger.twin().bound() && !stranger.twin().active() && stranger.twin().refused().contains("mineqtt:twin.bind"),
+                "A placer who may not bind gets the binding refused, kept to heal: " + stranger.twin());
     }
 
     private static void unseenRevalidation() {
@@ -248,15 +276,15 @@ public final class LifecycleGuardTest {
     private static void commandRoutes() {
         DeviceType sensor = PresenceSensor.TYPE;
         check(TYPE.unloadedPolicy() == UnloadedPolicy.QUEUE && sensor.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE, "One type of each policy");
-        check(DeviceRuntime.route(false, TYPE, true) == DeviceRuntime.Route.APPLY, "A loaded actuator applies the command");
-        check(DeviceRuntime.route(false, sensor, true) == DeviceRuntime.Route.APPLY, "A loaded sensor gets it too, and answers for itself");
-        check(DeviceRuntime.route(false, TYPE, false) == DeviceRuntime.Route.QUEUE, "An unloaded QUEUE device queues it");
-        check(DeviceRuntime.route(false, sensor, false) == DeviceRuntime.Route.DROP, "An unloaded UNAVAILABLE device drops it");
-        check(DeviceRuntime.route(false, null, true) == DeviceRuntime.Route.DROP && DeviceRuntime.route(false, null, false) == DeviceRuntime.Route.DROP,
+        check(plain(false, TYPE, true) == DeviceRuntime.Route.APPLY, "A loaded actuator applies the command");
+        check(plain(false, sensor, true) == DeviceRuntime.Route.APPLY, "A loaded sensor gets it too, and answers for itself");
+        check(plain(false, TYPE, false) == DeviceRuntime.Route.QUEUE, "An unloaded QUEUE device queues it");
+        check(plain(false, sensor, false) == DeviceRuntime.Route.DROP, "An unloaded UNAVAILABLE device drops it");
+        check(plain(false, null, true) == DeviceRuntime.Route.DROP && plain(false, null, false) == DeviceRuntime.Route.DROP,
                 "A device of a type this MineQTT does not know drops it");
-        check(DeviceRuntime.route(true, TYPE, false) == DeviceRuntime.Route.FAN_OUT && DeviceRuntime.route(true, TYPE, true) == DeviceRuntime.Route.FAN_OUT,
+        check(plain(true, TYPE, false) == DeviceRuntime.Route.FAN_OUT && plain(true, TYPE, true) == DeviceRuntime.Route.FAN_OUT,
                 "A group fans it out to its members, whatever its own load state");
-        check(DeviceRuntime.route(true, null, false) == DeviceRuntime.Route.DROP, "A group without a (known) member type drops it");
+        check(plain(true, null, false) == DeviceRuntime.Route.DROP, "A group without a (known) member type drops it");
         // A new following wire seeds its target only from a source that is not offline (M2-16).
         check(DeviceRuntime.seeds(TYPE, true, false) && DeviceRuntime.seeds(sensor, true, false), "A loaded source seeds a new wire's target");
         check(DeviceRuntime.seeds(TYPE, false, false), "An unloaded QUEUE source seeds it from its record");
@@ -279,6 +307,146 @@ public final class LifecycleGuardTest {
         check(!DeviceRuntime.taken(new DeviceRuntime.Delivery(DeviceRuntime.Route.APPLY, CommandResult.rejected("no")))
                 && !DeviceRuntime.taken(new DeviceRuntime.Delivery(DeviceRuntime.Route.DROP, null)),
                 "A device that rejected it, or a target that drops it, refused it");
+        check(DeviceRuntime.taken(new DeviceRuntime.Delivery(DeviceRuntime.Route.FORWARD, null, null))
+                && !DeviceRuntime.taken(new DeviceRuntime.Delivery(DeviceRuntime.Route.FORWARD, null, "not sent"))
+                && !DeviceRuntime.taken(new DeviceRuntime.Delivery(DeviceRuntime.Route.REFUSE, null, "mirrors light.kitchen")),
+                "A forward is taken when it was handed on; a refused command and an unsent forward are not");
+        // M3-9: what became of the forward's request decides; dedupe and a value waiting for the rate count as taken.
+        check(DeviceRuntime.taken(DeviceRuntime.Delivery.forwarded(new TwinRequests.Sent("0123456789ab", "light.turn_on")))
+                && DeviceRuntime.taken(DeviceRuntime.Delivery.forwarded(new TwinRequests.Held("light.turn_on")))
+                && DeviceRuntime.taken(DeviceRuntime.Delivery.forwarded(new TwinRequests.Skipped("it already is on"))), "A sent, held or needless forward is taken");
+        for (TwinRequests.Refusal refusal : TwinRequests.Refusal.values()) {
+            DeviceRuntime.Delivery refused = DeviceRuntime.Delivery.forwarded(new TwinRequests.Refused(refusal, "not sent: " + refusal));
+            check(!DeviceRuntime.taken(refused) && refused.reason().equals("not sent: " + refusal) && refused.route() == DeviceRuntime.Route.FORWARD,
+                    "A forward refused for " + refusal + " is not taken and says why");
+        }
+        mirrorRoutes();
+    }
+
+    // Every source into an unbound device, or into a port its source does not own, routes as before M3.
+    private static DeviceRuntime.Route plain(boolean group, DeviceType type, boolean attached) {
+        DeviceRuntime.Route route = DeviceRuntime.route(group, type, attached, CommandSource.PLAYER, DeviceRuntime.Mirrored.NONE);
+        for (CommandSource source : CommandSource.values()) {
+            if (source == CommandSource.TWIN) continue;
+            check(DeviceRuntime.route(group, type, attached, source, DeviceRuntime.Mirrored.NONE) == route,
+                    "A " + source + " command to a plain device routes as a player's");
+        }
+        return route;
+    }
+
+    /**
+     * M3 plan §3.4, D14, D17: the routes of a bound device. FORWARD and REFUSE are decided before any queue, the mirrored
+     * device's own apply never queues and never forwards, Home Assistant, groups and the paused Raw Link are refused, and
+     * players and wires forward exactly while control is on.
+     */
+    private static void mirrorRoutes() {
+        DeviceRuntime.Mirrored controlled = new DeviceRuntime.Mirrored(true, true);
+        DeviceRuntime.Mirrored readOnly = new DeviceRuntime.Mirrored(true, false);
+        for (boolean attached : new boolean[]{true, false}) {
+            String where = attached ? "a loaded" : "an unloaded";
+            for (DeviceRuntime.Mirrored mirrored : List.of(controlled, readOnly, DeviceRuntime.Mirrored.NONE)) {
+                check(DeviceRuntime.route(false, TYPE, attached, CommandSource.TWIN, mirrored) == (attached ? DeviceRuntime.Route.APPLY : DeviceRuntime.Route.DROP),
+                        "TWIN applies to " + where + " device and is never queued nor forwarded (" + mirrored + ")");
+            }
+            for (CommandSource source : List.of(CommandSource.PLAYER, CommandSource.BINDING)) {
+                check(DeviceRuntime.route(false, TYPE, attached, source, controlled) == DeviceRuntime.Route.FORWARD,
+                        "A " + source + " command to a mirrored port of " + where + " device forwards while control is on");
+                check(DeviceRuntime.route(false, TYPE, attached, source, readOnly) == DeviceRuntime.Route.REFUSE,
+                        "A " + source + " command to a mirrored port of " + where + " device is refused while control is off");
+            }
+            for (CommandSource source : List.of(CommandSource.HA, CommandSource.GROUP, CommandSource.RAW)) {
+                check(DeviceRuntime.route(false, TYPE, attached, source, controlled) == DeviceRuntime.Route.REFUSE
+                                && DeviceRuntime.route(false, TYPE, attached, source, readOnly) == DeviceRuntime.Route.REFUSE,
+                        "A " + source + " command to a mirrored port of " + where + " device is refused, control or not");
+            }
+        }
+        check(DeviceRuntime.route(false, PresenceSensor.TYPE, false, CommandSource.PLAYER, controlled) == DeviceRuntime.Route.FORWARD,
+                "A forward does not need the device loaded (D11: a wire into an unloaded mirrored device still forwards)");
+        check(DeviceRuntime.route(false, null, true, CommandSource.TWIN, controlled) == DeviceRuntime.Route.DROP, "An unknown type drops even TWIN");
+        check(DeviceRuntime.route(true, TYPE, true, CommandSource.HA, DeviceRuntime.Mirrored.NONE) == DeviceRuntime.Route.FAN_OUT,
+                "A group fans out (it has no bound member, D6)");
+    }
+
+    /**
+     * M3 plan D10's root table ({@link DeviceRuntime#root}, {@link DeviceRuntime#commandRoot}): the root each command
+     * source brings, what inherits it, and that a block's own cause (a ticker, a neighbour update, a hand) opens no extent,
+     * so inside a command's extent it carries that command's root and outside any it is WORLD.
+     */
+    private static void commandRoots() {
+        check(DeviceRuntime.root(CommandSource.HA).equals(Optional.of(Root.HA)), "A /set topic is HA");
+        check(DeviceRuntime.root(CommandSource.RAW).equals(Optional.of(Root.RAW)), "A Raw Link message is RAW, not WORLD");
+        check(DeviceRuntime.root(CommandSource.PLAYER).equals(Optional.of(Root.PLAYER)), "A player's command is PLAYER");
+        check(DeviceRuntime.root(CommandSource.TWIN).equals(Optional.of(Root.TWIN)), "The mirrored real device is TWIN");
+        check(DeviceRuntime.root(CommandSource.GROUP).isEmpty() && DeviceRuntime.root(CommandSource.BINDING).isEmpty(),
+                "A group's fan-out and a wire's message inherit");
+        for (CommandSource source : CommandSource.values()) {
+            Root own = DeviceRuntime.root(source).orElse(null);
+            check(DeviceRuntime.commandRoot(source, null) == (own == null ? Root.WORLD : own), source + " outside any extent");
+            check(DeviceRuntime.commandRoot(source, Root.WORLD) == (own == null ? Root.WORLD : own), source + " inside the world's extent");
+            for (Root outside : List.of(Root.TWIN, Root.HA, Root.RAW, Root.STARTUP)) {
+                Root expected = own == null || own.inGame() ? outside : own;
+                check(DeviceRuntime.commandRoot(source, outside) == expected, source + " inside " + outside + " is " + expected);
+            }
+        }
+        check(DeviceRuntime.commandRoot(CommandSource.BINDING, Root.TWIN) == Root.TWIN && DeviceRuntime.commandRoot(CommandSource.GROUP, Root.HA) == Root.HA,
+                "A wire's message and a group's fan-out keep an outside root");
+        check(DeviceRuntime.commandRoot(CommandSource.PLAYER, Root.TWIN) == Root.TWIN, "Nothing in a TWIN extent becomes a player's");
+        check(DeviceRuntime.commandRoot(CommandSource.BINDING, Root.PLAYER) == Root.PLAYER, "A wire carries a player's root on");
+
+        // A block's own cause through a real bus: a Redstone Input's neighbour update emits what it reads.
+        UUID inputId = UUID.fromString("00000000-0000-0000-0000-00000000bb01");
+        UUID lampId = UUID.fromString("00000000-0000-0000-0000-00000000bb02");
+        Endpoint powered = Endpoint.port(inputId, "powered");
+        Endpoint lampState = Endpoint.port(lampId, "state");
+        Wire wire = new Wire(UUID.randomUUID(), powered, lampState, Mapping.FOLLOW, Scope.WIRELESS, OWNER, true);
+        List<Root> roots = new ArrayList<>();
+        MessageBus bus = new MessageBus(new MessageBus.Wiring() {
+            @Override
+            public List<Wire> from(Endpoint source) {
+                return source.equals(powered) ? List.of(wire) : List.of();
+            }
+
+            @Override
+            public Optional<? extends PortSpec> out(Endpoint source) {
+                return source.equals(powered) ? Optional.of(new Spec(PortType.BOOL, false)) : Optional.empty();
+            }
+
+            @Override
+            public Optional<? extends PortSpec> in(Endpoint target) {
+                return target.equals(lampState) ? Optional.of(new Spec(PortType.BOOL, true)) : Optional.empty();
+            }
+        }, (delivered, message) -> {
+            roots.add(message.root());
+            return MessageBus.Outcome.TAKEN;
+        }, new MessageBus.Listener() {
+            @Override
+            public void loopCut(Wire cut, FlowMessage message) {
+                throw new AssertionError("No loop here");
+            }
+
+            @Override
+            public void failed(Wire failed, FlowMessage message, RuntimeException e) {
+                throw new AssertionError("No delivery throws here", e);
+            }
+        }, System::nanoTime);
+        boolean[] level = {false};
+        // DeviceLink.publishState from neighborChanged: no extent of its own, only the bus's current root.
+        Runnable neighborChanged = () -> {
+            level[0] = !level[0];
+            bus.emit(FlowMessage.Kind.VALUE, powered, "powered", new JsonPrimitive(level[0]), 0);
+        };
+        neighborChanged.run();
+        // A TWIN apply's setBlock updates the input's neighbours within the command's extent.
+        bus.withRoot(DeviceRuntime.commandRoot(CommandSource.TWIN, null), neighborChanged);
+        bus.withRoot(DeviceRuntime.commandRoot(CommandSource.RAW, null), neighborChanged);
+        bus.withRoot(DeviceRuntime.commandRoot(CommandSource.PLAYER, null), neighborChanged);
+        bus.withRoot(Root.STARTUP, neighborChanged);
+        bus.drain();
+        check(roots.equals(List.of(Root.WORLD, Root.TWIN, Root.RAW, Root.PLAYER, Root.STARTUP)),
+                "A neighbour update is WORLD on its own and inherits the command it happens in: " + roots);
+    }
+
+    private record Spec(PortType kind, boolean toggles) implements PortSpec {
     }
 
     /**
@@ -309,7 +477,17 @@ public final class LifecycleGuardTest {
             // M2-17: in Group and Copy-Paste mode a plain click is a step of that mode, refused alike for a block that is no device.
             check(Interaction.decide(false, Interaction.Held.CONFIGURATOR_GROUP, type) == Interaction.Outcome.GROUP, "The Configurator in Group mode groups " + type);
             check(Interaction.decide(false, Interaction.Held.CONFIGURATOR_COPY, type) == Interaction.Outcome.COPY, "The Configurator in Copy-Paste mode copies " + type);
+            // M3-13 (D19): in Bind mode a plain click opens the Twin tab with the picker; a device without a twin, or a block
+            // that is no device, is told so where the click is carried out.
+            check(Interaction.decide(false, Interaction.Held.CONFIGURATOR_BIND, type) == Interaction.Outcome.BIND, "The Configurator in Bind mode binds " + type);
         }
+        check(Interaction.decide(false, Interaction.Held.CONFIGURATOR_BIND, SmartLamp.TYPE) == Interaction.Outcome.BIND
+                        && Interaction.decide(true, Interaction.Held.CONFIGURATOR_BIND, SmartLamp.TYPE) == Interaction.Outcome.SCREEN,
+                "In Bind mode a click on the lamp binds instead of toggling it, sneaking opens its screen");
+        check(Arrays.stream(Interaction.Outcome.values()).filter(outcome -> outcome != Interaction.Outcome.PASS).allMatch(outcome ->
+                        Arrays.stream(Interaction.Held.values()).anyMatch(held -> Interaction.decide(false, held, lamp) == outcome
+                                || Interaction.decide(false, held, output) == outcome || Interaction.decide(false, held, null) == outcome)),
+                "Every outcome but PASS is reached by a plain click with something in hand");
         check(Interaction.decide(false, Interaction.Held.OTHER, lamp) == Interaction.Outcome.USE
                 && Interaction.decide(false, Interaction.Held.PLACEABLE, lamp) == Interaction.Outcome.USE, "A right-click toggles the lamp, also with a block in hand");
         check(Interaction.decide(false, Interaction.Held.OTHER, SmartPlug.TYPE) == Interaction.Outcome.USE && Interaction.decide(true, Interaction.Held.OTHER, SmartPlug.TYPE) == Interaction.Outcome.SCREEN
@@ -368,10 +546,12 @@ public final class LifecycleGuardTest {
             modes.add(mode);
             mode = mode.next();
         } while (mode != ConfiguratorMode.CONFIGURE);
-        check(modes.equals(List.of(ConfiguratorMode.CONFIGURE, ConfiguratorMode.LINK, ConfiguratorMode.GROUP, ConfiguratorMode.COPY_PASTE)),
-                "The Configurator steps Configure, Link, Group, Copy-Paste and back to Configure: " + modes);
+        check(modes.equals(List.of(ConfiguratorMode.CONFIGURE, ConfiguratorMode.LINK, ConfiguratorMode.GROUP, ConfiguratorMode.COPY_PASTE, ConfiguratorMode.BIND)),
+                "The Configurator steps Configure, Link, Group, Copy-Paste, Bind and back to Configure: " + modes);
         check(modes.stream().map(Interaction.Held::of).toList().equals(List.of(Interaction.Held.CONFIGURATOR, Interaction.Held.CONFIGURATOR_LINK,
-                Interaction.Held.CONFIGURATOR_GROUP, Interaction.Held.CONFIGURATOR_COPY)), "Each mode is its own kind of Configurator in hand");
+                Interaction.Held.CONFIGURATOR_GROUP, Interaction.Held.CONFIGURATOR_COPY, Interaction.Held.CONFIGURATOR_BIND)), "Each mode is its own kind of Configurator in hand");
+        check(ConfiguratorMode.BIND.getSerializedName().equals("bind") && ConfiguratorMode.CODEC.parse(com.mojang.serialization.JsonOps.INSTANCE,
+                new com.google.gson.JsonPrimitive("bind")).result().equals(Optional.of(ConfiguratorMode.BIND)), "Bind mode is stored as bind");
     }
 
     private static ItemStack named(Item item, String name) {

@@ -50,6 +50,13 @@ public interface DeviceHost {
     }
 
     /**
+     * The registry gave the device's link another name or slug ({@link DeviceLink#name()}): a rename, or the identity it
+     * took at its attach. A device that shows its name (a mirrored Display Panel's title) redraws it.
+     */
+    default void identityChanged() {
+    }
+
+    /**
      * The device's Raw Link was taken away: by the device's config or {@code /mineqtt devices raw} (M2-6). An output the
      * link drove turns off, as v1's did when its topic went away.
      */

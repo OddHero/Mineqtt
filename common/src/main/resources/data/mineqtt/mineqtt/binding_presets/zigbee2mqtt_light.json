@@ -1,0 +1,27 @@
+{
+  "name": "zigbee2mqtt light",
+  "kind": "light",
+  "state_topic": "zigbee2mqtt/{device}",
+  "state": "state",
+  "on": "ON",
+  "off": "OFF",
+  "attributes": {
+    "brightness": "brightness",
+    "color": "color",
+    "color_mode": "color_mode",
+    "color_temp": "color_temp"
+  },
+  "command_topic": "zigbee2mqtt/{device}/set",
+  "commands": {
+    "turn_on": {
+      "state": "ON",
+      "brightness": "{brightness}",
+      "color": { "r": "{red}", "g": "{green}", "b": "{blue}" },
+      "color_temp": "{color_temp_mired}",
+      "transition": "{transition}"
+    },
+    "turn_off": { "state": "OFF", "transition": "{transition}" },
+    "toggle": { "state": "TOGGLE" }
+  },
+  "ranges": { "brightness": [0, 254] }
+}

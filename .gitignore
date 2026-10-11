@@ -55,5 +55,8 @@ run/
 # Ignore options.txt
 **/options.txt
 
+# Python bytecode (e2e tools)
+__pycache__/
+
 # Private Docker host table (docker/hosts.example)
 docker/hosts.local

@@ -1,0 +1,5 @@
+{
+  "name": "ESPHome sensor",
+  "kind": "sensor",
+  "state_topic": "{device}/state"
+}

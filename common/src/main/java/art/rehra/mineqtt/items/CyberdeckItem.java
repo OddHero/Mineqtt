@@ -33,9 +33,10 @@ import org.jetbrains.annotations.Nullable;
 /**
  * The Configurator (registry id {@code cyberdeck}, design §7.4). In {@link ConfiguratorMode#CONFIGURE} mode a
  * right-click opens the screen of the device it points at, up to {@link C2SGuard#CONFIGURATOR_RANGE} blocks away (a
- * ceiling lamp, say); pointing at nothing it opens the topic explorer. In Link, Group and Copy-Paste mode a right-click
- * on a device within that range is a step of that mode ({@link ConfiguratorLink}, {@link ConfiguratorGroup},
- * {@link ConfiguratorCopy}), and one at nothing stops it. Sneak + right-click into the air steps to the next mode, which
+ * ceiling lamp, say); pointing at nothing it opens the topic explorer. In Link, Group, Copy-Paste and Bind mode a
+ * right-click on a device within that range is a step of that mode ({@link ConfiguratorLink}, {@link ConfiguratorGroup},
+ * {@link ConfiguratorCopy}, {@link ConfiguratorBind}), and one at nothing stops it or says how the mode works. Sneak +
+ * right-click into the air steps to the next mode, which
  * forgets what the player began ({@link ConfiguratorSessions}). A device within reach is handled by its block
  * ({@code BaseMqttBlock#click}), which does the same for a Configurator.
  */
@@ -109,7 +110,7 @@ public class CyberdeckItem extends Item {
     }
 
     /**
-     * A step of the Link, Group or Copy-Paste mode on the device the player points at within the Configurator's range,
+     * A step of the Link, Group, Copy-Paste or Bind mode on the device the player points at within the Configurator's range,
      * under the same rules as opening its screen from afar; pointing at nothing, or at a block that is no device, stops
      * what the mode began. A player who may not build (P2) takes no step.
      */

@@ -17,8 +17,12 @@ import java.nio.file.Path;
 public record BrokerSettings(String clientId, String username, char[] password, Path caFile, boolean insecureSkipVerify,
                              int keepAliveSec, ProtocolVersion protocol, int maxInboundBytes) {
     public static final int DEFAULT_KEEP_ALIVE_SEC = 60;
-    /** The largest per-subscription cap (mirror sources, 64 KiB); smaller caps are applied per subscription. */
-    public static final int DEFAULT_MAX_INBOUND_BYTES = 64 * 1024;
+    /**
+     * The largest per-subscription cap: the Home Assistant catalog's 256 KiB, so a domain list over the parser's 64 KiB
+     * reaches it and is refused visibly. Every subscription sets its own, smaller cap (mirror sources 64 KiB, commands
+     * 16 KiB), which the service applies before any handler sees a message.
+     */
+    public static final int DEFAULT_MAX_INBOUND_BYTES = 256 * 1024;
 
     public BrokerSettings {
         if (clientId == null || clientId.isBlank()) throw new IllegalArgumentException("MQTT client id must not be blank");

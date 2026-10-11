@@ -1,0 +1,14 @@
+{
+  "name": "Shelly Gen2 switch",
+  "kind": "switch",
+  "state_topic": "{device}/status/switch:0",
+  "state": "output",
+  "on": true,
+  "off": false,
+  "command_topic": "{device}/command/switch:0",
+  "commands": {
+    "turn_on": "on",
+    "turn_off": "off",
+    "toggle": "toggle"
+  }
+}

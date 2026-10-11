@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks;
 
+import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
 import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
@@ -105,7 +106,7 @@ public class RedstonePublisherBlock extends BaseMqttBlock {
     /** The server follows slot edits and reads the signal once after loading; the client has nothing to tick. */
     @Override
     public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
-        return level.isClientSide() ? null : new PublisherBlockEntity.ServerTicker<>();
+        return level.isClientSide() ? new DeviceBlockEntity.TwinClientTicker<>() : new PublisherBlockEntity.ServerTicker<>();
     }
 
 }

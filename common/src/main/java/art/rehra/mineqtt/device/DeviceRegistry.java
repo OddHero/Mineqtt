@@ -333,7 +333,7 @@ public final class DeviceRegistry {
         return wire;
     }
 
-    /** The device or group an endpoint belongs to; null for one that names no node (the reserved MQTT and Home Assistant ends). */
+    /** The device or group an endpoint belongs to; null for one that names no node (a Home Assistant or topic end). */
     public static @Nullable UUID node(Endpoint endpoint) {
         return switch (endpoint) {
             case Endpoint.PortRef port -> port.node();

@@ -115,14 +115,14 @@ public final class AdventureGameTest implements FabricClientGameTest {
     }
 
     /**
-     * A screen open while the game mode changes is rebuilt as the new mode offers it: the lamp's five tabs become its
+     * A screen open while the game mode changes is rebuilt as the new mode offers it: the lamp's six tabs become its
      * Controls tab alone and back; the Alarm Clock's and the Redstone Input's screens close, with the reason in the
      * action bar.
      */
     private static void modeChangeWhileOpen(GameTestSession session, BlockPos lamp, BlockPos input) {
         session.openBlock(lamp);
-        session.check(session.tabIds().size() == 5 && session.screenView().map(view -> !view.controlsOnly()).orElse(false),
-                "in survival the lamp's screen has all five tabs (" + session.tabIds() + ")");
+        session.check(session.tabIds().size() == 6 && session.screenView().map(view -> !view.controlsOnly()).orElse(false),
+                "in survival the lamp's screen has all six tabs, Twin included (" + session.tabIds() + ")");
         int containerId = session.onClient(mc -> GameTestSession.openScreen(mc).getMenu().containerId);
         gameMode(session, GameType.ADVENTURE);
         session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu().containerId != containerId
@@ -131,7 +131,7 @@ public final class AdventureGameTest implements FabricClientGameTest {
         session.screenshot("adventure_lamp_rebuilt");
         gameMode(session, GameType.SURVIVAL);
         session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
-                && !menu.controlsOnly() && menu.tabs.size() == 5, ANSWER_TICKS), "back in survival mode it has all five tabs again (" + session.tabIds() + ")");
+                && !menu.controlsOnly() && menu.tabs.size() == 6, ANSWER_TICKS), "back in survival mode it has all six tabs again (" + session.tabIds() + ")");
         session.closeScreen();
 
         for (BlockPos block : List.of(CLOCK, input)) {

@@ -9,9 +9,14 @@ import art.rehra.mineqtt.device.DeviceRegistry;
 import art.rehra.mineqtt.device.DeviceType;
 import art.rehra.mineqtt.device.DeviceTypes;
 import art.rehra.mineqtt.device.Field;
+import art.rehra.mineqtt.mqtt.core.Inbound;
 import art.rehra.mineqtt.mqtt.core.MqttService;
 import art.rehra.mineqtt.mqtt.core.Outbound;
+import art.rehra.mineqtt.mqtt.core.SubOptions;
+import art.rehra.mineqtt.mqtt.core.Subscription;
 import art.rehra.mineqtt.runtime.TopicScheme;
+import art.rehra.mineqtt.twin.TwinAdapter;
+import art.rehra.mineqtt.twin.core.Binding;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -31,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -55,6 +61,18 @@ import java.util.function.Supplier;
  *     <li>A migrated v1 lamp or legacy group keeps its v1 unique_id on its primary entity and, for good, as its second
  *     device identifier (§4.1).</li>
  *     <li>Records of a type this MineQTT does not know are never published nor cleared.</li>
+ *     <li>A device bound to a source (M3 plan D6) is discovered where it would be anyway, reduced to its {@code binding}
+ *     sensor, the rest of its entities cleared; its binding changing changes the payload, so a refresh publishes it.</li>
+ *     <li><b>Cleanups</b> (M3-7b). Home Assistant applies a platform-only stub only to a component it discovered in its
+ *     current run, and after removing entities it clears the device's retained config itself. So a binding that comes or
+ *     goes ({@link #bindingChanged}) publishes the message that removes what the device no longer declares (the reduced
+ *     message, or every component stubbed with the {@code binding} sensor, then the full one again), and watches the
+ *     device's own config topic for {@value #WATCH_MILLIS} ms: an empty payload from Home Assistant republishes the
+ *     message at once, so the broker never stays without it, and proves Home Assistant removed the components. A change
+ *     made while Home Assistant was not known to be online marks the record ({@link DeviceRecord#discoveryCleanup()}):
+ *     the next republish while it is online (its birth) publishes the full device with its {@code binding} sensor first,
+ *     then, {@value #CLEANUP_STEP_MILLIS} ms later, the removal, so the stubs land in a run that discovered the
+ *     components. A record without the mark is republished as always, so an ordinary restart churns nothing.</li>
  * </ul>
  */
 public final class DiscoveryPublisher {
@@ -62,6 +80,18 @@ public final class DiscoveryPublisher {
     public static final String URL = "https://github.com/OddHero/Mineqtt";
     /** Design §3.2: discovery is released at no more than 50 messages per second. */
     static final int MAX_PER_SECOND = 50;
+    /**
+     * Between the steps of a cleanup: Home Assistant sets up the components of the full message first (it queues an
+     * update of a component still being set up, so the order holds even when it is slower).
+     */
+    static final long CLEANUP_STEP_MILLIS = 2_000;
+    /** How long a device's own config topic is watched after a message that removes components. */
+    static final long WATCH_MILLIS = 30_000;
+    /** Home Assistant clears the config once per removed entity: the republish waits for the last of them. */
+    static final long RESTORE_DELAY_MILLIS = 1_000;
+    // A device's own config topic: never retained (Home Assistant's clear arrives live), own publishes only through the
+    // loopback, and discovery messages are a few KiB.
+    private static final SubOptions OWN_CONFIG = new SubOptions(1, false, true, 64 * 1024, null);
     // Jinja resolves value_json.<key> to a dict method first; these keys need the subscript form.
     private static final Set<String> DICT_METHODS = Set.of("clear", "copy", "fromkeys", "get", "items", "keys", "pop",
             "popitem", "setdefault", "update", "values");
@@ -98,6 +128,24 @@ public final class DiscoveryPublisher {
                            @Nullable String hash, Consumer<String> setHash, Supplier<JsonObject> config) {
     }
 
+    /** The next message of a device's cleanup. */
+    private enum Step {
+        /** The full device with its {@code binding} sensor: Home Assistant discovers every component in this run. */
+        DISCOVER,
+        /** The message that removes what the device no longer declares ({@link #removalConfig}). */
+        REMOVE,
+        /** The device's own message again (a refresh), after a removal or after Home Assistant cleared it. */
+        STEADY
+    }
+
+    // One device's cleanup: the next step and when it is due, and the watch on its own config topic.
+    private static final class Cleanup {
+        @Nullable Step step;
+        long due;
+        @Nullable Subscription watch;
+        long watchUntil;
+    }
+
     private final DeviceRegistry registry;
     private final MqttService mqtt;
     private final Supplier<TopicScheme> topics;
@@ -105,8 +153,11 @@ public final class DiscoveryPublisher {
     private final boolean dedicatedServer;
     private final LongSupplier clock;
     private final LegacyDiscoveryMigration migration;
+    private final BooleanSupplier haOnline;
     // Target -> whether a republish asked for it (sent even when unchanged).
     private final Map<Target, Boolean> queue = new LinkedHashMap<>();
+    // Device id -> its running cleanup.
+    private final Map<UUID, Cleanup> cleanups = new LinkedHashMap<>();
     private String prefix;
     private @Nullable String bridgeHash;
     private double tokens = MAX_PER_SECOND;
@@ -116,16 +167,19 @@ public final class DiscoveryPublisher {
     /**
      * @param topics          the bridge's topics, which move when the bridge id changes
      * @param dedicatedServer resolves {@code ha.expose} AUTO
-     * @param clock           milliseconds, for the rate limit and the migration's delays
+     * @param clock           milliseconds, for the rate limit, the migration's delays and the cleanups
+     * @param haOnline        whether Home Assistant is known to be online now: its birth was heard on this connection and
+     *                        the republish it asked for has run, so it discovered every exposed device in its current run
      */
     public DiscoveryPublisher(DeviceRegistry registry, MqttService mqtt, Supplier<TopicScheme> topics, Identity identity,
-                              boolean dedicatedServer, LongSupplier clock) {
+                              boolean dedicatedServer, LongSupplier clock, BooleanSupplier haOnline) {
         this.registry = registry;
         this.mqtt = mqtt;
         this.topics = topics;
         this.identity = identity;
         this.dedicatedServer = dedicatedServer;
         this.clock = clock;
+        this.haOnline = haOnline;
         this.prefix = MineQTTConfig.discoveryPrefix;
         this.refilledAt = clock.getAsLong();
         this.migration = new LegacyDiscoveryMigration(this, registry, mqtt, clock);
@@ -133,12 +187,106 @@ public final class DiscoveryPublisher {
 
     // ---- payloads ----
 
-    /** The device discovery message of a device (§4.1). */
+    /**
+     * The device discovery message of a device (§4.1); a bound device's is reduced ({@link #mirroredConfig}), so its
+     * entities do not duplicate the real one it mirrors.
+     */
     public static JsonObject deviceConfig(DeviceType type, DeviceRecord record, TopicScheme topics, Identity identity) {
+        if (bound(record)) return mirroredConfig(type, record, topics, identity);
+        return fullConfig(type, record, topics, identity);
+    }
+
+    /**
+     * The first message of a cleanup (M3-7b): the device in full, every declared entity, and its {@code binding} sensor,
+     * so Home Assistant discovers every component in its current run, which a platform-only stub needs to remove one.
+     */
+    public static JsonObject discoverConfig(DeviceType type, DeviceRecord record, TopicScheme topics, Identity identity) {
+        JsonObject config = fullConfig(type, record, topics, identity);
+        config.getAsJsonObject("cmps").add(TwinAdapter.BINDING_ENTITY, bindingSensor(record, entityTopics(record, topics)));
+        return config;
+    }
+
+    /**
+     * The message that removes what the device no longer declares (M3-7b): while bound its reduced message (its own
+     * entities as stubs, {@link #mirroredConfig}), once unbound every component as a stub, the {@code binding} sensor
+     * included; the full message follows it. Home Assistant removes a component of a device only for a stub, never for one
+     * left out, so the full message alone would leave the sensor behind. The declared entities are stubs too, because Home
+     * Assistant clears the device's config after removing a registry entry, and that clear removes every component of
+     * the device it discovered: stubbing them means nothing is discovered when that happens, so after an unbind of a
+     * device Home Assistant held reduced nothing is removed twice.
+     */
+    public static JsonObject removalConfig(DeviceType type, DeviceRecord record, TopicScheme topics, Identity identity) {
+        JsonObject config = mirroredConfig(type, record, topics, identity);
+        if (!bound(record)) config.getAsJsonObject("cmps").add(TwinAdapter.BINDING_ENTITY, stub("sensor"));
+        return config;
+    }
+
+    private static boolean bound(DeviceRecord record) {
+        Binding binding = record.twin();
+        return binding != null && binding.bound();
+    }
+
+    private static JsonObject fullConfig(DeviceType type, DeviceRecord record, TopicScheme topics, Identity identity) {
+        return config(record.objectId(), record.name(), type.model(), type, identity, availability(record, topics), type.entities(),
+                entityTopics(record, topics), record.legacyUniqueId());
+    }
+
+    private static List<String> availability(DeviceRecord record, TopicScheme topics) {
+        return List.of(topics.bridgeState(), topics.availability(record.slug()));
+    }
+
+    private static EntityTopics entityTopics(DeviceRecord record, TopicScheme topics) {
         String state = topics.device(record.slug());
-        List<String> availability = List.of(topics.bridgeState(), topics.availability(record.slug()));
-        return config(record.objectId(), record.name(), type.model(), type, identity, availability, type.entities(),
-                new EntityTopics(state, state + "/set", topics.action(record.slug())), record.legacyUniqueId());
+        return new EntityTopics(state, state + "/set", topics.action(record.slug()));
+    }
+
+    /**
+     * The reduced discovery message of a bound device (M3 plan D6): the same device, availability and identifiers, but
+     * of its own entities only the {@code binding} diagnostic sensor ({@link #bindingSensor}).
+     * <p>
+     * Every entity the type declares stays in {@code cmps} as a platform-only stub ({@code {"p":"light"}}), which is how
+     * Home Assistant's device discovery removes one component. Home Assistant applies a stub only to a component it
+     * discovered in its current run, so the stubs in the retained message do not reach a Home Assistant that was offline
+     * when the device was bound: the cleanup of the next birth does ({@link Step}). They stay in every reduced message
+     * anyway, so the message is the same whichever way it is published, and they cost Home Assistant nothing. Unbinding
+     * publishes the full message again with the same unique_ids.
+     */
+    private static JsonObject mirroredConfig(DeviceType type, DeviceRecord record, TopicScheme topics, Identity identity) {
+        EntityTopics entityTopics = entityTopics(record, topics);
+        JsonObject config = config(record.objectId(), record.name(), type.model(), type, identity, availability(record, topics), List.of(), entityTopics,
+                record.legacyUniqueId());
+        JsonObject components = new JsonObject();
+        for (HaEntity<?> entity : type.entities()) components.add(entity.key(), stub(entity.platform()));
+        components.add(TwinAdapter.BINDING_ENTITY, bindingSensor(record, entityTopics));
+        config.add("cmps", components);
+        return config;
+    }
+
+    /**
+     * The {@code binding} diagnostic sensor of a bound device (M3 plan D6), disabled by default, which reads the
+     * {@code binding} object of the device's state ({@code {"entity":"light.kitchen","health":"live"}}). It is built here,
+     * not declared on the type: no device field holds it, and declaring it would add it to every unbound device.
+     */
+    private static JsonObject bindingSensor(DeviceRecord record, EntityTopics topics) {
+        JsonObject sensor = new JsonObject();
+        sensor.addProperty("p", "sensor");
+        sensor.addProperty("unique_id", record.objectId() + "_" + TwinAdapter.BINDING_ENTITY);
+        sensor.addProperty("name", "Binding");
+        sensor.addProperty("state_topic", topics.state());
+        sensor.addProperty("value_template", "{{ value_json.binding.entity if value_json.binding is defined else '' }}");
+        sensor.addProperty("json_attributes_topic", topics.state());
+        sensor.addProperty("json_attributes_template", "{{ (value_json.binding if value_json.binding is defined else {}) | tojson }}");
+        sensor.addProperty("icon", "mdi:link-variant");
+        sensor.addProperty("entity_category", "diagnostic");
+        sensor.addProperty("enabled_by_default", false);
+        return sensor;
+    }
+
+    // A platform-only component, which removes that component in Home Assistant.
+    private static JsonObject stub(String platform) {
+        JsonObject stub = new JsonObject();
+        stub.addProperty("p", platform);
+        return stub;
     }
 
     /**
@@ -363,12 +511,56 @@ public final class DiscoveryPublisher {
         if (!stopped) migration.connected();
     }
 
-    /** The bridge, every device and every group, sent even when unchanged. */
+    /**
+     * The bridge, every device and every group, sent even when unchanged. While Home Assistant is online (the republish of
+     * its birth), a device whose record is marked for a cleanup runs it instead: its full message with the {@code binding}
+     * sensor now, the removal after {@value #CLEANUP_STEP_MILLIS} ms.
+     */
     public void republishAll() {
         if (stopped) return;
         enqueue(Target.BRIDGE, true);
-        registry.records().forEach(record -> enqueue(Target.device(record.id()), true));
+        boolean online = haOnline.getAsBoolean();
+        long now = clock.getAsLong();
+        for (DeviceRecord record : registry.records()) {
+            if (online && record.discoveryCleanup() && cleanable(record)) {
+                schedule(record, Step.DISCOVER, now);
+            } else {
+                enqueue(Target.device(record.id()), true);
+            }
+        }
         registry.groups().forEach(group -> enqueue(Target.group(group.id()), true));
+    }
+
+    /**
+     * A device's binding came or went (M3 plan D6, M3-7b): its discovery changes between the full and the reduced message.
+     * A device Home Assistant holds (exposed, retained) gets the message that removes what it no longer declares, and its
+     * config topic is watched for Home Assistant's clear. While Home Assistant is not known to be online the record is
+     * marked, so its next birth runs the cleanup; a record marked before runs it now when Home Assistant is online.
+     */
+    public void bindingChanged(DeviceRecord record) {
+        if (stopped) return;
+        if (record.discoveryHash() == null || !cleanable(record)) {
+            refresh(record);
+            return;
+        }
+        boolean online = haOnline.getAsBoolean();
+        if (!online && !record.discoveryCleanup()) {
+            record.setDiscoveryCleanup(true);
+            registry.markDirty();
+        }
+        schedule(record, online && record.discoveryCleanup() ? Step.DISCOVER : Step.REMOVE, clock.getAsLong());
+    }
+
+    // A device whose discovery this publisher sends itself: exposed, of a known type, with no v1 migration pending.
+    private boolean cleanable(DeviceRecord record) {
+        return exposed(record) && pendingLegacy(record.legacyUniqueId()) == null;
+    }
+
+    private void schedule(DeviceRecord record, Step step, long due) {
+        Cleanup cleanup = cleanups.computeIfAbsent(record.id(), id -> new Cleanup());
+        cleanup.step = step;
+        cleanup.due = due;
+        enqueue(Target.device(record.id()), true);
     }
 
     /** §4.2 step 6, once the state after a connect is out: the pending v1 discovery migrations. */
@@ -385,10 +577,15 @@ public final class DiscoveryPublisher {
         enqueue(Target.group(group.id()), false);
     }
 
-    /** A renamed device (§3.1 step 2): published at once, between the clears and the state on the new topic. */
+    /**
+     * A renamed device (§3.1 step 2): published at once, between the clears and the state on the new topic. A running
+     * cleanup takes its next step now, with the new topics.
+     */
     public void publishNow(DeviceRecord record) {
         if (stopped) return;
         queue.remove(Target.device(record.id()));
+        Cleanup cleanup = cleanups.get(record.id());
+        if (cleanup != null && cleanup.step != null) cleanup.due = clock.getAsLong();
         process(Target.device(record.id()), false);
     }
 
@@ -402,6 +599,7 @@ public final class DiscoveryPublisher {
     /** A device is gone: its retained discovery, and a v1 message still waiting for its migration, are cleared. */
     public void removed(DeviceRecord record) {
         queue.remove(Target.device(record.id()));
+        endCleanup(record.id());
         clearRemoved(record.objectId(), record.legacyUniqueId());
     }
 
@@ -419,6 +617,7 @@ public final class DiscoveryPublisher {
     public int clearAll() {
         if (stopped) return 0;
         queue.clear();
+        endCleanups();
         List<String> objectIds = new ArrayList<>();
         objectIds.add(identity.bridgeObjectId());
         bridgeHash = null;
@@ -442,6 +641,8 @@ public final class DiscoveryPublisher {
     public void configChanged() {
         if (stopped) return;
         if (!prefix.equals(MineQTTConfig.discoveryPrefix)) {
+            // A cleanup watches the old topics; the marks stay, so the next birth cleans up under the new prefix.
+            endCleanups();
             if (bridgeHash != null) mqtt.publish(Outbound.clear(TopicScheme.discoveryConfig(prefix, identity.bridgeObjectId())));
             bridgeHash = null;
             for (DeviceRecord record : registry.records()) {
@@ -468,6 +669,7 @@ public final class DiscoveryPublisher {
      */
     public void tick() {
         if (stopped || !mqtt.state().isConnected()) return;
+        tickCleanups();
         for (Iterator<Map.Entry<Target, Boolean>> waiting = queue.entrySet().iterator(); waiting.hasNext(); ) {
             if (!hasToken()) break;
             Map.Entry<Target, Boolean> next = waiting.next();
@@ -482,15 +684,16 @@ public final class DiscoveryPublisher {
         return queue.isEmpty();
     }
 
-    /** Whether queued messages or v1 migration steps wait for the next tick. */
+    /** Whether queued messages, v1 migration steps or cleanup steps and watches wait for a later tick. */
     public boolean hasPendingWork() {
-        return !stopped && (!queue.isEmpty() || migration.hasPendingWork());
+        return !stopped && (!queue.isEmpty() || migration.hasPendingWork() || !cleanups.isEmpty());
     }
 
     /** {@code SERVER_STOPPING}: nothing is published any more. */
     public void stop() {
         stopped = true;
         queue.clear();
+        endCleanups();
     }
 
     /** The devices and groups whose discovery is retained, for {@code /mineqtt status}. */
@@ -576,7 +779,116 @@ public final class DiscoveryPublisher {
             migration.request(target);
             return false;
         }
+        Cleanup cleanup = target.kind() == Target.Kind.DEVICE ? cleanups.get(target.id()) : null;
+        if (cleanup != null && cleanup.step != null) {
+            if (!subject.exposed()) {
+                // Not discovered any more: the clear below is all Home Assistant needs.
+                cleanup.step = null;
+            } else {
+                // A plain refresh waits for the step, which publishes the device as it is then.
+                return clock.getAsLong() >= cleanup.due && step(registry.record(target.id()), subject, cleanup);
+            }
+        }
         return publish(subject, force);
+    }
+
+    // ---- cleanups (M3-7b) ----
+
+    // Runs a cleanup's due step; true, since it publishes a message.
+    private boolean step(DeviceRecord record, Subject subject, Cleanup cleanup) {
+        long now = clock.getAsLong();
+        TopicScheme scheme = topics.get();
+        switch (cleanup.step) {
+            case DISCOVER -> {
+                publishStep(record, discoverConfig(subject.type(), record, scheme, identity));
+                cleanup.step = Step.REMOVE;
+                cleanup.due = now + CLEANUP_STEP_MILLIS;
+            }
+            case REMOVE -> {
+                JsonObject removal = removalConfig(subject.type(), record, scheme, identity);
+                publishStep(record, removal);
+                watch(record, cleanup, now);
+                // Home Assistant is online and discovered the components in this run (a step before, or at its birth's
+                // republish), so it removes them now: the mark is done.
+                if (record.discoveryCleanup() && haOnline.getAsBoolean()) {
+                    record.setDiscoveryCleanup(false);
+                    registry.markDirty();
+                }
+                if (removal.equals(subject.config().get())) {
+                    cleanup.step = null;
+                } else {
+                    cleanup.step = Step.STEADY;
+                    cleanup.due = now + CLEANUP_STEP_MILLIS;
+                }
+            }
+            case STEADY -> {
+                cleanup.step = null;
+                publish(subject, true);
+            }
+            case null -> throw new IllegalStateException("No step is due");
+        }
+        return true;
+    }
+
+    // One message of a cleanup, sent even when the broker got the same bytes before; its hash is what is retained now.
+    private void publishStep(DeviceRecord record, JsonObject config) {
+        mqtt.publish(Outbound.state(TopicScheme.discoveryConfig(prefix, record.objectId()), config).asRefresh());
+        record.setDiscoveryHash(hash(config));
+        registry.markDirty();
+    }
+
+    // Watches the device's own config topic for Home Assistant's clear, from now on for WATCH_MILLIS.
+    private void watch(DeviceRecord record, Cleanup cleanup, long now) {
+        cleanup.watchUntil = now + WATCH_MILLIS;
+        if (cleanup.watch != null) return;
+        UUID id = record.id();
+        cleanup.watch = mqtt.subscribe(TopicScheme.discoveryConfig(prefix, record.objectId()), OWN_CONFIG, message -> configCleared(id, message));
+    }
+
+    /**
+     * A message on a watched device's own config topic. An empty one from another client while the device is discovered
+     * is Home Assistant's clear after it removed components (or someone deleting the device in Home Assistant): the
+     * device's message goes out again after {@value #RESTORE_DELAY_MILLIS} ms, and Home Assistant has seen the removal,
+     * so a mark is done. Own clears (hidden, removed, cleared) come through the loopback after the hash is gone; own
+     * messages are not empty.
+     */
+    private void configCleared(UUID id, Inbound message) {
+        if (stopped || message.payload().length != 0 || message.retained()) return;
+        Cleanup cleanup = cleanups.get(id);
+        DeviceRecord record = registry.record(id);
+        if (cleanup == null || cleanup.watch == null || record == null || record.discoveryHash() == null || !cleanable(record)) return;
+        // A step still to come publishes the device anyway.
+        if (cleanup.step == Step.DISCOVER || cleanup.step == Step.REMOVE) return;
+        if (record.discoveryCleanup()) {
+            record.setDiscoveryCleanup(false);
+            registry.markDirty();
+        }
+        cleanup.step = Step.STEADY;
+        cleanup.due = clock.getAsLong() + RESTORE_DELAY_MILLIS;
+    }
+
+    // Due steps join the queue; finished watches close; a cleanup with neither is done.
+    private void tickCleanups() {
+        long now = clock.getAsLong();
+        for (Iterator<Map.Entry<UUID, Cleanup>> running = cleanups.entrySet().iterator(); running.hasNext(); ) {
+            Map.Entry<UUID, Cleanup> entry = running.next();
+            Cleanup cleanup = entry.getValue();
+            if (cleanup.step != null && now >= cleanup.due) enqueue(Target.device(entry.getKey()), true);
+            if (cleanup.step == null && cleanup.watch != null && now >= cleanup.watchUntil) {
+                cleanup.watch.close();
+                cleanup.watch = null;
+            }
+            if (cleanup.step == null && cleanup.watch == null) running.remove();
+        }
+    }
+
+    private void endCleanup(UUID id) {
+        Cleanup cleanup = cleanups.remove(id);
+        if (cleanup != null && cleanup.watch != null) cleanup.watch.close();
+    }
+
+    private void endCleanups() {
+        List.copyOf(cleanups.keySet()).forEach(this::endCleanup);
     }
 
     private boolean processBridge(boolean force) {

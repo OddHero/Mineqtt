@@ -5,6 +5,8 @@ import art.rehra.mineqtt.mqtt.core.TopicAcl;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
 import art.rehra.mineqtt.security.AccessMode;
 import art.rehra.mineqtt.security.AclContext;
+import art.rehra.mineqtt.twin.BindingCodecs;
+import art.rehra.mineqtt.twin.core.Binding;
 import com.google.gson.JsonObject;
 import com.mojang.serialization.Codec;
 import net.minecraft.core.BlockPos;
@@ -29,7 +31,8 @@ import java.util.function.Function;
 /**
  * A device block entity's identity and lifecycle, by composition (design §6.5). It holds the device's copy of its
  * identity (id, name, slug; the registry is authoritative for name and slug), its owner and access mode, its Home
- * Assistant exposure and its Raw Link, all saved in the {@code mineqtt} compound, and what the block keeps beside them:
+ * Assistant exposure, its Raw Link and its twin binding ({@link #TWIN_KEY}, only on a type with a twin adapter), all saved
+ * in the {@code mineqtt} compound, and what the block keeps beside them:
  * whether its Raw Link's channel resolves into the owner's private subtree, the items its old configuration slots held
  * ({@link #legacyItems()}, M2-12) and the tab its screen last showed.
  * <p>
@@ -54,6 +57,8 @@ public final class DeviceLink {
     /** v1 data, which had no compound. */
     public static final int VERSION_V1 = 1;
     public static final String LEGACY_ITEMS = "legacyItems";
+    /** The key of the twin binding in the compound (M3 plan D14); absent for a device without one, the version stays 3. */
+    public static final String TWIN_KEY = "twin";
 
     /** What removing a block entity means for its device. */
     public enum Removal {
@@ -72,6 +77,7 @@ public final class DeviceLink {
     private AccessMode access = AccessMode.DEFAULT;
     private @Nullable Boolean expose;
     private @Nullable RawLink raw;
+    private @Nullable Binding twin;
     private boolean privateMode;
     private List<ItemStackWithSlot> legacyItems = List.of();
     private String lastTab = "";
@@ -141,6 +147,8 @@ public final class DeviceLink {
         access = data.read("access", AccessMode.CODEC).orElse(AccessMode.DEFAULT);
         expose = data.read("expose", Codec.BOOL).orElse(null);
         raw = data.read("raw", RawLink.CODEC).orElse(null);
+        // Only a type with a twin adapter keeps a binding; one that breaks the binding rules reads as none.
+        twin = type.twin().isPresent() ? data.read(TWIN_KEY, BindingCodecs.CODEC).orElse(null) : null;
         if (loadedVersion <= VERSION_M1) {
             privateMode = input.getBooleanOr(LegacyNbtV1.PRIVATE_MODE, false);
             legacyItems = LegacyNbtV1.items(input);
@@ -170,6 +178,8 @@ public final class DeviceLink {
         data.store("access", AccessMode.CODEC, access);
         data.storeNullable("expose", Codec.BOOL, expose);
         data.storeNullable("raw", RawLink.CODEC, raw);
+        // An unbound device writes no key, so its data stays as an M2 device's.
+        data.storeNullable(TWIN_KEY, BindingCodecs.CODEC, twin);
         if (privateMode) data.putBoolean("private", true);
         if (!legacyItems.isEmpty()) {
             ValueOutput.TypedOutputList<ItemStackWithSlot> items = data.list(LEGACY_ITEMS, ItemStackWithSlot.CODEC);
@@ -205,9 +215,11 @@ public final class DeviceLink {
         ServerPlayer player = placer instanceof ServerPlayer serverPlayer ? serverPlayer : null;
         TopicAcl.Subject subject = player == null ? AclContext.NOBODY : AclContext.of(player);
         Optional<TopicAcl> acl = MineqttRuntime.current().filter(running -> running.server() == level.getServer()).map(MineqttRuntime::acl);
+        TwinRules.Rights rights = player == null ? TwinRules.Rights.NONE : TwinRules.Rights.of(player.permissions(), level.getServer().isDedicatedServer())
+                .withTopics(acl.map(rules -> TwinRules.Topics.of(rules, subject)).orElse(TwinRules.Topics.NONE));
         sanitizePlaced(player == null ? null : player.getUUID(), player == null ? "" : player.getGameProfile().name(), link -> acl
                 .map(rules -> DeviceRuntime.refusal(rules.checkPublish(subject, link.topic(), null)))
-                .orElse(Optional.of("MineQTT is not running")));
+                .orElse(Optional.of("MineQTT is not running")), rights);
         blockEntity.setChanged();
     }
 
@@ -275,14 +287,17 @@ public final class DeviceLink {
      * The untrusted-data rule of a placement: no copied id (a fresh one is minted), no legacy items, the placer owns it,
      * access follows the claim, the exposure follows the policy default, grandfathering is dropped and the Raw Link is
      * checked for the placer. A link with a channel is resolved for the placer again at the attach, which replaces this check.
+     * A twin binding is judged for the placer (M3 plan D13 #6): refused when they may not bind its entities, without
+     * control unless they may turn it on; the attach judges it again for its owner, so a refusal heals there.
      * <p>
      * The fresh id is minted here, not at the attach: data saved before the attach must not read as v1 data when it
      * loads again, which the Redstone Input tells by a missing id (its v1 data has no keys of its own), so a reload in
      * between is an unseen id that the attach checks again.
      *
-     * @param check the refusal for a Raw Link topic, empty when allowed
+     * @param check  the refusal for a Raw Link topic, empty when allowed
+     * @param rights what the placer may bind ({@link TwinRules.Rights#NONE} without a player)
      */
-    void sanitizePlaced(@Nullable UUID placer, String placerName, Function<RawLink, Optional<String>> check) {
+    void sanitizePlaced(@Nullable UUID placer, String placerName, Function<RawLink, Optional<String>> check, TwinRules.Rights rights) {
         // v1 data from an item is adopted now, as a placement: no grandfather flag, no v1 echo (§8.6).
         if (pendingV1 != null) adopt(takePendingV1(), false);
         id = UUID.randomUUID();
@@ -296,7 +311,13 @@ public final class DeviceLink {
         expose = null;
         if (raw != null) raw = raw.withoutGrandfather();
         revalidateRaw(check);
+        if (twin != null) twin = TwinRules.placed(type.twin().orElseThrow(), twin, rights);
         placedByPlayer = true;
+    }
+
+    /** {@link #sanitizePlaced(UUID, String, Function, TwinRules.Rights)} by a placer who may bind nothing. */
+    void sanitizePlaced(@Nullable UUID placer, String placerName, Function<RawLink, Optional<String>> check) {
+        sanitizePlaced(placer, placerName, check, TwinRules.Rights.NONE);
     }
 
     /**
@@ -461,6 +482,22 @@ public final class DeviceLink {
     /** A Raw Link a trusted path set (the GUI after its ACL check, or the v1 migrator); null removes it. */
     public void setRaw(@Nullable RawLink raw) {
         this.raw = raw;
+    }
+
+    /** The device's twin binding (M3 plan §3.1); null when it is bound to nothing. */
+    public @Nullable Binding twin() {
+        return twin;
+    }
+
+    /**
+     * A binding a trusted path set: an edit after its twin gate ({@link TwinRules#edit}), or a judgement for the owner
+     * ({@link TwinRules#recheck}); null unbinds the device.
+     *
+     * @throws IllegalStateException for a type without a twin adapter
+     */
+    void setTwin(@Nullable Binding twin) {
+        if (twin != null && type.twin().isEmpty()) throw new IllegalStateException(type.id() + " devices take no twin binding");
+        this.twin = twin;
     }
 
     /**

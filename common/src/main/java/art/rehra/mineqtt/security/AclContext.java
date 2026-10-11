@@ -1,7 +1,9 @@
 package art.rehra.mineqtt.security;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.mqtt.core.TopicAcl;
+import art.rehra.mineqtt.twin.core.EntityGlobs;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.resources.Identifier;
@@ -13,6 +15,7 @@ import net.minecraft.server.permissions.Permissions;
 import net.minecraft.server.players.NameAndId;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -26,6 +29,13 @@ public final class AclContext {
     public static final Permission ADMIN = Permission.Atom.create(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "admin"));
     /** The {@code mineqtt.ha.expose} permission of the design: {@code mineqtt:ha.expose} as a vanilla permission atom. */
     public static final Permission HA_EXPOSE = Permission.Atom.create(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "ha.expose"));
+    /**
+     * The {@code mineqtt.twin.bind} permission (M3 plan D13): bind a device to a Home Assistant entity, or change its
+     * source or targets. Holders have it on dedicated servers; on integrated servers everyone does.
+     */
+    public static final Permission TWIN_BIND = Permission.Atom.create(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "twin.bind"));
+    /** The {@code mineqtt.twin.control} permission (M3 plan D13): turn control on, so using a bound device switches Home Assistant. */
+    public static final Permission TWIN_CONTROL = Permission.Atom.create(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "twin.control"));
     /** A device without a known owner: no private subtree, no operator bypass. */
     public static final TopicAcl.Subject NOBODY = new TopicAcl.Subject(null, false, false);
 
@@ -73,6 +83,66 @@ public final class AclContext {
      */
     public static boolean mayExpose(PermissionSet permissions) {
         return isOp(permissions) || permissions.hasPermission(HA_EXPOSE);
+    }
+
+    /** Whether these permissions may bind devices to Home Assistant on this server type ({@link #TWIN_BIND}). */
+    public static boolean mayBindTwin(PermissionSet permissions, boolean dedicatedServer) {
+        return twinPermitted(dedicatedServer, isOp(permissions), permissions.hasPermission(TWIN_BIND));
+    }
+
+    /** Whether these permissions may turn on Home Assistant control of a bound device ({@link #TWIN_CONTROL}). */
+    public static boolean mayControlTwin(PermissionSet permissions, boolean dedicatedServer) {
+        return twinPermitted(dedicatedServer, isOp(permissions), permissions.hasPermission(TWIN_CONTROL));
+    }
+
+    /**
+     * {@link #mayBindTwin} for a device's owner, who may be offline: a re-check at attach or after a config reload
+     * judges the owner by the server's op list. A device without a known owner has the rights of a player without any.
+     */
+    public static boolean mayBindTwin(MinecraftServer server, @Nullable UUID owner, String ownerName) {
+        PermissionSet permissions = owner == null ? PermissionSet.NO_PERMISSIONS : server.getProfilePermissions(new NameAndId(owner, ownerName));
+        return mayBindTwin(permissions, server.isDedicatedServer());
+    }
+
+    /** {@link #mayControlTwin} for a device's owner, who may be offline, as {@link #mayBindTwin(MinecraftServer, UUID, String)}. */
+    public static boolean mayControlTwin(MinecraftServer server, @Nullable UUID owner, String ownerName) {
+        PermissionSet permissions = owner == null ? PermissionSet.NO_PERMISSIONS : server.getProfilePermissions(new NameAndId(owner, ownerName));
+        return mayControlTwin(permissions, server.isDedicatedServer());
+    }
+
+    /**
+     * The AUTO rule of both twin permissions (M3 plan D13): everyone on integrated servers (the host owns the house
+     * and the broker); operators (level 2) and holders of the permission on dedicated servers.
+     */
+    public static boolean twinPermitted(boolean dedicatedServer, boolean op, boolean granted) {
+        return !dedicatedServer || op || granted;
+    }
+
+    /**
+     * Why binding a device to {@code entityId} is refused, or empty when it may be bound (M3 plan D13): the binder needs
+     * {@link #TWIN_BIND}, and the entity must match {@code twin.allowedEntities}. The second rule has no subject on
+     * purpose: operators and the console do not bypass it, so an empty list (the dedicated default) keeps the twin off
+     * for everyone.
+     *
+     * @param mayBind {@link #mayBindTwin} of the binder
+     * @param allowed {@code MineQTTConfig.twinAllowedEntities(dedicated)}
+     */
+    public static Optional<String> twinBindRefusal(boolean mayBind, EntityGlobs allowed, String entityId) {
+        if (!mayBind) return Optional.of("binding to Home Assistant needs the mineqtt:twin.bind permission");
+        if (allowed.isEmpty()) return Optional.of("the Home Assistant twin is off on this server: set twin.allowedEntities");
+        if (!allowed.matches(entityId)) return Optional.of(entityId + " is not in twin.allowedEntities");
+        return Optional.empty();
+    }
+
+    /**
+     * {@link #twinBindRefusal(boolean, EntityGlobs, String)} under the loaded config: the twin may also be off for want
+     * of a statestream base ({@link MineQTTConfig#twinOffReason}).
+     */
+    public static Optional<String> twinBindRefusal(PermissionSet permissions, boolean dedicatedServer, String entityId) {
+        boolean mayBind = mayBindTwin(permissions, dedicatedServer);
+        Optional<String> off = MineQTTConfig.twinOffReason(dedicatedServer);
+        if (mayBind && off.isPresent()) return Optional.of("the Home Assistant twin is off on this server: " + off.get());
+        return twinBindRefusal(mayBind, MineQTTConfig.twinAllowedEntities(dedicatedServer), entityId);
     }
 
     /**

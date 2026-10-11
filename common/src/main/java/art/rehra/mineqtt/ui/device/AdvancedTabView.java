@@ -223,8 +223,11 @@ public class AdvancedTabView implements MqttTabView {
         for (int row = 0; row < removeButtons.size(); row++) {
             Button button = removeButtons.get(row);
             button.visible = page == Page.LINKS && linkScroll + row < rows.size();
-            button.active = configure;
-            button.setTooltip(Tooltip.create(Component.translatable(configure ? "mineqtt.device.links.remove.tooltip" : "mineqtt.device.general.read_only")));
+            // A wire derived from the binding goes by unbinding, never from here (M3 plan §3.3).
+            boolean twin = button.visible && rows.get(linkScroll + row).twin();
+            button.active = configure && !twin;
+            button.setTooltip(Tooltip.create(Component.translatable(twin ? "mineqtt.device.links.twin.tooltip"
+                    : configure ? "mineqtt.device.links.remove.tooltip" : "mineqtt.device.general.read_only")));
         }
     }
 
@@ -232,7 +235,7 @@ public class AdvancedTabView implements MqttTabView {
     private void remove(int row) {
         List<DeviceLinks.Row> rows = linkRows();
         DeviceView view = synced;
-        if (view == null || !view.grants().configure() || linkScroll + row >= rows.size()) return;
+        if (view == null || !view.grants().configure() || linkScroll + row >= rows.size() || rows.get(linkScroll + row).twin()) return;
         menu().forgetRefusal();
         NetworkManager.sendToServer(new DeviceUnlinkPayload(view.pos(), rows.get(linkScroll + row).wire()));
     }
@@ -486,7 +489,8 @@ public class AdvancedTabView implements MqttTabView {
         for (int row = 0; row < LINK_ROWS && linkScroll + row < rows.size(); row++) {
             DeviceLinks.Row link = rows.get(linkScroll + row);
             int rowY = listY + row * LINK_ROW_PITCH;
-            Component text = Component.translatable(link.outgoing() ? "mineqtt.device.links.out" : "mineqtt.device.links.in", link.port(), link.peer());
+            Component text = Component.translatable(link.twin() ? (link.outgoing() ? "mineqtt.device.links.twin.out" : "mineqtt.device.links.twin")
+                    : link.outgoing() ? "mineqtt.device.links.out" : "mineqtt.device.links.in", link.port(), link.peer());
             GuiText.drawTruncated(g, text, left, rowY + 3, textW, link.enabled() ? VALUE_COLOR : MUTED_COLOR);
             if (mouseX >= left && mouseX < left + textW && mouseY >= rowY && mouseY < rowY + ROW_H) {
                 g.setTooltipForNextFrame(font, font.split(linkTooltip(view, link), TOOLTIP_W), mouseX, mouseY);
@@ -505,6 +509,7 @@ public class AdvancedTabView implements MqttTabView {
     // A link on hover: both ends with their devices, the mapping, and the group it reaches through.
     private static Component linkTooltip(DeviceView view, DeviceLinks.Row link) {
         String own = view.name() + "." + link.port();
+        if (link.twin()) return Component.translatable("mineqtt.device.links.twin.row.tooltip", link.outgoing() ? own : link.peer(), link.outgoing() ? link.peer() : own);
         Component text = Component.translatable("mineqtt.device.links.row.tooltip", link.outgoing() ? own : link.peer(), link.outgoing() ? link.peer() : own,
                 ConfiguratorLink.mappingName(link.mapping()));
         if (!link.group().isEmpty()) {

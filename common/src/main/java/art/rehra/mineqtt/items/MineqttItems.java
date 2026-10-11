@@ -38,6 +38,7 @@ public class MineqttItems {
     public static RegistrySupplier<Item> DynamicPublisherBlock;
     public static RegistrySupplier<Item> TopicRelayBlock;
     public static RegistrySupplier<Item> SmartPlugBlock;
+    public static RegistrySupplier<Item> DisplayPanel;
     public static RegistrySupplier<Item> NetworkChip;
     public static void init(){
         MineQTT.LOGGER.info("Registering MineQTT Items");
@@ -70,6 +71,7 @@ public class MineqttItems {
         DynamicPublisherBlock = registerItem("dynamic_publisher", () -> new BlockItem(MineqttBlocks.DYNAMIC_PUBLISHER_BLOCK.get(), retiredProperties("dynamic_publisher")));
         TopicRelayBlock = registerItem("topic_relay", () -> new BlockItem(MineqttBlocks.TOPIC_RELAY_BLOCK.get(), retiredProperties("topic_relay")));
         SmartPlugBlock = registerItem("smart_plug", () -> new DeviceBlockItem(MineqttBlocks.SMART_PLUG_BLOCK.get(), baseProperties("smart_plug")));
+        DisplayPanel = registerItem("display_panel", () -> new DeviceBlockItem(MineqttBlocks.DISPLAY_PANEL.get(), baseProperties("display_panel")));
         // The one crafting gate of the whole line (M2 plan D8).
         NetworkChip = registerItem("network_chip", () -> new Item(baseProperties("network_chip")));
         ITEMS.register();

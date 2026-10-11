@@ -8,18 +8,21 @@ import com.google.gson.JsonPrimitive;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * The flows message bus (M2 plan §3.3, §3.5) and the coercion table (§3.1), Minecraft-free: FIFO order, a zero-delay
  * cycle cut at the hop TTL, diamond fan-in, the drain budget per wire and its carry-over (also halfway through a message),
  * the queue cap, the rate cap (events dropped, the last value held back), the change filter for values (never events,
- * and never for a value the target did not take), no delivery back to the source port, wire mappings, routing drops and
- * payload caps.
+ * and never for a value the target did not take), no delivery back to the source port, wire mappings, routing drops,
+ * payload caps and root provenance (M3 plan D10: ambient outside a delivery, inherited inside one, kept through holds
+ * and carry-over, never cleared by a nested extent, refusals counted).
  */
 public final class MessageBusCheck {
     private static final UUID OWNER = new UUID(0, 1);
@@ -41,6 +44,8 @@ public final class MessageBusCheck {
         mappings();
         routingDrops();
         payloadCaps();
+        roots();
+        twinWires();
         records();
         coercion();
         System.out.println("Message bus checks passed.");
@@ -452,6 +457,247 @@ public final class MessageBusCheck {
         check(h.payloads().equals(List.of("{\"a\":[1,2]}")), "The bus keeps its own copy of a payload: " + h.payloads());
     }
 
+    // M3 plan D10: every message carries the root of its chain, through hops, holds and carry-over.
+    /**
+     * M3-8: a {@link Scope#TWIN} wire, derived from a binding (M3 plan §3.3), carries its entity's document as it is,
+     * whatever the kinds of its ends (a switch's bool state into a lamp's light: no mapping could carry that), with the
+     * root it was emitted in, through the change filter, hop by hop like any wire. What the target emits keeps the root
+     * TWIN. A document that is no object and an end that names no port are dropped.
+     */
+    private static void twinWires() {
+        Harness h = new Harness();
+        Endpoint.HaEntityRef entity = new Endpoint.HaEntityRef("switch.porch", "state");
+        Endpoint lamp = h.node("lamp", "light");
+        Endpoint lampOut = h.node("lamp", "light_out");
+        Wire twin = new Wire(UUID.nameUUIDFromBytes("twin".getBytes()), entity, lamp, Mapping.FOLLOW, Scope.TWIN, OWNER, true);
+        h.wires.computeIfAbsent(entity, key -> new ArrayList<>()).add(twin);
+        h.outs.put(entity, BOOL);
+        h.ins.put(lamp, spec(PortType.LIGHT, false));
+        h.wire(lampOut, h.node("door", "in"), Mapping.FOLLOW, spec(PortType.LIGHT, false), spec(PortType.LIGHT, false));
+        h.react(lamp, lampOut);
+        JsonElement on = json("{\"state\":\"on\",\"attributes\":{},\"last_changed\":null,\"last_updated\":\"2026-10-11T00:00:00+00:00\"}");
+        h.bus.withRoot(Root.TWIN, () -> h.bus.emit(FlowMessage.Kind.VALUE, entity, "switch.porch", on, 0));
+        h.bus.drain();
+        check(h.targets().equals(List.of("lamp.light", "door.in")) && h.payloads().getFirst().equals(on.toString()),
+                "A twin wire delivers the document as it is, across kinds no mapping joins: " + h.targets() + " " + h.payloads());
+        check(h.roots().equals(List.of(Root.TWIN, Root.TWIN)) && h.deliveries.get(1).message().hops() == 2,
+                "Its delivery and what the target emits carry TWIN, hop by hop: " + h.roots());
+        h.deliveries.clear();
+        long suppressed = h.bus.suppressed();
+        h.bus.withRoot(Root.TWIN, () -> h.bus.emit(FlowMessage.Kind.VALUE, entity, "switch.porch", on, 0));
+        h.bus.drain();
+        check(h.deliveries.isEmpty() && h.bus.suppressed() == suppressed + 1, "The same document again passes the change filter as unchanged");
+        h.bus.withRoot(Root.TWIN, () -> h.bus.emit(FlowMessage.Kind.VALUE, entity, "switch.porch", new JsonPrimitive("on"), 0));
+        long value = h.bus.dropped(MessageBus.Drop.VALUE);
+        h.bus.drain();
+        check(h.bus.dropped(MessageBus.Drop.VALUE) == value + 1 && h.deliveries.isEmpty(), "A document that is no object is dropped as VALUE");
+        h.ins.remove(lamp);
+        long unroutable = h.bus.dropped(MessageBus.Drop.UNROUTABLE);
+        h.bus.withRoot(Root.TWIN, () -> h.bus.emit(FlowMessage.Kind.VALUE, entity, "switch.porch", json("{\"state\":\"off\"}"), 0));
+        h.bus.drain();
+        check(h.bus.dropped(MessageBus.Drop.UNROUTABLE) == unroutable + 1 && h.deliveries.isEmpty(), "A twin wire to a port that is gone is unroutable");
+
+        // M3-14: a target wire from a device's out-port to an entity's in-port carries the out-port's value as it is (a
+        // bool edge, an event), checked against the out-port's kind; the sink translates it.
+        Endpoint powered = h.node("input", "powered");
+        Endpoint.HaEntityRef scene = new Endpoint.HaEntityRef("scene.movie", "activate");
+        Wire target = new Wire(UUID.nameUUIDFromBytes("target".getBytes()), powered, scene, Mapping.FOLLOW, Scope.TWIN, OWNER, true);
+        h.wires.computeIfAbsent(powered, key -> new ArrayList<>()).add(target);
+        h.outs.put(powered, BOOL);
+        h.ins.put(scene, spec(PortType.event("activate"), false));
+        h.deliveries.clear();
+        h.emit(FlowMessage.Kind.VALUE, powered, new JsonPrimitive(true));
+        h.bus.drain();
+        check(h.payloads().equals(List.of("true")) && h.roots().equals(List.of(Root.WORLD)), "A target wire delivers the edge as it is: " + h.payloads());
+        value = h.bus.dropped(MessageBus.Drop.VALUE);
+        h.emit(FlowMessage.Kind.VALUE, powered, new JsonPrimitive("TRUE?"));
+        h.bus.drain();
+        check(h.bus.dropped(MessageBus.Drop.VALUE) == value + 1 && h.payloads().size() == 1, "A value that does not fit the out-port is dropped as VALUE");
+        h.emit(FlowMessage.Kind.VALUE, powered, new JsonPrimitive(true));
+        h.bus.drain();
+        check(h.payloads().size() == 1, "The same edge again passes the change filter as unchanged");
+
+        // M3-17: a preset's state topic is the source of a twin wire too; it carries a payload's fingerprint as an object,
+        // keeps the TWIN root, filters an unchanged fingerprint and drops anything that is no object.
+        Endpoint.TopicRef topic = new Endpoint.TopicRef("zigbee2mqtt/m3bulb", "");
+        Endpoint plug = h.node("plug", "power");
+        Wire fromTopic = new Wire(UUID.nameUUIDFromBytes("topic".getBytes()), topic, plug, Mapping.FOLLOW, Scope.TWIN, OWNER, true);
+        h.wires.computeIfAbsent(topic, key -> new ArrayList<>()).add(fromTopic);
+        h.outs.put(topic, spec(PortType.text(255), false));
+        h.ins.put(plug, spec(PortType.LEVEL, false));
+        h.deliveries.clear();
+        JsonElement fingerprint = json("{\"payload\":\"3f9c\"}");
+        h.bus.withRoot(Root.TWIN, () -> h.bus.emit(FlowMessage.Kind.VALUE, topic, "zigbee2mqtt/m3bulb", fingerprint, 0));
+        h.bus.drain();
+        check(h.targets().equals(List.of("plug.power")) && h.roots().equals(List.of(Root.TWIN)) && h.payloads().getFirst().equals(fingerprint.toString()),
+                "A preset topic's twin wire delivers its object in TWIN, across kinds: " + h.targets() + " " + h.roots());
+        h.bus.withRoot(Root.TWIN, () -> h.bus.emit(FlowMessage.Kind.VALUE, topic, "zigbee2mqtt/m3bulb", fingerprint, 0));
+        h.bus.drain();
+        check(h.deliveries.size() == 1, "The same fingerprint again passes the change filter as unchanged");
+        value = h.bus.dropped(MessageBus.Drop.VALUE);
+        h.bus.withRoot(Root.TWIN, () -> h.bus.emit(FlowMessage.Kind.VALUE, topic, "zigbee2mqtt/m3bulb", new JsonPrimitive("ON"), 0));
+        h.bus.drain();
+        check(h.bus.dropped(MessageBus.Drop.VALUE) == value + 1 && h.deliveries.size() == 1, "A preset topic's payload that is no object is dropped as VALUE");
+    }
+
+    private static void roots() {
+        // Outside a delivery a message takes the extent's root, or WORLD when none is open.
+        Harness h = new Harness();
+        Endpoint input = h.node("input", "powered");
+        h.wire(input, h.node("lamp", "state"), Mapping.FOLLOW, BOOL, SWITCH);
+        check(h.bus.currentRoot().isEmpty(), "No root is current outside an extent");
+        h.emit(FlowMessage.Kind.VALUE, input, new JsonPrimitive(true));
+        h.bus.drain();
+        check(h.roots().equals(List.of(Root.WORLD)), "A block ticker's or neighbour update's message is WORLD: " + h.roots());
+        for (Root root : Root.values()) {
+            h.deliveries.clear();
+            boolean value = root.ordinal() % 2 == 1;
+            long emittedBefore = h.bus.emitted();
+            long rootBefore = h.bus.emitted(root);
+            h.bus.withRoot(root, () -> {
+                check(h.bus.currentRoot().equals(Optional.of(root)), "The extent's root is current: " + root);
+                h.emit(FlowMessage.Kind.VALUE, input, new JsonPrimitive(value));
+            });
+            check(h.bus.emitted() == emittedBefore + 1 && h.bus.emitted(root) == rootBefore + 1, "The message counts for " + root);
+            check(h.bus.currentRoot().isEmpty(), "None is current after the extent of " + root);
+            h.bus.drain();
+            check(h.roots().equals(List.of(root)), "A message emitted in an extent of " + root + " carries it: " + h.roots());
+        }
+        check(h.bus.withRoot(Root.PLAYER, () -> h.bus.currentRoot().orElseThrow()) == Root.PLAYER, "An extent may return a value");
+        try {
+            h.bus.withRoot(Root.HA, () -> {
+                throw new IllegalStateException("A command threw");
+            });
+            throw new AssertionError("The extent swallowed the exception");
+        } catch (IllegalStateException expected) {
+            check(h.bus.currentRoot().isEmpty(), "A throwing extent restores the root before it");
+        }
+
+        // Nested extents: the inner root, unless the outer came from outside the game; another outside root replaces it.
+        check(nestedRoot(h, Root.WORLD, Root.PLAYER) == Root.PLAYER && nestedRoot(h, Root.PLAYER, Root.WORLD) == Root.WORLD
+                && nestedRoot(h, Root.PLAYER, Root.TWIN) == Root.TWIN && nestedRoot(h, Root.WORLD, Root.STARTUP) == Root.STARTUP,
+                "Inside an in-game extent the inner root is current");
+        for (Root outer : List.of(Root.TWIN, Root.HA, Root.RAW, Root.STARTUP)) {
+            check(nestedRoot(h, outer, Root.PLAYER) == outer && nestedRoot(h, outer, Root.WORLD) == outer,
+                    "A nested in-game extent never clears " + outer);
+        }
+        check(nestedRoot(h, Root.TWIN, Root.HA) == Root.HA && nestedRoot(h, Root.STARTUP, Root.TWIN) == Root.TWIN, "An outside root replaces another");
+        check(Root.nested(null, Root.RAW) == Root.RAW && Root.PLAYER.inGame() && Root.WORLD.inGame()
+                && !Root.RAW.inGame() && !Root.HA.inGame() && !Root.TWIN.inGame() && !Root.STARTUP.inGame(), "Only players and the world are in game");
+
+        // Inside a delivery a target's emission inherits the delivered message's root, whatever extent the drain runs
+        // in; an extent the target opens nests in it, so it cannot clear an outside root either.
+        Harness chain = new Harness();
+        Endpoint start = chain.node("start", "out");
+        Endpoint relayIn = chain.node("relay", "in");
+        Endpoint relayOut = chain.node("relay", "out");
+        Endpoint end = chain.node("end", "in");
+        chain.wire(start, relayIn, Mapping.FOLLOW, LEVEL, LEVEL);
+        chain.wire(relayOut, end, Mapping.FOLLOW, LEVEL, LEVEL);
+        chain.react(relayIn, relayOut);
+        chain.bus.withRoot(Root.TWIN, () -> {
+            chain.emit(FlowMessage.Kind.VALUE, start, new JsonPrimitive(3));
+        });
+        chain.bus.withRoot(Root.PLAYER, () -> {
+            chain.bus.drain();
+        });
+        check(chain.roots().equals(List.of(Root.TWIN, Root.TWIN)) && chain.deliveries.getLast().message().hops() == 2,
+                "A relay's message inherits TWIN, not the drain's PLAYER, with its hops: " + chain.roots());
+        check(chain.bus.currentRoot().isEmpty(), "No root is current after the drain");
+        chain.deliveries.clear();
+        chain.reactRoots.put(relayIn, Root.PLAYER);
+        chain.bus.withRoot(Root.HA, () -> {
+            chain.emit(FlowMessage.Kind.VALUE, start, new JsonPrimitive(4));
+        });
+        chain.bus.drain();
+        check(chain.roots().equals(List.of(Root.HA, Root.HA)), "A PLAYER extent inside an HA delivery stays HA: " + chain.roots());
+        chain.deliveries.clear();
+        chain.reactRoots.put(relayIn, Root.TWIN);
+        chain.emit(FlowMessage.Kind.VALUE, start, new JsonPrimitive(5));
+        chain.bus.drain();
+        check(chain.roots().equals(List.of(Root.WORLD, Root.TWIN)), "A TWIN extent inside a WORLD delivery is TWIN: " + chain.roots());
+
+        // A value held back by the rate keeps the root it was emitted with, and a newer one replaces it with its own.
+        Harness held = new Harness();
+        Endpoint dial = held.node("dial", "level");
+        held.wire(dial, held.node("lamp", "brightness"), Mapping.FOLLOW, LEVEL, LEVEL);
+        for (int i = 0; i < MessageBus.RATE_BURST; i++) held.emit(FlowMessage.Kind.VALUE, dial, new JsonPrimitive(i % 2 + 1));
+        held.bus.withRoot(Root.RAW, () -> {
+            check(held.emit(FlowMessage.Kind.VALUE, dial, new JsonPrimitive(9)), "Held back");
+        });
+        held.bus.drain();
+        held.deliveries.clear();
+        held.clock.now += 1_000_000_000L / MessageBus.RATE_PER_SECOND;
+        held.bus.withRoot(Root.PLAYER, () -> {
+            held.bus.drain();
+        });
+        check(held.payloads().equals(List.of("9")) && held.roots().equals(List.of(Root.RAW)), "Released later, it is still RAW: " + held.roots());
+        held.deliveries.clear();
+        held.bus.withRoot(Root.HA, () -> {
+            held.emit(FlowMessage.Kind.VALUE, dial, new JsonPrimitive(10));
+        });
+        held.emit(FlowMessage.Kind.VALUE, dial, new JsonPrimitive(11));
+        held.clock.now += 1_000_000_000L / MessageBus.RATE_PER_SECOND;
+        held.bus.drain();
+        check(held.payloads().equals(List.of("11")) && held.roots().equals(List.of(Root.WORLD)), "The newest value replaces it with its root: " + held.roots());
+
+        // A message a drain leaves halfway keeps its root for the rest of its wires.
+        Harness fan = new Harness();
+        Endpoint hub = fan.node("hub", "out");
+        int wires = MessageBus.DRAIN_WIRES + 5;
+        for (int i = 0; i < wires; i++) fan.wire(hub, fan.node("t" + i, "in"), Mapping.FOLLOW, LEVEL, LEVEL);
+        fan.bus.withRoot(Root.STARTUP, () -> {
+            fan.emit(FlowMessage.Kind.VALUE, hub, new JsonPrimitive(2));
+        });
+        check(fan.bus.drain() == MessageBus.DRAIN_WIRES && fan.bus.queued() == 1, "Left halfway");
+        check(fan.bus.drain() == 5 && fan.deliveries.size() == wires && fan.roots().stream().allMatch(root -> root == Root.STARTUP),
+                "Its other wires carry STARTUP too");
+
+        // A root changes nothing about the hop TTL.
+        Harness cycle = new Harness();
+        Endpoint aOut = cycle.node("a", "pressed");
+        Endpoint aIn = cycle.node("a", "trigger");
+        Endpoint bOut = cycle.node("b", "pressed");
+        Endpoint bIn = cycle.node("b", "trigger");
+        cycle.wire(aOut, bIn, Mapping.FOLLOW, EVENT, EVENT);
+        cycle.wire(bOut, aIn, Mapping.FOLLOW, EVENT, EVENT);
+        cycle.react(aIn, aOut);
+        cycle.react(bIn, bOut);
+        cycle.bus.withRoot(Root.TWIN, () -> {
+            cycle.emit(FlowMessage.Kind.EVENT, aOut, PRESS);
+        });
+        check(cycle.bus.drain() == MessageBus.HOP_TTL + 1 && cycle.deliveries.size() == MessageBus.HOP_TTL && cycle.bus.dropped(MessageBus.Drop.HOPS) == 1,
+                "A TWIN cycle is cut at the same hop");
+        check(cycle.roots().stream().allMatch(root -> root == Root.TWIN), "Every hop of it is TWIN");
+
+        // A target that refuses a message for its root counts it as ROOT, not as refused, and remembers no value.
+        Harness gate = new Harness();
+        Endpoint powered = gate.node("input", "powered");
+        Endpoint mirrored = gate.node("mirror", "state");
+        gate.wire(powered, mirrored, Mapping.FOLLOW, BOOL, SWITCH);
+        gate.rootRefusing.addAll(EnumSet.of(Root.RAW, Root.HA, Root.TWIN, Root.STARTUP));
+        gate.bus.withRoot(Root.TWIN, () -> {
+            gate.emit(FlowMessage.Kind.VALUE, powered, new JsonPrimitive(true));
+        });
+        gate.bus.drain();
+        check(gate.bus.dropped(MessageBus.Drop.ROOT) == 1 && gate.bus.dropped(MessageBus.Drop.REFUSED) == 0 && gate.bus.delivered() == 0,
+                "Refused for its root and counted as such");
+        gate.emit(FlowMessage.Kind.VALUE, powered, new JsonPrimitive(true));
+        gate.bus.drain();
+        check(gate.bus.delivered() == 1 && gate.bus.suppressed() == 0 && gate.roots().getLast() == Root.WORLD,
+                "The same value from the world passes, as the refused one was not remembered");
+        gate.bus.withRoot(Root.STARTUP, () -> {
+            gate.emit(FlowMessage.Kind.VALUE, powered, new JsonPrimitive(false));
+        });
+        gate.bus.drain();
+        check(gate.bus.dropped(MessageBus.Drop.ROOT) == 2 && totalDrops(gate.bus) == 2, "Every refusal for a root counts");
+    }
+
+    // The root a message emitted in an extent of `inner`, opened inside one of `outer`, carries.
+    private static Root nestedRoot(Harness h, Root outer, Root inner) {
+        return h.bus.withRoot(outer, () -> h.bus.withRoot(inner, () -> h.bus.currentRoot().orElseThrow()));
+    }
+
     private static void records() {
         UUID node = new UUID(1, 2);
         check(Endpoint.port(node, "state").equals(new Endpoint.PortRef(node, "state")), "Endpoints are values");
@@ -459,11 +705,27 @@ public final class MessageBusCheck {
         check(Endpoint.isPortKey("power_on_behaviour") && !Endpoint.isPortKey("Power") && !Endpoint.isPortKey("1x") && !Endpoint.isPortKey("a".repeat(65)),
                 "Port keys are written like field keys");
         fails(() -> Endpoint.port(node, "a.b"), "A port key with a dot");
-        fails(() -> new Endpoint.TopicRef(""), "An empty topic");
-        check(new Endpoint.TopicRef("a/b").reserved() && new Endpoint.HaEntityRef("light.x").reserved() && !Endpoint.port(node, "x").reserved()
-                && !Endpoint.groupPort(node, "x").reserved(), "Topic and Home Assistant endpoints are reserved");
+        fails(() -> new Endpoint.TopicRef("", ""), "An empty topic");
+        fails(() -> new Endpoint.TopicRef("a/b", null), "A topic end without a path");
+        Endpoint.TopicRef whole = new Endpoint.TopicRef("zigbee2mqtt/porch", "");
+        Endpoint.TopicRef path = new Endpoint.TopicRef("zigbee2mqtt/porch", "color.x");
+        check(whole.describe().equals("topic zigbee2mqtt/porch") && path.describe().equals("topic zigbee2mqtt/porch color.x") && !whole.equals(path),
+                "A topic end names its topic and path: " + path.describe());
+        Endpoint.HaEntityRef brightness = new Endpoint.HaEntityRef("light.kitchen_ceiling", "brightness");
+        check(brightness.describe().equals("entity light.kitchen_ceiling.brightness")
+                && !brightness.equals(new Endpoint.HaEntityRef("light.kitchen_ceiling", "state")), "A Home Assistant end names its entity and port");
+        check(new Endpoint.HaEntityRef("sensor.outdoor_temperature", "attr_unit_of_measurement").port().equals("attr_unit_of_measurement")
+                && new Endpoint.HaEntityRef("input_number.m3_level", "value").entityId().equals("input_number.m3_level"), "Generic reads are ports too");
+        for (String entity : new String[]{"", "light", "light.", ".kitchen", "Light.kitchen", "light.kitchen.x", "light/kitchen", "_x.y", "light.küche"}) {
+            fails(() -> new Endpoint.HaEntityRef(entity, "state"), "The entity id '" + entity + "'");
+        }
+        fails(() -> new Endpoint.HaEntityRef("light.kitchen", "Brightness"), "A port that is no port key");
+        fails(() -> new Endpoint.HaEntityRef("light.kitchen", "attr_" + "a".repeat(60)), "A port longer than a port key");
+        check(!whole.reserved() && !brightness.reserved() && !Endpoint.port(node, "x").reserved() && !Endpoint.groupPort(node, "x").reserved(),
+                "No endpoint is reserved any more");
         fails(() -> new Wire(UUID.randomUUID(), Endpoint.port(node, "a"), null, Mapping.FOLLOW, Scope.WIRELESS, OWNER, true), "A wire without a target");
-        fails(() -> new FlowMessage(UUID.randomUUID(), FlowMessage.Kind.VALUE, new JsonPrimitive(1), null, Endpoint.port(node, "a"), -1, 0), "Negative hops");
+        fails(() -> new FlowMessage(UUID.randomUUID(), FlowMessage.Kind.VALUE, new JsonPrimitive(1), null, Endpoint.port(node, "a"), -1, Root.WORLD, 0), "Negative hops");
+        fails(() -> new FlowMessage(UUID.randomUUID(), FlowMessage.Kind.VALUE, new JsonPrimitive(1), null, Endpoint.port(node, "a"), 0, null, 0), "No root");
         Wire wire = new Wire(new UUID(0, 9), Endpoint.port(node, "powered"), Endpoint.groupPort(node, "state"), Mapping.PULSE_TOGGLE, Scope.WIRELESS, OWNER, true);
         check(wire.describe().equals(node + ".powered -> group " + node + ".state (pulse_toggle)"), "A wire describes itself: " + wire.describe());
     }
@@ -575,6 +837,10 @@ public final class MessageBusCheck {
         final Map<UUID, String> names = new HashMap<>();
         final List<Endpoint> refusing = new ArrayList<>();
         final List<Endpoint> throwing = new ArrayList<>();
+        // Roots every target refuses, as a mirrored device's gate does (M3 plan D10).
+        final Set<Root> rootRefusing = EnumSet.noneOf(Root.class);
+        // In-ports that react in an extent of their own root, as a command from another source would.
+        final Map<Endpoint, Root> reactRoots = new HashMap<>();
         final List<Delivery> deliveries = new ArrayList<>();
         final List<UUID> loopCuts = new ArrayList<>();
         final List<RuntimeException> failures = new ArrayList<>();
@@ -634,15 +900,28 @@ public final class MessageBusCheck {
             return bus.emit(kind, source, ((Endpoint.PortRef) source).port(), payload, 0);
         }
 
-        private boolean deliver(Wire wire, FlowMessage message) {
+        private MessageBus.Outcome deliver(Wire wire, FlowMessage message) {
             if (reentrant) bus.drain();
             if (throwing.contains(wire.to())) throw new IllegalStateException("A device threw");
             deliveries.add(new Delivery(wire, message));
             if (unwiring) wires.get(wire.from()).clear();
-            if (refusing.contains(wire.to())) return false;
+            if (refusing.contains(wire.to())) return MessageBus.Outcome.REFUSED;
+            if (rootRefusing.contains(message.root())) return MessageBus.Outcome.ROOT;
             Endpoint reaction = reactions.get(wire.to());
-            if (reaction != null) bus.emit(message.kind(), reaction, ((Endpoint.PortRef) reaction).port(), message.payload(), message.gameTime());
-            return true;
+            if (reaction != null) {
+                Runnable react = () -> bus.emit(message.kind(), reaction, ((Endpoint.PortRef) reaction).port(), message.payload(), message.gameTime());
+                Root own = reactRoots.get(wire.to());
+                if (own == null) {
+                    react.run();
+                } else {
+                    bus.withRoot(own, react);
+                }
+            }
+            return MessageBus.Outcome.TAKEN;
+        }
+
+        List<Root> roots() {
+            return deliveries.stream().map(delivery -> delivery.message().root()).toList();
         }
 
         List<String> targets() {

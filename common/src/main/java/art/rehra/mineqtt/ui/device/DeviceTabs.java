@@ -218,12 +218,14 @@ public final class DeviceTabs {
     }
 
     /**
-     * The generated tabs of a device of {@code type}, in tab-bar order: General, Controls when it has any, then Advanced,
-     * which every device has for its links, Access and Diagnostics.
+     * The generated tabs of a device of {@code type}, in tab-bar order: General, Controls when it has any, Twin when its
+     * type takes part in the Home Assistant twin (M3 plan D19), then Advanced, which every device has for its links,
+     * Access and Diagnostics.
      */
     public static List<MqttTab> forType(DeviceType type) {
         List<MqttTab> tabs = new ArrayList<>(List.of(new GeneralTab(type)));
         if (!ControlsTab.controls(type).isEmpty()) tabs.add(new ControlsTab(type));
+        if (type.twin().isPresent()) tabs.add(new TwinTab(type));
         tabs.add(new AdvancedTab(type));
         tabs.add(new AccessTab(type));
         tabs.add(new DiagnosticsTab());

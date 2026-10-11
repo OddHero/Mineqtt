@@ -20,6 +20,7 @@ import art.rehra.mineqtt.tabs.MineQTTTabs;
 import art.rehra.mineqtt.ui.MineqttMenuTypes;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import dev.architectury.event.events.common.CommandRegistrationEvent;
+import art.rehra.mineqtt.twin.BindingPresets;
 import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.TickEvent;
 import org.slf4j.Logger;
@@ -62,6 +63,8 @@ public class MineQTT {
         MineqttMenuTypes.init();
         MineqttNetworking.init();
         DeviceTypes.registerBuiltIn();
+        // MQTT device presets come from datapacks, reloaded with them (M3-17).
+        BindingPresets.register();
 
         // First, so the runtime exists for the listeners below and delivers each tick's messages before they run.
         ServerHooks.register();
@@ -91,6 +94,8 @@ public class MineQTT {
                 CyberdeckSessionManager.onPlayerLoggedOut(serverPlayer);
                 ConfiguratorSessions.forget(serverPlayer.getUUID());
                 C2SGuard.forget(serverPlayer.getUUID());
+                MineqttRuntime.current().filter(runtime -> runtime.server() == serverPlayer.level().getServer())
+                        .ifPresent(runtime -> runtime.devices().playerLeft(serverPlayer.getUUID()));
             }
         });
 

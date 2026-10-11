@@ -52,8 +52,8 @@ public final class RenderTagGameTest implements FabricClientGameTest {
     private static final BlockPos OUTPUT_GROUND = new BlockPos(-1, GameTestSession.GROUND_Y, 3);
     private static final BlockPos INPUT_GROUND = new BlockPos(2, GameTestSession.GROUND_Y, 3);
     private static final BlockPos SENSOR_GROUND = new BlockPos(5, GameTestSession.GROUND_Y, 3);
-    private static final String LAMP_CHANNEL = "render_tag_gametest_lamp";
-    private static final String OUTPUT_CHANNEL = "render_tag_gametest_output";
+    private static final String LAMP_CHANNEL = "render_tag_" + GameTestSession.BRIDGE_ID + "_lamp";
+    private static final String OUTPUT_CHANNEL = "render_tag_" + GameTestSession.BRIDGE_ID + "_output";
     private static final int ANSWER_TICKS = 40;
 
     @Override

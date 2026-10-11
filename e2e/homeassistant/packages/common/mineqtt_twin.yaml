@@ -1,0 +1,84 @@
+# MineQTT twin fixture (M3 plan M3-1), the part both pinned Home Assistant versions accept in the same syntax.
+# light.m3_lamp and lock.m3_lock are template entities whose YAML differs per version: they are in
+# packages/2026.10/mineqtt_twin_templates.yaml and packages/2025.2/mineqtt_twin_templates.yaml.
+#
+# Every entity here gets an entity registry entry (YAML helpers and scripts by their object id, the template sensor
+# and the scene by their unique id), so ha.py can label it. Package names are file names, and !include_dir_named
+# searches subfolders: keep every file name below packages/ unique.
+
+input_boolean:
+  # Drives light.m3_lamp's on/off state.
+  m3_flag:
+    name: M3 Flag
+  # Readable but never labelled for control: the control blueprint's not_labelled case (checklist item 27).
+  m3_other:
+    name: M3 Other
+  # Drives lock.m3_lock (on = locked). Deliberately outside the mqtt_statestream include in configuration.yaml: it
+  # never appears under ha_statestream/, which proves the include filter, and labelled it is the drift case
+  # (labelled, but no live updates, checklist item 26).
+  m3_bolt:
+    name: M3 Bolt
+
+input_number:
+  # Drives light.m3_lamp's brightness (0..100 % = 0..255) and sensor.m3_temperature.
+  m3_level:
+    name: M3 Level
+    min: 0
+    max: 100
+    step: 0.5
+    unit_of_measurement: "%"
+    mode: slider
+
+input_select:
+  # "Turbo Mode" is index 2, the options-index case of ValueMap (M3 plan D7), and a state with a space (cap §7).
+  m3_mode:
+    name: M3 Mode
+    options:
+      - Eco
+      - Comfort
+      - Turbo Mode
+
+input_text:
+  # The initial value is restored at every Home Assistant start, while the retained statestream topic still holds
+  # the value from before the restart: the stale-after-restart case (cap §5) the catalog snapshot fixes. The value
+  # has non-ASCII characters, quotes and a slash (cap §7: state is raw UTF-8, never JSON).
+  m3_note:
+    name: M3 Note
+    initial: Grüße "quoted" / slash
+    max: 255
+
+input_button:
+  m3_button:
+    name: M3 Button
+
+counter:
+  # script.m3_script increments it, so a script run is visible as a state change.
+  m3_counter:
+    name: M3 Counter
+    initial: 0
+    step: 1
+
+template:
+  - sensor:
+      # Follows input_number.m3_level: 15.0 °C at 0 % up to 25.0 °C at 100 %, one decimal.
+      - name: M3 Temperature
+        unique_id: mineqtt_e2e_m3_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: "{{ (15 + states('input_number.m3_level') | float(0) / 10) | round(1) }}"
+
+scene:
+  - id: mineqtt_e2e_m3_scene
+    name: M3 Scene
+    entities:
+      input_boolean.m3_other: "on"
+      input_select.m3_mode: Comfort
+
+script:
+  m3_script:
+    alias: M3 Script
+    sequence:
+      - action: counter.increment
+        target:
+          entity_id: counter.m3_counter

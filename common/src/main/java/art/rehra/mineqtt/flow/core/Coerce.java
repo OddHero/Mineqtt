@@ -33,6 +33,9 @@ public final class Coerce {
     // Control characters and Minecraft formatting codes (§ and the code after it).
     private static final Pattern UNSAFE_TEXT = Pattern.compile("§.?|\\p{Cc}", Pattern.DOTALL);
     private static final int MAX_CHANNEL = 255;
+    // The most digits, and the largest exponent either way, a number read from text may have. Rounding 1e999999999
+    // builds a billion-digit integer and stalls the server thread; no value means a number that large or that small.
+    private static final int MAX_DIGITS = 40;
 
     private Coerce() {
     }
@@ -114,6 +117,27 @@ public final class Coerce {
         } catch (NumberFormatException e) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * A decimal number in {@link Locale#ROOT} notation ({@code 21.5}, never {@code 21,5}), spaces around it ignored; no
+     * NaN or infinity, and nothing with more than {@value #MAX_DIGITS} digits or an exponent beyond ±{@value #MAX_DIGITS}
+     * ({@code 1e999999999}), which would be costly to round.
+     */
+    public static Optional<BigDecimal> number(String text) {
+        try {
+            BigDecimal value = new BigDecimal(text.trim());
+            return value.precision() <= MAX_DIGITS && Math.abs(value.scale()) <= MAX_DIGITS ? Optional.of(value) : Optional.empty();
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    /** A JSON number, or a string holding one, as {@link #number(String)} reads it; never a boolean. */
+    public static Optional<BigDecimal> numeric(JsonElement value) {
+        if (!value.isJsonPrimitive()) return Optional.empty();
+        JsonPrimitive primitive = value.getAsJsonPrimitive();
+        return primitive.isNumber() || primitive.isString() ? number(primitive.getAsString()) : Optional.empty();
     }
 
     /** An 8-bit colour {@code {"r":…,"g":…,"b":…}} with whole channels 0–255 as {@code 0xRRGGBB}; empty for anything else. */

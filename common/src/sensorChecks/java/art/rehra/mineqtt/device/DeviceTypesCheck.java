@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.device;
 
 import art.rehra.mineqtt.device.types.ClimateSensor;
+import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
@@ -18,6 +19,14 @@ import art.rehra.mineqtt.flow.core.Wire;
 import art.rehra.mineqtt.ha.Ha;
 import art.rehra.mineqtt.ha.HaEntity;
 import art.rehra.mineqtt.security.AccessMode;
+import art.rehra.mineqtt.twin.TwinAdapter;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.Call;
+import art.rehra.mineqtt.twin.core.EntityDocument;
+import art.rehra.mineqtt.twin.core.EntityDocuments;
+import art.rehra.mineqtt.twin.core.EntityGlobs;
+import art.rehra.mineqtt.twin.core.HaCalls;
+import art.rehra.mineqtt.twin.core.ValuePath;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
@@ -39,9 +48,11 @@ import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.level.Level;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -75,7 +86,7 @@ public final class DeviceTypesCheck {
         DeviceTypes.registerBuiltIn();
         List<DeviceType> types = DeviceTypes.all();
         check(types.equals(List.of(SmartLamp.TYPE, RedstoneOutput.TYPE, RedstoneInput.TYPE, PresenceSensor.TYPE, SmartPlug.TYPE, ClimateSensor.TYPE,
-                WallSwitch.TYPE)), "The seven built-in types are registered: " + types);
+                WallSwitch.TYPE, DisplayPanel.TYPE)), "The eight built-in types are registered: " + types);
         int ports = 0;
         for (DeviceType type : types) {
             declaration(type);
@@ -97,6 +108,11 @@ public final class DeviceTypesCheck {
         viewCaps();
         climate();
         wallSwitch();
+        lampTwin();
+        outputTwin();
+        plugTwin();
+        targetTwins();
+        displayPanel();
         System.out.println("Device type checks passed: " + types.size() + " types, " + ports + " ports.");
     }
 
@@ -193,16 +209,27 @@ public final class DeviceTypesCheck {
                         && ClimateSensor.TYPE.minInterval().equals(Duration.ofSeconds(1))
                         && ClimateSensor.TYPE.deadbands().equals(Map.of("temperature", 0.2, "humidity", 1.0)),
                 "The climate sensor is unavailable while unloaded, publishes at most once a second, with 0.2 °C and 1 % deadbands");
-        // Three events with their button out, a press of either button in (M2-22).
+        // Three events with their button out, a press of either button in (M2-22); the bus-only per-button events with their
+        // gesture are new keys after them (M3-14, D16), so the frozen ports stay as they were.
         expectPorts(WallSwitch.TYPE, List.of(
                 "OUT location json FIELD", "OUT press event press EVENT", "OUT double_press event double_press EVENT", "OUT hold event hold EVENT",
+                "OUT left event left EVENT", "OUT right event right EVENT",
                 "IN press_left event press_left ACTION", "IN press_right event press_right ACTION"));
         check(WallSwitch.TYPE.settings().isEmpty() && WallSwitch.TYPE.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !WallSwitch.TYPE.groupable()
                         && WallSwitch.TYPE.use().map(Action::key).equals(Optional.of("press_left")) && WallSwitch.TYPE.remote(),
                 "A Wall Switch has no settings, is unavailable while unloaded (a queued press would be a stale click), is used by hand and was a v1 remote");
         for (EventSpec event : WallSwitch.TYPE.events()) {
-            check(event.attributes().equals(Map.of("button", PortType.enumOf(List.of("left", "right")))), "Every Wall Switch event names its button: " + event.type());
+            boolean perButton = event.busOnly();
+            check(perButton == List.of("left", "right").contains(event.type()), "Only the per-button events are bus-only: " + event.type());
+            check(event.attributes().equals(perButton ? Map.of("gesture", PortType.enumOf(List.of("press", "double_press", "hold")))
+                    : Map.of("button", PortType.enumOf(List.of("left", "right")))), "Every Wall Switch event names its button, or its gesture: " + event.type());
         }
+        // A message in and out, its level out, the look as settings (M3-15).
+        String colors = "white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black";
+        expectPorts(DisplayPanel.TYPE, List.of(
+                "OUT message text 255 FIELD", "OUT level level FIELD", "OUT color enum " + colors + " FIELD", "OUT glow bool FIELD",
+                "OUT size enum auto|large|medium|small FIELD", "OUT location json FIELD",
+                "IN message text 255 FIELD", "IN color enum " + colors + " SETTING", "IN glow bool SETTING", "IN size enum auto|large|medium|small SETTING"));
         check(settingKeys(RedstoneOutput.TYPE.settings()).equals(List.of("mode", "power_on_behaviour")), "Output settings: mode and power-on behaviour");
         check(settingKeys(PresenceSensor.TYPE.settings()).equals(List.of("detect", "range", "clear_delay", "filter")),
                 "Presence settings: detect, range, clear delay and the mob filter (M2-12)");
@@ -229,6 +256,13 @@ public final class DeviceTypesCheck {
                 "A device trigger on an attribute its event does not carry");
         failsToBuild(base("b3").event(press).entity(Ha.deviceTrigger("button_short_press", "middle", "press", "button")), "never carries",
                 "A device trigger waiting for a value its event never carries");
+        // M3-14, D16: a bus-only event is published nowhere, so no Home Assistant entity may wait for it.
+        EventSpec busPress = EventSpec.busOnly("press").attribute("button", PortType.enumOf(List.of("left", "right")));
+        failsToBuild(base("b4").event(busPress).entity(Ha.event("action", "press")), "only the bus carries", "An event entity on a bus-only event");
+        failsToBuild(base("b5").event(busPress).entity(Ha.deviceTrigger("button_short_press", "left", "press", "button")), "only the bus carries",
+                "A device trigger on a bus-only event");
+        check(busPress.busOnly() && !press.busOnly() && busPress.attribute("x", PortType.BOOL).busOnly() && base("b6").event(busPress).build().port(Port.Direction.OUT, "press").isPresent(),
+                "A bus-only event keeps its flag through attributes and is an out-port like any event");
         failsToBuild(base("c").entity(Ha.button("trigger_now")), "no declared action", "A button without its action");
         failsToBuild(base("d").entity(Ha.notify("message")), "no declared action", "A notify without its action");
         failsToBuild(DeviceType.builder(id("e")).model("E").field(power).entity(Ha.switchOf("s", power).on(15).off(0)), "state action",
@@ -330,12 +364,50 @@ public final class DeviceTypesCheck {
         check(onOff.encode(RedstoneOutput.Switch.ON).equals(new JsonPrimitive("ON")), "An on/off field writes its serialized name");
     }
 
+    /**
+     * M3-9, D5, D11: what a command to a mirrored lamp with control asks of its source, through the service-call table:
+     * the light's state, brightness, colour (any form the lamp reads) and colour temperature (kelvin or mireds) for a
+     * light, without its effect; on and off for a switch-like entity.
+     */
+    private static void lampForward(TwinAdapter twin) {
+        Binding light = Binding.of(twin.sourceEnd("light.kitchen")).withControl(true);
+        JsonObject blue = new JsonObject();
+        blue.addProperty("state", "ON");
+        blue.addProperty("brightness", 100);
+        blue.addProperty("color", "#0000ff");
+        blue.addProperty("effect", "pulse");
+        List<Call> calls = twin.calls(blue, HaCalls.Mirror.live("off"), light);
+        check(calls.size() == 1 && calls.getFirst().action().equals("light.turn_on") && calls.getFirst().data().toString().equals("{\"brightness\":100,\"rgb_color\":[0,0,255]}"),
+                "A lamp command becomes one turn_on with brightness and rgb_color, never its effect: " + calls);
+        JsonObject kelvin = new JsonObject();
+        kelvin.addProperty("color_temp_kelvin", 3000);
+        check(twin.calls(kelvin, HaCalls.Mirror.live("on"), light).getFirst().data().toString().equals("{\"color_temp_kelvin\":3000}"),
+                "A colour temperature is sent in kelvin");
+        JsonObject off = new JsonObject();
+        off.addProperty("state", "OFF");
+        off.addProperty("transition", 2);
+        check(twin.calls(off, HaCalls.Mirror.live("on"), light).getFirst().toString().equals("light.turn_off {\"transition\":2}"), "OFF with a fade is turn_off with it");
+        JsonObject toggle = new JsonObject();
+        toggle.addProperty("state", "TOGGLE");
+        check(twin.forward(toggle, HaCalls.Mirror.NONE, light).getFirst() instanceof HaCalls.Refused refused && refused.reason() == HaCalls.Reason.NOT_LIVE,
+                "A toggle with nothing known is refused locally");
+        Binding fan = Binding.of(twin.sourceEnd("fan.attic")).withControl(true);
+        check(twin.calls(off, HaCalls.Mirror.live("on"), fan).getFirst().action().equals("fan.turn_off"), "A lamp mirroring a fan switches it off");
+        check(twin.calls(off, HaCalls.Mirror.live("on"), light.withControl(false)).isEmpty(), "Without control nothing is asked");
+    }
+
     private static void linkSettings() {
-        check(keys(SmartLamp.TYPE.linkSettings()).equals(List.of("name", "expose", "access", "raw.channel", "raw.private", "raw.topic", "raw.on", "raw.off")),
-                "A Raw Link input has no retain and no QoS");
-        check(keys(RedstoneOutput.TYPE.linkSettings()).equals(keys(SmartLamp.TYPE.linkSettings())), "The output's Raw Link is an input too");
+        check(keys(SmartLamp.TYPE.linkSettings()).equals(List.of("name", "expose", "access", "raw.channel", "raw.private", "raw.topic", "raw.on", "raw.off",
+                "twin.entity", "twin.device", "twin.preset", "twin.unavailable", "twin.control", "twin.resume")),
+                "A Raw Link input has no retain and no QoS; the lamp's twin keys come last, control last (M3-9), then Resume (M3-13)");
+        check(keys(RedstoneOutput.TYPE.linkSettings()).equals(List.of("name", "expose", "access", "raw.channel", "raw.private", "raw.topic", "raw.on", "raw.off",
+                "twin.entity", "twin.device", "twin.preset", "twin.path", "twin.invert", "twin.min", "twin.max", "twin.unavailable", "twin.control", "twin.resume")),
+                "The output's Raw Link is an input too; its twin keys have the path and range rows (M3-12)");
+        check(keys(SmartPlug.TYPE.linkSettings()).equals(List.of("name", "expose", "access", "raw.channel", "raw.private", "raw.topic", "raw.on", "raw.off",
+                "twin.entity", "twin.device", "twin.preset", "twin.unavailable", "twin.control", "twin.resume")), "The plug's twin keys have no rows (M3-12)");
         check(keys(RedstoneInput.TYPE.linkSettings()).equals(List.of("name", "expose", "access", "raw.channel", "raw.private", "raw.topic", "raw.retain", "raw.qos",
-                "raw.on", "raw.off")), "A Raw Link output has retain and QoS");
+                "raw.on", "raw.off", "twin.target", "twin.resume")),
+                "A Raw Link output has retain and QoS; the input's one twin target comes last (M3-14), then Resume (M3-13)");
         check(keys(PresenceSensor.TYPE.linkSettings()).equals(List.of("name", "expose", "access", "raw.channel", "raw.private", "raw.topic", "raw.retain", "raw.qos")),
                 "The presence sensor's count has no custom payloads");
         check(keys(ClimateSensor.TYPE.linkSettings()).equals(keys(PresenceSensor.TYPE.linkSettings())), "The climate sensor's reading has no custom payloads");
@@ -557,7 +629,9 @@ public final class DeviceTypesCheck {
         refused.put("an unregistered source", RegistryWiring.problem(registry, Endpoint.port(UUID.randomUUID(), "powered"), outputState, Mapping.FOLLOW));
         refused.put("a group without members", RegistryWiring.problem(registry, powered, Endpoint.groupPort(empty.id(), "state"), Mapping.FOLLOW));
         refused.put("a type this MineQTT does not know", RegistryWiring.problem(registry, powered, Endpoint.port(gadget.id(), "state"), Mapping.FOLLOW));
-        refused.put("a reserved end", RegistryWiring.problem(registry, powered, new Endpoint.TopicRef("a/b"), Mapping.FOLLOW));
+        refused.put("a topic end", RegistryWiring.problem(registry, powered, new Endpoint.TopicRef("a/b", ""), Mapping.FOLLOW));
+        refused.put("a Home Assistant end", RegistryWiring.problem(registry, powered, new Endpoint.HaEntityRef("light.kitchen", "state"), Mapping.FOLLOW));
+        refused.put("a wire from a Home Assistant end", RegistryWiring.problem(registry, new Endpoint.HaEntityRef("light.kitchen", "state"), outputState, Mapping.FOLLOW));
         refused.forEach((what, problem) -> check(problem.isPresent(), "A wire to " + what + " is refused"));
 
         Wire toOutput = wire(powered, outputState, Mapping.FOLLOW);
@@ -574,7 +648,7 @@ public final class DeviceTypesCheck {
         MessageBus bus = new MessageBus(new RegistryWiring(registry), (wire, message) -> {
             RegistryWiring.Command command = RegistryWiring.command(registry, wire.to(), message.payload()).orElseThrow();
             delivered.add(command.target() + " " + command.command());
-            return true;
+            return MessageBus.Outcome.TAKEN;
         }, new MessageBus.Listener() {
             @Override
             public void loopCut(Wire wire, FlowMessage message) {
@@ -851,6 +925,537 @@ public final class DeviceTypesCheck {
         return Identifier.fromNamespaceAndPath("mineqtt_check", path);
     }
 
+    /**
+     * M3-8: the Smart Lamp's twin adapter (M3 plan D5) over the captured light states (cap §9.1 to §9.5), folded from
+     * statestream topics as the twin folds them and applied as the twin applies them ({@link DeviceType#twinCommand}, then
+     * the lamp's merge): on at brightness 0 shows at 1, an hs light shows its rgb_color, an RGBWW light without kelvin
+     * topics its colour, off keeps the colour (null colours are no black), unavailable holds whatever stale attributes
+     * say, and a switch-like entity lights the lamp white. Its ports stay frozen ({@link #frozenPorts}).
+     */
+    private static void lampTwin() {
+        TwinAdapter twin = SmartLamp.TYPE.twin().orElseThrow();
+        check(twin == SmartLamp.TWIN && twin.primary().equals("light") && twin.sourceDomains().equals(List.of("light", "switch", "input_boolean", "fan", "binary_sensor"))
+                && twin.controllable() && twin.targets().isEmpty() && twin.shapes().isEmpty(),
+                "The lamp mirrors lights and switch-like entities and forwards to them (M3-9), with no targets");
+        lampForward(twin);
+        check(twin.mirroredKeys().containsAll(List.of("light", "state", "brightness", "color", "color_temp", "color_temp_kelvin")) && !twin.mirroredKeys().contains("effect"),
+                "The source owns the light's keys; the effect stays the lamp's: " + twin.mirroredKeys());
+        check(twin.sourceEnd("light.kitchen").equals(new Endpoint.HaEntityRef("light.kitchen", "light"))
+                && twin.sourceEnd("binary_sensor.door").equals(new Endpoint.HaEntityRef("binary_sensor.door", "state")), "A light feeds its composite, anything else its state");
+        check(twin.leaves("light.kitchen", Binding.Settings.DEFAULT).equals(List.of("state", "last_updated", "brightness", "rgb_color", "color_temp_kelvin", "color_mode")),
+                "A light subscribes exactly D1 #8's leaves, never +: " + twin.leaves("light.kitchen", Binding.Settings.DEFAULT));
+        check(twin.leaves("fan.attic", Binding.Settings.DEFAULT).equals(List.of("state", "last_updated")) && twin.leaves("person.steve", Binding.Settings.DEFAULT).isEmpty()
+                && twin.leaves("sensor.outdoor", Binding.Settings.DEFAULT).isEmpty(), "A fan its state; nothing for an entity the lamp cannot mirror");
+
+        ValueCodecs.LightState red = new ValueCodecs.LightState(true, 128, ValueCodecs.Rgb.ofPacked(0xFF0000), null);
+        check(lamp("light.l91", red, "state", "on", "color_mode", "\"brightness\"", "brightness", "0")
+                .equals(new ValueCodecs.LightState(true, 1, ValueCodecs.Rgb.ofPacked(0xFF0000), null)), "Cap §9.1: on at brightness 0 shows at brightness 1, the colour kept");
+        check(lamp("light.l92", red, "state", "on", "color_mode", "\"hs\"", "brightness", "200", "rgb_color", "[255, 120, 10]", "color_temp_kelvin", "null")
+                .equals(new ValueCodecs.LightState(true, 200, ValueCodecs.Rgb.ofPacked(0xFF780A), null)), "Cap §9.2: an hs light shows its rgb_color");
+        check(lamp("light.l93", red, "state", "on", "color_mode", "\"rgbww\"", "brightness", "180", "rgb_color", "[93, 65, 40]")
+                .equals(new ValueCodecs.LightState(true, 180, ValueCodecs.Rgb.ofPacked(0x5D4128), null)), "Cap §9.3: an RGBWW light without kelvin topics");
+        ValueCodecs.LightState warm = lamp("light.l93k", red, "state", "on", "color_mode", "\"color_temp\"", "brightness", "255", "color_temp_kelvin", "2700",
+                "rgb_color", "[255, 167, 87]");
+        check(warm.on() && warm.brightness() == 255 && Integer.valueOf(2700).equals(warm.kelvin()), "A color_temp light gives its temperature: " + warm);
+        check(lamp("light.l94", red, "state", "off", "brightness", "null", "rgb_color", "null", "color_mode", "null").equals(red.placed()),
+                "Cap §9.4: off keeps brightness and colour; null colours are no black");
+        check(lamp("light.l95", red, "state", "unavailable", "brightness", "255", "rgb_color", "[1, 2, 3]").equals(red),
+                "Cap §9.5: unavailable holds, whatever the stale attributes say");
+        check(lamp("switch.porch", red, "state", "on").equals(new ValueCodecs.LightState(true, 255, ValueCodecs.Rgb.WHITE, null))
+                && lamp("binary_sensor.door", red, "state", "off").equals(red.placed()) && lamp("fan.attic", red, "state", "unknown").equals(red),
+                "A switch-like entity lights the lamp white at full brightness and turns it off; unknown holds");
+        Binding off = Binding.of(twin.sourceEnd("light.l96")).withSettings(Binding.Settings.DEFAULT.withUnavailable(Binding.Unavailable.OFF));
+        EntityDocuments documents = new EntityDocuments("ha_statestream", EntityDocuments.Limits.DEFAULT);
+        documents.accept("ha_statestream/light/l96/state", "unavailable".getBytes(StandardCharsets.UTF_8), false, 0);
+        check(SmartLamp.TYPE.twinCommand(documents.document("light.l96").orElseThrow(), off).orElseThrow().equals(json("{\"state\":\"OFF\"}")),
+                "twin.unavailable off turns the lamp off");
+        check(SmartLamp.TYPE.twinCommand(documents.document("light.l96").orElseThrow(), off.withRefused("not allowed")).isEmpty(), "A refused binding reads nothing");
+    }
+
+    /**
+     * M3-12: the Redstone Output's twin adapter (M3 plan D5, D7) read from entities folded as the twin folds them: on and
+     * off as 15 and 0 (inverted 0 and 15), transitional states holding (cap §9.8 {@code unlocking}), numbers over the
+     * entity's own range or {@code twin.min}/{@code twin.max} ({@code 42.5} of 0..100 is 6), a light's brightness through
+     * {@code twin.path}, a climate's current temperature, and an option list's index; and what it asks back, mapped the
+     * same way ({@code set_value}, {@code set_percentage}, a brightness, {@code select_option}).
+     */
+    private static void outputTwin() {
+        TwinAdapter twin = RedstoneOutput.TYPE.twin().orElseThrow();
+        check(twin == RedstoneOutput.TWIN && twin.primary().equals("power") && twin.mirroredKeys().equals(Set.of("power", "state"))
+                        && twin.controllable() && twin.targets().isEmpty()
+                        && twin.shapes().equals(Set.of(TwinAdapter.Shape.INVERT, TwinAdapter.Shape.RANGE, TwinAdapter.Shape.PATH)),
+                "The output mirrors into its level and switch, forwards, and has the invert, range and path rows; its mode is its own");
+        check(twin.sourceDomains().equals(RedstoneOutput.TWIN_DOMAINS) && !twin.sourceDomains().contains("person") && twin.sourceDomains().contains("binary_sensor"),
+                "The output mirrors on/off, numeric and option entities: " + twin.sourceDomains());
+        Binding.Settings brightness = Binding.Settings.DEFAULT.withPath(ValuePath.parse("attributes.brightness"));
+        check(twin.leaves("switch.porch", Binding.Settings.DEFAULT).equals(List.of("state", "last_updated"))
+                        && twin.leaves("input_number.level", Binding.Settings.DEFAULT).equals(List.of("state", "last_updated", "min", "max", "step"))
+                        && twin.leaves("light.porch", brightness).equals(List.of("state", "last_updated", "brightness"))
+                        && twin.leaves("climate.hall", Binding.Settings.DEFAULT).equals(List.of("state", "last_updated", "current_temperature"))
+                        && twin.leaves("input_select.mode", Binding.Settings.DEFAULT).equals(List.of("state", "last_updated", "options")),
+                "Each source subscribes its state, its timestamp and exactly the attributes it reads (D1 #8)");
+
+        Binding.Settings inverted = Binding.Settings.DEFAULT.withInvert(true);
+        check(outputLevel("switch.porch", Binding.Settings.DEFAULT, "state", "on") == 15 && outputLevel("switch.porch", Binding.Settings.DEFAULT, "state", "off") == 0
+                        && outputLevel("switch.porch", inverted, "state", "on") == 0 && outputLevel("binary_sensor.door", inverted, "state", "off") == 15,
+                "On is 15 and off 0; twin.invert swaps them");
+        check(outputLevel("lock.front", Binding.Settings.DEFAULT, "state", "unlocked") == 15 && outputLevel("lock.front", Binding.Settings.DEFAULT, "state", "unlocking") == -1
+                        && outputLevel("cover.garage", Binding.Settings.DEFAULT, "state", "opening") == -1,
+                "Cap §9.8: unlocked is on (D8's lock BOOL); unlocking and opening hold");
+        check(outputLevel("input_number.m3_level", Binding.Settings.DEFAULT, "state", "42.5", "min", "0.0", "max", "100.0") == 6
+                        && outputLevel("input_number.m3_level", Binding.Settings.DEFAULT, "state", "75", "min", "0.0", "max", "100.0") == 11,
+                "An input_number over its own range: 42.5 of 0..100 is 6, 75 is 11");
+        Binding.Settings range = Binding.Settings.DEFAULT.withMin(new BigDecimal("0")).withMax(new BigDecimal("40"));
+        check(outputLevel("sensor.outdoor", range, "state", "21.4") == 8 && outputLevel("sensor.outdoor", Binding.Settings.DEFAULT, "state", "7") == 7
+                        && outputLevel("sensor.outdoor", range, "state", "sunny") == -1 && outputLevel("sensor.outdoor", range, "state", "NaN") == -1,
+                "A sensor over twin.min/twin.max, else 0..15; text and NaN hold");
+        check(outputLevel("light.porch", brightness, "state", "on", "brightness", "128") == 8 && outputLevel("fan.attic", Binding.Settings.DEFAULT.withPath(ValuePath.parse("attributes.percentage")), "state", "on", "percentage", "100") == 15,
+                "twin.path reads a light's brightness over 0..255 and a fan's percentage over 0..100");
+        check(outputLevel("light.porch", brightness, "state", "off", "brightness", "null") == 0
+                        && outputLevel("light.porch", brightness.withInvert(true), "state", "off", "brightness", "null") == 15
+                        && outputLevel("light.porch", brightness, "state", "on", "brightness", "null") == -1,
+                "Cap §9.4: an off light's null brightness is level 0 (inverted 15), never the level from before; null while on holds");
+        check(outputLevel("climate.hall", range, "state", "heat", "current_temperature", "20") == 8, "A climate's current temperature over the range");
+        check(outputLevel("input_select.m3_mode", Binding.Settings.DEFAULT, "state", "Turbo Mode", "options", "[\"Off\", \"Eco\", \"Turbo Mode\"]") == 2,
+                "An option list emits the index of its option (D7)");
+        check(outputLevel("switch.porch", Binding.Settings.DEFAULT, "state", "unavailable") == -1
+                        && outputLevel("switch.porch", Binding.Settings.DEFAULT.withUnavailable(Binding.Unavailable.OFF), "state", "unavailable") == 0,
+                "Unavailable holds; with twin.unavailable off the output goes to 0");
+
+        Binding.Settings defaults = Binding.Settings.DEFAULT;
+        check(outputCall("switch.porch", defaults, power(0), HaCalls.Mirror.live("on")).equals("switch.turn_off {}")
+                        && outputCall("switch.porch", inverted, power(15), HaCalls.Mirror.live("on")).equals("switch.turn_off {}")
+                        && outputCall("switch.porch", defaults, state("TOGGLE"), HaCalls.Mirror.retained("on")).equals("switch.toggle {}")
+                        && outputCall("cover.garage", defaults, power(15), HaCalls.Mirror.live("closed")).equals("cover.open_cover {}"),
+                "Switching: a level above 0 is on, swapped when inverted; a retained toggle is <domain>.toggle; a cover opens");
+        check(outputRefusal("switch.porch", defaults, power(15), HaCalls.Mirror.live("on")).equals("skip")
+                        && outputRefusal("binary_sensor.door", defaults, power(15), HaCalls.Mirror.live("off")).equals(HaCalls.Reason.READ_ONLY.name()),
+                "LIVE dedupe; a binary_sensor never forwards (it has no in-port)");
+        HaCalls.Mirror level = mirror("input_number.m3_level", "state", "42.5", "min", "0.0", "max", "100.0", "step", "0.5");
+        check(outputCall("input_number.m3_level", defaults, power(6), level).equals("input_number.set_value {\"value\":40}")
+                        && outputCall("input_number.m3_level", defaults, state("ON"), level).equals("input_number.set_value {\"value\":100}")
+                        && outputCall("input_number.m3_level", defaults, state("TOGGLE"), level).equals("input_number.set_value {\"value\":0}")
+                        && outputCall("input_number.m3_level", inverted, power(15), level).equals("input_number.set_value {\"value\":0}"),
+                "Level mode: set_value of the value the level stands for in the entity's range; ON is the top, a toggle the other end");
+        check(outputRefusal("input_number.m3_level", defaults, power(6), HaCalls.Mirror.NONE).equals(HaCalls.Reason.NOT_LIVE.name())
+                        && outputCall("input_number.m3_level", range, power(6), HaCalls.Mirror.NONE).equals("input_number.set_value {\"value\":16}"),
+                "Without the entity's document its own range is unknown; twin.min and twin.max make it known");
+        check(outputCall("light.porch", brightness, power(8), mirror("light.porch", "state", "on", "brightness", "50")).equals("light.turn_on {\"brightness\":136}")
+                        && outputCall("light.porch", brightness, power(0), mirror("light.porch", "state", "on", "brightness", "50")).equals("light.turn_off {}")
+                        && outputCall("fan.attic", Binding.Settings.DEFAULT.withPath(ValuePath.parse("attributes.percentage")), power(15), mirror("fan.attic", "state", "on"))
+                        .equals("fan.set_percentage {\"percentage\":100}"),
+                "An analog light sets its brightness, 0 turns it off; a fan its percentage");
+        check(outputCall("light.porch", brightness, state("TOGGLE"), mirror("light.porch", "state", "off", "brightness", "null")).equals("light.turn_on {\"brightness\":255}")
+                        && outputCall("light.porch", brightness, state("TOGGLE"), mirror("light.porch", "state", "on", "brightness", "128")).equals("light.turn_off {}"),
+                "A toggle of an off light (null brightness) turns it on fully, of an on one off");
+        HaCalls.Mirror modes = mirror("input_select.m3_mode", "state", "Off", "options", "[\"Off\", \"Eco\", \"Turbo Mode\"]");
+        check(outputCall("input_select.m3_mode", defaults, power(1), modes).equals("input_select.select_option {\"option\":\"Eco\"}")
+                        && outputCall("input_select.m3_mode", defaults, power(15), modes).equals("input_select.select_option {\"option\":\"Turbo Mode\"}")
+                        && outputRefusal("input_select.m3_mode", defaults, state("TOGGLE"), modes).equals(HaCalls.Reason.BAD_VALUE.name()),
+                "An option list selects the option at the level's index (past the end the last); it cannot be toggled");
+        check(outputRefusal("sensor.outdoor", range, power(3), mirror("sensor.outdoor", "state", "4")).equals(HaCalls.Reason.READ_ONLY.name())
+                        && outputRefusal("climate.hall", range, power(3), mirror("climate.hall", "state", "heat", "current_temperature", "20")).equals(HaCalls.Reason.READ_ONLY.name()),
+                "A sensor and a climate's current temperature cannot be set back");
+        check(twin.forward(power(3), HaCalls.Mirror.live("on"), Binding.of(twin.sourceEnd("switch.porch"))).isEmpty(), "Without control nothing is asked");
+    }
+
+    /**
+     * M3-12: the Smart Plug's twin adapter (M3 plan D5, D11): on and off from a switch, an input_boolean, a light or a fan;
+     * a right-click's toggle is the explicit opposite of a LIVE state, {@code toggle} of a retained one, and refused while
+     * nothing is known.
+     */
+    private static void plugTwin() {
+        TwinAdapter twin = SmartPlug.TYPE.twin().orElseThrow();
+        check(twin == SmartPlug.TWIN && twin.primary().equals("power") && twin.mirroredKeys().equals(Set.of("power", "state"))
+                        && twin.sourceDomains().equals(List.of("switch", "input_boolean", "light", "fan")) && twin.controllable() && twin.shapes().isEmpty(),
+                "The plug mirrors on/off entities into its power and switch, and forwards, without rows");
+        check(plugPower("switch.heater", "on") == 15 && plugPower("light.desk", "off") == 0 && plugPower("fan.attic", "unknown") == -1,
+                "On is 15, off 0, unknown holds");
+        Binding bound = Binding.of(twin.sourceEnd("switch.heater")).withControl(true);
+        check(twin.calls(state("TOGGLE"), HaCalls.Mirror.live("on"), bound).toString().equals("[switch.turn_off {}]")
+                        && twin.calls(state("TOGGLE"), HaCalls.Mirror.retained("on"), bound).toString().equals("[switch.toggle {}]")
+                        && twin.calls(power(15), HaCalls.Mirror.live("off"), bound).toString().equals("[switch.turn_on {}]"),
+                "A right-click toggles from a LIVE state explicitly, from a retained one with toggle; a level above 0 is on");
+        check(twin.forward(state("TOGGLE"), HaCalls.Mirror.NONE, bound).getFirst() instanceof HaCalls.Refused refused && refused.reason() == HaCalls.Reason.NOT_LIVE
+                        && twin.forward(state("ON"), HaCalls.Mirror.live("on"), bound).getFirst() instanceof HaCalls.Skip,
+                "A toggle with nothing known is refused locally; ON while LIVE on is not sent");
+        check(twin.calls(state("TOGGLE"), HaCalls.Mirror.live("off"), Binding.of(twin.sourceEnd("light.desk")).withControl(true)).toString().equals("[light.turn_on {}]"),
+                "A plug mirroring a light switches it");
+    }
+
+    /**
+     * M3-14, D5, D16: the Redstone Input and the Wall Switch as Home Assistant targets. Both adapters have targets only (no
+     * source, primary or mirrored key, never controllable); the Input's {@code powered} follows the edge rules (rising:
+     * turn_on, open_cover, scene/script turn_on, press; falling: turn_off, close_cover, nothing for scenes, scripts and
+     * buttons; LIVE dedupe), the Wall Switch's {@code left}/{@code right} a press (activate, press, or D11's toggle; double
+     * presses and holds unbound). A target sits on an out-port, never on an action.
+     */
+    private static void targetTwins() {
+        TwinAdapter input = RedstoneInput.TYPE.twin().orElseThrow();
+        check(input == RedstoneInput.TWIN && input.primary() == null && input.mirroredKeys().isEmpty() && !input.hasSource() && !input.controllable()
+                        && input.targets().equals(Map.of("target", "powered")) && input.targetDomains().equals(RedstoneInput.TARGET_DOMAINS),
+                "The input has one target on powered and mirrors nothing");
+        check(inputCall("input_boolean.m3_flag", true, HaCalls.Mirror.NONE).equals("input_boolean.turn_on {}")
+                        && inputCall("input_boolean.m3_flag", false, HaCalls.Mirror.NONE).equals("input_boolean.turn_off {}")
+                        && inputCall("cover.garage", true, HaCalls.Mirror.NONE).equals("cover.open_cover {}")
+                        && inputCall("cover.garage", false, HaCalls.Mirror.live("open")).equals("cover.close_cover {}")
+                        && inputCall("scene.m3_scene", true, HaCalls.Mirror.NONE).equals("scene.turn_on {}")
+                        && inputCall("script.m3_script", true, HaCalls.Mirror.NONE).equals("script.turn_on {}")
+                        && inputCall("button.m3_bell", true, HaCalls.Mirror.NONE).equals("button.press {}"),
+                "A rising edge switches on, opens, activates or presses; a falling edge switches off or closes");
+        check(inputOutcome("scene.m3_scene", new JsonPrimitive(false), HaCalls.Mirror.NONE) instanceof HaCalls.Skip
+                        && inputOutcome("input_button.m3_bell", new JsonPrimitive(false), HaCalls.Mirror.NONE) instanceof HaCalls.Skip
+                        && inputOutcome("input_boolean.m3_flag", new JsonPrimitive(true), HaCalls.Mirror.live("on")) instanceof HaCalls.Skip,
+                "A falling edge asks nothing of a scene or a button; an edge the LIVE target already shows asks nothing (dedupe)");
+        check(inputOutcome("input_boolean.m3_flag", new JsonPrimitive("maybe"), HaCalls.Mirror.NONE) instanceof HaCalls.Refused bad && bad.reason() == HaCalls.Reason.BAD_VALUE
+                        && input.targetCall("signal", TwinAdapter.targetEnd("switch.porch"), new JsonPrimitive(true), HaCalls.Mirror.NONE) instanceof HaCalls.Refused port
+                        && port.reason() == HaCalls.Reason.NO_SUCH_PORT
+                        && input.targetCall("powered", TwinAdapter.targetEnd("lock.front"), new JsonPrimitive(true), HaCalls.Mirror.NONE) instanceof HaCalls.Refused,
+                "Not an edge, an out-port that is no target and a domain the input does not switch are refused");
+        check(input.targetProblem("target", "lock.front").isPresent() && input.targetProblem("target", "sensor.outdoor").isPresent()
+                        && input.targetProblem("target", "light.m3_lamp").isEmpty() && input.sourceProblem("light.m3_lamp").isPresent(),
+                "The input switches lights, switches, scenes, scripts and buttons, never locks or sensors, and mirrors nothing");
+
+        TwinAdapter wall = WallSwitch.TYPE.twin().orElseThrow();
+        check(wall == WallSwitch.TWIN && wall.primary() == null && wall.mirroredKeys().isEmpty() && !wall.hasSource()
+                        && wall.targets().equals(Map.of("left", "left", "right", "right")) && wall.targetDomains().equals(WallSwitch.TARGET_DOMAINS),
+                "Each button has a target on its bus-only event, never on its press_left/press_right action (D16)");
+        JsonObject press = WallSwitch.buttonEvent(WallSwitch.Gesture.PRESS, WallSwitch.Button.LEFT);
+        check(wallCall("scene.m3_scene", press, HaCalls.Mirror.NONE).equals("scene.turn_on {}") && wallCall("script.m3_script", press, HaCalls.Mirror.NONE).equals("script.turn_on {}")
+                        && wallCall("input_button.m3_bell", press, HaCalls.Mirror.NONE).equals("input_button.press {}")
+                        && wallCall("light.m3_lamp", press, HaCalls.Mirror.live("off")).equals("light.turn_on {}")
+                        && wallCall("switch.m3_fan", press, HaCalls.Mirror.retained("on")).equals("switch.toggle {}"),
+                "A press activates a scene or script, presses a button, toggles a switch-like entity as a right-click does (D11)");
+        check(wall.targetCall("left", TwinAdapter.targetEnd("switch.m3_fan"), press, HaCalls.Mirror.NONE) instanceof HaCalls.Refused unknown && unknown.reason() == HaCalls.Reason.NOT_LIVE,
+                "A toggle of an entity nothing is known of is refused");
+        for (WallSwitch.Gesture gesture : List.of(WallSwitch.Gesture.DOUBLE_PRESS, WallSwitch.Gesture.HOLD)) {
+            check(wall.targetCall("right", TwinAdapter.targetEnd("scene.m3_scene"), WallSwitch.buttonEvent(gesture, WallSwitch.Button.RIGHT), HaCalls.Mirror.NONE)
+                    instanceof HaCalls.Skip, "A " + gesture + " switches nothing in M3");
+        }
+        check(wall.targetCall("left", TwinAdapter.targetEnd("scene.m3_scene"), new JsonPrimitive("PRESS"), HaCalls.Mirror.NONE) instanceof HaCalls.Refused
+                        && wall.targetProblem("left", "cover.garage").isPresent() && wall.targetProblem("middle", "scene.x").isPresent(),
+                "A value that is no button event, a cover and an unknown button are refused");
+
+        TwinRules.Rights all = new TwinRules.Rights(true, true, EntityGlobs.ALL, Optional.empty());
+        TwinRules.Edited left = TwinRules.edit(wall, null, new DeviceConfig.TwinTarget("left", "scene.m3_scene"), all, all, false);
+        check(left.refusal() == null && left.binding().targets().equals(Map.of("left", new Endpoint.HaEntityRef("scene.m3_scene", "activate"))) && !left.binding().bound(),
+                "twin.left binds the left event to the scene's activate in-port; the switch is not mirrored: " + left);
+        Binding both = TwinRules.edit(wall, left.binding(), new DeviceConfig.TwinTarget("right", "script.m3_script"), all, all, false).binding();
+        check(both.targets().keySet().equals(Set.of("left", "right")), "Left and right are bound separately");
+        TwinRules.Edited oneLeft = TwinRules.edit(wall, both, new DeviceConfig.TwinTarget("left", ""), TwinRules.Rights.NONE, all, false);
+        check(oneLeft.refusal() == null && oneLeft.binding().targets().keySet().equals(Set.of("right")), "Removing one target keeps the other");
+        TwinRules.Edited none = TwinRules.edit(wall, oneLeft.binding(), new DeviceConfig.TwinTarget("right", ""), TwinRules.Rights.NONE, all, false);
+        check(none.refusal() == null && none.binding() == null, "Removing the last target of a device without a source unbinds it");
+        check(TwinRules.edit(wall, null, new DeviceConfig.TwinSource("light.m3_lamp"), all, all, false).refusal() != null, "A Wall Switch mirrors nothing");
+        check(TwinRules.landingPending(both, wall, json("{\"press_left\":\"PRESS\"}")).equals(json("{\"press_left\":\"PRESS\"}"))
+                        && !TwinRules.seedSkipped(both, wall, json("{\"press_left\":\"PRESS\"}")),
+                "Targets alone divert no command: a queued or seeded press lands as always");
+        failsToBuild(DeviceType.builder(id("target_on_action")).model("T").action(Action.press("press_left"))
+                        .twin(TwinAdapter.targetsOnly().target("left", "press_left").targetDomains("scene").build()),
+                "no out-port", "A target on an action (an in-port) refused at type build (D16)");
+        boolean mirrorsRefused = false;
+        try {
+            TwinAdapter.targetsOnly().target("left", "left").targetDomains("scene").mirrors("state").build();
+        } catch (IllegalStateException expected) {
+            mirrorsRefused = expected.getMessage().contains("mirrors something without a primary port");
+        }
+        check(mirrorsRefused, "A targets-only adapter that mirrors a key is refused");
+    }
+
+    private static String inputCall(String entity, boolean rising, HaCalls.Mirror mirror) {
+        return switch (inputOutcome(entity, new JsonPrimitive(rising), mirror)) {
+            case HaCalls.Send send -> send.call().toString();
+            case HaCalls.Outcome other -> "no call: " + other;
+        };
+    }
+
+    private static HaCalls.Outcome inputOutcome(String entity, JsonElement value, HaCalls.Mirror mirror) {
+        return RedstoneInput.TWIN.targetCall("powered", TwinAdapter.targetEnd(entity), value, mirror);
+    }
+
+    private static String wallCall(String entity, JsonObject event, HaCalls.Mirror mirror) {
+        return switch (WallSwitch.TWIN.targetCall("left", TwinAdapter.targetEnd(entity), event, mirror)) {
+            case HaCalls.Send send -> send.call().toString();
+            case HaCalls.Outcome other -> "no call: " + other;
+        };
+    }
+
+    // The level an output shows after the twin applies an entity folded from these leaves; -1 when it holds.
+    private static int outputLevel(String entity, Binding.Settings settings, String... leaves) {
+        Binding binding = Binding.of(RedstoneOutput.TWIN.sourceEnd(entity)).withSettings(settings);
+        return RedstoneOutput.TYPE.twinCommand(document(entity, leaves), binding).map(command -> command.get("power").getAsInt()).orElse(-1);
+    }
+
+    private static int plugPower(String entity, String state) {
+        Binding binding = Binding.of(SmartPlug.TWIN.sourceEnd(entity));
+        return SmartPlug.TYPE.twinCommand(document(entity, "state", state), binding).map(command -> command.get("power").getAsInt()).orElse(-1);
+    }
+
+    // The one call a command to an output bound with control asks for, as "action data".
+    private static String outputCall(String entity, Binding.Settings settings, JsonObject command, HaCalls.Mirror mirror) {
+        List<Call> calls = RedstoneOutput.TWIN.calls(command, mirror, Binding.of(RedstoneOutput.TWIN.sourceEnd(entity)).withSettings(settings).withControl(true));
+        check(calls.size() == 1, "One call for " + command + " to " + entity + ": " + calls);
+        return calls.getFirst().toString();
+    }
+
+    // Why a command to an output bound with control asks for nothing: the refusal's reason, or "skip".
+    private static String outputRefusal(String entity, Binding.Settings settings, JsonObject command, HaCalls.Mirror mirror) {
+        List<HaCalls.Outcome> outcomes = RedstoneOutput.TWIN.forward(command, mirror, Binding.of(RedstoneOutput.TWIN.sourceEnd(entity)).withSettings(settings).withControl(true));
+        check(outcomes.size() == 1, "One outcome for " + command + " to " + entity + ": " + outcomes);
+        return switch (outcomes.getFirst()) {
+            case HaCalls.Refused refused -> refused.reason().name();
+            case HaCalls.Skip ignored -> "skip";
+            case HaCalls.Send send -> "sent " + send.call();
+        };
+    }
+
+    // What the twin knows of an entity folded from these leaves, LIVE.
+    private static HaCalls.Mirror mirror(String entity, String... leaves) {
+        EntityDocument document = document(entity, leaves);
+        return new HaCalls.Mirror(HaCalls.Mirror.Freshness.LIVE, document.state().wire(), document.toJson());
+    }
+
+    private static EntityDocument document(String entity, String... leaves) {
+        EntityDocuments documents = new EntityDocuments("ha_statestream", EntityDocuments.Limits.DEFAULT);
+        String topic = "ha_statestream/" + entity.replace('.', '/') + "/";
+        for (int i = 0; i < leaves.length; i += 2) {
+            documents.accept(topic + leaves[i], leaves[i + 1].getBytes(StandardCharsets.UTF_8), false, i);
+        }
+        return documents.document(entity).orElseThrow();
+    }
+
+    private static JsonObject power(int level) {
+        JsonObject command = new JsonObject();
+        command.addProperty("power", level);
+        return command;
+    }
+
+    private static JsonObject state(String value) {
+        JsonObject command = new JsonObject();
+        command.addProperty("state", value);
+        return command;
+    }
+
+    /**
+     * M3-15: the Display Panel (M3 plan D18). Its declaration (settings, the 255 of a Home Assistant text, read-only
+     * mirroring of any readable domain), the comparator rule for unbound and mirrored panels, its message codec, Raw
+     * Link grammar, saved state, unloaded preview and what clients draw.
+     */
+    private static void displayPanel() {
+        DeviceType type = DisplayPanel.TYPE;
+        check(settingKeys(type.settings()).equals(List.of("color", "glow", "size")) && type.unloadedPolicy() == UnloadedPolicy.QUEUE && !type.groupable()
+                && type.use().isEmpty() && type.actions().isEmpty() && type.events().isEmpty(),
+                "A panel's settings are colour, glow and size; it queues while unloaded, joins no group and opens its screen on a right-click");
+        check(DisplayPanel.MESSAGE.kind().equals(PortType.text(255)) && DisplayPanel.MESSAGE.access() == Access.READ_WRITE
+                && DisplayPanel.LEVEL.access() == Access.READ && DisplayPanel.COLOR.defaultValue() == DyeColor.CYAN && DisplayPanel.GLOW.defaultValue()
+                && DisplayPanel.SIZE.defaultValue() == DisplayPanel.Size.AUTO, "message is text of at most 255, level read-only; cyan, glowing, fitted by default");
+        check(type.entities().stream().map(HaEntity::key).toList().equals(List.of("message", "level", "location"))
+                && type.entities().getFirst() instanceof HaEntity.Text text && text.maxLength() == 255, "Its own Home Assistant text, the level and the location");
+
+        // The message: sanitised, line breaks kept, capped at 255 code points.
+        check(DisplayPanel.MESSAGE.parse(new JsonPrimitive("§aWasher\tdone\r\nnow")).orElseThrow().equals("Washer done\nnow"),
+                "Formatting codes go, a tab is a space, a line break stays one");
+        check(DisplayPanel.MESSAGE.parse(new JsonPrimitive("😀".repeat(300))).orElseThrow().codePointCount(0, 510) == 255
+                && DisplayPanel.MESSAGE.parse(new JsonPrimitive(7)).orElseThrow().equals("7") && DisplayPanel.MESSAGE.parse(json("{\"a\":1}")).isEmpty(),
+                "255 code points at most; a number is its text; an object is no message");
+
+        // The comparator rule: a gauge for numbers, on/off for words, presence for text.
+        Map<String, Integer> unbound = new LinkedHashMap<>();
+        unbound.put("", 0);
+        unbound.put("  ", 0);
+        unbound.put("Unavailable", 0);
+        unbound.put("unknown", 0);
+        unbound.put("7", 7);
+        unbound.put("0", 0);
+        unbound.put("1", 1);
+        unbound.put("7.4", 7);
+        unbound.put("7.5", 8);
+        unbound.put("-3", 0);
+        unbound.put("99", 15);
+        unbound.put("on", 15);
+        unbound.put("OFF", 0);
+        unbound.put("open", 15);
+        unbound.put("closed", 0);
+        unbound.put("true", 15);
+        unbound.put("Washer done!", 15);
+        unbound.put("21.4 °C", 15);
+        unbound.put("NaN", 15);
+        unbound.forEach((message, level) -> check(DisplayPanel.level(message) == level, "Unbound '" + message + "' gives " + level + ", not " + DisplayPanel.level(message)));
+        JsonObject number = json("{\"state\":\"42.5\",\"attributes\":{\"min\":0,\"max\":100}}");
+        check(DisplayPanel.comparator(new JsonPrimitive("42.5"), number, null, null) == 6
+                && DisplayPanel.comparator(new JsonPrimitive("42.5"), number, new BigDecimal("40"), new BigDecimal("45")) == 8
+                && DisplayPanel.comparator(new JsonPrimitive("42.5"), number, new BigDecimal("50"), new BigDecimal("40")) == 11
+                && DisplayPanel.comparator(new JsonPrimitive(12.5), JsonNull.INSTANCE, null, null) == 13,
+                "A number maps over the entity's range, over twin.min/twin.max first (reversed descends), else 0..15");
+        JsonObject select = json("{\"state\":\"Turbo\",\"attributes\":{\"options\":[\"Off\",\"Eco\",\"Turbo\"]}}");
+        check(DisplayPanel.comparator(new JsonPrimitive("Turbo"), select, null, null) == 2 && DisplayPanel.comparator(new JsonPrimitive("Off"), select, null, null) == 0
+                && DisplayPanel.comparator(new JsonPrimitive("Boost"), select, null, null) == 15, "An option gives its index; Off is a word, so 0; other text 15");
+        check(DisplayPanel.comparator(new JsonPrimitive(true), JsonNull.INSTANCE, null, null) == 15 && DisplayPanel.comparator(JsonNull.INSTANCE, JsonNull.INSTANCE, null, null) == 0
+                && DisplayPanel.comparator(json("{\"x\":1}"), JsonNull.INSTANCE, null, null) == 0, "A boolean is on or off; no value or an object is 0");
+
+        // Saved state, commands and the twin's extras.
+        DisplayPanel.Panel panel = new DisplayPanel.Panel("Washer done!", DyeColor.RED, false, DisplayPanel.Size.SMALL, 15);
+        Tag saved = DisplayPanel.Panel.CODEC.encodeStart(NbtOps.INSTANCE, panel).getOrThrow();
+        check(DisplayPanel.Panel.CODEC.parse(NbtOps.INSTANCE, saved).getOrThrow().equals(panel), "The saved state round-trips");
+        check(DisplayPanel.Panel.CODEC.parse(NbtOps.INSTANCE, new CompoundTag()).getOrThrow().equals(DisplayPanel.Panel.DEFAULT), "Missing values keep their defaults");
+        CompoundTag hostile = new CompoundTag();
+        hostile.putString("message", "x".repeat(5000));
+        hostile.putInt("level", 99);
+        hostile.putString("color", "chartreuse");
+        DisplayPanel.Panel bounded = DisplayPanel.Panel.CODEC.parse(NbtOps.INSTANCE, hostile).getOrThrow();
+        check(bounded.message().length() == 255 && bounded.level() == 15 && bounded.color() == DyeColor.CYAN, "Saved data is bounded: " + bounded.level());
+        DisplayPanel.Panel shown = DisplayPanel.Panel.DEFAULT.apply(command("{\"message\":\"7\"}"), false).orElseThrow();
+        check(shown.message().equals("7") && shown.level() == 7, "A message sets the level it gives");
+        check(DisplayPanel.Panel.DEFAULT.apply(command("{\"message\":\"7\",\"twin\":{\"level\":3}}"), false).orElseThrow().level() == 7
+                && DisplayPanel.Panel.DEFAULT.apply(command("{\"message\":\"7\",\"twin\":{\"level\":3}}"), true).orElseThrow().level() == 3
+                && DisplayPanel.Panel.DEFAULT.apply(command("{\"message\":\"7\",\"twin\":{\"level\":\"x\"}}"), true).orElseThrow().level() == 7,
+                "Only the panel's own twin apply brings its level; a malformed one is ignored");
+        DisplayPanel.Panel styled = shown.apply(command("{\"color\":\"LIME\",\"glow\":\"off\",\"size\":\"large\"}"), false).orElseThrow();
+        check(styled.equals(new DisplayPanel.Panel("7", DyeColor.LIME, false, DisplayPanel.Size.LARGE, 7)), "Settings keep the message and its level");
+        check(shown.apply(command("{\"level\":3}"), false).isEmpty() && shown.apply(command("{\"state\":\"ON\"}"), false).isEmpty(), "The level is read-only; other keys are no panel command");
+        JsonObject previewed = type.preview(json("{\"message\":\"\",\"level\":0,\"location\":{\"dimension\":\"minecraft:overworld\",\"x\":1,\"y\":2,\"z\":3}}"),
+                json("{\"message\":\"12\"}"));
+        check(previewed.get("message").getAsString().equals("12") && previewed.get("level").getAsInt() == 12 && previewed.has("location"),
+                "An unloaded panel publishes the queued message with its level: " + previewed);
+
+        // The Raw Link: text in, its retained value shown, no custom payloads.
+        RawLinkSpec spec = type.rawLink().orElseThrow();
+        check(spec.direction() == RawLinkSpec.Direction.IN && spec.acceptRetained() && !spec.customPayloads(), "A panel follows a topic's retained text");
+        check(spec.grammar().command("  Hello\nworld  ", ValueCodecs.CustomPayloads.NONE).orElseThrow().equals(json("{\"message\":\"Hello\\nworld\"}"))
+                && spec.grammar().command(" ", ValueCodecs.CustomPayloads.NONE).orElseThrow().equals(json("{\"message\":\"\"}"))
+                && spec.grammar().command("", ValueCodecs.CustomPayloads.NONE).isEmpty()
+                && spec.grammar().command("€".repeat(400), ValueCodecs.CustomPayloads.NONE).orElseThrow().get("message").getAsString().length() == 255,
+                "Raw text is the message (blank clears it, an empty payload commands nothing), capped at 255");
+        check(keys(type.linkSettings()).equals(List.of("name", "expose", "access", "raw.channel", "raw.private", "raw.topic",
+                "twin.entity", "twin.device", "twin.preset", "twin.path", "twin.min", "twin.max", "twin.decimals", "twin.unavailable")), "Panel link settings: " + keys(type.linkSettings()));
+
+        // What clients draw: finished lines, the title only while mirrored, a point in time as itself.
+        DisplayPanel.Render plain = DisplayPanel.Render.of(new DisplayPanel.Panel("The front door is open", DyeColor.CYAN, true, DisplayPanel.Size.AUTO, 15), null, false);
+        check(plain.title() == null && plain.lines().equals(List.of("The front", "door is open")) && plain.layout() == art.rehra.mineqtt.twin.core.DisplayText.Size.MEDIUM
+                && plain.at().isEmpty(), "An unbound panel draws its message fitted: " + plain);
+        DisplayPanel.Render titled = DisplayPanel.Render.of(new DisplayPanel.Panel("12.5 °C", DyeColor.CYAN, true, DisplayPanel.Size.AUTO, 13), "Outdoor", false);
+        check("Outdoor".equals(titled.title()) && titled.lines().equals(List.of("12.5 °C")), "A mirrored panel draws its name over the value");
+        DisplayPanel.Render time = DisplayPanel.Render.of(new DisplayPanel.Panel("2026-10-11T07:30:00+00:00", DyeColor.CYAN, true, DisplayPanel.Size.LARGE, 15), "Alarm", true);
+        check(time.at().equals(java.util.OptionalLong.of(java.time.Instant.parse("2026-10-11T07:30:00Z").toEpochMilli())) && time.lines().isEmpty()
+                && "Alarm".equals(time.title()) && time.size() == DisplayPanel.Size.LARGE && time.waiting(), "A point in time travels as epoch millis");
+        check(DisplayPanel.timestamp("07:30").isEmpty() && DisplayPanel.timestamp("tomorrow").isEmpty() && DisplayPanel.timestamp("a\n2026-10-11T07:30:00+00:00").isEmpty(),
+                "A time of day or text is no point in time");
+        // A message anyone may set (screen, /set, Raw Link, HA text) with a year epoch milliseconds cannot hold renders as text.
+        DisplayPanel.Render extreme = DisplayPanel.Render.of(new DisplayPanel.Panel("+999999999-01-01T00:00:00Z", DyeColor.CYAN, true, DisplayPanel.Size.AUTO, 15), null, false);
+        check(DisplayPanel.timestamp("+999999999-01-01T00:00:00Z").isEmpty() && DisplayPanel.timestamp("-999999999-01-01T00:00:00Z").isEmpty()
+                        && extreme.at().isEmpty() && !extreme.lines().isEmpty(), "A year outside 0..9999 is shown as text, never converted: " + extreme);
+        // M3-16: how a client words a point in time against its own clock.
+        long at = java.time.Instant.parse("2026-10-11T07:30:00Z").toEpochMilli();
+        java.time.ZoneId utc = java.time.ZoneOffset.UTC;
+        long minute = 60_000;
+        check(DisplayPanel.TimeShown.of(at, at - 30_000, utc).kind() == DisplayPanel.TimeShown.Kind.NOW
+                && DisplayPanel.TimeShown.of(at, at + 59_000, utc).kind() == DisplayPanel.TimeShown.Kind.NOW, "Within a minute is now");
+        DisplayPanel.TimeShown soon = DisplayPanel.TimeShown.of(at, at - (134 * minute + 30_000), utc);
+        check(soon.kind() == DisplayPanel.TimeShown.Kind.IN && soon.hours() == 2 && soon.minutes() == 14, "In 2 h 14 min: " + soon);
+        DisplayPanel.TimeShown past = DisplayPanel.TimeShown.of(at, at + 5 * minute, utc);
+        check(past.kind() == DisplayPanel.TimeShown.Kind.AGO && past.hours() == 0 && past.minutes() == 5, "5 min ago: " + past);
+        DisplayPanel.TimeShown later = DisplayPanel.TimeShown.of(at, at - 13 * 60 * minute, utc);
+        check(later.kind() == DisplayPanel.TimeShown.Kind.CLOCK && later.clock().equals("07:30"), "Beyond 12 h within a day is the clock time");
+        DisplayPanel.TimeShown far = DisplayPanel.TimeShown.of(at, at + 3 * 24 * 60 * minute, utc);
+        check(far.kind() == DisplayPanel.TimeShown.Kind.DATE && far.date().equals("10-11 07:30"), "Further away the date and time: " + far.date());
+        check(DisplayPanel.TimeShown.of(at, at, java.time.ZoneId.of("Europe/Berlin")).clock().equals("09:30"), "On the client's own clock");
+        CompoundTag render = RenderTag.panel(titled);
+        check(!render.toString().contains("sensor.") && RenderTag.panel(titled).size() <= 6, "The render data names no entity: " + render);
+        check(ValueCodecs.utf8(RenderTag.updateTag(RenderTag.panel(DisplayPanel.Render.of(new DisplayPanel.Panel("Ü".repeat(255), DyeColor.CYAN, true,
+                DisplayPanel.Size.SMALL, 15), "N".repeat(64), true))).toString()).length <= 400, "The largest render data stays about 300 bytes");
+
+        panelTwin();
+    }
+
+    /** M3-15: the panel mirrors any readable entity read-only: its value as text with its unit, the level from its range or options. */
+    private static void panelTwin() {
+        TwinAdapter twin = DisplayPanel.TYPE.twin().orElseThrow();
+        check(twin == DisplayPanel.TWIN && twin.primary().equals("message") && twin.sourceDomains().equals(art.rehra.mineqtt.twin.core.HaDomains.readableDomains())
+                && !twin.controllable() && twin.targets().isEmpty() && twin.hasExtras()
+                && twin.shapes().equals(Set.of(TwinAdapter.Shape.PATH, TwinAdapter.Shape.RANGE, TwinAdapter.Shape.DECIMALS)),
+                "The panel mirrors every readable domain read-only, with path, range and decimals rows");
+        check(!twin.sourceDomains().contains("person") && !twin.sourceDomains().contains("camera"), "Never a private domain");
+        check(twin.leaves("input_number.m3_level", Binding.Settings.DEFAULT).equals(List.of("state", "last_updated", "min", "max", "unit_of_measurement"))
+                && twin.leaves("sensor.m3_temperature", Binding.Settings.DEFAULT).equals(List.of("state", "last_updated", "unit_of_measurement"))
+                && twin.leaves("input_select.m3_mode", Binding.Settings.DEFAULT).equals(List.of("state", "last_updated", "options"))
+                && twin.leaves("climate.hall", Binding.Settings.DEFAULT).equals(List.of("state", "last_updated", "current_temperature")),
+                "The value, its unit, range and options, as the domain allows: " + twin.leaves("input_number.m3_level", Binding.Settings.DEFAULT));
+        check(DisplayPanel.defaultPath("climate").toString().equals(art.rehra.mineqtt.twin.core.ValuePath.keys("attributes", "current_temperature").toString())
+                && DisplayPanel.defaultPath("sensor").toString().equals(art.rehra.mineqtt.twin.core.ValuePath.keys("state").toString())
+                && DisplayPanel.defaultPath("scene").toString().equals(art.rehra.mineqtt.twin.core.ValuePath.keys("state").toString()),
+                "A climate shows its current temperature, a sensor or a scene its state");
+
+        check(panel("sensor.m3_temperature", Binding.Settings.DEFAULT, "state", "12.5", "unit_of_measurement", "\"°C\"")
+                .equals(json("{\"message\":\"12.5 °C\",\"twin\":{\"level\":13}}")), "A sensor shows its value with its unit; 12.5 over 0..15 is 13");
+        check(panel("input_number.m3_level", Binding.Settings.DEFAULT, "state", "42.5", "min", "0.0", "max", "100.0", "unit_of_measurement", "\"%\"")
+                .equals(json("{\"message\":\"42.5%\",\"twin\":{\"level\":6}}")), "An input_number maps over its own range");
+        check(panel("input_number.m3_level", Binding.Settings.DEFAULT.withMin(new BigDecimal("40")).withMax(new BigDecimal("50")).withDecimals(0),
+                "state", "42.5", "min", "0.0", "max", "100.0", "unit_of_measurement", "\"%\"").equals(json("{\"message\":\"43%\",\"twin\":{\"level\":4}}")),
+                "twin.min, twin.max and twin.decimals");
+        check(panel("input_select.m3_mode", Binding.Settings.DEFAULT, "state", "Eco", "options", "[\"Off\", \"Eco\", \"Turbo\"]")
+                .equals(json("{\"message\":\"Eco\",\"twin\":{\"level\":1}}")), "An option shows as itself and gives its index");
+        check(panel("binary_sensor.door", Binding.Settings.DEFAULT, "state", "on").equals(json("{\"message\":\"on\",\"twin\":{\"level\":15}}"))
+                && panel("binary_sensor.door", Binding.Settings.DEFAULT, "state", "off").equals(json("{\"message\":\"off\",\"twin\":{\"level\":0}}")),
+                "A binary sensor is on or off");
+        check(panel("climate.hall", Binding.Settings.DEFAULT, "state", "heat", "current_temperature", "21.5")
+                .equals(json("{\"message\":\"21.5\",\"twin\":{\"level\":15}}")), "A climate shows its current temperature");
+        check(panel("climate.hall", Binding.Settings.DEFAULT.withPath(art.rehra.mineqtt.twin.core.ValuePath.parse("state")), "state", "heat", "current_temperature", "21.5")
+                .equals(json("{\"message\":\"heat\",\"twin\":{\"level\":15}}")), "twin.path picks another value");
+        Binding.Settings brightnessPath = Binding.Settings.DEFAULT.withPath(art.rehra.mineqtt.twin.core.ValuePath.parse("attributes.brightness"));
+        check(panel("light.porch", brightnessPath, "state", "on", "brightness", "128").equals(json("{\"message\":\"128\",\"twin\":{\"level\":15}}"))
+                        && panel("light.porch", brightnessPath, "state", "off", "brightness", "null").equals(json("{\"message\":\"off\",\"twin\":{\"level\":0}}")),
+                "Cap §9.4: a panel on an off light's null brightness shows off at level 0, never the brightness from before");
+        check(panel("sensor.next_alarm", Binding.Settings.DEFAULT, "state", "2026-10-11T07:30:00+00:00")
+                .equals(json("{\"message\":\"2026-10-11T07:30:00+00:00\",\"twin\":{\"level\":15}}")), "A timestamp stays a point in time for the client");
+        check(panel("sensor.m3_temperature", Binding.Settings.DEFAULT, "state", "unavailable", "unit_of_measurement", "\"°C\"").isJsonNull(),
+                "Unavailable holds: nothing applies (the health gives the level 0)");
+        check(panel("sensor.m3_temperature", Binding.Settings.DEFAULT.withUnavailable(Binding.Unavailable.OFF), "state", "unavailable").equals(json("{\"message\":\"\"}")),
+                "twin.unavailable off clears the message, without extras");
+        check(panel("sensor.m3_temperature", Binding.Settings.DEFAULT, "state", "NaN").isJsonNull(), "NaN is never shown");
+        // Applied as the panel applies it.
+        DisplayPanel.Panel mirrored = DisplayPanel.Panel.DEFAULT.apply(new CommandReader(panel("input_number.m3_level", Binding.Settings.DEFAULT, "state", "42.5",
+                "min", "0.0", "max", "100.0", "unit_of_measurement", "\"%\"").getAsJsonObject()), true).orElseThrow();
+        check(mirrored.message().equals("42.5%") && mirrored.level() == 6, "The twin apply shows 42.5% at level 6");
+        // A refused binding and another entity read nothing, extras neither.
+        EntityDocuments documents = new EntityDocuments("ha_statestream", EntityDocuments.Limits.DEFAULT);
+        documents.accept("ha_statestream/sensor/x/state", "5".getBytes(StandardCharsets.UTF_8), false, 0);
+        Binding binding = Binding.of(twin.sourceEnd("sensor.x"));
+        check(twin.extras(documents.document("sensor.x").orElseThrow(), binding.withRefused("not allowed")).isEmpty()
+                && twin.extras(documents.document("sensor.x").orElseThrow(), Binding.of(twin.sourceEnd("sensor.y"))).isEmpty()
+                && DisplayPanel.TYPE.twinCommand(documents.document("sensor.x").orElseThrow(), binding.withRefused("not allowed")).isEmpty(),
+                "A refused binding or another entity's document gives neither values nor extras");
+        Field<String> text = Field.text("text", Access.READ_WRITE);
+        TwinAdapter textTwin = TwinAdapter.builder("text").source((domain, settings) -> Map.of("text",
+                new art.rehra.mineqtt.twin.core.PortRead(art.rehra.mineqtt.twin.core.ValuePath.keys("state"), new art.rehra.mineqtt.twin.core.ValueMap.Text(-1, null, 255))),
+                "sensor").build();
+        DeviceType.builder(Identifier.fromNamespaceAndPath("mineqtt", "test_extras")).model("Test").field(text).entity(Ha.text("text", text)).twin(textTwin).build();
+        failsToBuild(DeviceType.builder(Identifier.fromNamespaceAndPath("mineqtt", "test_extras")).model("Test")
+                        .field(text).field(Field.text("twin", Access.READ)).entity(Ha.text("text", text)).twin(textTwin),
+                "port keyed twin", "A twin type with a port keyed twin");
+    }
+
+    // The command a panel bound to `entity` gets from a document folded from these statestream leaves; JsonNull for none.
+    private static JsonElement panel(String entity, Binding.Settings settings, String... leaves) {
+        EntityDocuments documents = new EntityDocuments("ha_statestream", EntityDocuments.Limits.DEFAULT);
+        String topic = "ha_statestream/" + entity.replace('.', '/') + "/";
+        for (int i = 0; i < leaves.length; i += 2) {
+            documents.accept(topic + leaves[i], leaves[i + 1].getBytes(StandardCharsets.UTF_8), false, i);
+        }
+        Binding binding = Binding.of(DisplayPanel.TWIN.sourceEnd(entity)).withSettings(settings);
+        return DisplayPanel.TYPE.twinCommand(documents.document(entity).orElseThrow(), binding).map(command -> (JsonElement) command).orElse(JsonNull.INSTANCE);
+    }
+
+    // The light a lamp in state `before` shows after the twin applies an entity folded from these statestream leaves.
+    private static ValueCodecs.LightState lamp(String entity, ValueCodecs.LightState before, String... leaves) {
+        EntityDocuments documents = new EntityDocuments("ha_statestream", EntityDocuments.Limits.DEFAULT);
+        String topic = "ha_statestream/" + entity.replace('.', '/') + "/";
+        for (int i = 0; i < leaves.length; i += 2) {
+            documents.accept(topic + leaves[i], leaves[i + 1].getBytes(StandardCharsets.UTF_8), false, i);
+        }
+        Binding binding = Binding.of(SmartLamp.TWIN.sourceEnd(entity));
+        return SmartLamp.TYPE.twinCommand(documents.document(entity).orElseThrow(), binding).map(before::merge).orElse(before);
+    }
+
     private static JsonObject json(String text) {
         return JsonParser.parseString(text).getAsJsonObject();
     }
@@ -908,6 +1513,19 @@ public final class DeviceTypesCheck {
             }
         }
         check(WallSwitch.rawPayload(WallSwitch.Gesture.HOLD, left).equals("hold_left"), "A hold of the left button is hold_left");
+        // M3-14, D16: each gesture is also its button's bus-only event; Home Assistant's event entity and triggers, the
+        // action topic and the Raw Link never carry it.
+        check(WallSwitch.buttonEvent(WallSwitch.Gesture.HOLD, right).toString().equals("{\"event_type\":\"right\",\"gesture\":\"hold\"}"),
+                "A gesture's per-button event names its gesture");
+        for (WallSwitch.Gesture gesture : WallSwitch.Gesture.values()) {
+            for (WallSwitch.Button button : WallSwitch.Button.values()) {
+                check(WallSwitch.TYPE.eventProblem(WallSwitch.buttonEvent(gesture, button)).isEmpty(), "Every per-button event is declared: " + gesture + " " + button);
+            }
+        }
+        for (HaEntity<?> entity : WallSwitch.TYPE.entities()) {
+            if (entity instanceof HaEntity.Event event) check(!event.eventTypes().contains("left") && !event.eventTypes().contains("right"), "The event entity knows no per-button event");
+            if (entity instanceof HaEntity.DeviceTrigger trigger) check(!WallSwitch.TYPE.event(trigger.event()).orElseThrow().busOnly(), "No device trigger fires on a bus-only event");
+        }
 
         // The actions' commands, as Home Assistant, a wire, the screen and the command twin send them.
         check(WallSwitch.presses(new CommandReader(WallSwitch.PRESS_LEFT.command(WallSwitch.PRESS_LEFT.parse("").orElseThrow())))
@@ -928,7 +1546,8 @@ public final class DeviceTypesCheck {
         RawLink retained = new RawLink("home/hall/switch", RawLinkSpec.Direction.OUT, null, null, 0, true, null, false, null, 1, null, RawLink.Edges.BOTH);
         check(!retained.effectiveRetain(spec) && !RawRetain.retains(retained, spec) && RawRetain.destroyed(retained, spec).isEmpty(),
                 "An event link is never retained, whatever its override, and leaves nothing behind");
-        check(keys(WallSwitch.TYPE.linkSettings()).equals(List.of("name", "expose", "access", "raw.channel", "raw.private", "raw.topic", "raw.qos")),
+        check(keys(WallSwitch.TYPE.linkSettings()).equals(List.of("name", "expose", "access", "raw.channel", "raw.private", "raw.topic", "raw.qos",
+                        "twin.left", "twin.right", "twin.resume")),
                 "A Raw Link of events has QoS but no retain and no payloads");
         boolean refused = false;
         try {

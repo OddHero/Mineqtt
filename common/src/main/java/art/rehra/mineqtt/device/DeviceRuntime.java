@@ -5,11 +5,13 @@ import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.types.SmartLamp;
+import art.rehra.mineqtt.flow.core.Coerce;
 import art.rehra.mineqtt.flow.core.Endpoint;
 import art.rehra.mineqtt.flow.core.FlowMessage;
 import art.rehra.mineqtt.flow.core.Mapping;
 import art.rehra.mineqtt.flow.core.MessageBus;
 import art.rehra.mineqtt.flow.core.PortType;
+import art.rehra.mineqtt.flow.core.Root;
 import art.rehra.mineqtt.flow.core.Scope;
 import art.rehra.mineqtt.flow.core.Wire;
 import art.rehra.mineqtt.integrations.MineqttPermission;
@@ -30,7 +32,19 @@ import art.rehra.mineqtt.security.AccessMode;
 import art.rehra.mineqtt.security.AclContext;
 import art.rehra.mineqtt.security.DeviceAccess;
 import art.rehra.mineqtt.security.NoticeGate;
+import art.rehra.mineqtt.security.TokenBucket;
+import art.rehra.mineqtt.twin.BindingPresets;
+import art.rehra.mineqtt.twin.HaSink;
+import art.rehra.mineqtt.twin.TwinAdapter;
+import art.rehra.mineqtt.twin.TwinGate;
+import art.rehra.mineqtt.twin.TwinRequests;
+import art.rehra.mineqtt.twin.TwinRuntime;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.BindingPreset;
+import art.rehra.mineqtt.twin.core.EntityDocument;
+import art.rehra.mineqtt.twin.core.TwinHealth;
 import art.rehra.mineqtt.ui.device.DeviceMenu;
+import art.rehra.mineqtt.ui.device.TwinPicker;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
@@ -120,6 +134,21 @@ import java.util.function.Predicate;
  *     changed it, and the bus is drained after the inbound messages, before the outbound flush and in the paused-server
  *     pump. A message reaches its target through {@link #command} as a {@link CommandSource#BINDING} command, so it
  *     needs no broker; an unloaded actuator queues it.</li>
+ *     <li>A device bound to a source by its twin binding (M3 plan D6, D14) is mirrored: a command to a port its source
+ *     owns is forwarded to the source ({@link MirrorForwarder}) while control is on, or refused, and never queued; Home
+ *     Assistant's {@code /set} and group commands to those ports are refused, its Raw Link input pauses, a new wire does
+ *     not seed it, its queued command is dropped at its attach, and it joins no group. A binding is judged for its owner
+ *     at every attach and config reload ({@link #twinRulesChanged}), and edited only while the device is loaded.</li>
+ *     <li>While it is loaded and its binding works, a mirrored device has a derived {@link Scope#TWIN} wire from its
+ *     entity's port ({@link TwinWiring}) and holds the entity's statestream leaves in the
+ *     {@link art.rehra.mineqtt.twin.TwinRuntime}; an applied entity's document travels that wire in a {@link Root#TWIN}
+ *     extent and reaches the device as a {@link CommandSource#TWIN} command (M3 plan §3.3, §3.4). Its health rides on its
+ *     state topic and, as a hint, on its render data.</li>
+ *     <li>A forwarded command becomes requests to Home Assistant ({@link TwinRequests}, M3 plan D10, D11): only a
+ *     player's or the world's cause passes the root gate, a refused root counts as the bus drop {@code root}, and the
+ *     rates, the dedupe and the circuit breaker bound the rest. A player's command names them in the request. While a
+ *     request waits for its entity the device's clients see it pending; a paused device shows
+ *     {@link TwinHealth#CONTROL_PAUSED} until a player resumes it ({@link #resumeTwin}).</li>
  * </ul>
  * Discovery follows every change of identity, exposure and group membership through the runtime's
  * {@link art.rehra.mineqtt.ha.DiscoveryPublisher}.
@@ -138,6 +167,12 @@ public final class DeviceRuntime {
     public static final String CLAIM_KEY = "claim";
     public static final String RETRY_KEY = "retry";
     public static final String EJECT_KEY = "eject";
+    /**
+     * What a device's Diagnostics tab names as the source of what its Home Assistant twin applied (M2-11's source
+     * description for deliveries that are no MQTT message of the device): never the entity, which only viewers who may
+     * configure the device see (M3 plan D13 #7).
+     */
+    public static final String TWIN_SOURCE = "Home Assistant (twin)";
     /** What a refused removal from a device's links list names as its key ({@code DeviceRefusedS2C}). */
     public static final String LINKS_KEY = "links";
     /** What a refused change from a device's group page names as its key ({@code DeviceRefusedS2C}). */
@@ -189,6 +224,19 @@ public final class DeviceRuntime {
     private final Map<UUID, OwnerNotices> ownerNotices = new HashMap<>();
     // The Raw Link problem of each attached device as last told, so the same refusal is told once.
     private final NoticeGate<UUID> rawProblems = new NoticeGate<>();
+    // The twin binding refusal of each attached device as last told, so the same refusal is told once.
+    private final NoticeGate<UUID> twinProblems = new NoticeGate<>();
+    // Where commands forwarded to a mirrored device's source go (M3 plan D11).
+    private MirrorForwarder mirrorForwarder = MirrorForwarder.NONE;
+    // The player whose command runs now (set): a request it forwards names them and counts against their rate (D10, D11).
+    private TwinRequests.@Nullable Requester actor;
+    // Loaded devices whose twin health may have changed this tick; shown after the bus drain, so a device's state topic
+    // gets the new health together with the value that changed it.
+    private final Set<UUID> staleHealth = new LinkedHashSet<>();
+    // The wires derived from the bindings of loaded devices (M3 plan §3.3), which the bus routes over next to the registry's.
+    private final TwinWiring twinWiring = new TwinWiring();
+    // The health each loaded bound device last showed (M3 plan D6): its state topic and its clients follow a change.
+    private final Map<UUID, TwinHealth> twinHealth = new HashMap<>();
     // Loaded devices whose open screens get a new view at the end of the tick, once however often they changed.
     private final Set<UUID> staleViews = new LinkedHashSet<>();
     // Devices one of whose links changed this tick (a wire made or removed, a peer renamed, a group joined): their open
@@ -201,6 +249,10 @@ public final class DeviceRuntime {
     private ConnectionState.@Nullable Status viewedConnection;
     // What each device sent and received since the server started, for its Diagnostics tab; forgotten with its record.
     private final Map<UUID, DeviceTraffic> traffic = new HashMap<>();
+    // Each player's entity picker searches (M3 plan D4): a flood beyond the burst is dropped. Forgotten when they leave.
+    private final Map<UUID, TokenBucket> twinSearches = new HashMap<>();
+    // The entities each player bound lately, newest last, which D4's ranking lifts. Forgotten when they leave.
+    private final Map<UUID, Set<String>> recentTwin = new HashMap<>();
     // Carries what devices emit over their wires; in-flight messages are not kept across a restart (M2 plan §3.6).
     private final MessageBus bus;
     private TopicScheme commandTopics;
@@ -237,8 +289,20 @@ public final class DeviceRuntime {
         /** A group fans it out to its members, each routed on its own. */
         FAN_OUT,
         /**
+         * A command to a mirrored port of a bound device with control on, from a player or a wire (M3 plan D6, D11): it
+         * changes nothing locally and goes to the device's source through the {@link MirrorForwarder} instead.
+         */
+        FORWARD,
+        /**
+         * A command to a mirrored port that nobody may send it (M3 plan D6, D14): Home Assistant's {@code /set}, a group,
+         * the device's paused Raw Link, or anyone while control is off or the binding is refused. It changes nothing and
+         * says why.
+         */
+        REFUSE,
+        /**
          * Nobody takes it: an unloaded sensor, a device or group of a type this MineQTT does not know, a group that has
-         * no member type yet, or an id that names nothing.
+         * no member type yet, an id that names nothing, or a {@link CommandSource#TWIN} apply to an unloaded device,
+         * which is never queued (M3 plan D17).
          */
         DROP
     }
@@ -246,9 +310,56 @@ public final class DeviceRuntime {
     /**
      * What {@link #command} did with a command.
      *
-     * @param result what a loaded device did with it; null for every other route
+     * @param result    what a loaded device did with it; null for every other route
+     * @param reason    why a {@link Route#REFUSE}d or a {@link Route#FORWARD}ed command was not sent on; null otherwise
+     * @param forwarded what became of a {@link Route#FORWARD}ed command's request; null for every other route
      */
-    public record Delivery(Route route, @Nullable CommandResult result) {
+    public record Delivery(Route route, @Nullable CommandResult result, @Nullable String reason, TwinRequests.@Nullable Result forwarded) {
+        public Delivery(Route route, @Nullable CommandResult result) {
+            this(route, result, null, null);
+        }
+
+        public Delivery(Route route, @Nullable CommandResult result, @Nullable String reason) {
+            this(route, result, reason, null);
+        }
+
+        /** A forwarded command and what became of its request: refused ones say why. */
+        static Delivery forwarded(TwinRequests.Result forwarded) {
+            return new Delivery(Route.FORWARD, null, forwarded instanceof TwinRequests.Refused refused ? refused.reason() : null, forwarded);
+        }
+    }
+
+    /**
+     * What {@link #route} needs to know of a device's twin binding (M3 plan §3.4).
+     *
+     * @param port    whether the command touches a port the device's source owns ({@link TwinAdapter#touchesMirror})
+     * @param control whether such a command is forwarded: control is on, the binding works and the owner may control it
+     */
+    public record Mirrored(boolean port, boolean control) {
+        /** An unbound device, or a command that touches no mirrored port. */
+        public static final Mirrored NONE = new Mirrored(false, false);
+    }
+
+    /**
+     * Where a {@link Route#FORWARD}ed command goes (M3 plan D10, D11): the write-back to the device's source, which gates
+     * the root, dedupes, rates and builds the request ({@link TwinRequests}). The runtime only routes; nothing applies
+     * locally either way.
+     */
+    @FunctionalInterface
+    public interface MirrorForwarder {
+        /**
+         * This server sends no requests to Home Assistant: a forwarded command is refused with that reason. The runtime
+         * starts with it until a sender is installed ({@link #setMirrorForwarder}).
+         */
+        MirrorForwarder NONE = (record, binding, command, root, player) ->
+                new TwinRequests.Refused(TwinRequests.Refusal.NOT_ALLOWED, "not sent: this server sends no requests to Home Assistant");
+
+        /**
+         * @param root   the root the command runs in ({@link MessageBus#currentRoot})
+         * @param player the player whose command it is, when one is ({@link Root#PLAYER}); null for the world and the console
+         * @return what became of its request
+         */
+        TwinRequests.Result forward(DeviceRecord record, Binding binding, JsonObject command, Root root, TwinRequests.@Nullable Requester player);
     }
 
     /**
@@ -256,11 +367,19 @@ public final class DeviceRuntime {
      * which judges a topic they type, and the player, who hears what came of a Raw Link change.
      *
      * @param player null for the console or a command block
+     * @param twin   what they may bind, judged for the twin keys on top of CONFIGURE (M3 plan D13)
      */
-    public record Editor(DeviceView.Grants grants, TopicAcl.Subject subject, @Nullable ServerPlayer player) {
+    public record Editor(DeviceView.Grants grants, TopicAcl.Subject subject, @Nullable ServerPlayer player, TwinRules.Rights twin) {
+        /** An editor who may bind nothing. */
+        public Editor(DeviceView.Grants grants, TopicAcl.Subject subject, @Nullable ServerPlayer player) {
+            this(grants, subject, player, TwinRules.Rights.NONE);
+        }
+
         /** A player at the device's screen, with what they may do there. */
         public static Editor of(ServerPlayer player, BlockEntity blockEntity) {
-            return new Editor(DeviceAccess.grants(player, blockEntity), AclContext.of(player), player);
+            MinecraftServer server = player.level().getServer();
+            return new Editor(DeviceAccess.grants(player, blockEntity), AclContext.of(player), player,
+                    TwinRules.Rights.of(player.permissions(), server.isDedicatedServer()).withTopics(TwinRules.topics(server, AclContext.of(player))));
         }
     }
 
@@ -315,7 +434,7 @@ public final class DeviceRuntime {
     public DeviceRuntime(MineqttRuntime runtime, DeviceRegistry registry) {
         this.runtime = runtime;
         this.registry = registry;
-        this.bus = new MessageBus(new RegistryWiring(registry), this::deliverWire, new MessageBus.Listener() {
+        this.bus = new MessageBus(new RegistryWiring(registry, twinWiring), this::deliverWire, new MessageBus.Listener() {
             @Override
             public void loopCut(Wire wire, FlowMessage message) {
                 MineQTT.LOGGER.warn("Wire {} is part of a loop without a delay: a message from {} had travelled {} wires and was dropped "
@@ -327,6 +446,55 @@ public final class DeviceRuntime {
                 MineQTT.LOGGER.error("Delivering {} over wire {} failed", message.payload(), describe(wire), e);
             }
         }, System::nanoTime);
+        runtime.twin().setDevices(new TwinRuntime.Devices() {
+            @Override
+            public void twinApply(String entityId, EntityDocument document) {
+                applyTwin(entityId, document);
+            }
+
+            @Override
+            public void twinHealthChanged(Collection<String> entityIds) {
+                // A target's entity leaving or rejoining the catalog changes its device's health too (wave 5 finding 3).
+                entityIds.forEach(entity -> {
+                    staleHealth.addAll(twinWiring.devices(entity));
+                    staleHealth.addAll(twinWiring.targetDevices(entity));
+                });
+            }
+
+            @Override
+            public void topicApply(String topic, TwinRuntime.TopicValue value) {
+                applyTopic(topic, value);
+            }
+
+            @Override
+            public void topicHealthChanged(Collection<String> topics) {
+                topics.forEach(topic -> staleHealth.addAll(twinWiring.topicDevices(topic)));
+            }
+        });
+        runtime.twinRequests().setListener(new TwinRequests.Listener() {
+            @Override
+            public void pendingChanged(UUID device, boolean pending) {
+                if (attached.get(device) instanceof DeviceBlockEntity blockEntity) blockEntity.setTwinPending(pending);
+                // The Twin tab's health line shows the waiting request and the control blueprint's answer (D19).
+                viewChanged(device);
+            }
+
+            @Override
+            public void pausedChanged(UUID device, boolean paused) {
+                refreshTwinHealth(device);
+            }
+
+            @Override
+            public void notice(TwinRequests.Notice notice) {
+                twinNotice(notice);
+            }
+
+            @Override
+            public void rateRefused(UUID device) {
+                // The Twin tab's health line counts the refused requests (wave 6 open finding 2).
+                viewChanged(device);
+            }
+        });
         powerOnRecords();
         Set<BlockEntity> waiting = beforeStart.remove(runtime.server());
         if (waiting != null) {
@@ -349,24 +517,12 @@ public final class DeviceRuntime {
      * Devices start with their server, also those whose chunk is not loaded: a queueing device's record shows the state
      * it starts in, so its state is published and the commands queued for it are diffed from there. Its block entity
      * powers on the same way when it attaches. A group whose first member started in another state follows it. What a
-     * device started differently in leaves on its out-ports and reaches its wires' targets at the first drain.
+     * device started differently in leaves on its out-ports and reaches its wires' targets at the first drain, as a
+     * {@link Root#STARTUP} message (M3 plan D10): a restart never switches a real device.
      */
     private void powerOnRecords() {
-        Set<UUID> changed = new HashSet<>();
-        for (DeviceRecord record : registry.records()) {
-            DeviceType type = DeviceTypes.get(record.type());
-            if (type == null || type.unloadedPolicy() != UnloadedPolicy.QUEUE || record.lastState() == null) continue;
-            boolean startedChanged = AttachQueue.isolate(record, powered -> {
-                JsonObject before = powered.lastState();
-                JsonObject started = type.poweredOn(before);
-                if (started.equals(before)) return false;
-                powered.setLastState(started);
-                // Its wires carry the change (an output whose power-on behaviour is off), as the attach will not see one.
-                emitChanges(powered.id(), type, before, started);
-                return true;
-            }, (failed, e) -> fault(failed.pos(), Stage.POWER_ON, e));
-            if (startedChanged) changed.add(record.id());
-        }
+        Set<UUID> changed = powerOnRecords(registry, bus, (source, key, value) -> emit(FlowMessage.Kind.VALUE, source, key, value),
+                (failed, e) -> fault(failed.pos(), Stage.POWER_ON, e));
         if (changed.isEmpty()) return;
         for (DeviceGroup group : registry.groups()) {
             DeviceType type = group.memberType() == null ? null : DeviceTypes.get(group.memberType());
@@ -376,6 +532,43 @@ public final class DeviceRuntime {
             }
         }
         registry.markDirty();
+    }
+
+    /** Where {@link #powerOnRecords(DeviceRegistry, MessageBus, PortEmitter, BiConsumer)} emits a changed out-port. */
+    @FunctionalInterface
+    interface PortEmitter {
+        void emit(Endpoint source, String key, JsonElement value);
+    }
+
+    /**
+     * The power-on of the registry's unloaded {@link UnloadedPolicy#QUEUE} devices at server start: each record takes the
+     * state its type powers on in ({@link DeviceType#poweredOn}), and every out-port that changed is emitted, all in one
+     * {@link Root#STARTUP} extent of {@code bus} (M3 plan D10), so a restart never switches a real device through a wire.
+     * A record whose power-on throws is handed to {@code faulted} and the others carry on. Static so that
+     * {@code verifyMirrorNoLoop} runs it against a real registry and bus.
+     *
+     * @return the devices whose state changed
+     */
+    static Set<UUID> powerOnRecords(DeviceRegistry registry, MessageBus bus, PortEmitter emitter, BiConsumer<DeviceRecord, RuntimeException> faulted) {
+        return bus.withRoot(Root.STARTUP, () -> {
+            Set<UUID> changed = new HashSet<>();
+            for (DeviceRecord record : registry.records()) {
+                DeviceType type = DeviceTypes.get(record.type());
+                // A bound device's source owns its state (M3 plan D6), so it does not power on as its type would.
+                if (type == null || type.unloadedPolicy() != UnloadedPolicy.QUEUE || record.lastState() == null || TwinRules.bound(record.twin())) continue;
+                boolean startedChanged = AttachQueue.isolate(record, powered -> {
+                    JsonObject before = powered.lastState();
+                    JsonObject started = type.poweredOn(before);
+                    if (started.equals(before)) return false;
+                    powered.setLastState(started);
+                    // Its wires carry the change (an output whose power-on behaviour is off), as the attach will not see one.
+                    type.changedOutputs(before, started).forEach((key, value) -> emitter.emit(Endpoint.port(powered.id(), key), key, value));
+                    return true;
+                }, faulted);
+                if (startedChanged) changed.add(record.id());
+            }
+            return changed;
+        });
     }
 
     /** From {@link DeviceLink#onSetLevel}: attaches the block entity on the next tick of its server. */
@@ -440,6 +633,7 @@ public final class DeviceRuntime {
         }
         for (ServerPlayer viewer : MineqttNetworking.viewers(blockEntity)) {
             MineqttNetworking.sendDeviceView(viewer, view(viewer, blockEntity));
+            sendTwin(viewer, blockEntity, null);
         }
     }
 
@@ -577,7 +771,7 @@ public final class DeviceRuntime {
      */
     public boolean hasPendingWork() {
         return !stopping && (!conversions.isEmpty() || !attachQueue.isEmpty() || !ownerLookups.isEmpty() || !pruneQueue.isEmpty() || bus.hasQueued()
-                || remotesDue() || throttles.values().stream().anyMatch(StateThrottle::hasDeferred));
+                || !staleHealth.isEmpty() || remotesDue() || throttles.values().stream().anyMatch(StateThrottle::hasDeferred));
     }
 
     /**
@@ -586,7 +780,12 @@ public final class DeviceRuntime {
      * the paused-server pump as well.
      */
     public void drainBus() {
-        if (!stopping) bus.drain();
+        if (stopping) return;
+        bus.drain();
+        if (staleHealth.isEmpty()) return;
+        List<UUID> stale = List.copyOf(staleHealth);
+        staleHealth.clear();
+        stale.forEach(this::refreshTwinHealth);
     }
 
     /**
@@ -633,6 +832,9 @@ public final class DeviceRuntime {
         rawSubscriptions.clear();
         groupRawSubscriptions.values().forEach(Subscription::close);
         groupRawSubscriptions.clear();
+        twinWiring.clear();
+        twinHealth.clear();
+        staleHealth.clear();
     }
 
     /** After a reconnect: the bridge id or base topic may have changed, which moves the command filters. */
@@ -697,7 +899,10 @@ public final class DeviceRuntime {
         // The links lists of the devices it is wired to name it.
         linksChanged(registry.wiresOf(record.id()));
         BlockEntity blockEntity = attached.get(record.id());
-        if (blockEntity != null && requireHost(blockEntity).deviceLink().assign(record.id(), record.name(), record.slug())) blockEntity.setChanged();
+        if (blockEntity != null && requireHost(blockEntity).deviceLink().assign(record.id(), record.name(), record.slug())) {
+            blockEntity.setChanged();
+            requireHost(blockEntity).identityChanged();
+        }
         if (stopping) return;
         boolean moved = !oldSlug.equals(slug);
         if (moved) {
@@ -967,7 +1172,8 @@ public final class DeviceRuntime {
         Optional<DataResult.Error<DeviceConfig.Change>> error = parsed.error();
         if (error.isPresent()) return Configured.refused(record.slug() + ": " + error.get().message());
         Configured result = switch (parsed.getOrThrow()) {
-            case DeviceConfig.Command setting -> set(record, setting.command());
+            // The Controls tab's fields (a lamp's brightness, its colour) are the player's own commands, as actions are.
+            case DeviceConfig.Command setting -> set(record, setting.command(), editor.player());
             case DeviceConfig.Rename rename -> {
                 if (rename.name().equals(record.name())) yield Configured.unchanged(record.slug() + " already is called " + record.name());
                 String oldSlug = record.slug();
@@ -987,9 +1193,340 @@ public final class DeviceRuntime {
             case DeviceConfig.RawRetain change -> editRaw(record, change, editor);
             case DeviceConfig.RawQos change -> editRaw(record, change, editor);
             case DeviceConfig.RawPayload change -> editRaw(record, change, editor);
+            case DeviceConfig.Twin change -> editTwin(record, change, editor);
+            case DeviceConfig.TwinResume ignored -> resumeTwin(record, editor);
         };
         viewChanged(record.id());
         return result;
+    }
+
+    /**
+     * Edits the twin binding of a loaded device (M3 plan D19, D13): the editor holds CONFIGURE on it (the key's gate,
+     * checked by {@link DeviceConfig#parse}), and {@link TwinRules#edit} composes the twin gate for them. A binding lives
+     * in the block, so an unloaded device keeps its binding as it is (D14).
+     */
+    private Configured editTwin(DeviceRecord record, DeviceConfig.Twin change, Editor editor) {
+        BlockEntity blockEntity = attached.get(record.id());
+        if (blockEntity == null) return Configured.refused(record.slug() + " is not loaded; its binding is kept in its block");
+        DeviceHost host = requireHost(blockEntity);
+        DeviceLink link = host.deviceLink();
+        TwinAdapter adapter = host.deviceType().twin().orElseThrow();
+        Binding before = link.twin();
+        TwinRules.Edited edited = TwinRules.edit(adapter, before, change, editor.twin(),
+                TwinRules.Rights.owner(runtime.server(), link.owner(), link.ownerName()), record.group() != null);
+        if (edited.refusal() != null) return Configured.refused(record.slug() + ": " + edited.refusal());
+        Binding after = edited.binding();
+        if (Objects.equals(before, after)) return Configured.unchanged(record.slug() + "'s binding already is " + twinStatus(after));
+        // A new source or target must be shared by Home Assistant's labels while the catalog answers (M3 plan D3, M3-11,
+        // M3-14); entities already bound stay editable when they left the catalog.
+        Optional<String> unshared = TwinRules.shareRefusal(before, after, runtime.twin()::shareProblem);
+        if (unshared.isPresent()) return Configured.refused(record.slug() + ": " + unshared.get());
+        if (editor.player() != null && blockEntity instanceof DeviceBlockEntity device) device.setLastEditor(editor.player());
+        link.setTwin(after);
+        blockEntity.setChanged();
+        twinChanged(record, host, before);
+        // The picker lifts what its player bound lately (D4).
+        String bound = switch (change) {
+            case DeviceConfig.TwinSource source -> source.entity();
+            case DeviceConfig.TwinTarget target -> target.entity();
+            default -> "";
+        };
+        if (editor.player() != null && !bound.isEmpty()) TwinPicker.remember(recentTwin.computeIfAbsent(editor.player().getUUID(), key -> new LinkedHashSet<>()), bound);
+        return Configured.applied(record.slug() + "'s binding: " + twinStatus(after));
+    }
+
+    /**
+     * After a device's binding changed (an edit, a judgement for its owner): the record's copy follows, the Raw Link input
+     * pauses or resumes, the state and the discovery are published again (reduced while bound, in full with the same
+     * unique_ids once unbound, M3 plan D6), and open screens show it.
+     */
+    private void twinChanged(DeviceRecord record, DeviceHost host, @Nullable Binding before) {
+        Binding after = host.deviceLink().twin();
+        record.setTwin(after);
+        registry.markDirty();
+        // A value held for the rates goes to the entity and control of the binding before; it is not sent any more.
+        if (!Objects.equals(before, after)) runtime.twinRequests().dropHeld(record.id());
+        // The editor heard the outcome; the same refusal is not told again.
+        twinProblems.update(record.id(), after == null ? null : after.refused());
+        boolean wasBound = before != null && before.bound();
+        boolean bound = after != null && after.bound();
+        if (wasBound != bound) refreshRaw(record);
+        followTwin(record, host, false);
+        // A changed setting reads the same document differently: the device's wire forgets what it last carried, and the
+        // entity applies again (the other devices' wires pass it as unchanged).
+        twinWiring.of(record.id()).ifPresent(wire -> {
+            bus.forgetWire(wire.id());
+            switch (wire.from()) {
+                case Endpoint.HaEntityRef entity -> runtime.twin().reapply(entity.entityId());
+                case Endpoint.TopicRef topic -> runtime.twin().reapplyTopic(topic.topic());
+                default -> {
+                }
+            }
+        });
+        if (!stopping) {
+            publishState(host, true);
+            // Bound or unbound: Home Assistant must remove what the device no longer declares (M3-7b).
+            if (wasBound != bound) runtime.discovery().bindingChanged(record);
+            else runtime.discovery().refresh(record);
+        }
+        BlockEntity blockEntity = attached.get(record.id());
+        if (blockEntity != null) pushStatus(record, blockEntity);
+        viewChanged(record.id());
+    }
+
+    /**
+     * Judges a loaded device's binding again for its owner (M3 plan D13, the F2 pattern): a binding the rules refuse
+     * now is kept, refused, and one they allow again heals. Its owner hears about a new refusal and about the heal.
+     *
+     * @param announce false when the device only settles as it already was, e.g. at its attach after a restart
+     * @return whether the binding changed
+     */
+    private boolean settleTwin(DeviceRecord record, DeviceHost host, boolean announce) {
+        DeviceLink link = host.deviceLink();
+        Binding before = link.twin();
+        TwinAdapter adapter = host.deviceType().twin().orElse(null);
+        Binding after = before == null || adapter == null ? before
+                : TwinRules.recheck(adapter, before, TwinRules.Rights.owner(runtime.server(), link.owner(), link.ownerName()));
+        boolean changed = after != before;
+        if (changed) {
+            link.setTwin(after);
+            BlockEntity blockEntity = attached.get(record.id());
+            if (blockEntity != null) blockEntity.setChanged();
+        }
+        if (!Objects.equals(record.twin(), after)) {
+            record.setTwin(after);
+            registry.markDirty();
+        }
+        String problem = after == null ? null : after.refused();
+        boolean wasRefused = twinProblems.problem(record.id()) != null;
+        String kind = after != null && after.preset().isPresent() ? "mineqtt.twin.preset." : "mineqtt.twin.";
+        if (twinProblems.update(record.id(), problem) && announce) {
+            tell(host, Component.translatable(kind + "refused", record.name(), after.describeEnds(), problem));
+        } else if (wasRefused && problem == null && after != null && announce) {
+            tell(host, Component.translatable(kind + "healed", record.name(), after.describeEnds()));
+        }
+        return changed;
+    }
+
+    /**
+     * The twin rules changed (a config reload: {@code twin.allowedEntities}, {@code twin.statestreamBase}, M3 plan D13):
+     * every attached binding is judged again for its owner; one the rules refuse now stops, one they allow again
+     * heals. An unloaded device's copy is judged again too, so its status says so; its block is judged when it attaches,
+     * and until then every command routes by the copy judged at that moment ({@link #binding}).
+     */
+    public void twinRulesChanged() {
+        if (stopping) return;
+        for (DeviceRecord record : registry.records()) {
+            if (attached.containsKey(record.id()) || record.twin() == null) continue;
+            Binding judged = judgedCopy(record);
+            if (!Objects.equals(judged, record.twin())) {
+                record.setTwin(judged);
+                registry.markDirty();
+                runtime.twinRequests().dropHeld(record.id());
+            }
+        }
+        for (BlockEntity blockEntity : List.copyOf(attached.values())) {
+            DeviceHost host = requireHost(blockEntity);
+            DeviceRecord record = registry.record(host.deviceLink().id());
+            if (record == null || host.deviceLink().twin() == null) continue;
+            Binding before = host.deviceLink().twin();
+            if (settleTwin(record, host, true)) {
+                twinChanged(record, host, before);
+            } else {
+                // The same binding may read under a new base or with other rights; the twin keeps what did not change.
+                followTwin(record, host);
+            }
+        }
+    }
+
+    /**
+     * Makes a loaded device's derived wires and statestream subscriptions follow its binding (M3 plan §3.3, D17), while
+     * the binding works and the twin is on: a source entity has a {@link Scope#TWIN} wire from the entity's source port
+     * to the device's primary port and holds the entity's leaves; each target has a {@link Scope#TWIN} wire from its
+     * out-port to the entity's in-port and holds the entity's state, so a toggle and the dedupe know it (D11, M3-14).
+     * Anything else has neither. A wire that goes or changes is forgotten by the bus, so the first value over its
+     * successor passes.
+     */
+    private void followTwin(DeviceRecord record, DeviceHost host) {
+        followTwin(record, host, true);
+    }
+
+    /** @param publish whether a changed health is published now; the attach publishes the state itself right after */
+    private void followTwin(DeviceRecord record, DeviceHost host, boolean publish) {
+        UUID id = record.id();
+        Binding binding = host.deviceLink().twin();
+        TwinAdapter adapter = host.deviceType().twin().orElse(null);
+        boolean bindingWorks = !stopping && adapter != null && binding != null && binding.active() && attached.containsKey(id);
+        // Home Assistant ends need the twin on; an MQTT device preset (M3-17) needs only its topic allowed, judged with the binding.
+        boolean works = bindingWorks && MineQTTConfig.twinOffReason(runtime.server().isDedicatedServer()).isEmpty();
+        UUID owner = record.owner() != null ? record.owner() : Util.NIL_UUID;
+        String entity = works ? binding.sourceEntity().orElse(null) : null;
+        String topic = bindingWorks ? binding.sourceTopic().orElse(null) : null;
+        Wire wire = entity != null ? TwinWiring.sourceWire(id, adapter.primary(), adapter.sourceEnd(entity), owner)
+                : topic != null ? TwinWiring.topicSourceWire(id, adapter.primary(), new Endpoint.TopicRef(topic, ""), owner) : null;
+        Wire before = twinWiring.of(id).orElse(null);
+        twinWiring.set(id, wire).ifPresent(replaced -> bus.forgetWire(replaced.id()));
+        Map<String, Wire> targets = new LinkedHashMap<>();
+        if (works) {
+            binding.targets().forEach((port, end) -> {
+                if (end instanceof Endpoint.HaEntityRef target) targets.put(port, TwinWiring.targetWire(id, port, target, owner));
+            });
+        }
+        Map<String, Wire> targetsBefore = twinWiring.targets(id);
+        twinWiring.setTargets(id, targets).forEach(replaced -> bus.forgetWire(replaced.id()));
+        // Its links list shows the derived wires to those who may configure it.
+        if ((!Objects.equals(before, wire) || !targetsBefore.equals(targets)) && !stopping) staleLinks.add(id);
+        if (entity == null) runtime.twin().releaseEntity(id);
+        else runtime.twin().hold(id, entity, adapter.leaves(entity, binding.settings()));
+        if (topic == null) runtime.twin().releaseTopic(id);
+        else runtime.twin().holdTopic(id, topic, AclContext.owner(runtime.server(), record.owner(), host.deviceLink().ownerName()));
+        runtime.twin().holdTargets(id, twinWiring.targetEntities(id));
+        refreshTwinHealth(id, publish);
+    }
+
+    // A device detached or went: its derived wires, its subscriptions and its health go with it.
+    private void unfollowTwin(UUID id) {
+        twinWiring.set(id, null).ifPresent(wire -> bus.forgetWire(wire.id()));
+        twinWiring.setTargets(id, Map.of()).forEach(wire -> bus.forgetWire(wire.id()));
+        runtime.twin().release(id);
+        runtime.twin().holdTargets(id, Set.of());
+        twinHealth.remove(id);
+    }
+
+    /**
+     * The twin applies an entity whose burst settled (M3 plan D9): its document goes out on each source port the devices
+     * mirroring it read, in a {@link Root#TWIN} extent, and reaches them over their derived wires at this tick's drain.
+     */
+    private void applyTwin(String entityId, EntityDocument document) {
+        if (stopping) return;
+        JsonObject payload = document.toJson();
+        // The requests that waited for the entity are done, whatever it shows now (D6): the device follows it.
+        runtime.twinRequests().applied(entityId);
+        bus.withRoot(Root.TWIN, () -> twinWiring.sources(entityId).forEach(source -> emit(FlowMessage.Kind.VALUE, source, entityId, payload)));
+    }
+
+    /**
+     * The state topic of an MQTT device preset brought a new payload whose burst settled (M3-17): a fingerprint of it goes
+     * out on the topic's source end in a {@link Root#TWIN} extent, and each device mirroring it reads the payload through
+     * its own preset when the wire delivers it. The requests that waited for the device are done.
+     */
+    private void applyTopic(String topic, TwinRuntime.TopicValue value) {
+        if (stopping) return;
+        runtime.twinRequests().applied(TwinRequests.topicKey(topic));
+        JsonObject payload = new JsonObject();
+        payload.addProperty("payload", value.digest());
+        Endpoint.TopicRef source = new Endpoint.TopicRef(topic, "");
+        bus.withRoot(Root.TWIN, () -> emit(FlowMessage.Kind.VALUE, source, topic, payload));
+    }
+
+    /**
+     * A derived wire's delivery (M3 plan §3.4 step 1): the device's binding reads its in-port values out of the entity's
+     * newest document ({@link DeviceType#twinCommand}), and the device applies them as {@link CommandSource#TWIN}, which
+     * routes to a loaded device only and never forwards. Nothing to apply (a source that holds) is taken; an entity the
+     * read gate refuses now, a binding that no longer mirrors it, or a device that is gone is not. A preset source's wire
+     * (M3-17) reads the document the device's preset makes of the state topic's last payload.
+     */
+    private MessageBus.Outcome deliverTwin(Wire wire, FlowMessage message) {
+        if (!(wire.to() instanceof Endpoint.PortRef target)) return MessageBus.Outcome.REFUSED;
+        BlockEntity blockEntity = attached.get(target.node());
+        DeviceRecord record = registry.record(target.node());
+        if (blockEntity == null || record == null || twinWiring.of(target.node()).map(own -> !own.id().equals(wire.id())).orElse(true)) {
+            return MessageBus.Outcome.REFUSED;
+        }
+        DeviceHost host = requireHost(blockEntity);
+        Binding binding = host.deviceLink().twin();
+        if (binding == null) return MessageBus.Outcome.REFUSED;
+        Optional<EntityDocument> document;
+        switch (wire.from()) {
+            case Endpoint.HaEntityRef source -> {
+                document = runtime.twin().document(source.entityId());
+                if (!runtime.twin().readable(source.entityId())) return MessageBus.Outcome.REFUSED;
+            }
+            case Endpoint.TopicRef source -> {
+                if (!binding.sourceTopic().map(source.topic()::equals).orElse(false)) return MessageBus.Outcome.REFUSED;
+                document = runtime.twin().presetDocument(binding);
+            }
+            default -> {
+                return MessageBus.Outcome.REFUSED;
+            }
+        }
+        if (document.isEmpty()) return MessageBus.Outcome.REFUSED;
+        Optional<JsonObject> command = host.deviceType().twinCommand(document.get(), binding);
+        if (command.isEmpty()) return MessageBus.Outcome.TAKEN;
+        // The Diagnostics tab names the source, never the entity: binding details are for viewers who may configure (D13 #7).
+        traffic(record.id()).received(TWIN_SOURCE, ValueCodecs.utf8(command.get().toString()), Util.getMillis());
+        Delivery delivery = command(record.id(), command.get(), CommandSource.TWIN, null);
+        if (!taken(delivery)) traffic(record.id()).dropped();
+        return taken(delivery) ? MessageBus.Outcome.TAKEN : MessageBus.Outcome.REFUSED;
+    }
+
+    /**
+     * Shows a loaded device's twin health anew (M3 plan D6, D19): when it changed, the state topic's {@code binding}
+     * object follows, and so do its clients' render hint and its open screens.
+     */
+    private void refreshTwinHealth(UUID id) {
+        refreshTwinHealth(id, true);
+    }
+
+    private void refreshTwinHealth(UUID id, boolean publish) {
+        BlockEntity blockEntity = attached.get(id);
+        if (blockEntity == null) {
+            twinHealth.remove(id);
+            return;
+        }
+        DeviceHost host = requireHost(blockEntity);
+        Binding binding = host.deviceLink().twin();
+        // A device with targets only reads nothing: it shows that its binding is refused, that a target's entity is no
+        // longer shared (wave 5 finding 3), or that its control is paused (M3-14).
+        boolean switches = binding != null && (binding.bound() || !binding.targets().isEmpty());
+        TwinHealth health = !switches ? null : binding.bound() ? runtime.twin().health(binding) : TwinRules.targetHealth(binding, runtime.twin()::readable);
+        // The breaker paused its control (D10): reading goes on, and the device shows the pause until a player resumes it.
+        if (switches && health != TwinHealth.REFUSED && runtime.twinRequests().paused(id)) health = TwinHealth.CONTROL_PAUSED;
+        TwinHealth before = health == null ? twinHealth.remove(id) : twinHealth.put(id, health);
+        if (blockEntity instanceof DeviceBlockEntity device) device.setTwinPending(switches && runtime.twinRequests().pending(id));
+        if (health == before) return;
+        if (blockEntity instanceof DeviceBlockEntity device) device.setTwinHealth(health);
+        if (publish && !stopping) publishState(host, false);
+        viewChanged(id);
+    }
+
+    /** The health of a loaded bound device as it shows now; empty for an unbound or unloaded one. */
+    public Optional<TwinHealth> twinHealth(UUID id) {
+        return Optional.ofNullable(twinHealth.get(id));
+    }
+
+    /** The bindings of the loaded devices, refused ones included, for {@code /mineqtt twin status}. */
+    public List<Binding> attachedBindings() {
+        List<Binding> bindings = new ArrayList<>();
+        for (BlockEntity blockEntity : attached.values()) {
+            Binding binding = requireHost(blockEntity).deviceLink().twin();
+            if (binding != null && binding.bound()) bindings.add(binding);
+        }
+        return bindings;
+    }
+
+    /** The loaded devices that mirror {@code entityId} now. */
+    public List<DeviceRecord> mirroring(String entityId) {
+        return twinWiring.devices(entityId).stream().map(registry::record).filter(Objects::nonNull).toList();
+    }
+
+    // A binding as the status line shows it to a viewer who may not configure the device: without its entities.
+    private static String twinStatusHidden(Binding binding) {
+        List<String> parts = new ArrayList<>();
+        if (binding.bound()) parts.add(binding.preset().isPresent() ? "mirrors an MQTT device" : "mirrors a Home Assistant entity");
+        if (!binding.targets().isEmpty()) parts.add("switches Home Assistant entities");
+        if (parts.isEmpty()) return "none";
+        return String.join("; ", parts) + (binding.active() ? "" : " (refused)");
+    }
+
+    // A binding as status lines show it.
+    private static String twinStatus(@Nullable Binding binding) {
+        if (binding == null) return "none";
+        StringBuilder text = new StringBuilder();
+        if (binding.bound()) text.append("mirrors ").append(binding.describeSource()).append(binding.control() ? ", control on" : ", control off");
+        binding.targets().forEach((port, target) -> text.append(text.isEmpty() ? "" : "; ").append(port).append(" switches ").append(Binding.describe(target)));
+        if (!binding.active()) text.append(" (refused: ").append(binding.refused()).append(")");
+        return text.toString();
     }
 
     /**
@@ -1002,7 +1539,7 @@ public final class DeviceRuntime {
         DataResult<JsonObject> command = DeviceConfig.action(type, key, value, editor.grants());
         Optional<DataResult.Error<JsonObject>> error = command.error();
         if (error.isPresent()) return Configured.refused(record.slug() + ": " + error.get().message());
-        Configured result = set(record, command.getOrThrow());
+        Configured result = set(record, command.getOrThrow(), editor.player());
         viewChanged(record.id());
         return result;
     }
@@ -1013,7 +1550,24 @@ public final class DeviceRuntime {
      * as for Home Assistant; a faulted device counts as unloaded. The result says which.
      */
     public Configured set(DeviceRecord record, JsonObject command) {
-        Delivery delivery = command(record.id(), command, CommandSource.PLAYER, null);
+        return set(record, command, null);
+    }
+
+    /**
+     * {@link #set} by {@code player}: a request it forwards to a mirrored device's source names them in its origin and
+     * counts against their rate (M3 plan D10, D11).
+     *
+     * @param player null for the console and command blocks
+     */
+    public Configured set(DeviceRecord record, JsonObject command, @Nullable ServerPlayer player) {
+        TwinRequests.Requester before = actor;
+        actor = player == null ? null : new TwinRequests.Requester(player.getUUID(), player.getGameProfile().name());
+        Delivery delivery;
+        try {
+            delivery = command(record.id(), command, CommandSource.PLAYER, null);
+        } finally {
+            actor = before;
+        }
         String shown = shown(command.toString());
         // A faulted device is offline although its chunk may be loaded, so the reply names the fault and the retry instead.
         String offline = fault(record.pos()).map(fault -> " is faulted (" + fault.text() + "; /mineqtt devices retry " + record.slug() + ")")
@@ -1029,8 +1583,76 @@ public final class DeviceRuntime {
                     : new Configured(Configured.Result.QUEUED, record.slug() + offline + "; queued for when it attaches: " + shown(record.pending().toString()));
             case DROP -> Configured.refused(record.slug() + (DeviceTypes.get(record.type()) == null
                     ? " has a type unknown to this MineQTT" : offline + ", and a sensor takes no commands while it is not attached"));
+            case REFUSE -> Configured.refused(delivery.reason());
+            // The device itself changes when its source reports the change, never here (M3 plan D6).
+            case FORWARD -> {
+                String source = Optional.ofNullable(binding(record)).map(Binding::describeSource).orElse("its source");
+                yield switch (delivery.forwarded()) {
+                    case TwinRequests.Sent ignored -> Configured.applied(record.slug() + " asked " + source + " for " + shown + "; it changes when that does");
+                    case TwinRequests.Held ignored -> Configured.applied(record.slug() + " asks " + source + " for " + shown
+                            + " as soon as its rate allows; it changes when that does");
+                    case TwinRequests.Skipped skipped -> Configured.unchanged(record.slug() + ": " + skipped.reason() + "; nothing was sent");
+                    case TwinRequests.Refused refused -> Configured.refused(record.slug() + ": " + refused.reason());
+                    case null -> Configured.refused(record.slug() + ": " + delivery.reason());
+                };
+            }
             case FAN_OUT -> throw new IllegalStateException("A device command fanned out: " + record.slug());
         };
+    }
+
+    /**
+     * Resumes a mirrored device's control after the circuit breaker paused it (M3 plan D10): the Twin tab's Resume and
+     * {@code /mineqtt devices bind <device> resume}. It needs CONFIGURE; the breaker counts anew.
+     */
+    public Configured resumeTwin(DeviceRecord record, Editor editor) {
+        if (!editor.grants().configure()) return Configured.refused(record.slug() + ": " + DeviceConfig.refusal(LinkSetting.Gate.CONFIGURE));
+        if (!runtime.twinRequests().resume(record.id())) return Configured.unchanged(record.slug() + "'s Home Assistant control is not paused");
+        viewChanged(record.id());
+        return Configured.applied(record.slug() + " sends requests to Home Assistant again");
+    }
+
+    /** Whether the circuit breaker paused the Home Assistant control of the device (M3 plan D10). */
+    public boolean twinPaused(UUID id) {
+        return runtime.twinRequests().paused(id);
+    }
+
+    /**
+     * The device's requests the rates refused since it was loaded or resumed (wave 5 finding 1), for its info and the
+     * Twin tab's Diagnostics.
+     */
+    public Optional<TwinRequests.RateRefusals> twinRateRefusals(UUID id) {
+        return runtime.twinRequests().rateRefusals(id);
+    }
+
+    /**
+     * What came of a request later (M3 plan D6, D10): the player who caused it hears it in the action bar, and a pause
+     * reaches the device's owner too. Players are told the device, never the entity (D13 #7).
+     */
+    private void twinNotice(TwinRequests.Notice notice) {
+        DeviceRecord record = registry.record(notice.device());
+        String name = record != null ? record.name() : notice.deviceName();
+        // A preset device's request (M3-17) went to the device itself, not to Home Assistant.
+        boolean preset = notice.entityId().startsWith(TwinRequests.TOPIC_KEY_PREFIX);
+        Component text = switch (notice.kind()) {
+            case TIMEOUT -> Component.translatable(preset ? "mineqtt.twin.preset.timeout" : "mineqtt.twin.timeout", name);
+            case REFUSED -> Component.translatable("mineqtt.twin.answer", name, answerText(notice.detail()));
+            case PAUSED -> Component.translatable(preset ? "mineqtt.twin.preset.paused" : "mineqtt.twin.paused", name, record != null ? record.slug() : name);
+        };
+        ServerPlayer player = notice.player() == null ? null : online(notice.player().id());
+        if (player != null) player.sendSystemMessage(text, true);
+        if (notice.kind() == TwinRequests.Notice.Kind.PAUSED && record != null) {
+            if (player == null || !player.getUUID().equals(record.owner())) notifyOwner(record.owner(), text);
+            viewChanged(record.id());
+        }
+    }
+
+    /**
+     * What a player reads for the control blueprint's refusal {@code status}: its sentence for the statuses the blueprint
+     * knows, else the status itself, sanitised (any broker client may publish an answer).
+     */
+    static Component answerText(String status) {
+        return TwinRequests.REFUSALS.contains(status) ? Component.translatable("mineqtt.twin.status." + status)
+                : Component.translatable("mineqtt.twin.status.other", Coerce.sanitize(status, 32));
     }
 
     /**
@@ -1212,6 +1834,8 @@ public final class DeviceRuntime {
         if (group.memberType() != null && !group.memberType().equals(record.type())) {
             return Optional.of("group " + group.slug() + " holds " + group.memberType() + " devices");
         }
+        Optional<String> mirrored = TwinRules.groupProblem(binding(record));
+        if (mirrored.isPresent()) return mirrored;
         registry.joinGroup(group, record);
         // The wires into the group are its links now.
         staleLinks.add(record.id());
@@ -1339,7 +1963,8 @@ public final class DeviceRuntime {
             case GroupRules.Join join -> {
                 DeviceGroup group = registry.group(join.group());
                 if (group == null) yield Configured.refused("That group is gone");
-                Optional<String> problem = GroupRules.joinProblem(group, record.type(), type.groupable(), record.id(), configures, topicRefusal(record));
+                Optional<String> problem = GroupRules.joinProblem(group, record.type(), type.groupable(), record.id(), binding(record), configures,
+                        topicRefusal(record));
                 if (problem.isPresent()) yield Configured.refused(record.name() + " cannot join: " + problem.get());
                 boolean inherits = !group.state().isEmpty();
                 join(group, record);
@@ -1458,8 +2083,12 @@ public final class DeviceRuntime {
         int unchanged = 0;
         List<String> refused = new ArrayList<>();
         boolean linkRefused = false;
+        boolean twinRefused = false;
         for (DeviceClipboard.Entry entry : clipboard.entries()) {
             if (linkRefused && entry.raw()) continue;
+            // A source the paster may not bind leaves the rows that shape it and control unsent, as they would shape the
+            // binding the device has instead.
+            if (twinRefused && entry.twinShape()) continue;
             if (current.entries().contains(entry)) {
                 unchanged++;
                 continue;
@@ -1470,7 +2099,8 @@ public final class DeviceRuntime {
                 case UNCHANGED -> unchanged++;
                 case REFUSED -> {
                     refused.add(result.detail());
-                    linkRefused = entry.link();
+                    linkRefused |= entry.link();
+                    twinRefused |= entry.twinSource();
                 }
             }
         }
@@ -1510,7 +2140,16 @@ public final class DeviceRuntime {
         if (value == null) return;
         wire.mapping().apply(value, null, out.get().kind(), in.get().kind(), in.get().toggles())
                 .flatMap(mapped -> RegistryWiring.command(registry, wire.to(), mapped))
+                .filter(command -> !seedSkipped(command))
                 .ifPresent(command -> command(command.target(), command.command(), CommandSource.BINDING, source.node()));
+    }
+
+    // A seed into a mirrored port of a bound device would forward to its source because a wire was made (M3 plan D10):
+    // the wire carries the source's next real change instead. A group target has no bound member (D6).
+    private boolean seedSkipped(RegistryWiring.Command command) {
+        DeviceRecord target = registry.record(command.target());
+        DeviceType type = target == null ? null : DeviceTypes.get(target.type());
+        return target != null && TwinRules.seedSkipped(binding(target), type == null ? null : type.twin().orElse(null), command.command());
     }
 
     /**
@@ -1560,8 +2199,32 @@ public final class DeviceRuntime {
      * its group, in the order they were made, with the devices' and groups' names.
      */
     public DeviceLinks links(DeviceRecord record) {
-        List<DeviceLinks.Row> rows = registry.wires().stream().filter(wire -> LinkRules.touches(registry, wire, record.id()))
-                .map(wire -> row(wire, record.id())).toList();
+        return links(record, false);
+    }
+
+    /**
+     * {@link #links(DeviceRecord)} for a viewer: one who may configure the device also sees the wire derived from its
+     * binding (M3 plan §3.3), first and read-only, as {@code light.kitchen.light}; it names the entity, which only they
+     * may see (D13 #7).
+     */
+    public DeviceLinks links(DeviceRecord record, boolean configure) {
+        List<DeviceLinks.Row> rows = new ArrayList<>();
+        if (configure) {
+            twinWiring.of(record.id()).ifPresent(wire -> {
+                // An entity's port, or an MQTT device's state topic (M3-17's topic source wire).
+                String peer = switch (wire.from()) {
+                    case Endpoint.HaEntityRef source -> source.entityId() + "." + source.port();
+                    case Endpoint.TopicRef topic -> topic.topic();
+                    default -> wire.from().describe();
+                };
+                rows.add(DeviceLinks.Row.twin(wire.id(), RegistryWiring.key(wire.to()), peer));
+            });
+            twinWiring.targets(record.id()).values().forEach(wire -> {
+                Endpoint.HaEntityRef target = (Endpoint.HaEntityRef) wire.to();
+                rows.add(DeviceLinks.Row.twinTarget(wire.id(), RegistryWiring.key(wire.from()), target.entityId() + "." + target.port()));
+            });
+        }
+        registry.wires().stream().filter(wire -> LinkRules.touches(registry, wire, record.id())).map(wire -> row(wire, record.id())).forEach(rows::add);
         return DeviceLinks.of(record.pos().pos(), rows);
     }
 
@@ -1582,7 +2245,8 @@ public final class DeviceRuntime {
         DeviceRuntime devices = of(player.level().getServer());
         UUID id = requireHost(blockEntity).deviceLink().id();
         DeviceRecord record = devices == null || id == null || devices.attached.get(id) != blockEntity ? null : devices.registry.record(id);
-        MineqttNetworking.sendDeviceLinks(player, record == null ? DeviceLinks.none(blockEntity.getBlockPos()) : devices.links(record));
+        MineqttNetworking.sendDeviceLinks(player, record == null ? DeviceLinks.none(blockEntity.getBlockPos())
+                : devices.links(record, DeviceAccess.check(player, blockEntity, MineqttPermission.CONFIGURE)));
     }
 
     /**
@@ -1598,6 +2262,14 @@ public final class DeviceRuntime {
 
     private Configured unlink(DeviceRecord record, UUID id, Editor editor, Predicate<UUID> configures) {
         if (!editor.grants().configure()) return Configured.refused(DeviceConfig.refusal(LinkSetting.Gate.CONFIGURE));
+        if (twinWiring.derived(id)) {
+            // A target's wire is removed with its target, the source's with the binding.
+            String target = twinWiring.targets(record.id()).entrySet().stream().filter(entry -> entry.getValue().id().equals(id)).map(Map.Entry::getKey).findFirst()
+                    .flatMap(port -> Optional.ofNullable(DeviceTypes.get(record.type())).flatMap(DeviceType::twin).flatMap(twin -> twin.targets().entrySet().stream()
+                            .filter(entry -> entry.getValue().equals(port)).map(Map.Entry::getKey).findFirst())).orElse(null);
+            return Configured.refused("that wire follows the device's Home Assistant binding; " + (target == null
+                    ? "unbind it with /mineqtt devices bind " + record.slug() + " none" : "remove it with /mineqtt devices bind " + record.slug() + " target " + target + " none"));
+        }
         Wire wire = registry.wire(id);
         if (wire == null || !LinkRules.touches(registry, wire, record.id())) return Configured.refused("that wire is gone");
         if (!LinkRules.mayRemove(registry, wire, record.id(), configures)) {
@@ -1650,19 +2322,32 @@ public final class DeviceRuntime {
         for (MessageBus.Drop reason : MessageBus.Drop.values()) {
             if (bus.dropped(reason) > 0) dropped.put(reason, bus.dropped(reason));
         }
-        return new FlowCounters(bus.emitted(), bus.delivered(), bus.suppressed(), bus.queued(), Collections.unmodifiableMap(dropped));
+        Map<Root, Long> roots = new EnumMap<>(Root.class);
+        for (Root root : Root.values()) {
+            if (bus.emitted(root) > 0) roots.put(root, bus.emitted(root));
+        }
+        return new FlowCounters(bus.emitted(), Collections.unmodifiableMap(roots), bus.delivered(), bus.suppressed(), bus.queued(),
+                Collections.unmodifiableMap(dropped));
     }
 
     /**
-     * The message bus's counters: messages emitted, deliveries a target took, values a wire did not pass on as
-     * unchanged, messages waiting for a drain, and the drops by reason (only reasons that occurred).
+     * The message bus's counters: messages emitted, and by root (M3 plan D10; only roots that occurred), deliveries a
+     * target took, values a wire did not pass on as unchanged, messages waiting for a drain, and the drops by reason
+     * (only reasons that occurred).
      */
-    public record FlowCounters(long emitted, long delivered, long unchanged, int queued, Map<MessageBus.Drop, Long> dropped) {
+    public record FlowCounters(long emitted, Map<Root, Long> roots, long delivered, long unchanged, int queued,
+                               Map<MessageBus.Drop, Long> dropped) {
+        /** The messages of {@code root} emitted so far. */
+        public long emitted(Root root) {
+            return roots.getOrDefault(root, 0L);
+        }
+
         /** The line {@code /mineqtt status} shows. */
         public String summary() {
             List<String> drops = dropped.entrySet().stream().map(drop -> drop.getValue() + " " + drop.getKey().name().toLowerCase(Locale.ROOT)).toList();
-            return "emitted " + emitted + ", delivered " + delivered + ", unchanged " + unchanged + ", queued " + queued
-                    + "; dropped: " + (drops.isEmpty() ? "none" : String.join(", ", drops));
+            List<String> causes = roots.entrySet().stream().map(root -> root.getValue() + " " + root.getKey().name().toLowerCase(Locale.ROOT)).toList();
+            return "emitted " + emitted + (causes.isEmpty() ? "" : " (" + String.join(", ", causes) + ")") + ", delivered " + delivered
+                    + ", unchanged " + unchanged + ", queued " + queued + "; dropped: " + (drops.isEmpty() ? "none" : String.join(", ", drops));
         }
     }
 
@@ -1671,6 +2356,14 @@ public final class DeviceRuntime {
      * exposure, availability and what its Raw Link does.
      */
     public Optional<String> status(UUID id) {
+        return status(id, true);
+    }
+
+    /**
+     * {@link #status(UUID)} as one viewer may read it: the twin's entities only for one who may configure the device (M3
+     * plan D13 #7); anyone else reads that it mirrors or switches Home Assistant entities.
+     */
+    public Optional<String> status(UUID id, boolean details) {
         BlockEntity blockEntity = attached.get(id);
         DeviceRecord record = registry.record(id);
         if (blockEntity == null || record == null) return Optional.empty();
@@ -1678,8 +2371,11 @@ public final class DeviceRuntime {
         String availability = mqtt().state().isConnected() ? ONLINE : "broker not connected";
         // A v1 owner name an online-mode server has not resolved yet grants nothing (M2 plan D7); offline mode derives it.
         String owner = link.owner() == null && !link.ownerName().isEmpty() && runtime.server().usesAuthentication() ? " | owner not verified yet" : "";
+        String twin = link.twin() == null ? "" : " | Twin " + (details ? twinStatus(link.twin()) : twinStatusHidden(link.twin()))
+                + runtime.twinRequests().rateRefusals(id)
+                .map(rate -> ", " + rate.refused() + (rate.refused() == 1 ? " request" : " requests") + " refused by the rate").orElse("");
         return Optional.of(record.slug() + " | HA " + (runtime.discovery().exposed(record) ? "exposed" : "hidden") + " | "
-                + availability + " | Raw " + rawStatus(record, link) + owner);
+                + availability + " | Raw " + rawStatus(record, link, details) + twin + owner);
     }
 
     /**
@@ -1757,17 +2453,46 @@ public final class DeviceRuntime {
         staleViews.add(id);
         StateThrottle throttle = throttles.computeIfAbsent(id, key -> StateThrottle.of(host.deviceType()));
         long now = Util.getMillis();
+        JsonObject published = published(state, host.deviceLink().twin(), id);
         if (force) {
-            throttle.markPublished(state, now);
+            throttle.markPublished(published, now);
         } else {
-            StateThrottle.Verdict verdict = throttle.offer(state, now);
+            StateThrottle.Verdict verdict = throttle.offer(published, now);
             // A held state is published by a later tick, or by a pump while the server is paused.
             if (verdict == StateThrottle.Verdict.DEFER) runtime.workQueued();
             if (verdict != StateThrottle.Verdict.PUBLISH) return;
         }
-        Outbound message = Outbound.state(topics().device(record.slug()), state);
+        Outbound message = Outbound.state(topics().device(record.slug()), published);
         publish(id, force ? message.asRefresh() : message);
         echoState(host, record, state);
+    }
+
+    /**
+     * What a device publishes on its state topic, a pure function: its state, and while it is bound the {@code binding}
+     * object its Home Assistant binding sensor reads (M3 plan D6), e.g. {@code {"entity":"light.kitchen","health":"waiting"}}.
+     * Only the state topic carries it: the record's last state, the out-ports, the state echo and the render data never do,
+     * so the entity id reaches only those who may see the device's topics (D13 #7).
+     */
+    static JsonObject published(JsonObject state, @Nullable Binding binding, TwinHealth health) {
+        if (binding == null || !binding.bound()) return state;
+        JsonObject published = state.deepCopy();
+        JsonObject twin = new JsonObject();
+        twin.addProperty("entity", binding.describeSource());
+        twin.addProperty("health", health.key());
+        published.add(TwinAdapter.BINDING_ENTITY, twin);
+        return published;
+    }
+
+    /**
+     * {@link #published(JsonObject, Binding, TwinHealth)} with the health the device shows now (M3 plan D6): a loaded
+     * device's as the twin last judged it, an unloaded one's from its record's binding ({@code refused}, else
+     * {@code waiting}, as nothing reads its source while it is unloaded, D17).
+     */
+    private JsonObject published(JsonObject state, @Nullable Binding binding, UUID id) {
+        if (binding == null || !binding.bound()) return state;
+        TwinHealth health = twinHealth.get(id);
+        if (health == null) health = binding.active() ? TwinHealth.WAITING : TwinHealth.REFUSED;
+        return published(state, binding, health);
     }
 
     /**
@@ -1831,7 +2556,8 @@ public final class DeviceRuntime {
     }
 
     /**
-     * Publishes an event on the device's action topic and emits it on the event's out-port.
+     * Publishes an event on the device's action topic and emits it on the event's out-port; a bus-only event (M3 plan
+     * D16) is only emitted.
      *
      * @throws IllegalArgumentException for an event its type does not declare (M2 plan §3.8 #5): a bug in the device
      */
@@ -1841,8 +2567,9 @@ public final class DeviceRuntime {
         });
         DeviceRecord record = registry.record(host.deviceLink().id());
         if (stopping || record == null) return;
-        publish(record.id(), Outbound.event(topics().action(record.slug()), event));
         String type = event.get(PortType.Event.TYPE_KEY).getAsString();
+        boolean busOnly = host.deviceType().event(type).map(EventSpec::busOnly).orElse(false);
+        if (!busOnly) publish(record.id(), Outbound.event(topics().action(record.slug()), event));
         emit(FlowMessage.Kind.EVENT, Endpoint.port(record.id(), type), type, event);
     }
 
@@ -1867,17 +2594,104 @@ public final class DeviceRuntime {
      * The bus's sink: a message reaches a wire's target as a {@link CommandSource#BINDING} command through
      * {@link #command}, as {@code {"<port>": value}} or, for an inline field's port, as the value's own keys. A group fans
      * it out to its members, except the one the message came from. Taken unless nobody takes it (an unloaded sensor, an
-     * unknown type) or the device rejects it.
+     * unknown type) or the device rejects it. The command inherits the message's root, as the bus delivers it in that
+     * root's extent.
      */
-    private boolean deliverWire(Wire wire, FlowMessage message) {
+    private MessageBus.Outcome deliverWire(Wire wire, FlowMessage message) {
+        switch (delivers(wire)) {
+            case TARGET -> {
+                return deliverTarget(wire, (Endpoint.HaEntityRef) wire.to(), message);
+            }
+            case TWIN_SOURCE -> {
+                return deliverTwin(wire, message);
+            }
+            case DEVICE -> {
+            }
+        }
         Optional<RegistryWiring.Command> command = RegistryWiring.command(registry, wire.to(), message.payload());
-        return command.isPresent()
-                && taken(command(command.get().target(), command.get().command(), CommandSource.BINDING, DeviceRegistry.node(message.source())));
+        if (command.isEmpty()) return MessageBus.Outcome.REFUSED;
+        Delivery delivery = command(command.get().target(), command.get().command(), CommandSource.BINDING, DeviceRegistry.node(message.source()));
+        // A forward refused for its root counts as dropped for it (M3 plan D10), not as refused by the target.
+        if (delivery.forwarded() != null) return HaSink.outcome(delivery.forwarded());
+        return taken(delivery) ? MessageBus.Outcome.TAKEN : MessageBus.Outcome.REFUSED;
     }
 
-    /** Whether a wire's target took its message: every route but {@link Route#DROP}, unless the device rejected it. */
+    /** Where a wire's messages go: see {@link #delivers}. */
+    enum Delivers {
+        /** To a Home Assistant entity's in-port, as requests: a target wire (M3-14), which is a {@link Scope#TWIN} wire too. */
+        TARGET,
+        /** From a Home Assistant entity to the device that mirrors it: a source wire, read by the device's binding. */
+        TWIN_SOURCE,
+        /** To a device's or a group's in-port, as a command. */
+        DEVICE
+    }
+
+    /**
+     * Where {@link #deliverWire} takes a wire's message (M3 plan §3.3): a wire that ends at an entity goes to Home
+     * Assistant before anything else, since a target wire is a {@link Scope#TWIN} wire as well; any other twin wire is
+     * a source wire; the rest end at a device or a group.
+     */
+    static Delivers delivers(Wire wire) {
+        if (wire.to() instanceof Endpoint.HaEntityRef) return Delivers.TARGET;
+        return wire.scope() == Scope.TWIN ? Delivers.TWIN_SOURCE : Delivers.DEVICE;
+    }
+
+    /**
+     * A message on a wire to a Home Assistant entity's in-port (M3 plan §3.4 step 3): a target of the device it comes
+     * from, which becomes a request through the {@link HaSink}, after the root gate, as the device type's adapter
+     * translates the out-port's value (M3-14: the Redstone Input's edge rules, the Wall Switch's press). Taken only while
+     * the device's binding still switches that entity from that out-port.
+     */
+    private MessageBus.Outcome deliverTarget(Wire wire, Endpoint.HaEntityRef target, FlowMessage message) {
+        if (!(wire.from() instanceof Endpoint.PortRef source)) return MessageBus.Outcome.REFUSED;
+        DeviceRecord record = registry.record(source.node());
+        Binding binding = record == null ? null : binding(record);
+        TwinAdapter adapter = record == null ? null : Optional.ofNullable(DeviceTypes.get(record.type())).flatMap(DeviceType::twin).orElse(null);
+        if (adapter == null || binding == null || !binding.active() || !(binding.targets().get(source.port()) instanceof Endpoint.HaEntityRef bound)
+                || !bound.equals(target)) {
+            return MessageBus.Outcome.REFUSED;
+        }
+        // An entity the catalog no longer shares is not switched (wave 5 finding 3): the press would be answered
+        // not_labelled. The device shows NOT_SHARED and switches it again once Home Assistant labels it again.
+        if (!runtime.twin().readable(target.entityId())) {
+            logOnce("twin-unshared:" + record.id() + ":" + target.entityId(), "Device {} does not switch {}: Home Assistant no longer shares it (label it "
+                    + "MineQTT control there)", record.slug(), target.entityId());
+            return MessageBus.Outcome.REFUSED;
+        }
+        TwinRequests.Origin origin = new TwinRequests.Origin(record.id(), record.objectId(), record.name(), null);
+        TwinRequests.Result result = runtime.twinSink().deliver(origin, adapter, source.port(), target, message.payload(),
+                runtime.twin().mirror(target.entityId()), message.root());
+        if (result instanceof TwinRequests.Refused refused) {
+            if (refused.refusal() == TwinRequests.Refusal.ROOT) {
+                // Told once per device and root (D10), as a forward's; the bus counts every one as dropped for its root.
+                logOnce("twin-root:" + record.id() + ":" + message.root(), "Device {} does not ask Home Assistant to switch {} for a {} cause: {}",
+                        record.slug(), target.entityId(), message.root().name().toLowerCase(Locale.ROOT), TwinGate.refusal(message.root()).orElse(""));
+            } else {
+                MineQTT.LOGGER.debug("Device {} did not switch {}: {}", record.slug(), target.entityId(), refused.reason());
+            }
+        }
+        return HaSink.outcome(result);
+    }
+
+    /**
+     * Whether a wire's target took its message: a device applied, queued or forwarded it, or a group fanned it out. Not
+     * when nobody took it ({@link Route#DROP}), the device rejected it, a mirrored device refused it, or the forward was
+     * not sent.
+     */
     static boolean taken(Delivery delivery) {
-        return delivery.route() != Route.DROP && (delivery.result() == null || delivery.result().outcome() != CommandResult.Outcome.REJECTED);
+        return switch (delivery.route()) {
+            case DROP, REFUSE -> false;
+            case FORWARD -> delivery.forwarded() != null ? delivery.forwarded().taken() : delivery.reason() == null;
+            case APPLY, QUEUE, FAN_OUT -> delivery.result() == null || delivery.result().outcome() != CommandResult.Outcome.REJECTED;
+        };
+    }
+
+    /**
+     * Installs where commands forwarded to a mirrored device's source go (M3 plan D11); {@link MirrorForwarder#NONE} until
+     * then, which sends nothing.
+     */
+    public void setMirrorForwarder(MirrorForwarder forwarder) {
+        this.mirrorForwarder = Objects.requireNonNull(forwarder, "forwarder");
     }
 
     void publishRaw(DeviceHost host, String payload) {
@@ -1981,9 +2795,16 @@ public final class DeviceRuntime {
     /**
      * §6.5 attach: v1 data adopted, identity (minted or deduplicated), registry, queued commands, Raw Link,
      * availability, state, and discovery when it changed. An attach that throws hands back what it used up
-     * ({@link #undoAttach}) before the attach guard faults the device, so its retry starts from the same data.
+     * ({@link #undoAttach}) before the attach guard faults the device, so its retry starts from the same data. What it
+     * emits, and what its block's changes cause around it, is {@link Root#STARTUP} (M3 plan D10): the device powers on,
+     * and the commands queued for it land without the roots they came with, so loading a chunk never switches a real
+     * device.
      */
     private void attach(BlockEntity blockEntity) {
+        bus.withRoot(Root.STARTUP, () -> attachRooted(blockEntity));
+    }
+
+    private void attachRooted(BlockEntity blockEntity) {
         DeviceLink link = requireHost(blockEntity).deviceLink();
         GlobalPos pos = GlobalPos.of(blockEntity.getLevel().dimension(), blockEntity.getBlockPos());
         LegacyNbtV1.Snapshot v1 = link.takePendingV1();
@@ -2077,15 +2898,28 @@ public final class DeviceRuntime {
         record.setAccess(link.access());
         if (mergeExpose(record, link, registered)) blockEntity.setChanged();
         registry.markDirty();
-        if (link.assign(id, record.name(), record.slug())) blockEntity.setChanged();
+        if (link.assign(id, record.name(), record.slug())) {
+            blockEntity.setChanged();
+            host.identityChanged();
+        }
         attached.put(id, blockEntity);
         link.setAttached(true);
-        if (poweredOn.add(id) && registered) host.powerOn();
+        // A bound device's source owns its state (M3 plan D6): it keeps what it showed until the source's value lands, so a
+        // restart never moves what it drives (an output whose power-on behaviour is off would drop a door for a tick).
+        if (poweredOn.add(id) && registered && !TwinRules.bound(link.twin())) host.powerOn();
+        // The binding is judged for its owner at every attach (M3 plan D13), before anything routes by it.
+        settleTwin(record, host, false);
         JsonObject pending = record.pending();
         if (pending != null) {
-            // The second half of command's QUEUE route: the queued target lands with the block entity.
             record.setPending(null);
-            host.applyCommand(new CommandReader(pending), CommandSource.HA);
+            // D14: a bound device's mirrored ports follow its source only; their queued values never land as HA's. What
+            // else was queued (a lamp's effect) lands, as the second half of command's QUEUE route.
+            JsonObject landing = TwinRules.landingPending(link.twin(), type.twin().orElse(null), pending);
+            if (landing == null || landing.size() != pending.size()) {
+                MineQTT.LOGGER.debug("Device {} mirrors {}: dropping what was queued for its mirrored ports, {}", record.slug(),
+                        link.twin().describeSource(), pending);
+            }
+            if (landing != null) host.applyCommand(new CommandReader(landing), CommandSource.HA);
         }
         // What a registered device published to before; a copy or a placement never published to its copied topic.
         RawLink stored = registered ? link.raw() : null;
@@ -2105,6 +2939,8 @@ public final class DeviceRuntime {
         if (type.remote() && record.v1Topic() != null) remotesToWire.put(id, REMOTE_WIRE_WAIT_TICKS);
         if (type.id().equals(SmartLamp.TYPE.id())) remotesChanged = true;
         openRaw(host, type);
+        // A working binding subscribes its source and gets its wire; the state below carries the health (M3 plan D17).
+        followTwin(record, host, false);
         if (!stopping) mqtt().publish(Outbound.state(topics().availability(record.slug()), ONLINE));
         publishState(host, true);
         if (!stopping) runtime.discovery().refresh(record);
@@ -2265,6 +3101,8 @@ public final class DeviceRuntime {
             closeRaw(id);
             throttles.remove(id);
             rawProblems.forget(id);
+            twinProblems.forget(id);
+            unfollowTwin(id);
         }
         link.setAttached(false);
         fault(GlobalPos.of(blockEntity.getLevel().dimension(), blockEntity.getBlockPos()), Stage.ATTACH, failure);
@@ -2453,7 +3291,13 @@ public final class DeviceRuntime {
 
     private void pushStatus(DeviceRecord record, BlockEntity blockEntity, Optional<String> problem) {
         if (stopping) return;
-        status(record.id()).ifPresent(status -> MineqttNetworking.sendDeviceStatus(blockEntity, status, problem.orElse(null)));
+        Optional<String> full = status(record.id(), true);
+        if (full.isPresent()) {
+            // Its twin's entities only for those who may configure it (M3 plan D13 #7).
+            String plain = status(record.id(), false).orElse(full.get());
+            MineqttNetworking.sendDeviceStatus(blockEntity, viewer -> DeviceAccess.check(viewer, blockEntity, MineqttPermission.CONFIGURE) ? full.get() : plain,
+                    problem.orElse(null));
+        }
         staleViews.add(record.id());
     }
 
@@ -2474,6 +3318,7 @@ public final class DeviceRuntime {
             if (blockEntity == null || registry.record(id) == null) continue;
             for (ServerPlayer viewer : MineqttNetworking.viewers(blockEntity)) {
                 MineqttNetworking.sendDeviceView(viewer, view(viewer, blockEntity));
+                sendTwin(viewer, blockEntity, null);
             }
         }
         staleViews.clear();
@@ -2483,8 +3328,11 @@ public final class DeviceRuntime {
             if (blockEntity == null || record == null) continue;
             List<ServerPlayer> viewers = MineqttNetworking.viewers(blockEntity);
             if (viewers.isEmpty()) continue;
-            DeviceLinks links = links(record);
-            viewers.forEach(viewer -> MineqttNetworking.sendDeviceLinks(viewer, links));
+            // Two lists at most: a viewer who may configure the device also sees its derived wire.
+            DeviceLinks plain = links(record, false);
+            DeviceLinks configurable = twinWiring.of(id).isPresent() || !twinWiring.targets(id).isEmpty() ? links(record, true) : plain;
+            viewers.forEach(viewer -> MineqttNetworking.sendDeviceLinks(viewer,
+                    DeviceAccess.check(viewer, blockEntity, MineqttPermission.CONFIGURE) ? configurable : plain));
         }
         staleLinks.clear();
         if (!staleGroups) return;
@@ -2511,16 +3359,128 @@ public final class DeviceRuntime {
         UUID id = link.id();
         DeviceRecord record = devices == null || id == null || devices.attached.get(id) != blockEntity ? null : devices.registry.record(id);
         Optional<Fault> fault = devices == null ? Optional.empty() : devices.fault(GlobalPos.of(blockEntity.getLevel().dimension(), blockEntity.getBlockPos()));
-        String status = record != null ? devices.status(id).orElse(NOT_RUNNING) : fault.map(faulted -> "Faulted: " + faulted.text()).orElse(NOT_RUNNING);
+        DeviceView.Grants grants = DeviceAccess.grants(viewer, blockEntity);
+        String status = record != null ? devices.status(id, grants.configure()).orElse(NOT_RUNNING) : fault.map(faulted -> "Faulted: " + faulted.text()).orElse(NOT_RUNNING);
         String problem = record == null ? null : devices.rawProblem(record, link).orElse(null);
         DeviceView.Registration registration = record == null ? DeviceView.Registration.NONE : devices.registration(record);
-        DeviceView.Grants grants = DeviceAccess.grants(viewer, blockEntity);
         DeviceView.Ownership ownership = new DeviceView.Ownership(DeviceAccess.owner(link.owner(), link.ownerName(), server.usesAuthentication()),
                 MineQTT.permissionManager.hasClaimMod());
         DeviceView.Diagnostics diagnostics = devices == null ? DeviceView.Diagnostics.notRunning(id) : devices.diagnostics(id, record != null, fault, grants);
         DeviceView view = DeviceView.of(blockEntity.getBlockPos(), link, registration, host.isPrivateMode(), stateOf(host), status, problem, grants,
                 ownership, diagnostics);
         return DeviceAccess.mayBuild(viewer) ? view : view.redacted();
+    }
+
+    /**
+     * Sends a player with a device's screen open what its Twin tab shows them (M3 plan D19): with the screen's open data
+     * ({@link DeviceMenu#open}) and with every new view. Nothing for a type without a twin adapter, nor for a screen with
+     * the Controls tab alone (P2).
+     *
+     * @param pick the binding key the player's entity picker opens for (the Configurator's Bind mode), or null
+     */
+    public static void sendTwin(ServerPlayer player, BlockEntity blockEntity, @Nullable String pick) {
+        if (requireHost(blockEntity).deviceType().twin().isEmpty()) return;
+        MineqttNetworking.sendTwinView(player, twinView(player, blockEntity, pick));
+    }
+
+    /**
+     * What a device's Twin tab shows one player ({@link TwinView}): its binding, how its source and its control are doing,
+     * and the player's twin rights. Entity ids and names, the refusal and the control blueprint's last answer only for a
+     * player who may configure it (D13 #7). A device that does not run here shows its block's binding as stored.
+     */
+    public static TwinView twinView(ServerPlayer viewer, BlockEntity blockEntity, @Nullable String pick) {
+        DeviceHost host = requireHost(blockEntity);
+        DeviceLink link = host.deviceLink();
+        TwinAdapter adapter = host.deviceType().twin().orElseThrow(() -> new IllegalArgumentException(host.deviceType().id() + " has no twin"));
+        MinecraftServer server = viewer.level().getServer();
+        DeviceRuntime devices = of(server);
+        UUID id = link.id();
+        boolean running = devices != null && id != null && devices.attached.get(id) == blockEntity;
+        boolean details = DeviceAccess.check(viewer, blockEntity, MineqttPermission.CONFIGURE);
+        Binding binding = link.twin();
+        TwinRuntime twin = running ? devices.runtime.twin() : null;
+        Function<String, TwinView.Entity> entity = entityId -> !details ? TwinView.Entity.HIDDEN
+                : Optional.ofNullable(twin).flatMap(known -> known.known(entityId)).map(known -> new TwinView.Entity(entityId, known.name(), known.area()))
+                .orElseGet(() -> new TwinView.Entity(entityId, "", ""));
+        Optional<TwinView.Entity> source = binding == null ? Optional.empty() : binding.sourceEntity().map(entity);
+        // M3-17: an MQTT device source, named only for a viewer who may configure the device (wave 6 open finding 1).
+        Optional<TwinView.Device> device = binding == null ? Optional.empty() : binding.preset().map(preset -> !details ? TwinView.Device.HIDDEN
+                : new TwinView.Device(preset.id(), BindingPresets.get(preset.id()).map(BindingPreset::name).orElse(""), preset.device(),
+                binding.sourceTopic().orElse(""), preset.kind()));
+        Map<String, TwinView.Entity> targets = new LinkedHashMap<>();
+        if (binding != null) {
+            adapter.targets().forEach((name, port) -> {
+                if (binding.targets().get(port) instanceof Endpoint.HaEntityRef target) targets.put(name, entity.apply(target.entityId()));
+            });
+        }
+        Optional<TwinHealth> health = running ? devices.twinHealth(id) : Optional.empty();
+        if (health.isEmpty() && binding != null) {
+            // Not running, or a working device with targets only: what its binding says on its own.
+            if (!binding.active()) health = Optional.of(TwinHealth.REFUSED);
+            else if (binding.bound()) health = Optional.of(TwinHealth.WAITING);
+        }
+        TwinRequests requests = running ? devices.runtime.twinRequests() : null;
+        String refused = details && binding != null && !binding.active() ? binding.refused() : "";
+        Optional<String> answer = details && requests != null ? requests.answer(id).map(TwinRequests.Answer::status) : Optional.empty();
+        TwinRules.Rights rights = TwinRules.Rights.of(viewer.permissions(), server.isDedicatedServer());
+        // Wave 6 open finding 2: the requests the rates refused; the count for everyone, the last one's target for CONFIGURE.
+        Optional<TwinRequests.RateRefusals> rate = requests == null ? Optional.empty() : requests.rateRefusals(id);
+        long rateRefused = rate.map(TwinRequests.RateRefusals::refused).orElse(0L);
+        String rateLast = details ? rate.map(last -> last.target() + ": " + last.reason()).orElse("") : "";
+        return new TwinView(blockEntity.getBlockPos(), details, source, device, binding != null && binding.control(),
+                binding == null ? TwinView.Settings.DEFAULT : TwinView.Settings.of(binding.settings()), targets, health, refused,
+                requests != null && requests.pending(id), requests != null && requests.paused(id), answer, rights.off().orElse(""), rights.mayBind(),
+                rights.mayControl(), twin != null && twin.catalogMode(), running ? devices.mirroredWires(id, adapter) : 0, Optional.ofNullable(pick),
+                rateRefused, rateLast);
+    }
+
+    // The enabled wires into the ports a device's source owns: with control they switch the source (M3 plan D6).
+    private int mirroredWires(UUID id, TwinAdapter adapter) {
+        return (int) registry.wiresOf(id).stream()
+                .filter(wire -> wire.enabled() && wire.to() instanceof Endpoint.PortRef to && to.node().equals(id) && adapter.mirroredKeys().contains(to.port()))
+                .count();
+    }
+
+    /**
+     * {@code TwinSearchC2S}: a search of the entity picker of the device whose screen the player has open, which the guard
+     * let through with CONFIGURE (M3 plan D4, D13). A flood beyond {@value TwinPicker#SEARCH_BURST} searches is dropped;
+     * a player without {@code mineqtt:twin.bind} learns only that, and while the twin is off only why. Otherwise the
+     * answer holds at most {@value TwinPicker#MAX_ROWS} entities of the key's domains that the read gate lets through
+     * ({@code twin.allowedEntities}, the catalog's labels), ranked by D4 with the player's recent bindings and grouped by
+     * area. A preset search (M3-17, the "MQTT device" source) answers with the loaded presets the type mirrors through,
+     * for a binder, whether or not the Home Assistant twin is on; it shares the search rate.
+     */
+    public static void twinSearch(ServerPlayer player, BlockEntity blockEntity, MineqttNetworking.TwinSearchPayload search) {
+        DeviceRuntime devices = of(player.level().getServer());
+        TwinAdapter adapter = requireHost(blockEntity).deviceType().twin().orElse(null);
+        if (devices == null || devices.stopping || adapter == null || !TwinPicker.searchable(adapter, search.kind(), search.key())) return;
+        TokenBucket bucket = devices.twinSearches.computeIfAbsent(player.getUUID(),
+                key -> new TokenBucket(TwinPicker.SEARCH_BURST, TwinPicker.SEARCHES_PER_SECOND, System::nanoTime));
+        if (!bucket.tryTake()) return;
+        TwinRules.Rights rights = TwinRules.Rights.of(player.permissions(), player.level().getServer().isDedicatedServer());
+        if (search.kind() == TwinPicker.SearchKind.PRESET) {
+            TwinPicker.Answer presets = TwinPicker.presets(rights.mayBind(), adapter.sourceDomains(), BindingPresets.all(), search.query(), search.domain());
+            MineqttNetworking.sendTwinResults(player, new MineqttNetworking.TwinResultsPayload(blockEntity.getBlockPos(), search.kind(), search.key(),
+                    search.query(), search.domain(), presets.rows(), presets.notice(), presets.detail()));
+            return;
+        }
+        TwinRuntime twin = devices.runtime.twin();
+        List<String> domains = TwinPicker.searched(adapter, search.key(), search.domain());
+        Set<String> recent = devices.recentTwin.getOrDefault(player.getUUID(), Set.of());
+        // M3-14: a target lists only what Minecraft may control, filtered after the ranking, so the whole ranking is asked.
+        boolean target = TwinPicker.target(adapter, search.key());
+        TwinPicker.ControlFilter filter = target ? new TwinPicker.ControlFilter(twin.catalogMode(), MineQTTConfig.twinHaActionAllowlist) : null;
+        TwinPicker.Answer answer = TwinPicker.answer(rights.mayBind(), rights.off(),
+                () -> twin.entities(search.query(), domains, recent, target ? Integer.MAX_VALUE : TwinPicker.MAX_ROWS), twin::anyEntities, twin::document,
+                filter, search.query());
+        MineqttNetworking.sendTwinResults(player, new MineqttNetworking.TwinResultsPayload(blockEntity.getBlockPos(), search.kind(), search.key(),
+                search.query(), search.domain(), answer.rows(), answer.notice(), answer.detail()));
+    }
+
+    /** A player left: their picker's search rate and recent bindings are forgotten. */
+    public void playerLeft(UUID player) {
+        twinSearches.remove(player);
+        recentTwin.remove(player);
     }
 
     /**
@@ -2762,6 +3722,14 @@ public final class DeviceRuntime {
         // An output publishes on change; what it published while it had no owner was refused.
         String rawValue = rawLevel(host);
         if (!published && rawValue != null) publishRaw(host, rawValue);
+        // A binding is judged for its owner (M3 plan D13): one refused while the device had none may heal.
+        Binding twinBefore = host.deviceLink().twin();
+        if (settleTwin(record, host, true)) {
+            twinChanged(record, host, twinBefore);
+        } else {
+            // The derived wire belongs to the device's owner.
+            followTwin(record, host, false);
+        }
         // The state echo waited for the owner too.
         publishState(host, true);
     }
@@ -2784,6 +3752,8 @@ public final class DeviceRuntime {
         host.deviceLink().setAttached(false);
         closeRaw(id);
         rawProblems.forget(id);
+        twinProblems.forget(id);
+        unfollowTwin(id);
         // A v1 remote not wired yet goes on at its next attach; its record keeps the topic.
         remotesToWire.remove(id);
         DeviceRecord record = registry.record(id);
@@ -2827,6 +3797,9 @@ public final class DeviceRuntime {
         traffic.remove(record.id());
         closeRaw(record.id());
         rawProblems.forget(record.id());
+        twinProblems.forget(record.id());
+        unfollowTwin(record.id());
+        runtime.twinRequests().forget(record.id());
         // M2 plan D15: a v1 remote that goes waits no more, and one that waited for this lamp to load is matched again.
         remotesToWire.remove(record.id());
         remotesChanged();
@@ -2913,7 +3886,7 @@ public final class DeviceRuntime {
         } else if (type.unloadedPolicy() == UnloadedPolicy.QUEUE && !faults.containsKey(record.pos())) {
             mqtt().publish(Outbound.state(topics().availability(record.slug()), ONLINE).asRefresh());
             if (record.lastState() != null) {
-                publish(record.id(), Outbound.state(topics().device(record.slug()), effectiveState(record, type)).asRefresh());
+                publish(record.id(), Outbound.state(topics().device(record.slug()), published(effectiveState(record, type), record.twin(), record.id())).asRefresh());
             }
         } else {
             mqtt().publish(Outbound.state(topics().availability(record.slug()), OFFLINE).asRefresh());
@@ -2974,12 +3947,55 @@ public final class DeviceRuntime {
      * @param message the message the command came in; null for a command from the game
      */
     private Delivery command(UUID target, JsonObject command, CommandSource source, @Nullable UUID origin, @Nullable Inbound message) {
+        return bus.withRoot(commandRoot(source, bus.currentRoot().orElse(null)), () -> routed(target, command, source, origin, message));
+    }
+
+    /**
+     * M3 plan D10's root table, a pure function: the root a command from {@code source} brings. Home Assistant's
+     * {@code /set} topics, the Raw Link, players and the mirrored real device are roots of their own; a group's fan-out
+     * and a wire's message carry the root of what caused them. Block tickers, neighbour updates and hands open no extent
+     * of their own: what they emit takes the current root, or {@link Root#WORLD} when none is current.
+     *
+     * @return empty for a source that inherits the current root
+     */
+    static Optional<Root> root(CommandSource source) {
+        return switch (source) {
+            case HA -> Optional.of(Root.HA);
+            case RAW -> Optional.of(Root.RAW);
+            case PLAYER -> Optional.of(Root.PLAYER);
+            case TWIN -> Optional.of(Root.TWIN);
+            case GROUP, BINDING -> Optional.empty();
+        };
+    }
+
+    /**
+     * The root of the extent a command from {@code source} runs in, a pure function: its {@link #root}, which never
+     * clears a root from outside the game that is current ({@link Root#nested}), or for a source that inherits, the
+     * current root, {@link Root#WORLD} when none is.
+     *
+     * @param current the root current when the command arrives; null for none
+     */
+    static Root commandRoot(CommandSource source, @Nullable Root current) {
+        return root(source).map(own -> Root.nested(current, own)).orElse(current == null ? Root.WORLD : current);
+    }
+
+    /**
+     * Runs {@code delivery}, a broker message that changes the world outside a device command, in a {@link Root#RAW}
+     * extent (M3 plan D10): the v1 Block Emitter's delivery, whose placed block can power a device in the same
+     * neighbour-update cascade. Anyone who may publish to that topic caused what follows, so none of it switches a real
+     * device.
+     */
+    public void fromBroker(Runnable delivery) {
+        bus.withRoot(Root.RAW, delivery);
+    }
+
+    private Delivery routed(UUID target, JsonObject command, CommandSource source, @Nullable UUID origin, @Nullable Inbound message) {
         DeviceRecord record = registry.record(target);
         if (record != null) return deliver(record, DeviceTypes.get(record.type()), command, source, origin, message);
         DeviceGroup group = registry.group(target);
         if (group == null) return new Delivery(Route.DROP, null);
         DeviceType type = group.memberType() == null ? null : DeviceTypes.get(group.memberType());
-        Route route = route(true, type, false);
+        Route route = route(true, type, false, source, Mirrored.NONE);
         if (route == Route.FAN_OUT) fanOut(group, type, command, source, origin, message);
         return new Delivery(route, null);
     }
@@ -2995,25 +4011,126 @@ public final class DeviceRuntime {
     }
 
     /**
-     * {@link #command}'s routing table, a pure function: a group with a known member type fans out (its members are
-     * routed on their own), a loaded device applies, an unloaded {@link UnloadedPolicy#QUEUE} device queues, and the
-     * rest drops: an unloaded sensor, and a device or group whose type this MineQTT does not know.
+     * {@link #command}'s routing table, a pure function (M2 plan §3.3, M3 plan §3.4, D14, D17):
+     * <ol>
+     *     <li>a device or group whose type this MineQTT does not know drops it; a group with a known member type fans it
+     *     out, each member routed on its own;</li>
+     *     <li>the mirrored real device's own apply ({@link CommandSource#TWIN}) applies to a loaded device and drops for an
+     *     unloaded one: it is never queued, and never forwarded;</li>
+     *     <li>a command to a mirrored port of a bound device is decided before any queue: a player's or a wire's is
+     *     forwarded while control is on and refused while it is off; Home Assistant's {@code /set}, a group's and a Raw
+     *     Link's are refused;</li>
+     *     <li>anything else: a loaded device applies, an unloaded {@link UnloadedPolicy#QUEUE} device queues, the rest
+     *     (an unloaded sensor) drops.</li>
+     * </ol>
+     * The root is not an input: the {@link MirrorForwarder} gates it for a forwarded command (M3 plan D10).
      *
-     * @param type the device's type, or the group's member type; null when unknown, or for a group without a member type
+     * @param type     the device's type, or the group's member type; null when unknown, or for a group without a member type
      * @param attached whether the device is loaded; ignored for a group
+     * @param mirrored what the device's binding says about this command ({@link Mirrored#NONE} for a group)
      */
-    static Route route(boolean group, @Nullable DeviceType type, boolean attached) {
+    static Route route(boolean group, @Nullable DeviceType type, boolean attached, CommandSource source, Mirrored mirrored) {
         if (type == null) return Route.DROP;
         if (group) return Route.FAN_OUT;
+        if (source == CommandSource.TWIN) return attached ? Route.APPLY : Route.DROP;
+        if (mirrored.port()) {
+            return switch (source) {
+                case PLAYER, BINDING -> mirrored.control() ? Route.FORWARD : Route.REFUSE;
+                case HA, GROUP, RAW, TWIN -> Route.REFUSE;
+            };
+        }
         if (attached) return Route.APPLY;
         return type.unloadedPolicy() == UnloadedPolicy.QUEUE ? Route.QUEUE : Route.DROP;
+    }
+
+    /**
+     * Why a command to a mirrored port was refused ({@link Route#REFUSE}), as the player or the log is told (M3 plan D6),
+     * a pure function.
+     *
+     * @param device the device's slug
+     * @param control whether control would forward the command (it is on, the binding works, the owner may)
+     */
+    static String refusal(String device, Binding binding, CommandSource source, boolean control) {
+        return refusal(device, binding, source, control, false);
+    }
+
+    /**
+     * {@link #refusal(String, Binding, CommandSource, boolean)} for a device of a type whose adapter is read-only towards
+     * its source ({@code readOnly}, the Display Panel): nothing in game can change what it mirrors, so it says where to
+     * change it instead of naming a control the type does not have.
+     */
+    static String refusal(String device, Binding binding, CommandSource source, boolean control, boolean readOnly) {
+        String mirrors = device + " mirrors " + binding.describeSource();
+        return switch (source) {
+            case HA, GROUP -> mirrors + (readOnly ? "; change it in Home Assistant" : "; control it in Home Assistant or in game");
+            case RAW -> "its Raw Link is paused while " + mirrors;
+            case PLAYER, BINDING, TWIN -> !binding.active() ? mirrors + ", but its binding is refused: " + binding.refused()
+                    : readOnly ? mirrors + " and only shows it; change it in Home Assistant"
+                    : binding.control() && !control ? mirrors + ", and its owner may not control it (mineqtt:twin.control)"
+                    : mirrors + " and its control is off";
+        };
+    }
+
+    // The device's binding: its block's while loaded, else the record's copy (M3 plan D14), judged for its owner under the
+    // rules in force now. A loaded binding is judged at its attach and at every reload; a copy may have been stored before
+    // a reload or before a config edited while the server was down, and nobody bypasses twin.allowedEntities (D13), so
+    // an unloaded device never forwards to, or switches, an entity the rules refuse now.
+    private @Nullable Binding binding(DeviceRecord record) {
+        BlockEntity blockEntity = attached.get(record.id());
+        if (blockEntity != null) return requireHost(blockEntity).deviceLink().twin();
+        return judgedCopy(record);
+    }
+
+    // The record's copy of an unloaded device's binding, judged for its owner (whose name only a loaded block knows).
+    private @Nullable Binding judgedCopy(DeviceRecord record) {
+        Binding copy = record.twin();
+        DeviceType type = copy == null ? null : DeviceTypes.get(record.type());
+        TwinAdapter adapter = type == null ? null : type.twin().orElse(null);
+        return adapter == null ? copy : TwinRules.recheck(adapter, copy, TwinRules.Rights.owner(runtime.server(), record.owner(), ""));
+    }
+
+    // What the route table needs of the device's binding for this command. Control asks the owner's rights now, so a
+    // permission taken or given takes effect at once.
+    private Mirrored mirrored(DeviceRecord record, @Nullable DeviceType type, @Nullable Binding binding, JsonObject command) {
+        TwinAdapter adapter = type == null ? null : type.twin().orElse(null);
+        if (adapter == null || binding == null || !binding.bound() || !adapter.touchesMirror(command)) return Mirrored.NONE;
+        return new Mirrored(true, binding.controls() && ownerMayControl(record));
+    }
+
+    private boolean ownerMayControl(DeviceRecord record) {
+        BlockEntity blockEntity = attached.get(record.id());
+        String ownerName = blockEntity != null ? requireHost(blockEntity).deviceLink().ownerName() : "";
+        return AclContext.mayControlTwin(runtime.server(), record.owner(), ownerName);
     }
 
     private Delivery deliver(DeviceRecord record, @Nullable DeviceType type, JsonObject command, CommandSource source, @Nullable UUID origin,
                              @Nullable Inbound message) {
         if (message != null) received(record.id(), message);
         BlockEntity blockEntity = attached.get(record.id());
-        Route route = route(false, type, blockEntity != null);
+        Binding binding = binding(record);
+        Mirrored mirrored = mirrored(record, type, binding, command);
+        Route route = route(false, type, blockEntity != null, source, mirrored);
+        if (route == Route.REFUSE) {
+            String reason = refusal(record.slug(), binding, source, mirrored.control(), type.twin().map(twin -> !twin.controllable()).orElse(false));
+            MineQTT.LOGGER.debug("Device {} refused {} ({}): {}", record.slug(), command, source, reason);
+            if (message != null) traffic(record.id()).dropped();
+            return new Delivery(route, null, reason);
+        }
+        if (route == Route.FORWARD) {
+            // Non-optimistic (D6): the device changes only when its source does, so nothing applies here.
+            Root root = bus.currentRoot().orElse(Root.WORLD);
+            TwinRequests.Result forwarded = mirrorForwarder.forward(record, binding, command.deepCopy(), root, root == Root.PLAYER ? actor : null);
+            if (forwarded instanceof TwinRequests.Refused refused) {
+                if (refused.refusal() == TwinRequests.Refusal.ROOT) {
+                    // Told once per device and root (D10); the bus counts every one as dropped for its root.
+                    logOnce("twin-root:" + record.id() + ":" + root, "Device {} does not ask Home Assistant to change {} for a {} cause: {}",
+                            record.slug(), binding.describeSource(), root.name().toLowerCase(Locale.ROOT), TwinGate.refusal(root).orElse(""));
+                } else {
+                    MineQTT.LOGGER.debug("Device {} did not forward {} ({}): {}", record.slug(), command, source, refused.reason());
+                }
+            }
+            return Delivery.forwarded(forwarded);
+        }
         if (route == Route.APPLY) {
             DeviceHost host = requireHost(blockEntity);
             CommandResult result = host.applyCommand(new CommandReader(command), source);
@@ -3043,7 +4160,7 @@ public final class DeviceRuntime {
         JsonObject target = type.preview(effectiveState(record, type), command);
         record.setPending(type.difference(last, target));
         registry.markDirty();
-        if (!stopping) publish(record.id(), Outbound.state(topics().device(record.slug()), target));
+        if (!stopping) publish(record.id(), Outbound.state(topics().device(record.slug()), published(target, record.twin(), record.id())));
     }
 
     // §6.6 groups: command's fan-out to the members of a group whose member type is known.
@@ -3097,6 +4214,8 @@ public final class DeviceRuntime {
                 || raw.direction() != RawLinkSpec.Direction.IN || !raw.active() || followedByGroup(registry.record(id), raw)) {
             return;
         }
+        // A mirrored device follows its source alone (M3 plan D6): its Raw Link input pauses until it is unbound.
+        if (rawPaused(link)) return;
         Optional<String> refusal = rawRefusal(link, raw);
         if (refusal.isPresent()) {
             // A device whose v1 owner is still being looked up tries again once the owner is known.
@@ -3127,6 +4246,12 @@ public final class DeviceRuntime {
         if (subscription != null) subscription.close();
     }
 
+    /** Whether a device's Raw Link input is paused: its device is bound to a source (M3 plan D6). Raw OUT keeps working. */
+    static boolean rawPaused(DeviceLink link) {
+        RawLink raw = link.raw();
+        return raw != null && raw.direction() == RawLinkSpec.Direction.IN && link.twin() != null && link.twin().bound();
+    }
+
     // Opens or closes a loaded device's Raw Link input after its link or its group changed.
     private void refreshRaw(DeviceRecord record) {
         BlockEntity blockEntity = attached.get(record.id());
@@ -3138,11 +4263,18 @@ public final class DeviceRuntime {
     }
 
     private String rawStatus(DeviceRecord record, DeviceLink link) {
+        return rawStatus(record, link, true);
+    }
+
+    // @param details whether the reader may see the entity a bound device mirrors (M3 plan D13 #7)
+    private String rawStatus(DeviceRecord record, DeviceLink link, boolean details) {
         RawLink raw = link.raw();
         if (raw == null) return "none";
         Optional<String> problem = rawProblem(record, link);
         if (problem.isPresent()) return raw.topic() + " refused: " + problem.get();
         if (followedByGroup(record, raw)) return raw.topic() + " via group " + registry.group(record.group()).slug();
+        if (rawPaused(link)) return raw.topic() + " paused while this device mirrors " + (details ? link.twin().describeSource()
+                : link.twin().preset().isPresent() ? "an MQTT device" : "a Home Assistant entity");
         RawLinkSpec spec = link.type().rawLink().orElse(null);
         String retained = (spec != null && RawRetain.retains(raw, spec) ? ", retained" : "") + (raw.edges().level() ? "" : ", rising edges only");
         if (raw.grandfathered() == null) return raw.topic() + retained;

@@ -5,6 +5,7 @@ import art.rehra.mineqtt.device.ValueCodecs.LightState;
 import art.rehra.mineqtt.device.ValueCodecs.LightTransition;
 import art.rehra.mineqtt.device.ValueCodecs.Rgb;
 import art.rehra.mineqtt.device.types.SmartLamp;
+import art.rehra.mineqtt.flow.core.Colors;
 import art.rehra.mineqtt.flow.core.PortType;
 import art.rehra.mineqtt.ha.Ha;
 import art.rehra.mineqtt.ha.HaEntity;
@@ -26,12 +27,16 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.util.StringRepresentable;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.level.Level;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -257,6 +262,11 @@ public final class ValueCodecsTest {
         ValueCodecs.Rgb daylight = ValueCodecs.kelvinToRgb(6500);
         check(candle.r() == 255 && candle.b() < daylight.b() && daylight.b() > 240, "Kelvin to colour: " + candle + " " + daylight);
         check(ValueCodecs.Rgb.ofPacked(0x123456).equals(new ValueCodecs.Rgb(0x12, 0x34, 0x56)), "Packed colours");
+        // flow.core cannot see DyeColor, so its dye table is a copy that must stay equal to the game's (text colours are opaque ARGB).
+        Map<String, Integer> dyes = new LinkedHashMap<>();
+        for (DyeColor dye : DyeColor.values()) dyes.put(dye.getName(), dye.getTextColor() & 0xFFFFFF);
+        check(new ArrayList<>(Colors.dyes().entrySet()).equals(new ArrayList<>(dyes.entrySet())), "Colors' dye table is DyeColor's text colours in id order: " + dyes);
+        check(ValueCodecs.color("light blue").orElseThrow().packed() == (DyeColor.LIGHT_BLUE.getTextColor() & 0xFFFFFF), "Dye names keep their colour");
     }
 
     private static void fieldCodecs() {

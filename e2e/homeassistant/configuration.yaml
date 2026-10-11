@@ -3,20 +3,41 @@
 # port 1883), by hand in the UI or with `python ha.py mqtt` (see README.md).
 default_config:
 
+# The twin fixture (M3): every file below /config/packages is a package named after its file. docker-compose.yml
+# mounts packages/common into both services and the version's own folder (packages/2026.10 or packages/2025.2)
+# next to it, because no single syntax for template lights and locks works on both pinned versions.
+homeassistant:
+  packages: !include_dir_named packages
+
+# `ha.py automation from-blueprint` writes through the automation editor, which only edits automations.yaml.
+# The compose service ha-config-init creates the file (an empty list) in both volumes before Home Assistant starts,
+# because an !include of a missing file stops Home Assistant in recovery mode.
+automation: !include automations.yaml
+
 # Debug logging of discovery and state handling is the evidence for checklist items 1 and 5-8.
 logger:
   default: warning
   logs:
     homeassistant.components.mqtt: debug
 
-# Coming in M3 (HA -> Minecraft mirror mode). Left commented out until then, so the broker is not flooded with
-# statestream messages while the checklist is observed with mosquitto_sub.
-# mqtt_statestream:
-#   base_topic: ha_statestream
-#   publish_attributes: true
-#   publish_timestamps: true
-#   include:
-#     domains:
-#       - light
-#       - switch
-#       - input_boolean
+# HA -> Minecraft mirror mode (M3 plan D2). The include is the fixture's entity list and nothing else, so the
+# checklist's mosquitto_sub output stays readable and the fixture check (README "Twin fixture") proves the filter:
+# input_boolean.m3_bolt is deliberately left out (it drives lock.m3_lock, which is included).
+mqtt_statestream:
+  base_topic: ha_statestream
+  publish_attributes: true
+  publish_timestamps: true
+  include:
+    entities:
+      - input_boolean.m3_flag
+      - input_boolean.m3_other
+      - input_number.m3_level
+      - input_select.m3_mode
+      - input_text.m3_note
+      - input_button.m3_button
+      - counter.m3_counter
+      - light.m3_lamp
+      - sensor.m3_temperature
+      - lock.m3_lock
+      - scene.m3_scene
+      - script.m3_script

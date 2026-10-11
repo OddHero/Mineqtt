@@ -2,9 +2,12 @@ package art.rehra.mineqtt.runtime;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.config.MineQTTConfig;
+import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.device.DeviceRegistry;
 import art.rehra.mineqtt.device.DeviceRuntime;
+import art.rehra.mineqtt.device.DeviceTypes;
 import art.rehra.mineqtt.device.RegistryStore;
+import art.rehra.mineqtt.flow.core.Root;
 import art.rehra.mineqtt.ha.BirthWatcher;
 import art.rehra.mineqtt.ha.BridgeDevice;
 import art.rehra.mineqtt.ha.DiscoveryPublisher;
@@ -18,7 +21,17 @@ import art.rehra.mineqtt.mqtt.core.MqttLog;
 import art.rehra.mineqtt.mqtt.core.MqttService;
 import art.rehra.mineqtt.mqtt.core.Outbound;
 import art.rehra.mineqtt.mqtt.core.ProtocolVersion;
+import art.rehra.mineqtt.mqtt.core.Subscription;
 import art.rehra.mineqtt.mqtt.core.TopicAcl;
+import art.rehra.mineqtt.security.AclContext;
+import art.rehra.mineqtt.twin.BindingPresets;
+import art.rehra.mineqtt.twin.HaSink;
+import art.rehra.mineqtt.twin.TwinAdapter;
+import art.rehra.mineqtt.twin.TwinRequests;
+import art.rehra.mineqtt.twin.TwinRuntime;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.BindingPreset;
+import art.rehra.mineqtt.twin.core.HaCalls;
 import art.rehra.mineqtt.ui.console.BridgeConsole;
 import com.google.gson.JsonObject;
 import dev.architectury.platform.Platform;
@@ -29,6 +42,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Util;
 import net.minecraft.world.level.Level;
 
+import java.security.SecureRandom;
 import java.util.Optional;
 import java.util.random.RandomGenerator;
 
@@ -52,6 +66,8 @@ public final class MineqttRuntime {
     public static final String OFFLINE = "offline";
     // §4.2 step 5: availability and state follow one second after the last discovery message.
     private static final long STATE_AFTER_DISCOVERY_MILLIS = 1_000;
+    // M3 plan D3: ha_sync 5 s after every CONNACK and after Home Assistant's birth.
+    private static final long SYNC_DELAY_MILLIS = 5_000;
 
     private static volatile MineqttRuntime running;
 
@@ -60,6 +76,9 @@ public final class MineqttRuntime {
     private final DeviceRegistry registry;
     private final MqttLog log = new Slf4jMqttLog(MineQTT.LOGGER);
     private final ReplaceableMqttService mqtt;
+    private final TwinRuntime twin;
+    private final TwinRequests twinRequests;
+    private final HaSink twinSink;
     private final DeviceRuntime devices;
     private final DiscoveryPublisher.Identity identity;
     private final DiscoveryPublisher discovery;
@@ -78,13 +97,23 @@ public final class MineqttRuntime {
     private boolean pauseLogged;
     // Whether server.keepTickingWhenEmpty overrode pause-when-empty-seconds when that was last logged.
     private boolean pauseOverrideLogged;
+    // The twin line last logged, so a config reload logs the twin again only when it changed.
+    private String twinLogged;
     // What the current connection was built from; read by its connect listener.
     private MineQTTConfig.ConnectionSettings connectedWith;
     private TopicScheme topics;
     private TopicAcl acl;
+    // The control blueprint's answers (M3 plan D11), on the bridge's own ha_response topic; moved when the topics move.
+    private Subscription responses;
+    private String responsesTopic;
     private ProtocolVersion protocol;
     private String broker = "none";
     private RepublishStep republishStep = RepublishStep.NONE;
+    // When the current connection's CONNACK arrived (Util.getMillis); a Home Assistant birth before it is stale.
+    private long connectedAtMillis = Long.MAX_VALUE;
+    // The ha_sync waiting for its delay, and why; -1 when none.
+    private long syncDueMillis = -1;
+    private String syncReason = "";
     private long stateDueMillis;
     private boolean migrateAfterState;
     private volatile boolean stopping;
@@ -103,14 +132,38 @@ public final class MineqttRuntime {
         this.registry = registry;
         this.mqtt = new ReplaceableMqttService(createService());
         mqtt.onConnected(this::publishBridge);
+        // Before the devices, which hold its subscriptions from their attach on.
+        this.twin = new TwinRuntime(mqtt, () -> acl, server.isDedicatedServer(), Util::getMillis);
+        // Before the devices too, which hear what came of their requests. The ids are unguessable, so a forged answer
+        // has to read the request first (answers stay advisory either way).
+        this.twinRequests = new TwinRequests(new TwinRequests.Transport() {
+            @Override
+            public boolean connected() {
+                return mqtt.state().isConnected();
+            }
+
+            @Override
+            public void publish(Outbound message) {
+                mqtt.publish(message);
+            }
+        }, () -> topics, () -> MineQTTConfig.twinHaActionAllowlist, () -> MineQTTConfig.twinMaxRequestsPerSecond, Util::getMillis,
+                new SecureRandom(), log);
+        this.twinSink = new HaSink(twinRequests);
+        subscribeResponses();
         this.devices = new DeviceRuntime(this, registry);
+        devices.setMirrorForwarder(this::forwardToTwin);
         this.identity = new DiscoveryPublisher.Identity(server.getWorldData().getLevelName(), registry.worldUuid(),
                 Platform.getMod(MineQTT.MOD_ID).getVersion());
-        this.discovery = new DiscoveryPublisher(registry, mqtt, () -> topics, identity, server.isDedicatedServer(), Util::getMillis);
+        this.discovery = new DiscoveryPublisher(registry, mqtt, () -> topics, identity, server.isDedicatedServer(), Util::getMillis, this::haOnline);
         this.ghosts = new GhostCleanup(mqtt, () -> MineQTTConfig.discoveryPrefix, identity.bridgeObjectId(),
                 registry::contains, discovery::tryTakeToken, Util::getMillis, log);
         this.bridge = new BridgeDevice(mqtt, () -> topics, server::getPlayerCount, Util::getMillis, this::republish);
         this.birth = new BirthWatcher(mqtt, this::republish, Util::getMillis, RandomGenerator.getDefault());
+        // At once: the twin's values become retained, and a fresh catalog is asked for 5 s later (M3 plan D3).
+        birth.onBirth(() -> {
+            twin.haBirth();
+            scheduleSync("birth");
+        });
         this.console = new BridgeConsole(this);
         // After the bridge's online and the devices' forced offline, which were registered first.
         mqtt.onConnected(this::connected);
@@ -168,6 +221,7 @@ public final class MineqttRuntime {
         if (previous != null) previous.pump.close();
         running = runtime;
         runtime.logPauseOverride();
+        runtime.logTwin();
         String incomplete = store.incompleteReason();
         if (incomplete != null) {
             MineQTT.LOGGER.warn("The Home Assistant ghost cleanup is off for this run: the device registry may lack devices that exist, as {}", incomplete);
@@ -195,6 +249,24 @@ public final class MineqttRuntime {
 
     public DeviceRuntime devices() {
         return devices;
+    }
+
+    /** The read side of the Home Assistant twin (M3 plan §3.4): statestream subscriptions and entity documents. */
+    public TwinRuntime twin() {
+        return twin;
+    }
+
+    /**
+     * The write-back to Home Assistant (M3 plan D10, D11): requests with their gate, rates and breaker, the answers, and
+     * the {@code ping} and {@code ha_sync} helpers of {@code /mineqtt twin ping|refresh}.
+     */
+    public TwinRequests twinRequests() {
+        return twinRequests;
+    }
+
+    /** The bus's sink for Home Assistant ends: values on target wires become requests (M3 plan §3.4 step 3). */
+    public HaSink twinSink() {
+        return twinSink;
     }
 
     public DeviceRegistry registry() {
@@ -270,6 +342,7 @@ public final class MineqttRuntime {
         mqtt.replace(this::createService);
         devices.topicsChanged();
         bridge.topicsChanged();
+        subscribeResponses();
     }
 
     /**
@@ -317,6 +390,11 @@ public final class MineqttRuntime {
             migrateAfterState = false;
         }
         bridge.tick();
+        if (syncDueMillis >= 0 && now >= syncDueMillis) {
+            syncDueMillis = -1;
+            if (MineQTTConfig.twinOffReason(dedicated).isEmpty()) twinRequests.sync(syncReason);
+        }
+        twinRequests.tick();
         devices.tickEnd();
         console.tick();
         store.saveStructure(registry);
@@ -337,6 +415,9 @@ public final class MineqttRuntime {
         stopping = true;
         pump.close();
         devices.stop();
+        twin.stop();
+        twinRequests.stop();
+        if (responses != null) responses.close();
         discovery.stop();
         ghosts.stop();
         bridge.stop();
@@ -351,11 +432,79 @@ public final class MineqttRuntime {
         if (running == this) running = null;
     }
 
-    // Attaches, then the inbound messages, then what they emitted on the devices' wires (M2 plan §3.3 drain point 1).
+    // Attaches, then the inbound messages, then the twin's settled entities (M3 plan D9), then what they all emitted on the
+    // devices' wires (M2 plan §3.3 drain point 1).
     private void handleInbound() {
         devices.tickStart();
         mqtt.drainInbound(MqttService.DEFAULT_DRAIN_BUDGET_NANOS, MqttService.DEFAULT_MAX_MESSAGES_PER_TICK);
+        twin.drain();
         devices.drainBus();
+    }
+
+    /**
+     * The control blueprint's answers on {@code <base>/<bridge>/bridge/ha_response} (M3 plan D11): never retained, at
+     * most 1 KiB ({@link TwinRequests#RESPONSES}), and advisory. Subscribed again when the topics moved.
+     */
+    private void subscribeResponses() {
+        String topic = topics.haResponse();
+        if (stopping || topic.equals(responsesTopic)) return;
+        if (responses != null) responses.close();
+        responsesTopic = topic;
+        responses = mqtt.subscribe(topic, TwinRequests.RESPONSES, message -> twinRequests.response(message.payload(), message.retained()));
+    }
+
+    /**
+     * The forwarder of mirrored devices (M3 plan D10, D11): a command to a port a device's source owns becomes requests
+     * through its type's adapter, with what the twin knows of the entity now ({@link HaCalls.Mirror#NONE} when nothing is
+     * known, as for a device nobody loaded mirrors). An MQTT device preset's source (M3-17) gets the preset's commands on
+     * its command topic, which the ACL must allow the device's owner at every send.
+     */
+    private TwinRequests.Result forwardToTwin(DeviceRecord record, Binding binding, JsonObject command, Root root, TwinRequests.Requester player) {
+        TwinAdapter adapter = Optional.ofNullable(DeviceTypes.get(record.type())).flatMap(type -> type.twin()).orElse(null);
+        Optional<String> entity = binding.sourceEntity();
+        TwinRequests.Origin origin = new TwinRequests.Origin(record.id(), record.objectId(), record.name(), player);
+        if (adapter != null && entity.isPresent()) return twinRequests.forward(origin, entity.get(), adapter, binding, command, twin.mirror(entity.get()), root);
+        Optional<Binding.PresetRef> ref = binding.preset();
+        if (adapter == null || ref.isEmpty()) return new TwinRequests.Refused(TwinRequests.Refusal.LOCAL, "it mirrors nothing it could ask to change");
+        Optional<BindingPreset> preset = BindingPresets.get(ref.get().id());
+        if (preset.isEmpty()) {
+            return new TwinRequests.Refused(TwinRequests.Refusal.LOCAL, "no MQTT device preset " + ref.get().id() + " is loaded");
+        }
+        Optional<String> commandTopic = preset.get().commandTopic(ref.get().device());
+        if (commandTopic.isEmpty() || !preset.get().controllable()) {
+            return new TwinRequests.Refused(TwinRequests.Refusal.LOCAL, "the " + preset.get().name() + " preset is read-only");
+        }
+        TopicAcl.Subject owner = AclContext.owner(server, record.owner(), "");
+        TwinRequests.PresetTarget target = new TwinRequests.PresetTarget(binding.sourceTopic().orElseThrow(), commandTopic.get(), preset.get(), topic -> {
+            TopicAcl.Decision decision = acl.checkPublish(owner, topic);
+            return decision.allowed() ? Optional.empty() : Optional.of(topic + ": " + decision.message());
+        });
+        return twinRequests.forwardPreset(origin, target, adapter, binding, command, twin.mirror(binding), root);
+    }
+
+    /**
+     * After a data reload changed the MQTT device presets (M3-17): every binding is judged again, so a preset that went
+     * refuses its bindings, one that came back heals them, and a moved topic is followed.
+     */
+    public void presetsChanged() {
+        if (stopping) return;
+        devices.twinRulesChanged();
+        workQueued();
+    }
+
+    // What Home Assistant last said on its birth topic; nothing while the watcher is not built yet.
+    private BirthWatcher.Heard birthHeard() {
+        return birth == null ? BirthWatcher.Heard.NOTHING : birth.heard();
+    }
+
+    /**
+     * Whether Home Assistant is known to be online (M3-7b): its birth was the last thing heard on its birth topic, on this
+     * connection, which is still up, and the republish it asked for has run, so it discovered every exposed device in its
+     * current run. A birth from before a reconnect proves nothing, nor does one while the connection is down: Home
+     * Assistant may restart unheard meanwhile (often with the broker), so a binding change then is marked for cleanup.
+     */
+    private boolean haOnline() {
+        return birthHeard().provesOnline(mqtt.state().isConnected(), connectedAtMillis, birth != null && birth.pending());
     }
 
     /**
@@ -403,7 +552,8 @@ public final class MineqttRuntime {
      */
     private boolean ownerWorkPending() {
         boolean connected = mqtt.state().isConnected();
-        return devices.hasPendingWork() || birth.pending() || ghosts.pending() || store.structureSavePending(registry)
+        return devices.hasPendingWork() || twin.pending() || twinRequests.pending() || birth.pending() || ghosts.pending() || store.structureSavePending(registry)
+                || syncDueMillis >= 0
                 || connected && discovery.hasPendingWork()
                 || republishStep == RepublishStep.STATE || republishStep == RepublishStep.DISCOVERY && (connected || discovery.idle());
     }
@@ -419,6 +569,7 @@ public final class MineqttRuntime {
             mqtt.replace(this::createService);
             devices.topicsChanged();
             bridge.topicsChanged();
+            subscribeResponses();
         }
         // Raw Links and legacy subscriptions follow the new ACL without a restart (M2 plan D1). A save that left the ACL
         // as it was (another key, or NeoForge's second reload of the same save) judges nothing again.
@@ -430,6 +581,11 @@ public final class MineqttRuntime {
         birth.configChanged();
         CyberdeckSessionManager.scopeChanged(server);
         logPauseOverride();
+        logTwin();
+        // Bindings follow the new twin rules without a restart (M3 plan D13): refused ones stop, allowed ones heal. A new
+        // statestream base subscribes again first.
+        twin.configChanged();
+        devices.twinRulesChanged();
         // A reload from NeoForge's file watcher runs between the ticks of a paused server too, and the discovery refresh
         // it queued publishes nothing yet.
         workQueued();
@@ -463,9 +619,24 @@ public final class MineqttRuntime {
 
     private TopicAcl createAcl() {
         boolean dedicated = server.isDedicatedServer();
-        // There is no statestream base before the twin (M3).
-        return new TopicAcl(new TopicAcl.Rules(topics.base(), topics.bridgeId(), MineQTTConfig.discoveryPrefix, null,
+        // The statestream namespace is read-only whether or not the twin is on (M3 plan D13); empty means none.
+        return new TopicAcl(new TopicAcl.Rules(topics.base(), topics.bridgeId(), MineQTTConfig.discoveryPrefix, MineQTTConfig.twinStatestreamBase,
                 MineQTTConfig.rawAllow(topics.bridgeId()), MineQTTConfig.opsBypassAllowlist(dedicated), MineQTTConfig.aclExplorerBrokerWide));
+    }
+
+    /**
+     * Logs the twin line at start and whenever a config change alters it (M3 plan D13). An off twin is a warning that
+     * names the key to set: dedicated servers start with it off.
+     */
+    private void logTwin() {
+        String summary = MineQTTConfig.twinSummary(dedicated);
+        if (summary.equals(twinLogged)) return;
+        twinLogged = summary;
+        if (MineQTTConfig.twinOffReason(dedicated).isPresent()) {
+            MineQTT.LOGGER.warn("The Home Assistant twin is {} in {}", summary, MineQTT.getConfigHandler().configPath());
+        } else {
+            MineQTT.LOGGER.info("The Home Assistant twin {}", summary);
+        }
     }
 
     /**
@@ -473,9 +644,23 @@ public final class MineqttRuntime {
      * are offline.
      */
     private void connected() {
+        connectedAtMillis = Util.getMillis();
+        twin.connected();
+        scheduleSync("connected");
         discovery.connected();
         if (store.incompleteReason() == null) ghosts.connected();
         startRepublish(true);
+    }
+
+    /**
+     * Asks the catalog blueprint for a fresh catalog ({@code ha_sync}, M3 plan D3) {@value #SYNC_DELAY_MILLIS} ms from now,
+     * after a CONNACK or Home Assistant's birth; a later reason replaces an earlier one still waiting. Nothing while the
+     * twin is off.
+     */
+    private void scheduleSync(String reason) {
+        if (stopping || MineQTTConfig.twinOffReason(dedicated).isPresent()) return;
+        syncReason = reason;
+        syncDueMillis = Util.getMillis() + SYNC_DELAY_MILLIS;
     }
 
     private void startRepublish(boolean afterConnect) {

@@ -1,0 +1,5 @@
+{
+  "name": "Generic on/off topic",
+  "kind": "switch",
+  "state_topic": "{device}"
+}

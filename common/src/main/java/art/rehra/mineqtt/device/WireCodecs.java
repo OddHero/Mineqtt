@@ -14,9 +14,10 @@ import java.util.Locale;
 
 /**
  * How the registry stores wires (M2 plan §3.2, §3.6). {@code flow.core} stays Minecraft-free, so its codecs live here.
- * Only what is built is read or written: a reserved endpoint ({@link Endpoint#reserved}) or the cable {@link Scope#NETWORK}
- * fails to decode and to encode, so a wire from a later version is dropped with an error instead of running as
- * something it is not.
+ * Only what players build and the registry keeps is read or written: a Home Assistant or topic end and
+ * {@link Scope#TWIN} belong to wires derived from device bindings, which are never persisted (M3 plan §3.3), and the
+ * cable {@link Scope#NETWORK} is reserved. All of them fail to decode and to encode, so a wire from a later version is
+ * dropped with an error instead of running as something it is not.
  */
 final class WireCodecs {
     private static final String PORT = "port";
@@ -33,8 +34,7 @@ final class WireCodecs {
     ).apply(instance, Endpoint.GroupPortRef::new));
     static final Codec<Endpoint> ENDPOINT = Codec.STRING.partialDispatch("type", WireCodecs::type, WireCodecs::endpointCodec);
     private static final Codec<Mapping> MAPPING = Codec.STRING.comapFlatMap(WireCodecs::mapping, mapping -> mapping.name().toLowerCase(Locale.ROOT));
-    private static final Codec<Scope> SCOPE = Codec.STRING.flatXmap(WireCodecs::scope,
-            scope -> scope == Scope.WIRELESS ? DataResult.success(scope.name().toLowerCase(Locale.ROOT)) : notBuilt("scope " + scope));
+    private static final Codec<Scope> SCOPE = Codec.STRING.flatXmap(WireCodecs::scope, WireCodecs::scopeName);
     static final Codec<Wire> WIRE = RecordCodecBuilder.create(instance -> instance.group(
             UUIDUtil.CODEC.fieldOf("id").forGetter(Wire::id),
             ENDPOINT.fieldOf("from").forGetter(Wire::from),
@@ -52,7 +52,7 @@ final class WireCodecs {
         return switch (endpoint) {
             case Endpoint.PortRef _ -> DataResult.success(PORT);
             case Endpoint.GroupPortRef _ -> DataResult.success(GROUP_PORT);
-            case Endpoint.TopicRef _, Endpoint.HaEntityRef _ -> notBuilt("endpoint " + endpoint.describe());
+            case Endpoint.TopicRef _, Endpoint.HaEntityRef _ -> derived("endpoint " + endpoint.describe());
         };
     }
 
@@ -60,7 +60,7 @@ final class WireCodecs {
         return switch (type) {
             case PORT -> DataResult.success(PORT_REF);
             case GROUP_PORT -> DataResult.success(GROUP_PORT_REF);
-            case "topic", "ha_entity" -> notBuilt("endpoint type " + type);
+            case "topic", "ha_entity" -> derived("endpoint type " + type);
             default -> DataResult.error(() -> "Unknown endpoint type: " + type);
         };
     }
@@ -75,10 +75,24 @@ final class WireCodecs {
     private static DataResult<Scope> scope(String name) {
         if (Scope.WIRELESS.name().equalsIgnoreCase(name)) return DataResult.success(Scope.WIRELESS);
         if (Scope.NETWORK.name().equalsIgnoreCase(name)) return notBuilt("scope " + name);
+        if (Scope.TWIN.name().equalsIgnoreCase(name)) return derived("scope " + name);
         return DataResult.error(() -> "Unknown wire scope: " + name);
+    }
+
+    private static DataResult<String> scopeName(Scope scope) {
+        String name = scope.name().toLowerCase(Locale.ROOT);
+        return switch (scope) {
+            case WIRELESS -> DataResult.success(name);
+            case NETWORK -> notBuilt("scope " + name);
+            case TWIN -> derived("scope " + name);
+        };
     }
 
     private static <T> DataResult<T> notBuilt(String what) {
         return DataResult.error(() -> "The " + what + " is reserved and not supported by this version");
+    }
+
+    private static <T> DataResult<T> derived(String what) {
+        return DataResult.error(() -> "The " + what + " belongs to wires derived from device bindings, which are never stored");
     }
 }

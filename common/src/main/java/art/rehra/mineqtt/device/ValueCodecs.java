@@ -1,8 +1,8 @@
 package art.rehra.mineqtt.device;
 
 import art.rehra.mineqtt.flow.core.Coerce;
+import art.rehra.mineqtt.flow.core.Colors;
 import art.rehra.mineqtt.flow.core.PortType;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
@@ -22,7 +22,6 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.MapLike;
 import com.mojang.serialization.RecordBuilder;
 import net.minecraft.util.StringRepresentable;
-import net.minecraft.world.item.DyeColor;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
@@ -30,13 +29,13 @@ import java.io.StringReader;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -73,13 +72,21 @@ public final class ValueCodecs {
     private static final int KELVIN_THRESHOLD = 1000;
     private static final int REDSTONE_MAX = 15;
     private static final String TOGGLE = Coerce.TOGGLE;
-    // The most digits, and the largest exponent either way, a number may have. Rounding 1e999999999 builds a
-    // billion-digit integer and stalls the server thread; no field means a value that large or that small.
-    private static final int MAX_DIGITS = 40;
 
     public static final Codec<Boolean> BOOL = lenient(Codec.BOOL, ValueCodecs::decodeBool);
     /** Free text: control characters and Minecraft formatting codes are stripped, the length is capped. */
     public static final Codec<String> TEXT = lenient(Codec.STRING, json -> scalarText(json).map(ValueCodecs::sanitizeText));
+
+    /**
+     * Free text that keeps its line breaks ({@link #sanitizeLines}), capped at {@code maxLength} code points, e.g. a
+     * Display Panel's message, which a Home Assistant {@code text} entity caps at 255.
+     *
+     * @throws IllegalArgumentException for a cap that is not positive or above {@link #MAX_TEXT_LENGTH}
+     */
+    public static Codec<String> lines(int maxLength) {
+        if (maxLength <= 0 || maxLength > MAX_TEXT_LENGTH) throw new IllegalArgumentException("Text is capped at 1.." + MAX_TEXT_LENGTH + ", not " + maxLength);
+        return lenient(Codec.STRING, json -> scalarText(json).map(text -> sanitizeLines(text, maxLength)));
+    }
 
     /**
      * v1 raw payloads for a redstone level: custom payloads first, then {@code ON}/{@code TRUE}/{@code 1} (15),
@@ -131,9 +138,6 @@ public final class ValueCodecs {
             return command;
         });
     };
-
-    private static final Pattern RGB_FUNCTION = Pattern.compile("rgb\\((.*)\\)", Pattern.CASE_INSENSITIVE);
-    private static final Pattern HEX_COLOR = Pattern.compile("#([0-9a-fA-F]{6})");
 
     private ValueCodecs() {
     }
@@ -219,16 +223,11 @@ public final class ValueCodecs {
 
     /**
      * A decimal number in {@link Locale#ROOT} notation ({@code 21.5}, never {@code 21,5}); no NaN or infinity, and
-     * nothing with more than {@value #MAX_DIGITS} digits or an exponent beyond ±{@value #MAX_DIGITS}
-     * ({@code 1e999999999}), which would be costly to round.
+     * nothing with a huge count of digits or exponent ({@code 1e999999999}), which would be costly to round
+     * ({@link Coerce#number}).
      */
     public static Optional<BigDecimal> number(String text) {
-        try {
-            BigDecimal value = new BigDecimal(text.trim());
-            return value.precision() <= MAX_DIGITS && Math.abs(value.scale()) <= MAX_DIGITS ? Optional.of(value) : Optional.empty();
-        } catch (NumberFormatException e) {
-            return Optional.empty();
-        }
+        return Coerce.number(text);
     }
 
     /** A whole {@link #number}; {@code 7.0} and garbage are not. */
@@ -248,6 +247,20 @@ public final class ValueCodecs {
     /** Text without control characters and formatting codes, at most {@link #MAX_TEXT_LENGTH} code points. */
     public static String sanitizeText(String text) {
         return Coerce.sanitize(text, MAX_TEXT_LENGTH);
+    }
+
+    /**
+     * Text sanitised like {@link #sanitizeText} that keeps its lines: every line break ({@code \r\n}, {@code \r},
+     * {@code \n} and the other Unicode ones) becomes one {@code \n}, tabs and other spacing control characters become a
+     * space, so no two words run together, and the rest goes as {@link Coerce#sanitize} has it; at most
+     * {@code maxLength} code points, line breaks included.
+     */
+    public static String sanitizeLines(String text, int maxLength) {
+        String spaced = text.replaceAll("\\R", "\n").replaceAll("[\\t\\x0B\\f]", " ");
+        List<String> lines = new ArrayList<>();
+        for (String line : spaced.split("\n", -1)) lines.add(Coerce.sanitize(line, maxLength));
+        String clean = String.join("\n", lines);
+        return clean.codePointCount(0, clean.length()) <= maxLength ? clean : clean.substring(0, clean.offsetByCodePoints(0, maxLength));
     }
 
     /**
@@ -279,14 +292,7 @@ public final class ValueCodecs {
 
     /** A colour as text: {@code #rrggbb}, {@code rgb(r,g,b)}, {@code r,g,b} or a dye colour name such as {@code light_blue}. */
     public static Optional<Rgb> color(String text) {
-        String trimmed = text.trim();
-        Matcher hex = HEX_COLOR.matcher(trimmed);
-        if (hex.matches()) return Optional.of(Rgb.ofPacked(Integer.parseInt(hex.group(1), 16)));
-        Matcher function = RGB_FUNCTION.matcher(trimmed);
-        if (function.matches()) return rgbTriple(function.group(1));
-        if (trimmed.contains(",")) return rgbTriple(trimmed);
-        DyeColor dye = DyeColor.byName(trimmed.toLowerCase(Locale.ROOT).replace(' ', '_'), null);
-        return dye == null ? Optional.empty() : Optional.of(Rgb.ofPacked(dye.getTextColor()));
+        return rgb(Colors.parse(text));
     }
 
     /**
@@ -294,28 +300,7 @@ public final class ValueCodecs {
      * {@code {h,s}} (hue 0–360, saturation 0–100), CIE {@code {x,y}}, or text as in {@link #color(String)}.
      */
     public static Optional<Rgb> color(JsonElement json) {
-        if (json.isJsonPrimitive() && json.getAsJsonPrimitive().isString()) return color(json.getAsString());
-        if (json.isJsonArray()) {
-            JsonArray array = json.getAsJsonArray();
-            if (array.size() != 3) return Optional.empty();
-            Optional<BigDecimal> r = decimal(array.get(0)), g = decimal(array.get(1)), b = decimal(array.get(2));
-            return r.isPresent() && g.isPresent() && b.isPresent() ? Optional.of(new Rgb(round(r.get()), round(g.get()), round(b.get()))) : Optional.empty();
-        }
-        if (!json.isJsonObject()) return Optional.empty();
-        JsonObject object = json.getAsJsonObject();
-        if (object.has("r") || object.has("g") || object.has("b")) {
-            Optional<Integer> r = component(object, "r"), g = component(object, "g"), b = component(object, "b");
-            return r.isPresent() && g.isPresent() && b.isPresent() ? Optional.of(new Rgb(r.get(), g.get(), b.get())) : Optional.empty();
-        }
-        if (object.has("h") && object.has("s")) {
-            Optional<BigDecimal> h = decimal(object.get("h")), s = decimal(object.get("s"));
-            return h.isPresent() && s.isPresent() ? Optional.of(hsToRgb(h.get().doubleValue(), s.get().doubleValue())) : Optional.empty();
-        }
-        if (object.has("x") && object.has("y")) {
-            Optional<BigDecimal> x = decimal(object.get("x")), y = decimal(object.get("y"));
-            return x.isPresent() && y.isPresent() ? Optional.of(xyToRgb(x.get().doubleValue(), y.get().doubleValue())) : Optional.empty();
-        }
-        return Optional.empty();
+        return rgb(Colors.parse(json));
     }
 
     /** A colour temperature from Home Assistant's {@code color_temp} in mireds, within the lamp's kelvin range. */
@@ -338,11 +323,7 @@ public final class ValueCodecs {
 
     /** The colour of a black body at {@code kelvin} (Tanner Helland's approximation, as v1 used). */
     public static Rgb kelvinToRgb(int kelvin) {
-        double temp = Math.clamp(kelvin, 1000, 40000) / 100.0;
-        double r = temp <= 66 ? 255 : 329.698727446 * Math.pow(temp - 60, -0.1332047592);
-        double g = temp <= 66 ? 99.4708025861 * Math.log(temp) - 161.1195681661 : 288.1221695283 * Math.pow(temp - 60, -0.0755148492);
-        double b = temp >= 66 ? 255 : temp <= 19 ? 0 : 138.5177312231 * Math.log(temp - 10) - 305.0447927307;
-        return new Rgb((int) Math.round(r), (int) Math.round(g), (int) Math.round(b));
+        return Rgb.ofPacked(Colors.kelvin(kelvin));
     }
 
     /** An 8-bit colour; components are clamped to 0–255. */
@@ -623,59 +604,11 @@ public final class ValueCodecs {
 
     // A JSON number, or a string holding one; never a boolean.
     private static Optional<BigDecimal> decimal(JsonElement json) {
-        if (!json.isJsonPrimitive()) return Optional.empty();
-        JsonPrimitive primitive = json.getAsJsonPrimitive();
-        if (primitive.isNumber()) return number(primitive.getAsString());
-        return primitive.isString() ? number(primitive.getAsString()) : Optional.empty();
+        return Coerce.numeric(json);
     }
 
-    private static Optional<Integer> component(JsonObject object, String key) {
-        JsonElement value = object.get(key);
-        return value == null ? Optional.of(0) : decimal(value).map(ValueCodecs::round);
-    }
-
-    private static Optional<Rgb> rgbTriple(String values) {
-        String[] parts = values.split(",");
-        if (parts.length != 3) return Optional.empty();
-        Optional<BigDecimal> r = number(parts[0]), g = number(parts[1]), b = number(parts[2]);
-        return r.isPresent() && g.isPresent() && b.isPresent() ? Optional.of(new Rgb(round(r.get()), round(g.get()), round(b.get()))) : Optional.empty();
-    }
-
-    private static Rgb hsToRgb(double hue, double saturation) {
-        double h = ((hue % 360) + 360) % 360 / 60;
-        double s = Math.clamp(saturation, 0, 100) / 100;
-        double c = s;
-        double x = c * (1 - Math.abs(h % 2 - 1));
-        double m = 1 - c;
-        double[] rgb = switch ((int) h) {
-            case 0 -> new double[]{c, x, 0};
-            case 1 -> new double[]{x, c, 0};
-            case 2 -> new double[]{0, c, x};
-            case 3 -> new double[]{0, x, c};
-            case 4 -> new double[]{x, 0, c};
-            default -> new double[]{c, 0, x};
-        };
-        return new Rgb((int) Math.round((rgb[0] + m) * 255), (int) Math.round((rgb[1] + m) * 255), (int) Math.round((rgb[2] + m) * 255));
-    }
-
-    // CIE 1931 xy at full brightness to sRGB (D65), as v1 converted it.
-    private static Rgb xyToRgb(double x, double y) {
-        double cx = Math.clamp(x, 0, 1);
-        double cy = Math.clamp(y, 0.0001, 1);
-        double luminance = 1.0;
-        double bigX = luminance / cy * cx;
-        double bigZ = luminance / cy * (1 - cx - cy);
-        double r = bigX * 3.2406 - luminance * 1.5372 - bigZ * 0.4986;
-        double g = -bigX * 0.9689 + luminance * 1.8758 + bigZ * 0.0415;
-        double b = bigX * 0.0557 - luminance * 0.2040 + bigZ * 1.0570;
-        double max = Math.max(1, Math.max(r, Math.max(g, b)));
-        return new Rgb(gamma(r / max), gamma(g / max), gamma(b / max));
-    }
-
-    private static int gamma(double linear) {
-        double value = Math.max(0, linear);
-        double corrected = value > 0.0031308 ? 1.055 * Math.pow(value, 1 / 2.4) - 0.055 : 12.92 * value;
-        return (int) Math.round(corrected * 255);
+    private static Optional<Rgb> rgb(OptionalInt packed) {
+        return packed.isPresent() ? Optional.of(Rgb.ofPacked(packed.getAsInt())) : Optional.empty();
     }
 
     private static Optional<JsonElement> strictJson(String text) {
@@ -693,10 +626,6 @@ public final class ValueCodecs {
         JsonObject command = new JsonObject();
         command.add(key, value);
         return command;
-    }
-
-    private static int round(BigDecimal value) {
-        return clamp(value.setScale(0, RoundingMode.HALF_UP), Integer.MIN_VALUE, Integer.MAX_VALUE);
     }
 
     private static int clamp(BigDecimal value, int min, int max) {

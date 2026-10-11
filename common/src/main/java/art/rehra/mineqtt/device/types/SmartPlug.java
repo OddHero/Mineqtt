@@ -14,13 +14,24 @@ import art.rehra.mineqtt.device.UnloadedPolicy;
 import art.rehra.mineqtt.device.ValueCodecs;
 import art.rehra.mineqtt.device.types.RedstoneOutput.PowerOn;
 import art.rehra.mineqtt.device.types.RedstoneOutput.Switch;
+import art.rehra.mineqtt.flow.core.Coerce;
 import art.rehra.mineqtt.ha.Ha;
+import art.rehra.mineqtt.twin.TwinAdapter;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.HaCalls;
+import art.rehra.mineqtt.twin.core.HaDomains;
+import art.rehra.mineqtt.twin.core.PortRead;
+import art.rehra.mineqtt.twin.core.ValueMap;
+import art.rehra.mineqtt.twin.core.ValuePath;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.resources.Identifier;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -28,7 +39,7 @@ import java.util.Optional;
  * full power or nothing, and Home Assistant switches it as an outlet; a right-click switches it too. Its power-on
  * behaviour decides whether it starts on or off when its server starts. The Raw Link follows a v1 topic with v1's plug
  * grammar and applies the broker's retained value, as v1 plugs did; unlike v1, the plug never sends its own state to
- * that topic, so it no longer hears itself.
+ * that topic, so it no longer hears itself. Bound to a Home Assistant entity, it mirrors its on and off ({@link #TWIN}).
  */
 public final class SmartPlug {
     /** The level a plug emits while it is on. */
@@ -41,6 +52,20 @@ public final class SmartPlug {
      */
     public static final Field<Integer> POWER = Field.level("power", Access.READ_WRITE);
     public static final Field<PowerOn> POWER_ON = Field.enumOf("power_on_behaviour", PowerOn.class, Access.READ_WRITE);
+    /** The Home Assistant domains a plug mirrors, in the picker's order (M3 plan D4, D5). */
+    public static final List<String> TWIN_DOMAINS = List.of("switch", "input_boolean", "light", "fan");
+    /**
+     * How a plug mirrors a Home Assistant entity (M3 plan D5): on while the entity is on, off while it is off; a
+     * transitional state holds. The source owns the plug's on and off; its power-on behaviour stays a setting. With control
+     * on, a right-click or a wire switches the entity instead ({@link #forward}).
+     */
+    public static final TwinAdapter TWIN = TwinAdapter.builder(POWER.key())
+            .source((domain, settings) -> Map.of(POWER.key(), new PortRead(ValuePath.keys(ValuePath.STATE), new ValueMap.LevelByBool(false))),
+                    TWIN_DOMAINS.toArray(String[]::new))
+            .mirrors(Action.STATE)
+            .forward(SmartPlug::forward)
+            .off(POWER.key(), new JsonPrimitive(0))
+            .build();
 
     public static final DeviceType TYPE = DeviceType.builder(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "smart_plug"))
             .model("Smart Plug").unloaded(UnloadedPolicy.QUEUE).groupable(true)
@@ -57,9 +82,23 @@ public final class SmartPlug {
             .rawLink(RawLinkSpec.in(ValueCodecs.SWITCH).acceptRetained(true))
             .preview(SmartPlug::preview)
             .powerOn(SmartPlug::poweredOn)
+            .twin(TWIN)
             .build();
 
     private SmartPlug() {
+    }
+
+    /**
+     * What a command to a mirrored plug asks of its source (D5, D11), through the service-call table: ON, OFF or a level
+     * (on above 0) becomes {@code turn_on}/{@code turn_off}, and nothing when a LIVE state already shows it; a right-click's
+     * TOGGLE becomes the opposite of a LIVE state, or {@code <domain>.toggle} of a retained one, and is refused while
+     * nothing is known or the entity is unavailable.
+     */
+    private static List<HaCalls.Outcome> forward(JsonObject command, String domain, HaCalls.Mirror mirror, Binding binding) {
+        JsonElement state = command.get(STATE.key());
+        JsonElement value = state != null ? state
+                : Coerce.numeric(command.get(POWER.key())).<JsonElement>map(level -> new JsonPrimitive(level.signum() > 0)).orElse(command.get(POWER.key()));
+        return List.of(HaCalls.resolve(domain, HaDomains.STATE_LEAF, value, mirror));
     }
 
     /** A plug's state: whether it is on, and how it starts when its server starts. */

@@ -39,7 +39,7 @@ public final class StaticPublisherGameTest implements FabricClientGameTest {
     private static final BlockPos LEGACY = new BlockPos(2, Y, 2);
     private static final BlockPos POWER = LEGACY.east();
     private static final BlockPos CRAFTER = new BlockPos(-2, Y, 4);
-    private static final String TOPIC = "static_gametest/doorbell";
+    private static final String TOPIC = "static_" + GameTestSession.BRIDGE_ID + "/doorbell";
     private static final String MESSAGE = "DING";
     private static final int ANSWER_TICKS = 60;
     // Long enough for a publish to make the round trip through the broker, and for one that should not come.

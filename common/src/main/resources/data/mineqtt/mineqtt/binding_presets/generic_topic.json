@@ -1,0 +1,6 @@
+{
+  "name": "Generic topic",
+  "kind": "sensor",
+  "state_topic": "{device}",
+  "payload_attributes": true
+}

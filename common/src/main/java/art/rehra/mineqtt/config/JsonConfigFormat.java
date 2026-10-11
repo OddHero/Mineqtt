@@ -80,6 +80,18 @@ public final class JsonConfigFormat {
         limits.addProperty("maxDevicesPerPlayer", MineQTTConfig.limitsMaxDevicesPerPlayer);
         limits.addProperty("maxWiresPerPlayer", MineQTTConfig.limitsMaxWiresPerPlayer);
         root.add("limits", limits);
+        JsonObject twin = new JsonObject();
+        twin.addProperty("statestreamBase", MineQTTConfig.twinStatestreamBase);
+        JsonArray allowedEntities = new JsonArray();
+        MineQTTConfig.twinAllowedEntities.forEach(allowedEntities::add);
+        twin.add("allowedEntities", allowedEntities);
+        JsonArray haActionAllowlist = new JsonArray();
+        MineQTTConfig.twinHaActionAllowlist.forEach(haActionAllowlist::add);
+        twin.add("haActionAllowlist", haActionAllowlist);
+        twin.addProperty("maxRequestsPerSecond", MineQTTConfig.twinMaxRequestsPerSecond);
+        twin.addProperty("catalog", MineQTTConfig.twinCatalog);
+        twin.addProperty("catalogMax", MineQTTConfig.twinCatalogMax);
+        root.add("twin", twin);
         JsonObject server = new JsonObject();
         server.addProperty("keepTickingWhenEmpty", MineQTTConfig.serverKeepTickingWhenEmpty);
         root.add("server", server);
@@ -124,6 +136,13 @@ public final class JsonConfigFormat {
         JsonObject limits = in.section(root, "limits");
         MineQTTConfig.limitsMaxDevicesPerPlayer = in.integer(limits, "limits.maxDevicesPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER);
         MineQTTConfig.limitsMaxWiresPerPlayer = in.integer(limits, "limits.maxWiresPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER);
+        JsonObject twin = in.section(root, "twin");
+        MineQTTConfig.twinStatestreamBase = in.string(twin, "twin.statestreamBase", StaticDefaults.DEFAULT_TWIN_STATESTREAM_BASE);
+        MineQTTConfig.twinAllowedEntities = in.narrowingList(twin, "twin.allowedEntities", StaticDefaults.DEFAULT_TWIN_ALLOWED_ENTITIES);
+        MineQTTConfig.twinHaActionAllowlist = in.narrowingList(twin, "twin.haActionAllowlist", StaticDefaults.DEFAULT_TWIN_HA_ACTION_ALLOWLIST);
+        MineQTTConfig.twinMaxRequestsPerSecond = in.integer(twin, "twin.maxRequestsPerSecond", StaticDefaults.DEFAULT_TWIN_MAX_REQUESTS_PER_SECOND);
+        MineQTTConfig.twinCatalog = in.bool(twin, "twin.catalog", StaticDefaults.DEFAULT_TWIN_CATALOG);
+        MineQTTConfig.twinCatalogMax = in.integer(twin, "twin.catalogMax", StaticDefaults.DEFAULT_TWIN_CATALOG_MAX);
         JsonObject server = in.section(root, "server");
         MineQTTConfig.serverKeepTickingWhenEmpty = in.bool(server, "server.keepTickingWhenEmpty", StaticDefaults.DEFAULT_SERVER_KEEP_TICKING_WHEN_EMPTY);
         JsonObject legacy = in.section(root, "legacy");
@@ -209,6 +228,18 @@ public final class JsonConfigFormat {
             JsonPrimitive value = primitive(parent, key);
             if (value != null && value.isBoolean()) return value.getAsBoolean() ? AutoBoolean.TRUE : AutoBoolean.FALSE;
             return enumValue(parent, key, AutoBoolean.class, fallback);
+        }
+
+        /**
+         * A list that only ever narrows what it grants (the twin's entities and control domains, M3 plan D13): a value of
+         * the wrong type grants nothing, an empty list, instead of the default, which grants the most. Absent, it is the
+         * default.
+         */
+        List<String> narrowingList(JsonObject parent, String key, List<String> fallback) {
+            JsonElement value = parent.get(member(key));
+            if (value == null || value.isJsonNull() || value.isJsonArray()) return stringList(parent, key, fallback);
+            messages.add(key + ": expected a list of strings, using an empty list (nothing allowed) until it is fixed");
+            return List.of();
         }
 
         List<String> stringList(JsonObject parent, String key, List<String> fallback) {

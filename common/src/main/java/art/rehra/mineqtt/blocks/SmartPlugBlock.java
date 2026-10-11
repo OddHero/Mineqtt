@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks;
 
+import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
 import art.rehra.mineqtt.blocks.entities.SmartPlugBlockEntity;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
@@ -76,6 +77,6 @@ public class SmartPlugBlock extends BaseMqttBlock {
     /** The server keeps the level in step with the plug; the client has nothing to tick. */
     @Override
     public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
-        return level.isClientSide() ? null : new SmartPlugBlockEntity.ServerTicker<>();
+        return level.isClientSide() ? new DeviceBlockEntity.TwinClientTicker<>() : new SmartPlugBlockEntity.ServerTicker<>();
     }
 }

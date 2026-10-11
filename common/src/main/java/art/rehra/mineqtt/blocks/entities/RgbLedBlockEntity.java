@@ -15,6 +15,7 @@ import art.rehra.mineqtt.device.ValueCodecs.LightState;
 import art.rehra.mineqtt.device.ValueCodecs.LightTransition;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.legacy.LegacyNbtV1;
+import art.rehra.mineqtt.twin.core.TwinHealth;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.particles.DustParticleOptions;
@@ -47,6 +48,8 @@ import java.util.Set;
 public class RgbLedBlockEntity extends DeviceBlockEntity {
     // A lamp that is off still shows its colour, dimmed to this share.
     private static final float OFF_TINT = 0.3f;
+    // How far towards grey a mirrored lamp's tint goes while its source has no value.
+    private static final float UNAVAILABLE_DESATURATION = 0.75f;
     private static final Set<String> LIGHT_KEYS = Set.of("state", "brightness", "color", "color_temp", "color_temp_kelvin", "effect", "transition");
 
     private final DeviceLink link = new DeviceLink(SmartLamp.TYPE);
@@ -75,7 +78,22 @@ public class RgbLedBlockEntity extends DeviceBlockEntity {
     public int tint() {
         float effect = shown.effect() == LightEffect.NONE ? 1 : effectFactor;
         float factor = shown.on() ? getLightLevel() / 15.0f * effect : OFF_TINT;
-        return (scale(shown.color().r(), factor) << 16) | (scale(shown.color().g(), factor) << 8) | scale(shown.color().b(), factor);
+        int r = scale(shown.color().r(), factor), g = scale(shown.color().g(), factor), b = scale(shown.color().b(), factor);
+        if (twinHint() != TwinHealth.Hint.UNAVAILABLE) return (r << 16) | (g << 8) | b;
+        // A mirrored lamp whose source has no value holds it, desaturated (M3 plan D6, D19).
+        int grey = Math.round(0.299f * r + 0.587f * g + 0.114f * b);
+        return (desaturate(r, grey) << 16) | (desaturate(g, grey) << 8) | desaturate(b, grey);
+    }
+
+    // A channel moved most of the way to grey.
+    private static int desaturate(int channel, int grey) {
+        return Math.round(channel + (grey - channel) * UNAVAILABLE_DESATURATION);
+    }
+
+    /** One red particle above the bulb as the lamp's binding becomes refused (M3 plan D19). */
+    @Override
+    protected void twinHintChanged(TwinHealth.Hint before) {
+        if (level != null && level.isClientSide() && twinHint() == TwinHealth.Hint.REFUSED) refusedParticle(level, RgbLedBlock.bulbCentre(getBlockState(), worldPosition));
     }
 
     @Override
@@ -267,6 +285,8 @@ public class RgbLedBlockEntity extends DeviceBlockEntity {
         public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
             if (!(blockEntity instanceof RgbLedBlockEntity lamp)) return;
             lamp.animateEffect(level.getGameTime());
+            twinParticles(level, RgbLedBlock.bulbCentre(state, pos), lamp.twinHint(), level.getGameTime());
+            if (lamp.twinPending()) pendingParticles(level, RgbLedBlock.bulbCentre(state, pos), level.getGameTime());
             if (lamp.getLightLevel() == 0) return;
             // Every 10 ticks (0.5 seconds), unless the colour is black.
             int color = lamp.tint();

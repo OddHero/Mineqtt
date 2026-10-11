@@ -33,6 +33,7 @@ public class MineqttBlocks {
     public static RegistrySupplier<Block> DYNAMIC_PUBLISHER_BLOCK;
     public static RegistrySupplier<Block> TOPIC_RELAY_BLOCK;
     public static RegistrySupplier<Block> SMART_PLUG_BLOCK;
+    public static RegistrySupplier<Block> DISPLAY_PANEL;
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Blocks");
         // Register blocks here
@@ -55,6 +56,7 @@ public class MineqttBlocks {
         DYNAMIC_PUBLISHER_BLOCK = registerBlock("dynamic_publisher", () -> new DynamicPublisherBlock(baseProperties("dynamic_publisher").strength(3.5f)));
         TOPIC_RELAY_BLOCK = registerBlock("topic_relay", () -> new TopicRelayBlock(baseProperties("topic_relay").strength(3.5f)));
         SMART_PLUG_BLOCK = registerBlock("smart_plug", () -> new SmartPlugBlock(baseProperties("smart_plug").requiresCorrectToolForDrops().strength(3.5f)));
+        DISPLAY_PANEL = registerBlock("display_panel", () -> new DisplayPanelBlock(baseProperties("display_panel").requiresCorrectToolForDrops().strength(3.5f).noOcclusion()));
         BLOCKS.register();
 
         // Register interaction events after blocks are initialized

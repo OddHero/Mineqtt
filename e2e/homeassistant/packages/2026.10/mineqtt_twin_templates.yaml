@@ -1,0 +1,46 @@
+# MineQTT twin fixture, template light and lock for Home Assistant 2026.10.0 (the `homeassistant` service).
+# This version only sets up template lights and locks from the `template:` integration: a legacy
+# `light: - platform: template` only raises a repair issue and creates nothing. 2025.2.5 is the opposite (its
+# `template:` integration has no light or lock), so packages/2025.2/mineqtt_twin_templates.yaml defines the same two
+# entities in the legacy syntax. Keep both files equal in entity ids, names, unique ids and behaviour.
+#
+# light.m3_lamp: on/off is input_boolean.m3_flag, brightness is input_number.m3_level (0..100 % = 0..255). It has no
+# colour templates, so it never publishes rgb_color, color_temp_kelvin or a colour color_mode; on with level 0 is the
+# "on at brightness 0" case (cap §9.1).
+# lock.m3_lock: locked while input_boolean.m3_bolt is on.
+
+template:
+  - light:
+      - name: M3 Lamp
+        unique_id: mineqtt_e2e_m3_lamp
+        state: "{{ is_state('input_boolean.m3_flag', 'on') }}"
+        level: "{{ (states('input_number.m3_level') | float(0) * 255 / 100) | round(0) | int }}"
+        turn_on:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.m3_flag
+        turn_off:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.m3_flag
+        set_level:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.m3_level
+            data:
+              value: "{{ (brightness | int * 200 / 255) | round(0) / 2 }}"
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.m3_flag
+    lock:
+      - name: M3 Lock
+        unique_id: mineqtt_e2e_m3_lock
+        state: "{{ is_state('input_boolean.m3_bolt', 'on') }}"
+        lock:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.m3_bolt
+        unlock:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.m3_bolt

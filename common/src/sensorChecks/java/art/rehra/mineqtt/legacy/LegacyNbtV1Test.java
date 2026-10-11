@@ -16,10 +16,12 @@ import art.rehra.mineqtt.device.LinkAdoptionCheck;
 import art.rehra.mineqtt.device.RawLinkSpec;
 import art.rehra.mineqtt.device.RenderTag;
 import art.rehra.mineqtt.device.StateWriter;
+import art.rehra.mineqtt.device.TwinTestTypes;
 import art.rehra.mineqtt.device.UnloadedPolicy;
 import art.rehra.mineqtt.device.ValueCodecs;
 import art.rehra.mineqtt.device.ValueCodecs.LightState;
 import art.rehra.mineqtt.device.types.ClimateSensor;
+import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.PresenceSensor.Presence;
 import art.rehra.mineqtt.device.types.RedstoneInput;
@@ -30,6 +32,11 @@ import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.WallSwitch;
 import art.rehra.mineqtt.device.types.SmartPlug.Plug;
 import art.rehra.mineqtt.mqtt.BlockStatePersistence;
+import art.rehra.mineqtt.twin.BindingCodecs;
+import art.rehra.mineqtt.twin.TwinAdapter;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.TwinHealth;
+import art.rehra.mineqtt.twin.core.ValuePath;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
@@ -58,6 +65,7 @@ import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.ItemStackWithSlot;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -73,6 +81,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -133,6 +142,8 @@ public final class LegacyNbtV1Test {
         DeviceTypes.register(SmartPlug.TYPE);
         DeviceTypes.register(ClimateSensor.TYPE);
         DeviceTypes.register(WallSwitch.TYPE);
+        // M3-15: every 0.6.0 world check below runs with the Display Panel registered, which no 0.6.0 world holds.
+        DeviceTypes.register(DisplayPanel.TYPE);
         combinedTopics();
         lampKeys();
         smartLampState();
@@ -143,10 +154,12 @@ public final class LegacyNbtV1Test {
         presenceFilters();
         adoption();
         m1Data();
+        twinKey();
         positionKeys();
         topicNames();
         topicStates();
         renderTags();
+        panelTags();
         System.out.println("Legacy NBT migration checks passed.");
     }
 
@@ -709,6 +722,79 @@ public final class LegacyNbtV1Test {
         LinkAdoptionCheck.placedCopies(REGISTRIES, m1.get("output"), m1.get("presence"));
     }
 
+    /**
+     * M3 plan D14: the {@code twin} key of the {@code mineqtt} compound. Data of 0.6.0 (compound version 3, no key) loads
+     * unbound and saves exactly as it was, with the version still 3; a binding round-trips on a type with a twin adapter;
+     * a {@code twin} key on a type without one, or one that breaks the binding rules, reads as no binding and is not
+     * saved again.
+     */
+    private static void twinKey() {
+        CompoundTag data = new CompoundTag();
+        data.putInt("v", DeviceLink.VERSION);
+        data.store("id", UUIDUtil.CODEC, UUID.fromString("00000000-0000-0000-0000-0000000000d1"));
+        data.putString("type", TwinTestTypes.TYPE.id().toString());
+        data.putString("name", "Porch Mirror");
+        data.putString("slug", "porch_mirror");
+        data.putString("access", "claim");
+        CompoundTag saved = linkSave(TwinTestTypes.TYPE, data);
+        check(DeviceLink.VERSION == 3 && saved.equals(data), "0.6.0 link data loads unbound and saves byte-identical: " + saved);
+        check(linkLoad(TwinTestTypes.TYPE, data).twin() == null, "...as no binding");
+
+        Binding binding = TwinTestTypes.bound("switch.porch", true).withTarget(TwinTestTypes.PRESSED, TwinAdapter.targetEnd("scene.movie"));
+        CompoundTag bound = data.copy();
+        bound.store(DeviceLink.TWIN_KEY, BindingCodecs.CODEC, binding);
+        check(binding.equals(linkLoad(TwinTestTypes.TYPE, bound).twin()), "A binding round-trips through the compound");
+        check(linkSave(TwinTestTypes.TYPE, bound).equals(bound), "...and saves as it was read");
+
+        // M3 plan D5: the Climate Sensor senses the Minecraft world and never mirrors anything.
+        CompoundTag climate = bound.copy();
+        climate.putString("type", ClimateSensor.TYPE.id().toString());
+        check(ClimateSensor.TYPE.twin().isEmpty() && linkLoad(ClimateSensor.TYPE, climate).twin() == null
+                        && !linkSave(ClimateSensor.TYPE, climate).contains(DeviceLink.TWIN_KEY),
+                "A type without a twin adapter ignores a twin key and drops it on save");
+        // M3-12: an analog Redstone Output's rows and a Smart Plug's control round-trip as well.
+        CompoundTag output = data.copy();
+        output.putString("type", RedstoneOutput.TYPE.id().toString());
+        Binding analog = new Binding(RedstoneOutput.TWIN.sourceEnd("light.porch"), Map.of(), true,
+                Binding.Settings.DEFAULT.withInvert(true).withMin(new BigDecimal("12.5")).withMax(new BigDecimal("200"))
+                        .withPath(ValuePath.parse("attributes.brightness")).withUnavailable(Binding.Unavailable.OFF), null);
+        output.store(DeviceLink.TWIN_KEY, BindingCodecs.CODEC, analog);
+        check(analog.equals(linkLoad(RedstoneOutput.TYPE, output).twin()) && linkSave(RedstoneOutput.TYPE, output).equals(output),
+                "An analog Redstone Output's binding round-trips through the compound (M3-12)");
+        CompoundTag plug = data.copy();
+        plug.putString("type", SmartPlug.TYPE.id().toString());
+        Binding plugged = new Binding(SmartPlug.TWIN.sourceEnd("switch.heater"), Map.of(), true, Binding.Settings.DEFAULT, null);
+        plug.store(DeviceLink.TWIN_KEY, BindingCodecs.CODEC, plugged);
+        check(plugged.equals(linkLoad(SmartPlug.TYPE, plug).twin()) && linkSave(SmartPlug.TYPE, plug).equals(plug),
+                "A Smart Plug's binding round-trips through the compound (M3-12)");
+        CompoundTag lamp = data.copy();
+        lamp.putString("type", SmartLamp.TYPE.id().toString());
+        Binding mirrored = new Binding(SmartLamp.TWIN.sourceEnd("light.kitchen"), Map.of(), false, Binding.Settings.DEFAULT, null);
+        lamp.store(DeviceLink.TWIN_KEY, BindingCodecs.CODEC, mirrored);
+        check(mirrored.equals(linkLoad(SmartLamp.TYPE, lamp).twin()) && linkSave(SmartLamp.TYPE, lamp).equals(lamp),
+                "A Smart Lamp's binding round-trips through the compound (M3-8)");
+        CompoundTag broken = data.copy();
+        CompoundTag twin = new CompoundTag();
+        twin.putBoolean("control", true);
+        broken.put(DeviceLink.TWIN_KEY, twin);
+        check(linkLoad(TwinTestTypes.TYPE, broken).twin() == null && linkSave(TwinTestTypes.TYPE, broken).equals(data),
+                "A twin key that breaks the binding rules reads as no binding");
+    }
+
+    private static DeviceLink linkLoad(art.rehra.mineqtt.device.DeviceType type, CompoundTag data) {
+        CompoundTag tag = new CompoundTag();
+        tag.put(DeviceLink.KEY, data.copy());
+        DeviceLink link = new DeviceLink(type);
+        link.load(TagValueInput.create(ProblemReporter.DISCARDING, RegistryAccess.EMPTY, tag), false);
+        return link;
+    }
+
+    private static CompoundTag linkSave(art.rehra.mineqtt.device.DeviceType type, CompoundTag data) {
+        TagValueOutput output = TagValueOutput.createWithoutContext(ProblemReporter.DISCARDING);
+        linkLoad(type, data).save(output);
+        return output.buildResult().getCompound(DeviceLink.KEY).orElseThrow();
+    }
+
     private static CompoundTag fixture(String path) {
         try (InputStream in = LegacyNbtV1Test.class.getResourceAsStream(path)) {
             if (in == null) throw new AssertionError("Missing fixture " + path);
@@ -890,6 +976,59 @@ public final class LegacyNbtV1Test {
         check(shownWarm.color().equals(warm.color()) && shownWarm.kelvin() == null && shownWarm.brightness() == warm.brightness(),
                 "A colour temperature renders as the colour it shows: " + shownWarm);
         check(RenderTag.lamp(input(nothing)).equals(new LightState(false, 255, ValueCodecs.Rgb.WHITE, null)), "A lamp missing render keys keeps the defaults");
+    }
+
+    /**
+     * M3-15: what clients get of a Display Panel (M3 plan D18, D13 #7): its finished lines and the size they fit, or a
+     * point in time with its size setting; a title only while it mirrors, a waiting flag only while it waits; colour and
+     * glow. A client bounds what it reads as the server bounds what it sends. A saved panel is v2 data, its update tag a
+     * render update; its link and state compound round-trip.
+     */
+    private static void panelTags() {
+        DisplayPanel.Panel washer = new DisplayPanel.Panel("Washer done!", DyeColor.LIME, true, DisplayPanel.Size.AUTO, 15);
+        CompoundTag plain = RenderTag.updateTag(RenderTag.panel(DisplayPanel.Render.of(washer, null, false)));
+        check(plain.getCompoundOrEmpty(RenderTag.KEY).keySet().equals(Set.of("lines", "layout", "color", "glow")), "An unbound panel renders its lines: " + plain);
+        check(RenderTag.panel(input(plain)).equals(DisplayPanel.Render.of(washer, null, false)), "and reads them back");
+        DisplayPanel.Render mirrored = DisplayPanel.Render.of(washer, "Laundry", true);
+        CompoundTag titled = RenderTag.updateTag(RenderTag.panel(mirrored), TwinHealth.Hint.UNAVAILABLE);
+        check(titled.getCompoundOrEmpty(RenderTag.KEY).keySet().equals(Set.of("title", "lines", "layout", "color", "glow", "waiting", "twin"))
+                && RenderTag.panel(input(titled)).equals(mirrored) && RenderTag.twinHint(input(titled)) == TwinHealth.Hint.UNAVAILABLE,
+                "A mirrored panel adds its title, waiting while it waits, and the twin hint: " + titled);
+        DisplayPanel.Render alarm = DisplayPanel.Render.of(new DisplayPanel.Panel("2026-10-11T07:30:00+00:00", DyeColor.CYAN, false, DisplayPanel.Size.MEDIUM, 15), null, false);
+        CompoundTag time = RenderTag.updateTag(RenderTag.panel(alarm));
+        check(time.getCompoundOrEmpty(RenderTag.KEY).keySet().equals(Set.of("at", "size", "color", "glow")) && RenderTag.panel(input(time)).equals(alarm),
+                "A point in time renders as epoch millis with the size setting: " + time);
+        check(!plain.toString().contains("owner") && !titled.toString().contains("entity") && RenderTag.dispatch(input(plain)) == RenderTag.Data.RENDER,
+                "No owner and no entity reach a client; the update tag is a render update");
+
+        CompoundTag hostile = new CompoundTag();
+        CompoundTag render = new CompoundTag();
+        net.minecraft.nbt.ListTag lines = new net.minecraft.nbt.ListTag();
+        for (int i = 0; i < 10; i++) lines.add(net.minecraft.nbt.StringTag.valueOf("x".repeat(100)));
+        render.put("lines", lines);
+        render.putString("title", "t".repeat(100));
+        render.putByte("layout", (byte) 0);
+        render.putByte("size", (byte) 99);
+        render.putByte("color", (byte) 99);
+        hostile.put(RenderTag.KEY, render);
+        DisplayPanel.Render bounded = RenderTag.panel(input(hostile));
+        check(bounded.lines().size() == 3 && bounded.lines().stream().allMatch(line -> line.length() == 32) && bounded.title().length() == 32
+                        && bounded.layout() == art.rehra.mineqtt.twin.core.DisplayText.Size.LARGE && bounded.size() == DisplayPanel.Size.AUTO && bounded.glow(),
+                "A client reads at most 4 lines of 32 characters with the title, and a size it knows: " + bounded);
+        CompoundTag empty = RenderTag.updateTag(new CompoundTag());
+        DisplayPanel.Render nothing = RenderTag.panel(input(empty));
+        check(nothing.lines().isEmpty() && nothing.title() == null && nothing.at().isEmpty() && nothing.color() == DisplayPanel.DEFAULT_COLOR && nothing.glow() && !nothing.waiting(),
+                "A panel missing render keys draws nothing in the defaults");
+
+        // The saved panel: v2 data in the mineqtt compound, the state round-trips through the link.
+        DeviceLink link = new DeviceLink(DisplayPanel.TYPE);
+        TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
+        link.save(output).store("state", DisplayPanel.Panel.CODEC, washer);
+        CompoundTag saved = output.buildResult();
+        check(RenderTag.dispatch(input(saved)) == RenderTag.Data.DEVICE, "A saved panel is v2 data: " + saved);
+        DeviceLink loaded = new DeviceLink(DisplayPanel.TYPE);
+        check(loaded.load(input(saved), false).flatMap(data -> data.read("state", DisplayPanel.Panel.CODEC)).orElseThrow().equals(washer),
+                "Its message, look and level load again");
     }
 
     // ---- v1 data, as the main branch's saveAdditional wrote it ----

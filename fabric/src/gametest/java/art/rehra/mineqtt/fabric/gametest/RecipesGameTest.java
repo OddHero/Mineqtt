@@ -60,6 +60,7 @@ public final class RecipesGameTest implements FabricClientGameTest {
         creativeTab(session);
         recipesLoad(session);
         recipesMatch(session);
+        unreleased(session);
         survivalCrafting(session);
     }
 
@@ -124,6 +125,28 @@ public final class RecipesGameTest implements FabricClientGameTest {
             return lines;
         });
         results.forEach(line -> session.check(line.startsWith("PASS "), line.substring(5)));
+    }
+
+    /**
+     * An unreleased entry (M3-15, the Display Panel before its renderer) is made by no MineQTT recipe and used by none, and
+     * the creative tab does not show it ({@link #creativeTab}).
+     */
+    private static void unreleased(GameTestSession session) {
+        List<Identifier> unreleased = Catalog.ENTRIES.stream().filter(Catalog.Entry::unreleased).map(Catalog.Entry::id).toList();
+        List<String> uses = session.onServer(s -> {
+            List<String> found = new ArrayList<>();
+            for (RecipeHolder<?> holder : modRecipes(s)) {
+                if (!(holder.value() instanceof CraftingRecipe crafting)) continue;
+                CraftingInput input = input(crafting);
+                Identifier made = input == null ? null : BuiltInRegistries.ITEM.getKey(crafting.assemble(input).getItem());
+                if (unreleased.contains(made)) found.add(holder.id().identifier() + " makes " + made);
+                crafting.placementInfo().ingredients().forEach(ingredient -> ingredient.items()
+                        .map(item -> BuiltInRegistries.ITEM.getKey(item.value())).filter(unreleased::contains)
+                        .forEach(id -> found.add(holder.id().identifier() + " uses " + id)));
+            }
+            return found;
+        });
+        session.check(uses.isEmpty(), "no recipe makes or uses an unreleased entry " + unreleased + " (" + uses + ")");
     }
 
     private static void survivalCrafting(GameTestSession session) {

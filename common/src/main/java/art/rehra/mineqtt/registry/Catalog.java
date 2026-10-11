@@ -34,7 +34,14 @@ public final class Catalog {
          * Retiring for good (design §9.5): no recipe makes or uses it, the creative tab does not show it, and breaking it
          * gives the Network Chip back.
          */
-        DECOMMISSIONED
+        DECOMMISSIONED,
+        /**
+         * Built but not released yet (M3 plan D18): no recipe makes or uses it, the creative tab does not show it, and
+         * breaking it drops it. A block whose client side is missing never reaches survival or creative players; operators
+         * can still place it. The Display Panel was one until its renderer landed (M3-15, M3-16); such an entry is
+         * {@code new Entry(id, Kind.BLOCK, Status.UNRELEASED, false, null)}.
+         */
+        UNRELEASED
     }
 
     /**
@@ -58,6 +65,10 @@ public final class Catalog {
         public boolean decommissioned() {
             return status == Status.DECOMMISSIONED;
         }
+
+        public boolean unreleased() {
+            return status == Status.UNRELEASED;
+        }
     }
 
     public static final List<Entry> ENTRIES = List.of(
@@ -71,8 +82,9 @@ public final class Catalog {
             block("motion_sensor_block", Status.CRAFTABLE),
             block("temperature_sensor_block", Status.CRAFTABLE),
             block("block_sensor_block", Status.CRAFTABLE),
-            // Controls
+            // Controls and displays
             block("light_remote_block", Status.CRAFTABLE),
+            block("display_panel", Status.CRAFTABLE),
             // Automation
             block("alarm_clock", Status.CRAFTABLE),
             block("game_time_timer", Status.CRAFTABLE),

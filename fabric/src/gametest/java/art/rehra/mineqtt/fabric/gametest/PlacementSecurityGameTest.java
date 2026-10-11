@@ -43,9 +43,9 @@ public final class PlacementSecurityGameTest implements FabricClientGameTest {
     private static final BlockPos STAND = new BlockPos(0, GameTestSession.GROUND_Y + 1, 0);
     private static final BlockPos SOURCE = new BlockPos(2, GameTestSession.GROUND_Y + 1, 0);
     private static final BlockPos GROUND = new BlockPos(0, GameTestSession.GROUND_Y, 2);
-    private static final String DISCOVERY_PROBE = "homeassistant/light/mineqtt_gametest/config";
-    private static final String STATE_PROBE = "homeassistant/light/mineqtt_gametest/state";
-    private static final String SHARED_PROBE = "mineqtt/shared/gametest_probe";
+    private static final String DISCOVERY_PROBE = "homeassistant/light/mineqtt_" + GameTestSession.BRIDGE_ID + "/config";
+    private static final String STATE_PROBE = "homeassistant/light/mineqtt_" + GameTestSession.BRIDGE_ID + "/state";
+    private static final String SHARED_PROBE = "mineqtt/shared/" + GameTestSession.BRIDGE_ID + "_probe";
     private static final int CHAT_TIMEOUT_TICKS = 40;
     private static final int LISTEN_TIMEOUT_TICKS = 200;
 

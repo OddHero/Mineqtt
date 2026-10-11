@@ -17,6 +17,7 @@ import art.rehra.mineqtt.mqtt.core.BrokerConfig;
 import art.rehra.mineqtt.ui.device.AdvancedTab;
 import art.rehra.mineqtt.ui.device.ControlsTab;
 import art.rehra.mineqtt.ui.device.GeneralTab;
+import art.rehra.mineqtt.ui.device.TwinTab;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.minecraft.commands.arguments.EntityAnchorArgument;
@@ -51,9 +52,9 @@ public final class WallSwitchGameTest implements FabricClientGameTest {
     private static final BlockPos V1_LAMP = new BlockPos(5, Y, 2);
     private static final BlockPos V1_REMOTE = new BlockPos(5, Y + 1, 3);
     private static final BlockPos FOREIGN_REMOTE = new BlockPos(7, Y + 1, 3);
-    private static final String CHANNEL = "wall_switch_gametest";
+    private static final String CHANNEL = "wall_switch_" + GameTestSession.BRIDGE_ID;
     private static final String RAW_TOPIC = "mineqtt/shared/" + CHANNEL;
-    private static final String V1_TOPIC = "wall_switch_gametest/v1lamp";
+    private static final String V1_TOPIC = "wall_switch_" + GameTestSession.BRIDGE_ID + "/v1lamp";
     private static final int ANSWER_TICKS = 60;
     // Long enough for an event to make the round trip through the broker, and for one that should not come.
     private static final int SETTLE_TICKS = 30;
@@ -166,8 +167,8 @@ public final class WallSwitchGameTest implements FabricClientGameTest {
     /** Its screen: a button per press action on Controls, which presses; no retain on the Advanced tab. */
     private static void screen(GameTestSession session, BrokerProbe.Listener actions) {
         session.openBlock(SWITCH);
-        session.check(session.tabIds().equals(List.of(GeneralTab.ID, ControlsTab.ID, AdvancedTab.ID, "access", "diagnostics")),
-                "its screen has the five device tabs (" + session.tabIds() + ")");
+        session.check(session.tabIds().equals(List.of(GeneralTab.ID, ControlsTab.ID, TwinTab.ID, AdvancedTab.ID, "access", "diagnostics")),
+                "its screen has the six device tabs, Twin for its Home Assistant targets (" + session.tabIds() + ")");
         session.screenshot("wall_switch_general");
         session.check(session.clickTab(ControlsTab.ID), "it shows its Controls tab");
         session.screenshot("wall_switch_controls");

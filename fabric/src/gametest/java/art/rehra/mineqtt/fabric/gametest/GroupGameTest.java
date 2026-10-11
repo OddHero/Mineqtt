@@ -64,7 +64,7 @@ public final class GroupGameTest implements FabricClientGameTest {
     private static final BlockPos SOURCE = new BlockPos(-3, Y, 0);
     private static final BlockPos TARGET = new BlockPos(0, Y, -3);
     private static final UUID OTHER_OWNER = UUID.fromString("7e2d3c4b-5a69-4b78-8c9d-0e1f2a3b4c5d");
-    private static final String CHANNEL = "group_gametest";
+    private static final String CHANNEL = "group_" + GameTestSession.BRIDGE_ID;
     private static final int ANSWER_TICKS = 40;
     // Ample for a dropped payload to have done something if it had not been dropped.
     private static final int DROP_TICKS = 20;

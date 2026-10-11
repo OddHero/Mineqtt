@@ -3,6 +3,7 @@ package art.rehra.mineqtt.security;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.commands.MineQTTCommands;
+import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.DeviceClipboard;
 import art.rehra.mineqtt.device.DeviceConfig;
 import art.rehra.mineqtt.device.DeviceGroup;
@@ -19,10 +20,31 @@ import art.rehra.mineqtt.device.LinkRules;
 import art.rehra.mineqtt.device.RawLink;
 import art.rehra.mineqtt.device.RawLinkSpec;
 import art.rehra.mineqtt.device.RawTopics;
+import art.rehra.mineqtt.device.LinkSetting;
+import art.rehra.mineqtt.device.MirrorNoLoopCheck;
+import art.rehra.mineqtt.device.TwinRules;
+import art.rehra.mineqtt.device.TwinTestTypes;
+import art.rehra.mineqtt.twin.BindingCodecs;
+import art.rehra.mineqtt.twin.BindingPresets;
+import art.rehra.mineqtt.twin.core.PresetCodec;
+import art.rehra.mineqtt.twin.TwinAdapter;
+import art.rehra.mineqtt.twin.TwinRequests;
+import art.rehra.mineqtt.twin.core.Call;
+import art.rehra.mineqtt.twin.core.HaCalls;
+import art.rehra.mineqtt.flow.core.Root;
+import art.rehra.mineqtt.mqtt.core.MqttLog;
+import art.rehra.mineqtt.mqtt.core.OfflinePolicy;
+import art.rehra.mineqtt.mqtt.core.Outbound;
+import art.rehra.mineqtt.runtime.TopicScheme;
+import art.rehra.mineqtt.twin.core.Binding;
+import art.rehra.mineqtt.twin.core.ValuePath;
+import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
+import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.WallSwitch;
 import art.rehra.mineqtt.flow.core.Endpoint;
 import art.rehra.mineqtt.flow.core.Mapping;
 import art.rehra.mineqtt.flow.core.Scope;
@@ -48,11 +70,18 @@ import art.rehra.mineqtt.network.MineqttNetworking.LinkChoicePayload;
 import art.rehra.mineqtt.network.MineqttNetworking.LinkPickerPayload;
 import art.rehra.mineqtt.network.MineqttNetworking.BridgeActionPayload;
 import art.rehra.mineqtt.network.MineqttNetworking.ConsoleViewPayload;
+import art.rehra.mineqtt.network.MineqttNetworking.TwinResultsPayload;
+import art.rehra.mineqtt.network.MineqttNetworking.TwinSearchPayload;
+import art.rehra.mineqtt.network.MineqttNetworking.TwinViewPayload;
+import art.rehra.mineqtt.device.TwinView;
+import art.rehra.mineqtt.twin.core.TwinHealth;
+import art.rehra.mineqtt.ui.device.TwinPicker;
 import art.rehra.mineqtt.mqtt.core.ConnectionState;
 import art.rehra.mineqtt.ui.console.BridgeAction;
 import art.rehra.mineqtt.ui.console.ConsoleView;
 import art.rehra.mineqtt.security.C2SGuard.Facts;
 import art.rehra.mineqtt.security.C2SGuard.Rejection;
+import art.rehra.mineqtt.twin.core.EntityGlobs;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -74,6 +103,7 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.ByteTag;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.IntTag;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
@@ -107,6 +137,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -142,6 +173,7 @@ public final class SecurityGuardsCheck {
         legacyOwner();
         legacyOwnerKey();
         exposeRights();
+        twinPermissions();
         deviceConfig();
         typedTopic();
         devicePayloads();
@@ -149,11 +181,334 @@ public final class SecurityGuardsCheck {
         linkMode();
         groupMode();
         pasteRechecks();
+        twinBindings();
+        presetBindings();
+        twinRequests();
+        twinPicker();
+        presetSearch();
+        pickerAnswersAndRates();
+        catalogTopics();
         bridgeConsole();
         noticeGate();
         statusCap();
         automationFaces();
         System.out.println("Security guard checks passed.");
+    }
+
+    /**
+     * M3-11 (D3, D13 #5): the catalog lives under the statestream base, so no player, op or admin can forge it from
+     * Minecraft (publishing there is hard-denied), only admins may listen to it, and the server itself mirrors it (the
+     * catalog's and the scan's own subscriptions). An admin's broad allowlist changes none of it.
+     */
+    private static void catalogTopics() {
+        UUID steve = UUID.fromString("6a1c0f4e-0b6e-4a43-9d76-2f4f6f0e5a11");
+        List<String> everything = List.of("#");
+        for (TopicAcl acl : List.of(new TopicAcl(new TopicAcl.Rules("mineqtt", "world", "homeassistant", "ha_statestream", everything, true, true)),
+                new TopicAcl(new TopicAcl.Rules("mineqtt", "world", "homeassistant", "ha_statestream", TopicAcl.defaultRawAllow("mineqtt", "world"), false, false)))) {
+            for (TopicAcl.Subject subject : List.of(new TopicAcl.Subject(steve, false, false), new TopicAcl.Subject(steve, true, false),
+                    new TopicAcl.Subject(steve, true, true), TopicAcl.Subject.CONSOLE)) {
+                for (String topic : List.of("ha_statestream/_mineqtt/catalog/light", "ha_statestream/_mineqtt/status", "ha_statestream/light/kitchen/state")) {
+                    check(acl.checkPublish(subject, topic) == TopicAcl.Decision.DENY_STATESTREAM, "Nobody publishes " + topic + " from Minecraft: " + subject);
+                }
+            }
+            check(acl.checkListen(new TopicAcl.Subject(steve, true, false), "ha_statestream/_mineqtt/#") == TopicAcl.Decision.DENY_STATESTREAM_LISTEN,
+                    "Only admins listen to the catalog");
+            for (String filter : List.of("ha_statestream/_mineqtt/catalog/+", "ha_statestream/_mineqtt/status", "ha_statestream/+/+/state",
+                    "ha_statestream/+/+/friendly_name")) {
+                check(acl.checkMirror(TopicAcl.Subject.CONSOLE, filter).allowed(), "The server mirrors " + filter);
+            }
+            check(acl.checkLegacy("ha_statestream/_mineqtt/status", false) != TopicAcl.Decision.ALLOWED, "A v1 block never listens to the catalog");
+        }
+    }
+
+    /**
+     * M3-13 (D4, D13, D19): the Twin tab's payloads and the picker's search. The view, the search and the answer are
+     * bounded on the wire (query 64, rows 40, names 64, areas 32, values 32); a view for a player who may not configure
+     * the device names no entity; Resume is a press needing CONFIGURE and never a stored value; a search answers only a
+     * binder, and while the twin is off only why, without asking the twin; only readable entities in
+     * {@code twin.allowedEntities} and, while the catalog decides, in the catalog are ever candidates; a domain chip never
+     * widens a search; a search flood beyond the burst is dropped.
+     */
+    private static void twinPicker() {
+        BlockPos pos = new BlockPos(3, -60, 4);
+        // The search: the query has at most 64 characters on the wire.
+        TwinSearchPayload search = new TwinSearchPayload(pos, "twin.entity", "kitchen", "light");
+        RegistryFriendlyByteBuf searchBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        TwinSearchPayload.CODEC.encode(searchBuf, search);
+        check(TwinSearchPayload.CODEC.decode(searchBuf).equals(search), "A search crosses the wire");
+        check(fails(() -> TwinSearchPayload.CODEC.encode(new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY),
+                new TwinSearchPayload(pos, "twin.entity", "q".repeat(65), ""))), "A query over 64 characters does not encode");
+        RegistryFriendlyByteBuf longQuery = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        BlockPos.STREAM_CODEC.encode(longQuery, pos);
+        net.minecraft.network.VarInt.write(longQuery, TwinPicker.SearchKind.ENTITY.ordinal());
+        net.minecraft.network.codec.ByteBufCodecs.STRING_UTF8.encode(longQuery, "twin.entity");
+        net.minecraft.network.codec.ByteBufCodecs.STRING_UTF8.encode(longQuery, "q".repeat(500));
+        check(fails(() -> TwinSearchPayload.CODEC.decode(longQuery)), "A forged query over 64 characters is not read");
+
+        // The answer: at most 40 rows, each bounded.
+        List<TwinPicker.Row> rows = new ArrayList<>();
+        for (int i = 0; i < TwinPicker.MAX_ROWS; i++) {
+            rows.add(new TwinPicker.Row("light.l" + i, "Lamp " + i, "Kitchen", "on", java.util.OptionalInt.of(0xFF8800), i % 2 == 0, i % 3 == 0, false));
+        }
+        TwinResultsPayload results = new TwinResultsPayload(pos, TwinPicker.SearchKind.ENTITY, "twin.entity", "lamp", "", rows, TwinPicker.Notice.NONE, "");
+        RegistryFriendlyByteBuf resultsBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        TwinResultsPayload.CODEC.encode(resultsBuf, results);
+        check(TwinResultsPayload.CODEC.decode(resultsBuf).equals(results), "An answer of 40 rows crosses the wire");
+        List<TwinPicker.Row> tooMany = new ArrayList<>(rows);
+        tooMany.add(rows.getFirst());
+        check(fails(() -> new TwinResultsPayload(pos, TwinPicker.SearchKind.ENTITY, "twin.entity", "", "", tooMany, TwinPicker.Notice.NONE, "")), "An answer of 41 rows is not made");
+        RegistryFriendlyByteBuf forged = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        BlockPos.STREAM_CODEC.encode(forged, pos);
+        net.minecraft.network.VarInt.write(forged, TwinPicker.SearchKind.ENTITY.ordinal());
+        net.minecraft.network.codec.ByteBufCodecs.STRING_UTF8.encode(forged, "twin.entity");
+        net.minecraft.network.codec.ByteBufCodecs.STRING_UTF8.encode(forged, "");
+        net.minecraft.network.codec.ByteBufCodecs.STRING_UTF8.encode(forged, "");
+        net.minecraft.network.VarInt.write(forged, 41);
+        check(fails(() -> TwinResultsPayload.CODEC.decode(forged)), "A forged answer of 41 rows is not read");
+        TwinPicker.Row long_ = new TwinPicker.Row("light.x", "n".repeat(500), "a".repeat(500), "v".repeat(500), java.util.OptionalInt.empty(), false, false, false);
+        check(long_.name().length() == TwinPicker.MAX_NAME_LENGTH && long_.area().length() == TwinPicker.MAX_AREA_LENGTH
+                && long_.value().length() == TwinPicker.MAX_VALUE_LENGTH, "A row's name, area and value are cut to 64, 32 and 32");
+        check(fails(() -> new TwinPicker.Row("light.x", "", "", "", java.util.OptionalInt.of(0x1000000), false, false, false)), "A row's colour is 24 bits");
+        TwinResultsPayload capped = new TwinResultsPayload(pos, TwinPicker.SearchKind.ENTITY, "k".repeat(100), "q".repeat(100), "c".repeat(100), List.of(), TwinPicker.Notice.OFF, "d".repeat(1000));
+        check(capped.key().length() == 64 && capped.query().length() == TwinPicker.MAX_QUERY_LENGTH && capped.domain().length() == TwinPicker.MAX_DOMAIN_LENGTH && capped.detail().length() == TwinView.MAX_REASON_LENGTH,
+                "An answer's key, query and detail are cut so it always encodes");
+
+        // The view: entities only for a player who may configure the device.
+        TwinView.Entity kitchen = new TwinView.Entity("light.kitchen", "Kitchen Light", "Kitchen");
+        TwinView full = new TwinView(pos, true, Optional.of(kitchen), Optional.empty(), true, TwinView.Settings.DEFAULT, Map.of(), Optional.of(TwinHealth.LIVE), "", false,
+                false, Optional.of("not_labelled"), "", true, true, true, 2, Optional.of("twin.entity"), 0, "");
+        RegistryFriendlyByteBuf viewBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        TwinViewPayload.CODEC.encode(viewBuf, new TwinViewPayload(full));
+        check(TwinViewPayload.CODEC.decode(viewBuf).view().equals(full), "A view crosses the wire");
+        check(fails(() -> new TwinView(pos, false, Optional.of(kitchen), Optional.empty(), false, TwinView.Settings.DEFAULT, Map.of(), Optional.empty(), "", false, false,
+                Optional.empty(), "", false, false, false, 0, Optional.empty(), 0, "")), "A view without details names no source");
+        check(fails(() -> new TwinView(pos, false, Optional.of(TwinView.Entity.HIDDEN), Optional.empty(), false, TwinView.Settings.DEFAULT, Map.of("left", kitchen),
+                Optional.empty(), "", false, false, Optional.empty(), "", false, false, false, 0, Optional.empty(), 0, "")), "nor a target");
+        check(fails(() -> new TwinView(pos, false, Optional.of(TwinView.Entity.HIDDEN), Optional.empty(), false, TwinView.Settings.DEFAULT, Map.of(), Optional.empty(),
+                "light.kitchen is not in twin.allowedEntities", false, false, Optional.empty(), "", false, false, false, 0, Optional.empty(), 0, "")), "nor a refusal");
+        check(fails(() -> new TwinView(pos, false, Optional.of(TwinView.Entity.HIDDEN), Optional.empty(), false, TwinView.Settings.DEFAULT, Map.of(), Optional.empty(), "", false,
+                false, Optional.of("accepted"), "", false, false, false, 0, Optional.empty(), 0, "")), "nor the control blueprint's answer");
+        TwinView hidden = new TwinView(pos, false, Optional.of(TwinView.Entity.HIDDEN), Optional.empty(), false, TwinView.Settings.DEFAULT, Map.of(), Optional.of(TwinHealth.LIVE),
+                "", false, false, Optional.empty(), "", false, false, false, 0, Optional.empty(), 0, "");
+        check(hidden.bound() && hidden.source().orElseThrow().id().isEmpty(), "A view without details says it is bound, not to what");
+        TwinView.Entity longEntity = new TwinView.Entity("light." + "x".repeat(300), "n".repeat(100), "a".repeat(100));
+        check(longEntity.id().length() == Binding.MAX_REFERENCE_LENGTH && longEntity.name().length() == TwinView.MAX_NAME_LENGTH
+                && longEntity.area().length() == TwinView.MAX_AREA_LENGTH, "A view's entity texts are cut to their caps");
+
+        // Resume: a press that needs CONFIGURE, the command twin of devices bind <device> resume; never pasted.
+        check(LinkSetting.TWIN_RESUME.gate() == LinkSetting.Gate.CONFIGURE && DeviceConfig.permission(SmartLamp.TYPE, "twin.resume") == MineqttPermission.CONFIGURE,
+                "Resume needs CONFIGURE at the guard and the gate");
+        check(DeviceConfig.parse(SmartLamp.TYPE, "twin.resume", new JsonPrimitive("PRESS"), new DeviceView.Grants(false, true, false, false)).result()
+                .filter(DeviceConfig.TwinResume.class::isInstance).isPresent(), "A press resumes");
+        refused(SmartLamp.TYPE, "twin.resume", new JsonPrimitive("PRESS"), new DeviceView.Grants(true, false, false, false), "Resume without CONFIGURE");
+        refused(SmartLamp.TYPE, "twin.resume", new JsonPrimitive(true), DeviceView.Grants.ALL, "Resume as a value instead of a press");
+        refused(DisplayPanel.TYPE, "twin.resume", new JsonPrimitive("PRESS"), DeviceView.Grants.ALL, "Resume on a read-only panel, which never pauses");
+        Binding bound = Binding.of(SmartLamp.TWIN.sourceEnd("light.kitchen")).withControl(true);
+        DeviceView lampView = new DeviceView(pos, SmartLamp.TYPE.id(), "Lamp", "lamp", "", AccessMode.CLAIM, Optional.empty(), DeviceView.Registration.NONE,
+                DeviceView.Grants.ALL, "{}", Optional.empty(), false, "", Optional.empty(), new DeviceView.Ownership(DeviceView.Owner.NOBODY, false),
+                DeviceView.Diagnostics.notRunning(null), 0, false);
+        check(DeviceClipboard.of(SmartLamp.TYPE, lampView, bound).entries().stream().noneMatch(entry -> entry.key().equals("twin.resume")),
+                "Copy-Paste never copies Resume");
+
+        // A search answers only a binder; while the twin is off only why; neither asks the twin.
+        boolean[] asked = {false};
+        java.util.function.Supplier<List<art.rehra.mineqtt.twin.core.EntitySearch.Candidate>> spy = () -> {
+            asked[0] = true;
+            return List.of();
+        };
+        TwinPicker.Answer noBind = TwinPicker.answer(false, Optional.empty(), spy, () -> true, id -> Optional.empty(), null, "");
+        check(noBind.rows().isEmpty() && noBind.notice() == TwinPicker.Notice.NO_BIND && !asked[0], "A player without mineqtt:twin.bind gets no rows, and the twin is not asked");
+        TwinPicker.Answer off = TwinPicker.answer(true, Optional.of("set twin.allowedEntities"), spy, () -> true, id -> Optional.empty(), null, "");
+        check(off.rows().isEmpty() && off.notice() == TwinPicker.Notice.OFF && off.detail().equals("set twin.allowedEntities") && !asked[0],
+                "While the twin is off the answer says why, and the twin is not asked");
+        check(TwinPicker.answer(true, Optional.empty(), spy, () -> false, id -> Optional.empty(), null, "").notice() == TwinPicker.Notice.EMPTY,
+                "No entity at all: D4's empty-catalog help");
+        check(TwinPicker.answer(true, Optional.empty(), spy, () -> true, id -> Optional.empty(), null, "").notice() == TwinPicker.Notice.NO_MATCH,
+                "Entities, but none matching");
+
+        // Only readable, allowed entities are candidates; in catalog mode only the catalog's.
+        art.rehra.mineqtt.twin.core.EntityDocuments store = new art.rehra.mineqtt.twin.core.EntityDocuments("ha_statestream",
+                art.rehra.mineqtt.twin.core.EntityDocuments.Limits.DEFAULT);
+        art.rehra.mineqtt.twin.core.EntityScan scan = new art.rehra.mineqtt.twin.core.EntityScan("ha_statestream", 100);
+        for (String entity : List.of("light/kitchen", "light/hall", "person/steve", "sensor/temperature")) {
+            scan.accept("ha_statestream/" + entity + "/state", "on".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        java.util.function.Function<EntityGlobs, List<String>> candidates = allowed -> art.rehra.mineqtt.twin.core.EntitySearch.readable(
+                art.rehra.mineqtt.twin.core.EntitySearch.candidates(store, scan, List.of()).values(), store, allowed).stream()
+                .map(art.rehra.mineqtt.twin.core.EntitySearch.Candidate::entityId).sorted().toList();
+        check(candidates.apply(EntityGlobs.ALL).equals(List.of("light.hall", "light.kitchen", "sensor.temperature")),
+                "Without a catalog the scan's entities are candidates, never a private domain: " + candidates.apply(EntityGlobs.ALL));
+        check(candidates.apply(EntityGlobs.of(List.of("light.k*"))).equals(List.of("light.kitchen")), "Only entities twin.allowedEntities matches");
+        check(candidates.apply(EntityGlobs.NONE).isEmpty(), "An empty twin.allowedEntities lists nothing");
+        store.accept("ha_statestream/_mineqtt/catalog/light", ("[{\"id\":\"light.kitchen\",\"name\":\"Kitchen\",\"area\":\"Kitchen\",\"control\":true,\"state\":\"on\"},"
+                + "{\"id\":\"light.porch\",\"name\":\"Porch\",\"state\":\"off\"}]").getBytes(java.nio.charset.StandardCharsets.UTF_8), true, 1);
+        store.accept("ha_statestream/_mineqtt/status", "{\"v\":1}".getBytes(java.nio.charset.StandardCharsets.UTF_8), true, 2);
+        check(candidates.apply(EntityGlobs.ALL).equals(List.of("light.kitchen", "light.porch")),
+                "While the catalog decides only its entries are candidates, not what the scan saw: " + candidates.apply(EntityGlobs.ALL));
+        check(art.rehra.mineqtt.twin.core.EntitySearch.candidates(store, scan, List.of()).get("light.kitchen").control()
+                        && !art.rehra.mineqtt.twin.core.EntitySearch.candidates(store, scan, List.of()).get("light.porch").control(),
+                "A candidate carries the catalog's control label");
+
+        // M3-14's control filter: a target lists only what Minecraft may control, and in catalog mode what HA labelled for it.
+        List<art.rehra.mineqtt.twin.core.EntitySearch.Candidate> pool = List.of(candidate("light.kitchen", true), candidate("light.porch", false),
+                candidate("scene.movie", true), candidate("lock.front", true), candidate("binary_sensor.door", true), candidate("person.steve", true));
+        List<String> allowlist = List.of("light", "switch", "input_boolean", "fan", "cover", "scene", "script", "button", "input_button");
+        java.util.function.BiFunction<Boolean, String, List<String>> targetRows = (catalogMode, query) -> TwinPicker.answer(true, Optional.empty(),
+                () -> pool, () -> true, id -> Optional.empty(), new TwinPicker.ControlFilter(catalogMode, allowlist), query).rows().stream()
+                .map(TwinPicker.Row::entityId).toList();
+        check(targetRows.apply(true, "").equals(List.of("light.kitchen", "scene.movie")),
+                "In catalog mode a target lists only control-labelled entities of domains Minecraft controls and the allowlist allows: " + targetRows.apply(true, ""));
+        check(targetRows.apply(false, "").equals(List.of("light.kitchen", "light.porch", "scene.movie")),
+                "Without a catalog the labels are unknown: every controllable, allowed domain (no lock outside the allowlist, no sensor, no person)");
+        TwinPicker.Answer unlabelled = TwinPicker.answer(true, Optional.empty(), () -> List.of(candidate("light.porch", false)), () -> true,
+                id -> Optional.empty(), new TwinPicker.ControlFilter(true, allowlist), "");
+        check(unlabelled.rows().isEmpty() && unlabelled.notice() == TwinPicker.Notice.NO_CONTROL, "Nothing labelled for control: the answer says to label it");
+        check(TwinPicker.answer(true, Optional.empty(), () -> List.of(candidate("light.porch", false)), () -> true, id -> Optional.empty(),
+                new TwinPicker.ControlFilter(true, allowlist), "porch").notice() == TwinPicker.Notice.NO_MATCH, "A query that finds nothing controllable: no match");
+        check(TwinPicker.answer(true, Optional.empty(), () -> pool, () -> true, id -> Optional.empty(), null, "").rows().size() == pool.size(),
+                "A source's search is not filtered for control");
+
+        // A flood beyond the burst is dropped; the rate refills.
+        long[] now = {7 * SECOND};
+        TokenBucket searches = new TokenBucket(TwinPicker.SEARCH_BURST, TwinPicker.SEARCHES_PER_SECOND, () -> now[0]);
+        for (int i = 0; i < TwinPicker.SEARCH_BURST; i++) check(searches.tryTake(), "Search " + i + " of a burst passes");
+        check(!searches.tryTake(), "A search beyond the burst is dropped");
+        now[0] += SECOND / 4;
+        check(searches.tryTake() && !searches.tryTake(), "A quarter second later one more passes (4 a second)");
+        check(TwinPicker.DEBOUNCE_MILLIS == 250 && 1000 / TwinPicker.DEBOUNCE_MILLIS <= TwinPicker.SEARCHES_PER_SECOND,
+                "The picker's debounce keeps a typing player within the rate");
+        check(TwinPicker.keys(SmartLamp.TWIN).equals(List.of("twin.entity")) && TwinPicker.keys(DisplayPanel.TWIN).equals(List.of("twin.entity"))
+                        && TwinPicker.keys(WallSwitch.TWIN).equals(List.of("twin.left", "twin.right")), "The picker chooses a mirror's source, a switch's targets");
+    }
+
+    /**
+     * Wave 7 (M3-17's Twin tab source): the preset search reuses the picker's payloads with a kind field, so the payload
+     * count stays 32. It crosses the wire and an unknown kind is not read; the answer repeats its kind. Only a binder gets
+     * presets, and the Home Assistant twin being off does not hide them (M3-17 decision 2); only presets of a kind the type
+     * mirrors are listed, a kind chip never widens the list, a query narrows it, and an entity key is no preset search. A
+     * view names an MQTT device only for a viewer who may configure the device, and has one source at most.
+     */
+    private static void presetSearch() {
+        BlockPos pos = new BlockPos(3, -60, 4);
+        TwinSearchPayload search = new TwinSearchPayload(pos, TwinPicker.SearchKind.PRESET, TwinPicker.PRESET_KEY, "zigbee", "light");
+        RegistryFriendlyByteBuf searchBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        TwinSearchPayload.CODEC.encode(searchBuf, search);
+        check(TwinSearchPayload.CODEC.decode(searchBuf).equals(search), "A preset search crosses the wire");
+        check(new TwinSearchPayload(pos, "twin.entity", "", "").kind() == TwinPicker.SearchKind.ENTITY, "The picker's search is an entity search");
+        RegistryFriendlyByteBuf forgedKind = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        BlockPos.STREAM_CODEC.encode(forgedKind, pos);
+        net.minecraft.network.VarInt.write(forgedKind, 7);
+        net.minecraft.network.codec.ByteBufCodecs.STRING_UTF8.encode(forgedKind, "twin.device");
+        net.minecraft.network.codec.ByteBufCodecs.STRING_UTF8.encode(forgedKind, "");
+        net.minecraft.network.codec.ByteBufCodecs.STRING_UTF8.encode(forgedKind, "");
+        check(fails(() -> TwinSearchPayload.CODEC.decode(forgedKind)), "A search of an unknown kind is not read");
+        TwinResultsPayload answer = new TwinResultsPayload(pos, TwinPicker.SearchKind.PRESET, TwinPicker.PRESET_KEY, "", "",
+                List.of(new TwinPicker.Row("mineqtt:zigbee2mqtt_light", "zigbee2mqtt light", "", "light", java.util.OptionalInt.empty(), true, false, false)),
+                TwinPicker.Notice.NONE, "");
+        RegistryFriendlyByteBuf answerBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        TwinResultsPayload.CODEC.encode(answerBuf, answer);
+        check(TwinResultsPayload.CODEC.decode(answerBuf).equals(answer), "A preset answer crosses the wire with its kind");
+
+        check(TwinPicker.searchable(SmartLamp.TWIN, TwinPicker.SearchKind.PRESET, "twin.device")
+                        && !TwinPicker.searchable(SmartLamp.TWIN, TwinPicker.SearchKind.PRESET, "twin.entity")
+                        && !TwinPicker.searchable(SmartLamp.TWIN, TwinPicker.SearchKind.ENTITY, "twin.device")
+                        && !TwinPicker.searchable(WallSwitch.TWIN, TwinPicker.SearchKind.PRESET, "twin.device")
+                        && TwinPicker.searchable(WallSwitch.TWIN, TwinPicker.SearchKind.ENTITY, "twin.left"),
+                "A preset search is for twin.device of a type with a source; an entity search for the picker's keys");
+        java.util.Collection<art.rehra.mineqtt.twin.core.BindingPreset> builtIns = MirrorNoLoopCheck.builtInPresets().presets().values();
+        TwinPicker.Answer noBind = TwinPicker.presets(false, SmartLamp.TWIN.sourceDomains(), builtIns, "", "");
+        check(noBind.rows().isEmpty() && noBind.notice() == TwinPicker.Notice.NO_BIND, "A player without mineqtt:twin.bind gets no presets, only why");
+        List<String> lamp = TwinPicker.presets(true, SmartLamp.TWIN.sourceDomains(), builtIns, "", "").rows().stream().map(TwinPicker.Row::entityId).toList();
+        check(lamp.equals(List.of("mineqtt:esphome_light", "mineqtt:zigbee2mqtt_light", "mineqtt:generic_switch", "mineqtt:shelly_gen2_switch",
+                        "mineqtt:tasmota_power", "mineqtt:zigbee2mqtt_switch", "mineqtt:zigbee2mqtt_contact")),
+                "A lamp lists the light presets first, then the switches, then the contact, each kind by name; no sensor preset: " + lamp);
+        List<String> panel = TwinPicker.presets(true, DisplayPanel.TWIN.sourceDomains(), builtIns, "", "").rows().stream().map(TwinPicker.Row::entityId).toList();
+        check(panel.containsAll(List.of("mineqtt:zigbee2mqtt_sensor", "mineqtt:generic_topic", "mineqtt:zigbee2mqtt_contact")), "A panel lists the sensors: " + panel);
+        check(TwinPicker.presets(true, SmartLamp.TWIN.sourceDomains(), builtIns, "", "switch").rows().stream().allMatch(row -> row.value().equals("switch")),
+                "A kind chip lists that kind only");
+        check(TwinPicker.presets(true, SmartLamp.TWIN.sourceDomains(), builtIns, "", "sensor").rows().size() == lamp.size(),
+                "A kind chip the type does not mirror never widens the list to it");
+        check(TwinPicker.presets(true, SmartLamp.TWIN.sourceDomains(), builtIns, "ZIGBEE", "").rows().stream().map(TwinPicker.Row::entityId).toList()
+                .equals(List.of("mineqtt:zigbee2mqtt_light", "mineqtt:zigbee2mqtt_switch", "mineqtt:zigbee2mqtt_contact")),
+                "A query narrows the presets by id or name, case-blind");
+        check(TwinPicker.presets(true, SmartLamp.TWIN.sourceDomains(), builtIns, "nothing like it", "").notice() == TwinPicker.Notice.NO_MATCH,
+                "A query that matches no preset: no match");
+        check(TwinPicker.presets(true, SmartLamp.TWIN.sourceDomains(), List.of(), "", "").notice() == TwinPicker.Notice.EMPTY, "No preset loaded: empty");
+        TwinPicker.Row bulb = TwinPicker.presets(true, SmartLamp.TWIN.sourceDomains(), builtIns, "zigbee2mqtt light", "").rows().getFirst();
+        check(bulb.control() && bulb.value().equals("light") && bulb.area().isEmpty() && bulb.name().equals("zigbee2mqtt light"),
+                "A preset row carries its name, its kind and whether it sends commands: " + bulb);
+
+        TwinView.Device porch = new TwinView.Device("mineqtt:zigbee2mqtt_light", "zigbee2mqtt light", "Porch", "zigbee2mqtt/Porch", "light");
+        TwinView devices = new TwinView(pos, true, Optional.empty(), Optional.of(porch), true, TwinView.Settings.DEFAULT, Map.of(), Optional.of(TwinHealth.LIVE),
+                "", false, false, Optional.empty(), "set twin.allowedEntities", true, true, false, 0, Optional.empty(), 0, "");
+        RegistryFriendlyByteBuf viewBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        TwinViewPayload.CODEC.encode(viewBuf, new TwinViewPayload(devices));
+        check(TwinViewPayload.CODEC.decode(viewBuf).view().equals(devices) && devices.bound() && devices.boundToDevice(),
+                "A view of an MQTT device crosses the wire and reads as bound, also while the Home Assistant twin is off");
+        check(fails(() -> new TwinView(pos, false, Optional.empty(), Optional.of(porch), false, TwinView.Settings.DEFAULT, Map.of(), Optional.empty(), "",
+                false, false, Optional.empty(), "", false, false, false, 0, Optional.empty(), 0, "")), "A view without details names no MQTT device");
+        TwinView hidden = new TwinView(pos, false, Optional.empty(), Optional.of(TwinView.Device.HIDDEN), false, TwinView.Settings.DEFAULT, Map.of(),
+                Optional.of(TwinHealth.LIVE), "", false, false, Optional.empty(), "", false, false, false, 0, Optional.empty(), 0, "");
+        check(hidden.bound() && hidden.boundToDevice() && hidden.device().orElseThrow().topic().isEmpty(),
+                "A view without details says it follows an MQTT device, not which");
+        check(fails(() -> new TwinView(pos, true, Optional.of(new TwinView.Entity("light.kitchen", "", "")), Optional.of(porch), false,
+                TwinView.Settings.DEFAULT, Map.of(), Optional.empty(), "", false, false, Optional.empty(), "", true, true, false, 0, Optional.empty(), 0, "")),
+                "A view has one source: an entity or an MQTT device");
+        TwinView.Device long_ = new TwinView.Device("p".repeat(300), "n".repeat(300), "d".repeat(300), "t".repeat(500), "k".repeat(100));
+        check(long_.preset().length() == TwinView.MAX_PRESET_LENGTH && long_.name().length() == TwinView.MAX_NAME_LENGTH
+                        && long_.device().length() == TwinView.MAX_DEVICE_LENGTH && long_.topic().length() == TwinView.MAX_TOPIC_LENGTH
+                        && long_.kind().length() == TwinView.MAX_KIND_LENGTH, "An MQTT device's texts are cut to their caps");
+    }
+
+    /**
+     * Wave 7 (the wave 6 findings): the picker's answer repeats the domain chip it answers, bounded on the wire, so the
+     * picker drops an answer to a chip or a query it has left; an unanswered search is sent again a few times, within the
+     * rate. The Twin tab's view counts the requests the rates refused for every viewer, and names the last one's target
+     * only for a viewer who may configure the device.
+     */
+    private static void pickerAnswersAndRates() {
+        BlockPos pos = new BlockPos(3, -60, 4);
+        TwinResultsPayload lights = new TwinResultsPayload(pos, TwinPicker.SearchKind.ENTITY, "twin.entity", "m3", "light", List.of(), TwinPicker.Notice.NO_MATCH, "");
+        RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        TwinResultsPayload.CODEC.encode(buf, lights);
+        check(TwinResultsPayload.CODEC.decode(buf).equals(lights), "An answer crosses the wire with the domain it answers");
+        RegistryFriendlyByteBuf forged = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        BlockPos.STREAM_CODEC.encode(forged, pos);
+        net.minecraft.network.VarInt.write(forged, TwinPicker.SearchKind.ENTITY.ordinal());
+        net.minecraft.network.codec.ByteBufCodecs.STRING_UTF8.encode(forged, "twin.entity");
+        net.minecraft.network.codec.ByteBufCodecs.STRING_UTF8.encode(forged, "");
+        net.minecraft.network.codec.ByteBufCodecs.STRING_UTF8.encode(forged, "d".repeat(500));
+        check(fails(() -> TwinResultsPayload.CODEC.decode(forged)), "A forged answer's domain over 64 characters is not read");
+        check(TwinPicker.answers("twin.entity", "m3", "light", "twin.entity", "m3", "light"), "The answer to the search sent last is shown");
+        check(!TwinPicker.answers("twin.entity", "m3", "switch", "twin.entity", "m3", "light"), "An answer to a chip the player left is dropped");
+        check(!TwinPicker.answers("twin.entity", "m3", "", "twin.entity", "m", ""), "An answer to an older query is dropped");
+        check(!TwinPicker.answers("twin.left", "m3", "", "twin.entity", "m3", ""), "An answer for another key is dropped");
+        check(!TwinPicker.resendDue(false, 0, TwinPicker.RESEND_MILLIS - 1) && TwinPicker.resendDue(false, 0, TwinPicker.RESEND_MILLIS)
+                        && !TwinPicker.resendDue(true, 0, 10 * TwinPicker.RESEND_MILLIS) && !TwinPicker.resendDue(false, TwinPicker.MAX_RESENDS, 10 * TwinPicker.RESEND_MILLIS),
+                "An unanswered search goes again after a second, a few times at most; an answered one never");
+        check(1000.0 / TwinPicker.RESEND_MILLIS <= TwinPicker.SEARCHES_PER_SECOND, "Resending keeps the picker within the search rate");
+
+        TwinView rated = new TwinView(pos, true, Optional.of(new TwinView.Entity("scene.movie", "", "")), Optional.empty(), false, TwinView.Settings.DEFAULT,
+                Map.of(), Optional.of(TwinHealth.LIVE), "", false, false, Optional.empty(), "", true, true, false, 0, Optional.empty(), 3,
+                "scene.movie: Wall sends at most 4 requests a second");
+        RegistryFriendlyByteBuf viewBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        TwinViewPayload.CODEC.encode(viewBuf, new TwinViewPayload(rated));
+        check(TwinViewPayload.CODEC.decode(viewBuf).view().equals(rated), "A view with refused requests crosses the wire");
+        TwinView counted = new TwinView(pos, false, Optional.of(TwinView.Entity.HIDDEN), Optional.empty(), false, TwinView.Settings.DEFAULT, Map.of(),
+                Optional.of(TwinHealth.LIVE), "", false, false, Optional.empty(), "", false, false, false, 0, Optional.empty(), 3, "");
+        check(counted.rateRefused() == 3, "A viewer without details sees how many requests the rates refused");
+        check(fails(() -> new TwinView(pos, false, Optional.of(TwinView.Entity.HIDDEN), Optional.empty(), false, TwinView.Settings.DEFAULT, Map.of(),
+                Optional.empty(), "", false, false, Optional.empty(), "", false, false, false, 0, Optional.empty(), 3, "scene.movie: …")),
+                "...but not what the last one was for");
+        check(fails(() -> new TwinView(pos, true, Optional.empty(), Optional.empty(), false, TwinView.Settings.DEFAULT, Map.of(), Optional.empty(), "", false,
+                false, Optional.empty(), "", true, true, false, 0, Optional.empty(), -1, "")), "A negative count is refused");
+        check(new TwinView(pos, true, Optional.empty(), Optional.empty(), false, TwinView.Settings.DEFAULT, Map.of(), Optional.empty(), "", false, false,
+                Optional.empty(), "", true, true, false, 0, Optional.empty(), 1, "x".repeat(1000)).rateLast().length() == TwinView.MAX_REASON_LENGTH,
+                "The last refusal's text is cut to its cap");
+    }
+
+    private static art.rehra.mineqtt.twin.core.EntitySearch.Candidate candidate(String id, boolean control) {
+        return new art.rehra.mineqtt.twin.core.EntitySearch.Candidate(id, id, "", art.rehra.mineqtt.twin.core.StatestreamValue.of("on"), control);
     }
 
     private static void tokenBucket() {
@@ -530,6 +885,87 @@ public final class SecurityGuardsCheck {
     }
 
     /**
+     * M3 plan D13: {@code mineqtt:twin.bind} and {@code mineqtt:twin.control} are everyone's on integrated servers and
+     * need op level 2 or the permission on dedicated servers; {@code twin.allowedEntities} binds operators and the
+     * console too, so its dedicated default keeps the twin off for everyone.
+     */
+    private static void twinPermissions() {
+        for (boolean op : new boolean[]{true, false}) {
+            for (boolean granted : new boolean[]{true, false}) {
+                check(AclContext.twinPermitted(false, op, granted), "Integrated: everyone (op " + op + ", granted " + granted + ")");
+                check(AclContext.twinPermitted(true, op, granted) == (op || granted), "Dedicated: ops and holders only (op " + op + ", granted " + granted + ")");
+            }
+        }
+        PermissionSet binder = permission -> permission.equals(AclContext.TWIN_BIND);
+        PermissionSet controller = permission -> permission.equals(AclContext.TWIN_CONTROL);
+        for (PermissionSet anyone : List.of(PermissionSet.NO_PERMISSIONS, LevelBasedPermissionSet.MODERATOR, binder, controller)) {
+            check(AclContext.mayBindTwin(anyone, false) && AclContext.mayControlTwin(anyone, false), "Everyone binds and controls on integrated servers");
+        }
+        for (PermissionSet op : List.of(LevelBasedPermissionSet.GAMEMASTER, LevelBasedPermissionSet.ADMIN, LevelBasedPermissionSet.OWNER)) {
+            check(AclContext.mayBindTwin(op, true) && AclContext.mayControlTwin(op, true), "Ops bind and control on dedicated servers");
+        }
+        check(!AclContext.mayBindTwin(PermissionSet.NO_PERMISSIONS, true) && !AclContext.mayControlTwin(PermissionSet.NO_PERMISSIONS, true)
+                && !AclContext.mayBindTwin(LevelBasedPermissionSet.MODERATOR, true) && !AclContext.mayControlTwin(LevelBasedPermissionSet.MODERATOR, true),
+                "Players below op level 2 neither bind nor control on dedicated servers");
+        check(AclContext.mayBindTwin(binder, true) && !AclContext.mayControlTwin(binder, true), "mineqtt:twin.bind binds, but does not turn control on");
+        check(AclContext.mayControlTwin(controller, true) && !AclContext.mayBindTwin(controller, true), "mineqtt:twin.control is the other right");
+        PermissionSet admin = permission -> permission.equals(AclContext.ADMIN) || permission.equals(AclContext.HA_EXPOSE);
+        check(!AclContext.mayBindTwin(admin, true) && !AclContext.mayControlTwin(admin, true), "mineqtt:admin and mineqtt:ha.expose grant neither");
+        check(AclContext.TWIN_BIND.toString().contains("mineqtt:twin.bind") && AclContext.TWIN_CONTROL.toString().contains("mineqtt:twin.control"),
+                "The permission ids: " + AclContext.TWIN_BIND + ", " + AclContext.TWIN_CONTROL);
+
+        // The allowed-entities gate takes no subject: nobody bypasses it.
+        try {
+            Class<?>[] parameters = AclContext.class.getMethod("twinBindRefusal", boolean.class, EntityGlobs.class, String.class).getParameterTypes();
+            check(Arrays.stream(parameters).noneMatch(type -> type == TopicAcl.Subject.class || PermissionSet.class.isAssignableFrom(type)),
+                    "The entity gate sees only whether the binder may bind at all");
+        } catch (NoSuchMethodException e) {
+            throw new AssertionError("AclContext.twinBindRefusal(boolean, EntityGlobs, String) is the entity gate", e);
+        }
+        check(AclContext.twinBindRefusal(true, EntityGlobs.NONE, "light.kitchen").orElse("").contains("set twin.allowedEntities"),
+                "An empty list refuses a binder who may bind");
+        check(AclContext.twinBindRefusal(false, EntityGlobs.ALL, "light.kitchen").orElse("").contains("mineqtt:twin.bind"),
+                "Without the permission the permission is named");
+        check(AclContext.twinBindRefusal(true, EntityGlobs.of(List.of("light.*")), "lock.front_door").orElse("").equals("lock.front_door is not in twin.allowedEntities"),
+                "An entity outside the globs is refused");
+        check(AclContext.twinBindRefusal(true, EntityGlobs.of(List.of("light.*")), "light.porch").isEmpty(), "One inside is allowed");
+
+        // The share gate of an edit (M3-11, M3-14): every NEW source or target must be shared while the catalog answers.
+        Function<String, Optional<String>> shared = entity -> entity.equals("light.shared") || entity.equals("switch.shared")
+                ? Optional.empty() : Optional.of(entity + " is not shared");
+        Binding source = Binding.of(RedstoneOutput.TWIN.sourceEnd("light.shared"));
+        Binding unsharedTarget = source.withTarget("powered", TwinAdapter.targetEnd("switch.hidden"));
+        check(TwinRules.shareRefusal(null, source, shared).isEmpty() && TwinRules.shareRefusal(null, Binding.of(RedstoneOutput.TWIN.sourceEnd("light.hidden")), shared)
+                .orElse("").equals("light.hidden is not shared"), "A new source must be shared");
+        check(TwinRules.shareRefusal(source, unsharedTarget, shared).orElse("").equals("switch.hidden is not shared")
+                        && TwinRules.shareRefusal(source, source.withTarget("powered", TwinAdapter.targetEnd("switch.shared")), shared).isEmpty(),
+                "A new target must be shared too (the integration fix that reversed M3-11 decision 5 for targets)");
+        check(TwinRules.shareRefusal(unsharedTarget, unsharedTarget.withControl(true), shared).isEmpty()
+                        && TwinRules.shareRefusal(Binding.of(RedstoneOutput.TWIN.sourceEnd("light.hidden")),
+                        Binding.of(RedstoneOutput.TWIN.sourceEnd("light.hidden")).withSettings(Binding.Settings.DEFAULT.withInvert(true)), shared).isEmpty()
+                        && TwinRules.shareRefusal(unsharedTarget, null, shared).isEmpty(),
+                "Entities already bound stay editable after they left the catalog, and unbinding is never refused");
+
+        MineQTTConfig.resetToDefaults();
+        for (PermissionSet op : List.of(LevelBasedPermissionSet.GAMEMASTER, LevelBasedPermissionSet.OWNER)) {
+            check(AclContext.twinBindRefusal(op, true, "light.kitchen").orElse("").contains("set twin.allowedEntities"),
+                    "On a dedicated server with the default AUTO, an op cannot bind either");
+        }
+        check(AclContext.twinBindRefusal(PermissionSet.NO_PERMISSIONS, false, "lock.front_door").isEmpty(), "AUTO on an integrated server allows every entity");
+        MineQTTConfig.twinAllowedEntities = List.of("light.*");
+        check(AclContext.twinBindRefusal(LevelBasedPermissionSet.OWNER, true, "lock.front_door").orElse("").contains("not in twin.allowedEntities"),
+                "The console's permission level does not widen the list");
+        check(AclContext.twinBindRefusal(LevelBasedPermissionSet.GAMEMASTER, true, "light.porch").isEmpty(), "An op binds a listed entity");
+        check(AclContext.twinBindRefusal(PermissionSet.NO_PERMISSIONS, true, "light.porch").orElse("").contains("mineqtt:twin.bind"),
+                "A player without the permission does not");
+        check(AclContext.twinBindRefusal(binder, true, "light.porch").isEmpty(), "A holder of mineqtt:twin.bind does");
+        MineQTTConfig.twinStatestreamBase = "";
+        check(AclContext.twinBindRefusal(LevelBasedPermissionSet.OWNER, true, "light.porch").orElse("").contains("set twin.statestreamBase"),
+                "Without a statestream base the twin is off for everyone");
+        MineQTTConfig.resetToDefaults();
+    }
+
+    /**
      * M2 plan D6: exposing a device needs op level 2 or {@code mineqtt:ha.expose}, and that permission opens
      * {@code /mineqtt devices expose} only, never another subcommand.
      */
@@ -784,7 +1220,8 @@ public final class SecurityGuardsCheck {
             throw new AssertionError("The payloads of MineqttNetworking could not be read", e);
         }
         check(payloads.equals(declared), "Every declared id has its payload and every payload a declared id: " + declared + " / " + payloads);
-        check(payloads.size() == 29, "29 payloads, " + payloads.size() + " found: a new or retired one updates this count");
+        // M3-13: TwinViewS2C, TwinSearchC2S and TwinResultsS2C; M3-17's preset search reuses the last two with a kind (wave 7).
+        check(payloads.size() == 32, "32 payloads, " + payloads.size() + " found: a new or retired one updates this count");
         for (String retired : List.of("set_static_message", "test_static_publish", "set_topic_relay_source", "set_topic_relay_target", "test_topic_relay",
                 "set_dynamic_data_type", "test_dynamic_publish", "light_remote_command")) {
             check(!payloads.contains(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, retired)), "The retired payload " + retired + " is gone");
@@ -1135,6 +1572,452 @@ public final class SecurityGuardsCheck {
                 "A lamp without a Raw Link copies no link, so a paste leaves the target's alone");
     }
 
+    /**
+     * M3 plan D11, D12 (M3-9): the write-back's wire format. A request carries exactly {@code v, id, action, target,
+     * data, origin}; its target is one entity of the action's own domain; its data is the call's whitelisted keys only
+     * (never a target key or a code, which {@link Call} cannot even hold); its origin names the device by object id and
+     * sanitised name, and the player only when one caused it. Requests are QoS 1, never retained, dropped while offline.
+     * Answers are read only live, at most 1 KiB, with a string id of at most 16 characters that names a waiting request;
+     * anything else is dropped or ignored, and none of it reaches a device.
+     */
+    private static void twinRequests() {
+        UUID device = UUID.randomUUID();
+        TwinRequests.Origin origin = new TwinRequests.Origin(device, DeviceRecord.objectId(device), "Porch §cLamp\n" + "x".repeat(200),
+                new TwinRequests.Requester(UUID.randomUUID(), "Steve"));
+        JsonObject data = new JsonObject();
+        data.addProperty("brightness", 128);
+        JsonObject request = TwinRequests.request("0123456789ab", new Call("light.turn_on", data), "light.kitchen", origin);
+        check(request.keySet().equals(Set.of("v", "id", "action", "target", "data", "origin")) && request.get("v").getAsInt() == TwinRequests.VERSION,
+                "A request has exactly its six keys: " + request);
+        check(request.getAsJsonObject("target").keySet().equals(Set.of("entity_id")) && request.getAsJsonObject("target").get("entity_id").getAsString().equals("light.kitchen"),
+                "Its target is one entity id");
+        check(request.getAsJsonObject("data").toString().equals("{\"brightness\":128}"), "Its data is the call's own");
+        JsonObject from = request.getAsJsonObject("origin");
+        check(from.get("device").getAsString().equals(DeviceRecord.objectId(device)) && from.get("player").getAsString().equals("Steve")
+                && from.get("name").getAsString().length() <= TwinRequests.MAX_NAME_LENGTH && !from.get("name").getAsString().contains("§")
+                && !from.get("name").getAsString().contains("\n"), "Its origin names the device by object id and capped, sanitised name: " + from);
+        check(!TwinRequests.request("0123456789ab", new Call("light.turn_off"), "light.kitchen",
+                new TwinRequests.Origin(device, DeviceRecord.objectId(device), "Porch Lamp", null)).getAsJsonObject("origin").has("player"),
+                "A request the world caused names no player");
+        for (String key : HaCalls.BLOCKED_DATA_KEYS) {
+            JsonObject smuggled = new JsonObject();
+            smuggled.addProperty(key, "light.other");
+            check(fails(() -> new Call("light.turn_on", smuggled)), "No call carries " + key);
+        }
+        check(fails(() -> new Call("light.turn_on").target("switch.porch")) && fails(() -> new Call("light.turn_on").target("light.a,light.b")),
+                "A request never targets another domain or more than one entity");
+        check(fails(() -> new Call("homeassistant.turn_on")) && fails(() -> new Call("lock.open")), "No cross-domain call, no lock.open");
+        check(!TwinRequests.RESPONSES.acceptRetained() && TwinRequests.RESPONSES.maxPayloadBytes() == 1024, "Answers are subscribed live only, at most 1 KiB");
+
+        List<TwinRequests.Notice> notices = new ArrayList<>();
+        List<Outbound> published = new ArrayList<>();
+        long[] now = {0};
+        TwinRequests requests = new TwinRequests(new TwinRequests.Transport() {
+            @Override
+            public boolean connected() {
+                return true;
+            }
+
+            @Override
+            public void publish(Outbound message) {
+                published.add(message);
+            }
+        }, () -> new TopicScheme("mineqtt", "b"), () -> List.of("light"), () -> 20, () -> now[0], new java.util.Random(1), new MqttLog() {
+            @Override
+            public void debug(String message) {
+            }
+
+            @Override
+            public void info(String message) {
+            }
+
+            @Override
+            public void warn(String message, Throwable cause) {
+            }
+
+            @Override
+            public void error(String message, Throwable cause) {
+            }
+        });
+        requests.setListener(new TwinRequests.Listener() {
+            @Override
+            public void pendingChanged(UUID changed, boolean pending) {
+            }
+
+            @Override
+            public void pausedChanged(UUID changed, boolean paused) {
+            }
+
+            @Override
+            public void notice(TwinRequests.Notice notice) {
+                notices.add(notice);
+            }
+        });
+        TwinRequests.Sent first = (TwinRequests.Sent) requests.send(origin, "light.kitchen", new Call("light.turn_on"), Root.PLAYER);
+        check(first.id().matches("[0-9a-f]{" + TwinRequests.ID_LENGTH + "}") && published.getFirst().topic().equals("mineqtt/b/bridge/ha_request"),
+                "A request gets an id of 12 hex digits and goes to bridge/ha_request: " + first);
+        Outbound sent = published.getFirst();
+        check(sent.qos() == 1 && !sent.retain() && sent.offline() == OfflinePolicy.DROP,
+                "The request TwinRequests publishes is QoS 1, never retained, never sent late");
+        String refusal = "{\"id\":\"" + first.id() + "\",\"status\":\"not_labelled\"}";
+        requests.response(refusal.getBytes(StandardCharsets.UTF_8), true);
+        requests.response(("{\"id\":\"" + first.id() + "x".repeat(16) + "\",\"status\":\"not_labelled\"}").getBytes(StandardCharsets.UTF_8), false);
+        requests.response(("{\"id\":" + 5 + ",\"status\":\"not_labelled\"}").getBytes(StandardCharsets.UTF_8), false);
+        requests.response(("{\"id\":\"" + first.id() + "\",\"status\":\"not_labelled\",\"pad\":\"" + "x".repeat(1024) + "\"}").getBytes(StandardCharsets.UTF_8), false);
+        check(notices.isEmpty() && requests.pending(device), "Retained, overlong-id, non-string-id and oversized answers are dropped");
+        requests.response(refusal.getBytes(StandardCharsets.UTF_8), false);
+        check(notices.size() == 1 && !requests.pending(device), "A live answer naming the request is matched");
+        requests.response(refusal.getBytes(StandardCharsets.UTF_8), false);
+        check(notices.size() == 1 && requests.status().unmatched() == 1, "...once: a repeat names no waiting request");
+        check(published.size() == 1, "No answer publishes anything");
+    }
+
+    /**
+     * M3 plan D13, D19 (M3-7): the twin binding keys and who may change them. A key exists only on a type with a twin
+     * adapter, needs CONFIGURE (never USE), and the runtime composes the twin gate on top: {@code mineqtt:twin.bind} and
+     * {@code twin.allowedEntities} for an entity, which nobody bypasses, {@code mineqtt:twin.control} to turn control on,
+     * the binding judged for the device's owner too. A bound device joins no group; a placed copy loses control its
+     * placer may not turn on and stays refused until its owner may bind it; a paste sends the binding keys in an order
+     * that needs the source first, each judged for the paster.
+     */
+    private static void twinBindings() {
+        DeviceType type = TwinTestTypes.TYPE;
+        List<String> twinKeys = List.of("twin.entity", "twin.device", "twin.preset", "twin.invert", "twin.min", "twin.max", "twin.unavailable", "twin.control",
+                "twin.target", "twin.resume");
+        check(type.linkSettings().stream().map(LinkSetting::key).filter(key -> key.startsWith("twin.")).toList().equals(twinKeys),
+                "A twin type has the binding keys its adapter uses, the source first and its targets last: " + type.linkSettings());
+        // M3-8/M3-9: the Smart Lamp mirrors and forwards; M3-12: the Redstone Output and the Smart Plug too. The sensors
+        // sense the Minecraft world and get no twin (D5).
+        // M3-14: the Redstone Input and the Wall Switch switch entities from their targets and mirror nothing.
+        // M3-15: the Display Panel mirrors read-only.
+        Map<DeviceType, List<String>> mirroring = Map.of(
+                DisplayPanel.TYPE, List.of("twin.entity", "twin.device", "twin.preset", "twin.path", "twin.min", "twin.max", "twin.decimals", "twin.unavailable"),
+                // M3-13: Resume (the breaker's) for every type that requests: control or targets.
+                SmartLamp.TYPE, List.of("twin.entity", "twin.device", "twin.preset", "twin.unavailable", "twin.control", "twin.resume"),
+                RedstoneOutput.TYPE, List.of("twin.entity", "twin.device", "twin.preset", "twin.path", "twin.invert", "twin.min", "twin.max", "twin.unavailable",
+                        "twin.control", "twin.resume"),
+                SmartPlug.TYPE, List.of("twin.entity", "twin.device", "twin.preset", "twin.unavailable", "twin.control", "twin.resume"),
+                RedstoneInput.TYPE, List.of("twin.target", "twin.resume"),
+                WallSwitch.TYPE, List.of("twin.left", "twin.right", "twin.resume"));
+        for (DeviceType shipped : DeviceTypes.all()) {
+            List<String> expected = mirroring.getOrDefault(shipped, List.of());
+            check(shipped.twin().isPresent() == !expected.isEmpty()
+                            && shipped.linkSettings().stream().map(LinkSetting::key).filter(key -> key.startsWith("twin.")).toList().equals(expected),
+                    "A shipped type has the binding keys its adapter uses, in paste order: " + shipped + " " + shipped.linkSettings());
+            if (expected.isEmpty()) continue;
+            TwinAdapter shippedTwin = shipped.twin().orElseThrow();
+            if (!shippedTwin.hasSource()) {
+                check(!shippedTwin.controllable() && !shippedTwin.targets().isEmpty() && shippedTwin.mirroredKeys().isEmpty()
+                                && expected.stream().filter(key -> !key.equals("twin.resume"))
+                                .allMatch(key -> shipped.linkSetting(key).orElseThrow().gate() == LinkSetting.Gate.TWIN),
+                        shipped + " has targets only, each needing mineqtt:twin.bind on top of CONFIGURE");
+                continue;
+            }
+            if (!shippedTwin.controllable()) {
+                // M3-15: the Display Panel only reads its source.
+                check(shipped.linkSetting("twin.control").isEmpty() && shippedTwin.targets().isEmpty()
+                                && shipped.linkSetting("twin.entity").orElseThrow().gate() == LinkSetting.Gate.TWIN,
+                        shipped + " is read-only: its source needs mineqtt:twin.bind on top of CONFIGURE, and it has no control and no targets");
+                continue;
+            }
+            check(shipped.linkSetting("twin.control").orElseThrow().gate() == LinkSetting.Gate.TWIN_CONTROL
+                            && shipped.linkSetting("twin.entity").orElseThrow().gate() == LinkSetting.Gate.TWIN,
+                    shipped + ": control needs mineqtt:twin.control and the source mineqtt:twin.bind on top of CONFIGURE");
+            check(shippedTwin.controllable() && shippedTwin.targets().isEmpty(), shipped + " forwards to its source but switches no targets");
+        }
+        for (String key : List.of("twin.target")) {
+            check(DeviceConfig.permission(RedstoneInput.TYPE, key) == MineqttPermission.CONFIGURE, key + " of the input needs CONFIGURE at the C2S guard");
+            refused(RedstoneInput.TYPE, key, new JsonPrimitive("scene.movie"), new DeviceView.Grants(true, false, false, false), "an input target without CONFIGURE");
+        }
+        refused(WallSwitch.TYPE, "twin.entity", new JsonPrimitive("light.kitchen"), DeviceView.Grants.ALL, "a source on a type with targets only");
+        refused(WallSwitch.TYPE, "twin.left", new JsonPrimitive("Scene.Movie"), DeviceView.Grants.ALL, "a target that is no entity id");
+        check(RedstoneOutput.TYPE.linkSetting("twin.path").orElseThrow().gate() == LinkSetting.Gate.TWIN
+                        && RedstoneOutput.TYPE.linkSetting("twin.invert").orElseThrow().gate() == LinkSetting.Gate.CONFIGURE,
+                "An output's path chooses what is read (mineqtt:twin.bind); its other rows only shape it (CONFIGURE)");
+        check(DisplayPanel.TYPE.linkSettings().stream().map(LinkSetting::key).filter(key -> key.startsWith("twin.")).toList()
+                        .equals(List.of("twin.entity", "twin.device", "twin.preset", "twin.path", "twin.min", "twin.max", "twin.decimals", "twin.unavailable")),
+                "The panel has its source, path, range, decimals and what happens while it is unavailable, never control: " + DisplayPanel.TYPE.linkSettings());
+        check(!DisplayPanel.TWIN.controllable() && DisplayPanel.TWIN.targets().isEmpty() && DisplayPanel.TYPE.linkSetting("twin.path").orElseThrow().gate() == LinkSetting.Gate.TWIN,
+                "The panel is read-only towards its source and switches nothing; twin.path needs the twin gate as it picks what is read");
+        refused(DisplayPanel.TYPE, "twin.control", new JsonPrimitive(true), DeviceView.Grants.ALL, "control on a read-only panel");
+        // The command twin types an enum's names as text, also the ones that look like numbers (found on the M3-15 lane).
+        check(DeviceConfig.commandValue(DisplayPanel.TYPE, "twin.decimals", "0").equals(new JsonPrimitive("0"))
+                        && DeviceConfig.parse(DisplayPanel.TYPE, "twin.decimals", DeviceConfig.commandValue(DisplayPanel.TYPE, "twin.decimals", "2"), DeviceView.Grants.ALL).isSuccess()
+                        && DeviceConfig.commandValue(DisplayPanel.TYPE, "size", " \"large\" ").equals(new JsonPrimitive("large")),
+                "/mineqtt devices setting <panel> twin.decimals 0 types the name 0, not a number");
+        Map<String, String> panelRows = Map.of("twin.path", "attributes.current_temperature", "twin.min", "-10", "twin.max", "35.5", "twin.decimals", "1");
+        panelRows.forEach((key, value) -> {
+            refused(DisplayPanel.TYPE, key, new JsonPrimitive(value), new DeviceView.Grants(true, false, false, false), key + " without CONFIGURE");
+            check(DeviceConfig.parse(DisplayPanel.TYPE, key, new JsonPrimitive(value), new DeviceView.Grants(false, true, false, false)).isSuccess(),
+                    "CONFIGURE passes the pure gate of the panel's " + key);
+        });
+        check(SmartLamp.TYPE.linkSettings().stream().map(LinkSetting::key).filter(key -> key.startsWith("twin.")).toList()
+                        .equals(List.of("twin.entity", "twin.device", "twin.preset", "twin.unavailable", "twin.control", "twin.resume")),
+                "The lamp has its source, what happens while it is unavailable and control (M3-9), no rows, and Resume (M3-13): "
+                        + SmartLamp.TYPE.linkSettings());
+        check(SmartLamp.TYPE.linkSetting("twin.control").orElseThrow().gate() == LinkSetting.Gate.TWIN_CONTROL,
+                "The lamp's control key needs mineqtt:twin.control on top of CONFIGURE");
+        check(SmartLamp.TWIN.controllable() && SmartLamp.TWIN.targets().isEmpty(), "The lamp forwards to its source but switches no targets");
+        check(LinkSetting.isKey("twin.anything") && LinkSetting.TWIN_RESERVED_NAMES.contains("entity"), "Every twin.* key is reserved for bindings");
+        DeviceView.Grants useOnly = new DeviceView.Grants(true, false, false, false);
+        DeviceView.Grants configure = new DeviceView.Grants(false, true, false, false);
+        Map<String, JsonElement> values = Map.of("twin.entity", new JsonPrimitive("switch.porch"), "twin.invert", new JsonPrimitive(true),
+                "twin.min", new JsonPrimitive("12.5"), "twin.max", new JsonPrimitive(""), "twin.unavailable", new JsonPrimitive("off"),
+                "twin.control", new JsonPrimitive(true), "twin.target", new JsonPrimitive("scene.movie"), "twin.resume", new JsonPrimitive("PRESS"),
+                "twin.device", new JsonPrimitive("mineqtt:zigbee2mqtt_switch Porch plug"), "twin.preset", new JsonPrimitive("mineqtt:tasmota_power"));
+        for (String key : twinKeys) {
+            check(DeviceConfig.permission(type, key) == MineqttPermission.CONFIGURE, key + " needs CONFIGURE at the C2S guard");
+            refused(type, key, values.get(key), useOnly, "a twin key without CONFIGURE");
+            refused(type, key, values.get(key), DeviceView.Grants.NONE, "a twin key without any grant");
+            check(DeviceConfig.parse(type, key, values.get(key), configure).isSuccess(), "CONFIGURE passes the pure gate of " + key);
+        }
+        refused(PresenceSensor.TYPE, "twin.entity", new JsonPrimitive("switch.porch"), DeviceView.Grants.ALL, "a binding on a type without an adapter");
+        refused(type, "twin.entity", new JsonPrimitive("Light.Kitchen"), DeviceView.Grants.ALL, "an entity id that is not lowercase");
+        refused(type, "twin.entity", new JsonPrimitive("light.kitchen; rm"), DeviceView.Grants.ALL, "a malformed entity id");
+        refused(type, "twin.entity", new JsonPrimitive("x".repeat(300) + ".y"), DeviceView.Grants.ALL, "an entity id over 255 characters");
+        refused(type, "twin.min", new JsonPrimitive("1e400"), DeviceView.Grants.ALL, "a number with an exponent");
+        refused(type, "twin.min", new JsonPrimitive("NaN"), DeviceView.Grants.ALL, "NaN");
+        refused(type, "twin.unavailable", new JsonPrimitive("explode"), DeviceView.Grants.ALL, "an unknown unavailable mode");
+        refused(type, "twin.decimals", new JsonPrimitive("2"), DeviceView.Grants.ALL, "a row the type does not use");
+        // A stored binding comes from block entity data (an item any creative player can make, /data, a structure), not
+        // through the parser above: its range numbers are bounded as well, so a huge exponent fails to decode, which drops
+        // the binding, instead of being written out in full at the next save (wave 4 review).
+        for (String huge : List.of("1e2000000000", "1e-2000000000", "1e70000", "1234567890123456", "-1E+15", "0.0000001", "9".repeat(40))) {
+            check(BindingCodecs.CODEC.parse(NbtOps.INSTANCE, storedBinding(huge)).isError(),
+                    "A stored twin.min of " + (huge.length() > 20 ? huge.substring(0, 20) + "…" : huge) + " fails to decode");
+        }
+        Binding largest = BindingCodecs.CODEC.parse(NbtOps.INSTANCE, storedBinding("-123456789012345.123456")).getOrThrow();
+        check(largest.settings().min().toPlainString().equals("-123456789012345.123456"), "The largest number the tab takes is stored as it is");
+        Binding exponent = BindingCodecs.CODEC.parse(NbtOps.INSTANCE, storedBinding("1E+2")).getOrThrow();
+        check(BindingCodecs.CODEC.encodeStart(NbtOps.INSTANCE, exponent).getOrThrow() instanceof CompoundTag written
+                        && written.getStringOr("min", "").equals("100"), "A small exponent is written out plainly");
+        check(fails(() -> Binding.Settings.DEFAULT.withMin(new BigDecimal("1e2000000000")))
+                        && fails(() -> Binding.Settings.DEFAULT.withMax(new BigDecimal("1e-2000000000"))),
+                "No binding holds a range number with more digits than the tab takes, however it was made");
+
+        TwinRules.Rights all = new TwinRules.Rights(true, true, EntityGlobs.ALL, Optional.empty());
+        TwinRules.Rights noBind = new TwinRules.Rights(false, true, EntityGlobs.ALL, Optional.empty());
+        TwinRules.Rights noControl = new TwinRules.Rights(true, false, EntityGlobs.ALL, Optional.empty());
+        TwinRules.Rights switchesOnly = new TwinRules.Rights(true, true, EntityGlobs.of(List.of("switch.*", "scene.*")), Optional.empty());
+        TwinRules.Rights opOnEmptyList = new TwinRules.Rights(true, true, EntityGlobs.NONE, Optional.empty());
+        TwinRules.Rights off = new TwinRules.Rights(true, true, EntityGlobs.ALL, Optional.of("no statestream base: set twin.statestreamBase"));
+        TwinAdapter adapter = TwinTestTypes.ADAPTER;
+        DeviceConfig.Twin bind = new DeviceConfig.TwinSource("switch.porch");
+        TwinRules.Edited bound = TwinRules.edit(adapter, null, bind, all, all, false);
+        check(bound.refusal() == null && bound.binding().sourceEntity().orElse("").equals("switch.porch") && !bound.binding().control() && bound.binding().active(),
+                "A binder with the rights binds, control off: " + bound);
+        check(bound.binding().source().equals(new Endpoint.HaEntityRef("switch.porch", "state")), "The source end is the domain's first out-port");
+        check(TwinRules.edit(adapter, null, bind, noBind, all, false).refusal().contains("mineqtt:twin.bind"), "Binding needs mineqtt:twin.bind");
+        check(TwinRules.edit(adapter, null, new DeviceConfig.TwinSource("input_boolean.flag"), switchesOnly, all, false).refusal().contains("twin.allowedEntities"),
+                "An entity outside twin.allowedEntities is refused");
+        check(TwinRules.edit(adapter, null, bind, opOnEmptyList, all, false).refusal().contains("twin is off"),
+                "An empty list refuses everyone, operators and the console included (no subject is asked)");
+        check(TwinRules.edit(adapter, null, bind, off, all, false).refusal().contains("twin.statestreamBase"), "A twin without a base refuses with the key to set");
+        check(TwinRules.edit(adapter, null, bind, all, noBind, false).refusal().startsWith("not for the device's owner"),
+                "An editor never binds for an owner who may not bind");
+        check(TwinRules.edit(adapter, null, bind, all, all, true).refusal().contains("group"), "A device in a group is not bound (D6)");
+        check(TwinRules.edit(adapter, null, new DeviceConfig.TwinSource("light.kitchen"), all, all, false).refusal().contains("cannot mirror light"),
+                "A domain the type does not mirror is refused");
+        check(TwinRules.edit(adapter, null, new DeviceConfig.TwinSource("person.steve"), all, all, false).refusal().contains("cannot be read"),
+                "A privacy domain is never bound (D2)");
+        Binding binding = bound.binding();
+        check(TwinRules.edit(adapter, binding, new DeviceConfig.TwinControl(true), noControl, all, false).refusal().contains("mineqtt:twin.control"),
+                "Turning control on needs mineqtt:twin.control");
+        Binding controlled = TwinRules.edit(adapter, binding, new DeviceConfig.TwinControl(true), all, all, false).binding();
+        check(controlled.control(), "...which turns it on");
+        check(!TwinRules.edit(adapter, controlled, new DeviceConfig.TwinControl(false), TwinRules.Rights.NONE, all, false).binding().control(),
+                "Turning it off needs no twin right");
+        check(TwinRules.edit(adapter, null, new DeviceConfig.TwinControl(true), all, all, false).refusal() != null, "No control without a source");
+        check(!TwinRules.edit(adapter, controlled, new DeviceConfig.TwinSource("input_boolean.flag"), all, all, false).binding().control(),
+                "A new source starts without control");
+        check(TwinRules.edit(adapter, null, new DeviceConfig.TwinInvert(true), all, all, false).refusal() != null, "A row needs a source first");
+        check(TwinRules.edit(adapter, binding, new DeviceConfig.TwinInvert(true), TwinRules.Rights.NONE, all, false).binding().settings().invert(),
+                "A row that only shapes the source needs CONFIGURE alone");
+        Binding scene = TwinRules.edit(adapter, binding, new DeviceConfig.TwinTarget("target", "scene.movie"), all, all, false).binding();
+        check(scene.targets().equals(Map.of(TwinTestTypes.PRESSED, new Endpoint.HaEntityRef("scene.movie", "activate"))), "A target attaches to its out-port: " + scene);
+        check(TwinRules.edit(adapter, binding, new DeviceConfig.TwinTarget("target", "lock.front"), all, all, false).refusal() != null,
+                "A target domain the type does not switch is refused");
+        check(TwinRules.edit(adapter, binding, new DeviceConfig.TwinTarget("target", "scene.movie"), noBind, all, false).refusal().contains("mineqtt:twin.bind"),
+                "A target needs mineqtt:twin.bind too");
+        check(TwinRules.edit(adapter, scene, new DeviceConfig.TwinSource(""), TwinRules.Rights.NONE, all, false).binding().equals(
+                new Binding(null, scene.targets(), false, scene.settings(), null)), "Unbinding the source keeps the targets");
+        check(TwinRules.edit(adapter, binding, new DeviceConfig.TwinSource(""), TwinRules.Rights.NONE, all, false).binding() == null, "...and without any, unbinds");
+        check(TwinRules.pathProblem("lock", ValuePath.parse("attributes.changed_by")).isPresent()
+                        && TwinRules.pathProblem("sensor", ValuePath.parse("attributes.unit_of_measurement")).isEmpty()
+                        && TwinRules.pathProblem("switch", ValuePath.parse("last_changed")).isEmpty()
+                        && TwinRules.pathProblem("switch", ValuePath.parse("attributes")).isPresent(),
+                "A path reads the state, a timestamp or a whitelisted attribute only (M3-4 decision 8)");
+
+        // Judged again for the owner: refused, kept, healed.
+        Binding refused = TwinRules.recheck(adapter, controlled, noBind);
+        check(!refused.active() && refused.bound() && refused.control() && !refused.controls(), "A binding its owner may no longer have is refused, kept bound");
+        check(TwinRules.recheck(adapter, refused, noBind) == refused, "Judged the same, it is the same binding");
+        check(TwinRules.recheck(adapter, refused, all).equals(controlled), "It heals when the rules allow it again");
+        check(TwinRules.edit(adapter, refused, bind, all, all, false).binding().equals(controlled), "Binding the same entity anew heals it too");
+        check(!TwinRules.placed(adapter, controlled, noControl).control() && TwinRules.placed(adapter, controlled, noControl).active(),
+                "A placed copy loses control its placer may not turn on (D13 #6)");
+        check(!TwinRules.placed(adapter, controlled, TwinRules.Rights.NONE).active(), "...and is refused for a placer who may not bind it");
+        check(TwinRules.placed(adapter, controlled, all).equals(controlled), "...and stays as it is for one who may");
+
+        // Groups.
+        DeviceRegistry registry = new DeviceRegistry("world_7f3a", UUID.randomUUID());
+        DeviceRecord memberRecord = new DeviceRecord(UUID.randomUUID(), type.id(), GlobalPos.of(Level.OVERWORLD, BlockPos.ZERO), "Hall", "hall");
+        registry.add(memberRecord);
+        DeviceGroup lamps = registry.createGroup(UUID.randomUUID(), "Lamps");
+        registry.joinGroup(lamps, memberRecord);
+        UUID device = UUID.randomUUID();
+        check(GroupRules.joinProblem(lamps, type.id(), true, device, controlled, id -> true, topic -> Optional.empty()).orElse("").contains("switch.porch"),
+                "A bound device joins no group (D6)");
+        check(GroupRules.joinProblem(lamps, type.id(), true, device, scene.withSource(null), id -> true, topic -> Optional.empty()).isEmpty(),
+                "Targets alone do not keep it out");
+        check(TwinRules.groupProblem(controlled).isPresent() && TwinRules.groupProblem(null).isEmpty(), "Only a bound device is kept out of groups");
+
+        // Copy-paste.
+        JsonObject state = new JsonObject();
+        state.addProperty("power", 15);
+        state.addProperty("fade", 3);
+        Binding copied = scene.withSettings(scene.settings().withInvert(true).withMin(new BigDecimal("12.5")));
+        DeviceClipboard clipboard = DeviceClipboard.of(type, clipboardView(type, state, Optional.empty(), false, Optional.empty(), AccessMode.CLAIM), copied);
+        check(clipboard.entries().stream().map(DeviceClipboard.Entry::key).toList().equals(List.of("fade", "twin.entity", "twin.invert", "twin.min", "twin.max",
+                "twin.unavailable", "twin.control", "twin.target", "expose", "access")), "The binding is copied source first, control after the rows: " + clipboard.entries());
+        check(clipboard.entries().stream().filter(DeviceClipboard.Entry::twinSource).count() == 1
+                && clipboard.entries().stream().filter(DeviceClipboard.Entry::twinShape).count() == 5, "A paste knows which keys need the source");
+        for (DeviceClipboard.Entry entry : clipboard.entries()) {
+            if (!entry.key().startsWith("twin.")) continue;
+            check(DeviceConfig.parse(type, entry.key(), entry.value(), configure).isSuccess(), "A copied binding key parses for a configurer: " + entry);
+            check(DeviceConfig.parse(type, entry.key(), entry.value(), useOnly).isError(), "...and not for a user: " + entry);
+        }
+        check(DeviceClipboard.of(type, clipboardView(type, state, Optional.empty(), false, Optional.empty(), AccessMode.CLAIM)).entries().stream()
+                .noneMatch(entry -> entry.key().startsWith("twin.")), "Without the binding (a copier who may not configure), none is copied");
+    }
+
+    /**
+     * M3-17: a source that is an MQTT device through a preset. twin.device needs mineqtt:twin.bind but not the Home
+     * Assistant twin's entity list, a loaded preset of a kind the type mirrors, a device name that makes valid topics and
+     * a state topic the ACL allows the binder and the owner; turning control on needs mineqtt:twin.control and a command
+     * topic the ACL allows them (acl.rawAllow); twin.preset switches the preset of the same device. A stored binding
+     * follows the loaded preset (a moved topic, a new kind without control), is refused while its preset is gone and
+     * heals when it is back; a placed copy is judged for the placer's topics. The binding round-trips through the codec,
+     * and a copy pastes it as one twin.device key.
+     */
+    private static void presetBindings() {
+        BindingPresets.replace(MirrorNoLoopCheck.builtInPresets());
+        TwinAdapter adapter = TwinTestTypes.ADAPTER;
+        TwinRules.Topics open = topics(Optional.empty(), Optional.empty());
+        TwinRules.Topics noCommands = topics(Optional.empty(), Optional.of("not in the raw topic allowlist (acl.rawAllow)"));
+        TwinRules.Topics noSources = topics(Optional.of("the Home Assistant statestream namespace is mirrored through Home Assistant bindings only"), Optional.empty());
+        TwinRules.Rights all = new TwinRules.Rights(true, true, EntityGlobs.NONE, Optional.of("no allowed entities: set twin.allowedEntities"), open);
+        TwinRules.Rights noBind = new TwinRules.Rights(false, true, EntityGlobs.ALL, Optional.empty(), open);
+        TwinRules.Rights noControl = new TwinRules.Rights(true, false, EntityGlobs.ALL, Optional.empty(), open);
+        DeviceConfig.Twin bind = new DeviceConfig.TwinDevice("mineqtt:zigbee2mqtt_switch", "Porch plug");
+        TwinRules.Edited bound = TwinRules.edit(adapter, null, bind, all, all, false);
+        check(bound.refusal() == null && bound.binding().source().equals(new Endpoint.TopicRef("zigbee2mqtt/Porch plug", ""))
+                        && bound.binding().preset().orElseThrow().equals(new Binding.PresetRef("mineqtt:zigbee2mqtt_switch", "Porch plug", "switch"))
+                        && !bound.binding().control() && bound.binding().active(),
+                "A preset binds with twin.bind alone, while the Home Assistant twin is off: " + bound);
+        check(DeviceConfig.parse(TwinTestTypes.TYPE, "twin.device", new JsonPrimitive("mineqtt:zigbee2mqtt_switch Porch plug"), DeviceView.Grants.ALL).isSuccess()
+                && DeviceConfig.parse(TwinTestTypes.TYPE, "twin.device", new JsonPrimitive(""), DeviceView.Grants.ALL).isSuccess(), "twin.device parses; empty unbinds");
+        refused(TwinTestTypes.TYPE, "twin.device", new JsonPrimitive("mineqtt:zigbee2mqtt_switch"), DeviceView.Grants.ALL, "a preset without a device name");
+        refused(TwinTestTypes.TYPE, "twin.device", new JsonPrimitive("Not A Preset porch"), DeviceView.Grants.ALL, "a preset id that is none");
+        refused(TwinTestTypes.TYPE, "twin.preset", new JsonPrimitive("mineqtt zigbee"), DeviceView.Grants.ALL, "a twin.preset that is no id");
+        check(TwinRules.edit(adapter, null, bind, noBind, all, false).refusal().contains("mineqtt:twin.bind"), "A preset needs mineqtt:twin.bind");
+        check(TwinRules.edit(adapter, null, bind, all, noBind, false).refusal().startsWith("not for the device's owner"), "...for the owner too");
+        check(TwinRules.edit(adapter, null, new DeviceConfig.TwinDevice("mineqtt:nothing", "x"), all, all, false).refusal().contains("no MQTT device preset"),
+                "A preset that is not loaded is refused");
+        check(TwinRules.edit(adapter, null, new DeviceConfig.TwinDevice("mineqtt:zigbee2mqtt_light", "x"), all, all, false).refusal().contains("cannot mirror a light"),
+                "A preset of a kind the type does not mirror is refused");
+        for (String name : List.of("#", "a/+", "/x", "$SYS")) {
+            check(TwinRules.edit(adapter, null, new DeviceConfig.TwinDevice("mineqtt:zigbee2mqtt_switch", name), all, all, false).refusal() != null,
+                    "The device name '" + name + "' is refused before the ACL is asked");
+        }
+        TwinRules.Rights statestream = all.withTopics(noSources);
+        check(TwinRules.edit(adapter, null, new DeviceConfig.TwinDevice("mineqtt:generic_switch", "ha_statestream/lock/front/state"), statestream, all, false).refusal()
+                .contains("statestream"), "A state topic the ACL refuses the binder is refused");
+        check(TwinRules.edit(adapter, null, bind, all, statestream, false).refusal().startsWith("not for the device's owner"), "...and one it refuses the owner");
+        check(TwinRules.edit(adapter, null, bind, all, all, true).refusal().contains("group"), "A device in a group binds no preset (D6)");
+        Binding binding = bound.binding();
+        check(TwinRules.edit(adapter, binding, new DeviceConfig.TwinControl(true), noControl, all, false).refusal().contains("mineqtt:twin.control"),
+                "Control needs mineqtt:twin.control");
+        check(TwinRules.edit(adapter, binding, new DeviceConfig.TwinControl(true), all.withTopics(noCommands), all, false).refusal().contains("acl.rawAllow"),
+                "Control needs a command topic the ACL allows the binder, named so: " + TwinRules.edit(adapter, binding, new DeviceConfig.TwinControl(true),
+                        all.withTopics(noCommands), all, false).refusal());
+        check(TwinRules.edit(adapter, binding, new DeviceConfig.TwinControl(true), all, all.withTopics(noCommands), false).refusal().startsWith("not for the device's owner"),
+                "...and the owner");
+        Binding controlled = TwinRules.edit(adapter, binding, new DeviceConfig.TwinControl(true), all, all, false).binding();
+        check(controlled.controls(), "With both, control is on");
+        Binding readOnly = TwinRules.edit(adapter, null, new DeviceConfig.TwinDevice("mineqtt:generic_switch", "home/plug"), all, all, false).binding();
+        check(TwinRules.edit(adapter, readOnly, new DeviceConfig.TwinControl(true), all, all, false).refusal().contains("read-only"), "A read-only preset takes no control");
+        Binding tasmota = TwinRules.edit(adapter, controlled, new DeviceConfig.TwinPreset("mineqtt:tasmota_power"), all, all, false).binding();
+        check(tasmota.sourceTopic().orElseThrow().equals("stat/Porch plug/POWER") && tasmota.preset().orElseThrow().id().equals("mineqtt:tasmota_power") && !tasmota.control(),
+                "twin.preset switches the preset of the same device, control off: " + tasmota);
+        check(TwinRules.edit(adapter, null, new DeviceConfig.TwinPreset("mineqtt:tasmota_power"), all, all, false).refusal().contains("twin.device"),
+                "twin.preset alone names no device");
+        TwinRules.Rights everything = new TwinRules.Rights(true, true, EntityGlobs.ALL, Optional.empty(), open);
+        Binding entity = TwinRules.edit(adapter, controlled, new DeviceConfig.TwinSource("switch.porch"), everything, everything, false).binding();
+        check(entity.sourceEntity().orElse("").equals("switch.porch") && entity.preset().isEmpty() && entity.settings().preset() == null,
+                "twin.entity replaces the preset source and keeps no preset: " + entity);
+        check(TwinRules.edit(adapter, controlled, new DeviceConfig.TwinDevice("", ""), all, all, false).binding() == null, "An empty twin.device unbinds");
+        check(controlled.equals(TwinRules.edit(adapter, controlled, bind, noBind, all, false).binding()),
+                "Naming the same device again changes nothing, also for an editor who could not bind it now");
+
+        // A stored binding is judged for its owner against the loaded presets.
+        check(TwinRules.recheck(adapter, controlled, all) == controlled, "A working preset binding stays as it is");
+        check(TwinRules.recheck(adapter, controlled, all.withTopics(TwinRules.Topics.NONE)).refused() != null, "Without an ACL to ask, it is refused");
+        BindingPresets.replace(PresetCodec.Loaded.EMPTY);
+        Binding gone = TwinRules.recheck(adapter, controlled, all);
+        check(gone.refused() != null && gone.refused().contains("no MQTT device preset"), "A preset that went refuses its binding: " + gone.refused());
+        BindingPresets.replace(MirrorNoLoopCheck.builtInPresets());
+        check(TwinRules.recheck(adapter, gone, all).active(), "...which heals when the preset is back");
+        Map<String, String> moved = new java.util.HashMap<>();
+        moved.put("mineqtt:zigbee2mqtt_switch", "{\"kind\":\"switch\",\"state_topic\":\"z2m/{device}\",\"on\":\"ON\",\"off\":\"OFF\","
+                + "\"command_topic\":\"z2m/{device}/set\",\"commands\":{\"turn_on\":{\"state\":\"ON\"}}}");
+        BindingPresets.replace(PresetCodec.loadAll(moved));
+        Binding followed = TwinRules.recheck(adapter, controlled, all);
+        check(followed.sourceTopic().orElseThrow().equals("z2m/Porch plug") && followed.controls(), "A datapack that moved the topic moves the binding, control kept: " + followed);
+        moved.put("mineqtt:zigbee2mqtt_switch", "{\"kind\":\"input_boolean\",\"state_topic\":\"z2m/{device}\"}");
+        BindingPresets.replace(PresetCodec.loadAll(moved));
+        Binding rekinded = TwinRules.recheck(adapter, controlled, all);
+        check(rekinded.preset().orElseThrow().kind().equals("input_boolean") && !rekinded.control() && rekinded.active(), "A new kind keeps no control: " + rekinded);
+        BindingPresets.replace(MirrorNoLoopCheck.builtInPresets());
+        Binding placed = TwinRules.placed(adapter, controlled, new TwinRules.Rights(true, false, EntityGlobs.NONE, Optional.empty()));
+        check(placed.refused() != null && !placed.control(), "A placed copy is judged for its placer: no topics without an ACL, no control without the permission");
+
+        // Stored and copied.
+        CompoundTag stored = (CompoundTag) BindingCodecs.CODEC.encodeStart(NbtOps.INSTANCE, controlled).getOrThrow();
+        check(stored.getCompound("preset").isPresent() && stored.getCompound("source").orElseThrow().getStringOr("topic", "").equals("zigbee2mqtt/Porch plug"),
+                "The preset is stored with the binding: " + stored);
+        check(BindingCodecs.CODEC.parse(NbtOps.INSTANCE, stored).getOrThrow().equals(controlled), "...and read back equal");
+        CompoundTag forged = stored.copy();
+        forged.getCompound("preset").orElseThrow().putString("kind", "person");
+        check(BindingCodecs.CODEC.parse(NbtOps.INSTANCE, forged).isError(), "A stored preset of a private kind fails to decode");
+        check(!((CompoundTag) BindingCodecs.CODEC.encodeStart(NbtOps.INSTANCE, entity).getOrThrow()).contains("preset"), "An entity binding stores no preset");
+        JsonObject state = new JsonObject();
+        state.addProperty("fade", 3);
+        DeviceClipboard copy = DeviceClipboard.of(TwinTestTypes.TYPE, clipboardView(TwinTestTypes.TYPE, state, Optional.empty(), false, Optional.empty(), AccessMode.CLAIM),
+                controlled);
+        check(copy.entries().stream().filter(entry -> entry.key().equals("twin.device")).findFirst().orElseThrow().value()
+                        .equals(new JsonPrimitive("mineqtt:zigbee2mqtt_switch Porch plug"))
+                        && copy.entries().stream().noneMatch(entry -> entry.key().equals("twin.entity"))
+                        && copy.entries().stream().filter(DeviceClipboard.Entry::twinSource).count() == 1,
+                "A copy names the preset device as its one source key: " + copy.entries());
+        BindingPresets.replace(PresetCodec.Loaded.EMPTY);
+    }
+
+    // The ACL's preset-topic judgement for a check: a fixed answer for state topics and for command topics.
+    private static TwinRules.Topics topics(Optional<String> source, Optional<String> command) {
+        return new TwinRules.Topics() {
+            @Override
+            public Optional<String> source(String topic) {
+                return source.map(reason -> topic + ": " + reason);
+            }
+
+            @Override
+            public Optional<String> command(String topic) {
+                return command.map(reason -> topic + ": " + reason);
+            }
+        };
+    }
+
     private static DeviceView clipboardView(DeviceType type, JsonObject state, Optional<DeviceView.Raw> raw, boolean privateMode, Optional<Boolean> expose,
                                             AccessMode access) {
         UUID id = UUID.randomUUID();
@@ -1271,6 +2154,17 @@ public final class SecurityGuardsCheck {
 
     private static void refused(DeviceType type, String key, JsonElement value, DeviceView.Grants grants, String what) {
         check(DeviceConfig.parse(type, key, value, grants).isError(), type + " refuses " + what + " (" + key + " = " + value + ")");
+    }
+
+    // A stored binding to switch.porch whose twin.min is `min`, as block entity data would carry it.
+    private static CompoundTag storedBinding(String min) {
+        CompoundTag source = new CompoundTag();
+        source.putString("entity", "switch.porch");
+        source.putString("port", "state");
+        CompoundTag stored = new CompoundTag();
+        stored.put("source", source);
+        stored.putString("min", min);
+        return stored;
     }
 
     private static boolean fails(Runnable action) {

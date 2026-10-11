@@ -84,9 +84,12 @@ public class LightRemoteBlockEntity extends DeviceBlockEntity {
         showPressed();
     }
 
+    // The gesture's event and Raw Link payload, then its button's bus-only event (M3 plan D16), which only wires and the
+    // button's twin target carry.
     private void fire(WallSwitch.Gesture gesture, WallSwitch.Button button) {
         link.publishEvent(this, WallSwitch.event(gesture, button));
         link.publishRaw(this, WallSwitch.rawPayload(gesture, button));
+        link.publishEvent(this, WallSwitch.buttonEvent(gesture, button));
     }
 
     private void click(WallSwitch.Button button) {

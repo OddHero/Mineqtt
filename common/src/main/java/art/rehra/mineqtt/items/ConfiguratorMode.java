@@ -14,13 +14,15 @@ import java.util.function.IntFunction;
  * What the Configurator does to a device it is used on (design §7.4), kept on the item; sneak + right-click on air
  * steps to the next mode. Configure opens a device's screen, also from afar; Link wires one device to another
  * ({@link ConfiguratorLink}); Group puts devices into one group ({@link ConfiguratorGroup}); Copy-Paste copies one
- * device's settings onto others of its type ({@link ConfiguratorCopy}). Room and Bind follow in later milestones.
+ * device's settings onto others of its type ({@link ConfiguratorCopy}); Bind opens a device's Twin tab with the entity
+ * picker, to bind it to Home Assistant ({@link ConfiguratorBind}, M3 plan D19). Room follows in a later milestone.
  */
 public enum ConfiguratorMode implements StringRepresentable {
     CONFIGURE("configure"),
     LINK("link"),
     GROUP("group"),
-    COPY_PASTE("copy_paste");
+    COPY_PASTE("copy_paste"),
+    BIND("bind");
 
     public static final Codec<ConfiguratorMode> CODEC = StringRepresentable.fromEnum(ConfiguratorMode::values);
     private static final IntFunction<ConfiguratorMode> BY_ID = ByIdMap.continuous(Enum::ordinal, values(), ByIdMap.OutOfBoundsStrategy.ZERO);

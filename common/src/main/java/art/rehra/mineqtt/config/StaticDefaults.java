@@ -2,6 +2,8 @@ package art.rehra.mineqtt.config;
 
 import art.rehra.mineqtt.mqtt.core.BrokerSettings;
 import art.rehra.mineqtt.mqtt.core.ProtocolVersion;
+import art.rehra.mineqtt.twin.core.EntityDocuments;
+import art.rehra.mineqtt.twin.core.HaDomains;
 
 import java.util.List;
 
@@ -46,6 +48,25 @@ public final class StaticDefaults {
     public static final int DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER = 0;
     /** The wires one player may own (M2 plan D9); 0 means unlimited. Wires made from the console count for nobody. */
     public static final int DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER = 256;
+
+    // Home Assistant twin (M3 plan D13). Never "homeassistant" (the discovery prefix) and never under the base topic.
+    public static final String DEFAULT_TWIN_STATESTREAM_BASE = "ha_statestream";
+    /**
+     * The one {@code twin.allowedEntities} entry that is no glob: every entity on integrated servers, none on dedicated
+     * servers (the twin is off until the admin lists entities). Globs are lowercase, so it cannot be mistaken for one.
+     */
+    public static final String AUTO_ENTRY = "AUTO";
+    public static final List<String> DEFAULT_TWIN_ALLOWED_ENTITIES = List.of(AUTO_ENTRY);
+    /** The control blueprint's {@code allowed_domains} default (D12, D15). */
+    public static final List<String> DEFAULT_TWIN_HA_ACTION_ALLOWLIST = HaDomains.DEFAULT_CONTROL_DOMAINS;
+    /** Bridge-wide Home Assistant requests per second (D10), within 1 and {@value #MAX_TWIN_REQUESTS_PER_SECOND}. */
+    public static final int DEFAULT_TWIN_MAX_REQUESTS_PER_SECOND = 20;
+    public static final int MAX_TWIN_REQUESTS_PER_SECOND = 1000;
+    /** Read the catalog blueprint's topics (D3, D4). */
+    public static final boolean DEFAULT_TWIN_CATALOG = true;
+    /** Entities the twin keeps at most (D4), within 1 and {@value #MAX_TWIN_CATALOG_MAX}. */
+    public static final int DEFAULT_TWIN_CATALOG_MAX = EntityDocuments.Limits.DEFAULT.maxEntities();
+    public static final int MAX_TWIN_CATALOG_MAX = 10_000;
 
     /** Off: an empty dedicated server pauses as {@code pause-when-empty-seconds} says, and MQTT is pumped between ticks. */
     public static final boolean DEFAULT_SERVER_KEEP_TICKING_WHEN_EMPTY = false;

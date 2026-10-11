@@ -16,6 +16,8 @@ import art.rehra.mineqtt.ui.device.DiagnosticsTab;
 import art.rehra.mineqtt.ui.device.DiagnosticsTabView;
 import art.rehra.mineqtt.ui.device.GeneralTab;
 import art.rehra.mineqtt.ui.device.GeneralTabView;
+import art.rehra.mineqtt.ui.device.TwinTab;
+import art.rehra.mineqtt.ui.device.TwinTabView;
 import art.rehra.mineqtt.ui.framework.tabs.*;
 import art.rehra.mineqtt.ui.framework.views.*;
 
@@ -31,6 +33,7 @@ public final class MineqttClientTabs {
     public static void registerAll() {
         MqttTabViews.register(GeneralTab.ID, GeneralTabView::new);
         MqttTabViews.register(ControlsTab.ID, ControlsTabView::new);
+        MqttTabViews.register(TwinTab.ID, TwinTabView::new);
         MqttTabViews.register(AdvancedTab.ID, AdvancedTabView::new);
         MqttTabViews.register(AccessTab.ID, AccessTabView::new);
         MqttTabViews.register(DiagnosticsTab.ID, DiagnosticsTabView::new);

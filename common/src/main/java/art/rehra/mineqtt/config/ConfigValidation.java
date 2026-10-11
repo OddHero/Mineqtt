@@ -5,6 +5,8 @@ import art.rehra.mineqtt.mqtt.core.BrokerConfig;
 import art.rehra.mineqtt.mqtt.core.BrokerSettings;
 import art.rehra.mineqtt.mqtt.core.ProtocolVersion;
 import art.rehra.mineqtt.mqtt.core.TopicFilters;
+import art.rehra.mineqtt.twin.core.EntityGlobs;
+import art.rehra.mineqtt.twin.core.HaDomains;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
@@ -107,5 +109,64 @@ public final class ConfigValidation {
 
     public static boolean isValidKeepAlive(int seconds) {
         return seconds >= 0 && seconds <= 65_535;
+    }
+
+    /**
+     * {@code twin.statestreamBase} as topics are matched against it: surrounding whitespace and one trailing {@code /}
+     * dropped, as Home Assistant appends one to its {@code base_topic} ({@code StatestreamTopic.normalizeBase} reads
+     * the base the same way). Empty stays empty: no statestream base, the twin reads nothing.
+     */
+    public static String normalizeStatestreamBase(String base) {
+        String stripped = base.strip();
+        return stripped.endsWith("/") ? stripped.substring(0, stripped.length() - 1) : stripped;
+    }
+
+    /**
+     * Why a normalized {@code twin.statestreamBase} cannot be used next to these topics, or empty when it can (M3 plan
+     * D13, the F1 pattern). Empty means no statestream base and is valid. The base must be a valid config topic and must
+     * not equal or overlap the discovery prefix, MineQTT's base topic (every bridge namespace lies under it) or the
+     * shared namespace {@code mineqtt/shared}: the ACL makes the whole statestream namespace read-only, so an overlap
+     * would either open those namespaces to the twin's readers or make MineQTT's own topics unwritable.
+     */
+    public static Optional<String> statestreamBaseError(String base, String discoveryPrefix, String baseTopic) {
+        if (base.isEmpty()) return Optional.empty();
+        if (!isValidConfigTopic(base)) return Optional.of("'" + base + "' is not a valid topic (no wildcards, no leading $, no empty levels)");
+        if (overlap(base, discoveryPrefix)) {
+            return Optional.of("'" + base + "' overlaps the Home Assistant discovery prefix '" + discoveryPrefix + "'");
+        }
+        if (overlap(base, baseTopic)) return Optional.of("'" + base + "' overlaps the MineQTT base topic '" + baseTopic + "'");
+        if (overlap(base, RawTopics.SHARED_ROOT)) {
+            return Optional.of("'" + base + "' overlaps the shared namespace " + RawTopics.SHARED_ROOT + " of every server");
+        }
+        return Optional.empty();
+    }
+
+    /** Whether one topic lies in the other's subtree (or both are equal). */
+    private static boolean overlap(String a, String b) {
+        return TopicFilters.covers(a + "/#", b) || TopicFilters.covers(b + "/#", a);
+    }
+
+    /** Why an entry cannot stand in {@code twin.allowedEntities}, or empty when it can: {@code AUTO} or a valid glob. */
+    public static Optional<String> allowedEntityError(String entry) {
+        if (entry != null && isAutoEntry(entry)) return Optional.empty();
+        return EntityGlobs.problem(entry == null ? null : entry.strip());
+    }
+
+    /** Whether the entry is {@link StaticDefaults#AUTO_ENTRY}, in any case and with surrounding whitespace. */
+    public static boolean isAutoEntry(String entry) {
+        return entry.strip().equalsIgnoreCase(StaticDefaults.AUTO_ENTRY);
+    }
+
+    /** Whether a {@code twin.haActionAllowlist} entry names a domain Minecraft may control at all ({@link HaDomains}). */
+    public static boolean isValidHaActionDomain(Object value) {
+        return value instanceof String domain && HaDomains.controllable(domain.strip());
+    }
+
+    public static boolean isValidTwinMaxRequestsPerSecond(int value) {
+        return value >= 1 && value <= StaticDefaults.MAX_TWIN_REQUESTS_PER_SECOND;
+    }
+
+    public static boolean isValidTwinCatalogMax(int value) {
+        return value >= 1 && value <= StaticDefaults.MAX_TWIN_CATALOG_MAX;
     }
 }
