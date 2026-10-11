@@ -25,7 +25,8 @@
 # files that are not ignored (git ls-files -co --exclude-standard). The container strips CR from gradlew and every *.sh,
 # so a CRLF checkout (core.autocrlf=true) works.
 #
-# Slots: at most MINEQTT_CLIENT_SLOTS stacks (default 3, each 4 CPUs / 8 GB) run at once on this workstation, and on
+# Slots: at most MINEQTT_CLIENT_SLOTS stacks (default 1, of 3 CPUs / 5 GB: the workstation's Docker VM is capped at
+# 16 GB and shared with other projects) run at once on this workstation, and on
 # each remote as many as its row in the host table says (e.g. 16 of 3 CPUs / 5 GB), counted by mkdir slots on
 # this workstation (all runs start here) in MINEQTT_CLIENT_SLOT_DIR (default $USERPROFILE/.mineqtt-client-slots, $HOME
 # elsewhere) and in the same path with "-<remote name>" appended. A run waits for a free slot (under auto: on any host
@@ -34,7 +35,7 @@
 # left by a dead run and broken when its client container no longer runs on its host (checked once its stack is up),
 # or when it is older than 60 minutes (MINEQTT_CLIENT_SLOT_STALE_MIN). --warm takes a slot too.
 #
-# Environment: CLIENT_CPUS / CLIENT_MEMORY (client container limits, default 4 and 8g here, the remote's row there), CLIENT_HEAP (the game's -Xmx,
+# Environment: CLIENT_CPUS / CLIENT_MEMORY (client container limits, default 3 and 5g here, the remote's row there), CLIENT_HEAP (the game's -Xmx,
 # default 2g: the JVM default of 25 % of the container left the game out of heap at 4g), MINEQTT_CLIENT_TIMEOUT_MIN
 # (default 30; the test step is stopped after it and the run fails: a game that hangs no longer holds its stack forever,
 # because the heartbeat only notices a dead run.sh, not a stuck game),
@@ -46,7 +47,7 @@ cd "$(dirname "$0")/../.."
 . docker/hosts.sh
 
 SEED=mineqtt-client-gradle
-LOCAL_SLOTS=${MINEQTT_CLIENT_SLOTS:-3}
+LOCAL_SLOTS=${MINEQTT_CLIENT_SLOTS:-1}
 # Container size per host, unless CLIENT_CPUS / CLIENT_MEMORY are set: this workstation 4 CPUs / 8g, a remote its row
 # in the host table (16 slots of 3 CPUs / 5g were the best throughput measured on a 64-thread host, e2e/README.md).
 USER_CPUS=${CLIENT_CPUS:-}
@@ -121,7 +122,7 @@ select_host() {
   mq_use_host "$1"
   if [ "$1" = local ]; then
     SLOT_DIR=$SLOT_BASE; SLOTS=$LOCAL_SLOTS
-    CLIENT_CPUS=${USER_CPUS:-4}; CLIENT_MEMORY=${USER_MEMORY:-8g}
+    CLIENT_CPUS=${USER_CPUS:-3}; CLIENT_MEMORY=${USER_MEMORY:-5g}
   else
     SLOT_DIR=$SLOT_BASE-$1; SLOTS=$(mq_slots "$1")
     CLIENT_CPUS=${USER_CPUS:-$(mq_field "$1" 4)}; CLIENT_MEMORY=${USER_MEMORY:-$(mq_field "$1" 5)}

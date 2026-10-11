@@ -274,7 +274,7 @@ name works as well), so no per-workstation set-up beyond the SSH key and the tab
 |---|---|---|---|---|
 | A build host (the measured one: 64 threads, 125 GiB, also running other services) | 16 of 3 CPUs / 5 GB | 20 | unpinned, Docker's default weight | built whenever a run needs them (`build auto`) |
 | An overflow host: a shared machine whose own services (production, for example) come first | 2 of 3 CPUs / 5 GB | 6 | pinned to half of its cores (whole cores, for example CPUs 4-7 and 12-15), `--cpu-shares 256` (measured: cgroup `cpu.weight` 10 in our containers, 100 in the host's own, on cgroup v2 with Docker 28.4) | manual (`build manual`): only with an explicit `--host <name>`, at a quiet hour |
-| `local`: this workstation (32 threads, 30 GiB for Docker; also every Gradle build) | 3 of 4 CPUs / 8 GB | 8 (not enforced) | Docker's defaults | built whenever a run needs them |
+| `local`: this workstation (32 threads; its Docker VM is capped at 16 GiB and shared with other projects; also every Gradle build) | 1 of 3 CPUs / 5 GB | 2 (not enforced) | Docker's defaults | built whenever a run needs them |
 
 How to use them:
 
@@ -362,7 +362,7 @@ Remote lanes have no host ports: use lane.sh rcon/pub/sub/smoke/ha, never 127.0.
 The link is slow (~8 MB/s up, ~4.5 MB/s down): each lane up/reload ships the ~6.5 MB jar, so reload only after a real change.
 run.sh brings back the report, latest.log, console.log and only failing suites' screenshots from a remote; add
 --screenshots all only when you review UI (~29 MB for a full run). run.sh prints the bytes sent and received.
-Capacity: each remote's row of the host table (a build host: 16 client stacks / 20 lanes), local 3 / 8; run.sh waits for a free slot.
+Capacity: each remote's row of the host table (a build host: 16 client stacks / 20 lanes), local 1 / 2; run.sh waits for a free slot.
 A client run is stopped after 30 min (MINEQTT_CLIENT_TIMEOUT_MIN) and fails with a TIMEOUT line.
 ```
 
@@ -419,7 +419,7 @@ Capacity, shared by all runs:
 
 | Host | Lanes | Client stacks |
 |---|---|---|
-| This workstation (32 threads, 30 GiB for Docker; also runs every Gradle build) | 8 (Home Assistant only where needed) | 3 of 4 CPUs / 8 GB, enforced by `run.sh` (`MINEQTT_CLIENT_SLOTS`) |
+| This workstation (32 threads; Docker VM capped at 16 GiB, shared with other projects; also runs every Gradle build) | 2 (Home Assistant only where needed) | 1 of 3 CPUs / 5 GB, enforced by `run.sh` (`MINEQTT_CLIENT_SLOTS`) |
 | A build host (64 CPUs, 125 GiB, shared with other services) | 20 (`MINEQTT_LANES_<NAME>`, checked by `auto`) | 16 of 3 CPUs / 5 GB, enforced by `run.sh` (`MINEQTT_SLOTS_<NAME>`) |
 | An overflow host (a shared machine; overflow only, see "Hosts") | 6 (`MINEQTT_LANES_<NAME>`) | 2 of 3 CPUs / 5 GB, pinned to half of its cores at a tenth of its own services' weight (`MINEQTT_SLOTS_<NAME>`) |
 

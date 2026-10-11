@@ -43,7 +43,7 @@ services:
     deploy:
       resources:
         limits:
-          # run.sh sets both per host (4 CPUs / 8g here, a remote's row in docker/hosts.sh there). Measured: a stack peaks at 4.5-4.8 GiB with
+          # run.sh sets both per host (3 CPUs / 5g here, a remote's row in docker/hosts.sh there). Measured: a stack peaks at 4.5-4.8 GiB with
           # the game's 2g heap (CLIENT_HEAP); 16 stacks of 3 CPUs / 5g on a 64-thread host all passed (e2e/README.md, "Capacity").
           cpus: "${CLIENT_CPUS:-4}"
           memory: "${CLIENT_MEMORY:-8g}"
