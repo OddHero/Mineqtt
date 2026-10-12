@@ -1,6 +1,6 @@
 # MineQTT v2 architecture
 
-How MineQTT is put together since v2 (milestones M1 to M3, version 0.7.0), and why. The full design, with every decision, open question and
+How MineQTT is put together since v2 (milestones M1 to M4, version 0.8.0), and why. The full design, with every decision, open question and
 roadmap item, is not part of this repository. This file is the map for
 anyone changing the code; read it before touching the MQTT core, a device type or the migration code.
 
@@ -10,7 +10,7 @@ v1's rules were workarounds for its own architecture. They no longer apply:
 
 | v1 rule | v2 |
 |---|---|
-| "No retain anywhere": status, state and discovery not retained | Everything MineQTT publishes **about itself** is retained: discovery, bridge and device availability, state, bridge info. **Commands are never retained**, and a retained message on a device's `/set` topics is never taken, so a stale command on the broker cannot change a device at startup. Raw Link inputs that keep v1 parity (Redstone Output, Smart Plug) and the unmigrated v1 blocks on `LegacySubscriptionFacade` still apply retained values, so their topics need broker ACL protection. (v1's discovery was in fact published retained; the old docs said otherwise.) |
+| "No retain anywhere": status, state and discovery not retained | Everything MineQTT publishes **about itself** is retained: discovery, bridge and device availability, state, bridge info. **Commands are never retained**, and a retained message on a device's `/set` topics is never taken, so a stale command on the broker cannot change a device at startup. Raw Link inputs that keep v1 parity (Redstone Output, Smart Plug) still apply retained values, so their topics need broker ACL protection. (v1's discovery was in fact published retained; the old docs said otherwise.) |
 | Discovery with `retain: false` "so offline changes are ignored" | Discovery declares `retain: false` for the *commands* HA sends. The config message itself is retained. A retained command on a `/set` topic is dropped (MQTT 5: `DO_NOT_SEND` subscriptions; both protocols: any inbound message with the retain flag). |
 | "One state per topic": every lamp on a topic shares one state in `mineqtt_topic_states.json` | Identity and state are **per block**. Lamps that must share a state form an explicit **group**. The v1 file is imported once (legacy groups) and never written again. |
 | `Thread.currentThread().getName().contains("Server thread")` instead of `level.isClientSide` | Client block entities never touch MQTT. Device attach is driven by `setLevel(ServerLevel)`, and all MQTT handlers run on the server thread because the inbound queue is drained in `SERVER_PRE`. The v1 problem came from the static client calling block entities from the MQTT thread and from client BEs registering subscriptions. |
@@ -23,8 +23,8 @@ v1's rules were workarounds for its own architecture. They no longer apply:
                        server thread                                    HiveMQ threads
  ┌──────────────────────────────────────────────────────────┐      ┌───────────────────────┐
  │ blocks/ (BEs)  ── DeviceHost ── DeviceLink ─┐             │      │ Mqtt5/Mqtt3 adapter   │
- │ sensor/emitter ── LegacySubscriptionFacade ─┤             │      │  global publish flow  │
- │ Cyberdeck, /mineqtt, C2S ── TopicAcl ───────┤             │      └──────────┬────────────┘
+ │ Cyberdeck, /mineqtt, C2S ── TopicAcl ───────┤             │      │  global publish flow  │
+ │                                             │             │      └──────────┬────────────┘
  │                                             ▼             │                 │ receive()
  │  DeviceRuntime ── DeviceRegistry (devices.nbt)            │                 ▼
  │  DiscoveryPublisher, BirthWatcher, BridgeDevice           │       InboundQueue (bounded,
@@ -41,13 +41,18 @@ v1's rules were workarounds for its own architecture. They no longer apply:
 | Package | Contents |
 |---|---|
 | `mqtt/core` | The transport. **Minecraft-free**: only the JDK, Gson and HiveMQ (`verifyCoreIsolation` fails the build otherwise). `BrokerConfig` (URI parsing), `HiveMqttService` with `Mqtt5ClientAdapter`/`Mqtt3ClientAdapter`, `TopicTrie`, `InboundQueue`, `OutboundBuffer`, `LocalLoopback`, `TopicAcl` (rules as data; `checkTopicSource` judges an MQTT device preset's state topic, M3-17), `SharedSubscriptions` (one handler per filter for many holders, ref-counted; the twin's statestream leaves). |
-| `runtime` | `MineqttRuntime` (one per server run), `ServerHooks` (lifecycle wiring), `ReplaceableMqttService` (survives config reconnects), `TopicScheme`, `Slf4jMqttLog`. |
+| `runtime` | `MineqttRuntime` (one per server run), `ServerHooks` (lifecycle wiring), `ReplaceableMqttService` (survives config reconnects), `TopicScheme`, `Slf4jMqttLog`, `WorldClock` (M4-1: `overworldTicks(level)` = `Level.getOverworldClockTime()`, 0 without an overworld clock; `timeOfDay(level)`). |
+| `util` | Pure helpers, JDK only (`verifyCoreIsolation` scope `clocks`): `CronSchedule` and `GameClock` (M4-1: ticks per day, time of day and day number (both floor, so a clock before tick 0 reads a valid time), `isDay` ([0, 12000)), HH:MM `format` and strict `parse` with v1's rounding, `formatRoundedDown` to 15-minute steps, signed `ticksUntil`/`ticksSince`, the four `Moment`s). |
 | `flow/core` | The flows seed (M2 plan §3, [Flows](#flows)). **Minecraft-free**: only the JDK, Gson and `security.TokenBucket` (`verifyCoreIsolation` scans it, and keeps `TokenBucket`/`RateLimit` JDK-only). `PortType` (the kind of a port: bool, level, number, enum, text, color, light, json, event; strict validators), `Coerce` (the coercion table, the bool spellings, the guarded `Coerce.number` and the text sanitiser the device codecs use), `Colors` (colour parsing and conversion: hex, `rgb()`, dye names, `{r,g,b}`, hs, xy, kelvin), `Endpoint`/`Wire`/`Mapping`/`Scope`, `FlowMessage`, `Root` (what caused a message's chain), `PortSpec` and the `MessageBus`. |
-| `twin/core` | The digital twin's pure core (M3 plan D1, D3, D7, D18). **Minecraft-free**: only the JDK, Gson, `flow.core` and itself (`verifyCoreIsolation`). `StatestreamTopic` (`<base>/<domain>/<object_id>/<leaf>`, the `_mineqtt` catalog topics, everything else ignored by reason), `StatestreamValue` (the raw state: text, unknown, unavailable, cleared; never JSON), `HaTime`, `EntityDocument` (one shared snapshot per entity; stale and null attributes held back), `EntityDocuments` (the fold of statestream and catalog with the D3 merge, freshness and bounds), `CatalogParser`/`CatalogEntry`, `EntityGlobs` (`twin.allowedEntities`), `ValuePath` (the path grammar, statestream leaves, raw payloads ≤ 64 KiB), `ValueMap` (bool, level by bool/range/option, number, colour, text with decimals and unit, timestamp, the light composite; empty means hold), `DisplayText` (the Display Panel's server-side layout, at most 4 × 32), `HaDomains` (HA entities as typed flow nodes: per domain the out-ports with their statestream leaves, the in-ports, the attribute whitelist; the D2 privacy domains unreadable), `HaCalls` and `Call` (the one service-call table with its per-service data-key whitelist, D11 freshness-aware switching and the D5 edge mapping; a `Call` outside the table cannot be constructed), `Binding` (a device's source, targets, control, settings and refusal; its reads are derived from the type's adapter, not stored), `PortRead`, `TwinHealth` (a bound device's health and the render hint clients draw), `TwinCoalescer` (D9: a burst of leaves applies once, at most 4 times a second per entity), `EntityScan` (M3-11: the fallback scan of `<base>/+/+/state` and `friendly_name` while no catalog answers; readable domains only, capped at `twin.catalogMax`), `EntitySearch` (D4's ranking, shared by `/mineqtt twin entities` and the picker; since M3-13 also the candidates and the read gate of a listing, `candidates`/`readable`), `BindingPreset` (M3-17: an MQTT device preset as a document synthesizer for one Home Assistant kind: the state topic's payload as an `EntityDocument`, the adapter's `Call` rendered into the preset's command through typed placeholders, the device-name rules), `PresetCodec` (strict parsing of preset files with problem lines; a bad file is skipped). `HaDomains.TRIGGER_DOMAINS` (scene, script, button, input_button) never infer drift. |
+| `twin/core` | The digital twin's pure core (M3 plan D1, D3, D7, D18). **Minecraft-free**: only the JDK, Gson, `flow.core` and itself (`verifyCoreIsolation`). `StatestreamTopic` (`<base>/<domain>/<object_id>/<leaf>`, the `_mineqtt` catalog topics, everything else ignored by reason), `StatestreamValue` (the raw state: text, unknown, unavailable, cleared; never JSON), `HaTime`, `EntityDocument` (one shared snapshot per entity; stale and null attributes held back), `EntityDocuments` (the fold of statestream and catalog with the D3 merge, freshness and bounds), `CatalogParser`/`CatalogEntry`, `EntityGlobs` (`twin.allowedEntities`), `ValuePath` (the path grammar, statestream leaves, raw payloads ≤ 64 KiB), `ValueMap` (bool, level by bool/range/option, number, colour, text with decimals and unit, timestamp, the light composite; empty means hold), `DisplayText` (the Display Panel's server-side layout, at most 4 × 32), `HaDomains` (HA entities as typed flow nodes: per domain the out-ports with their statestream leaves, the in-ports, the attribute whitelist; the D2 privacy domains unreadable), `HaCalls` and `Call` (the one service-call table with its per-service data-key whitelist, D11 freshness-aware switching and the D5 edge mapping; a `Call` outside the table cannot be constructed), `Binding` (a device's source, targets, control, settings and refusal; its reads are derived from the type's adapter, not stored), `PortRead`, `TwinHealth` (a bound device's health and the render hint clients draw), `TwinCoalescer` (D9: a burst of leaves applies once, at most 4 times a second per entity), `EntityScan` (M3-11: the fallback scan of `<base>/+/+/state` and `friendly_name` while no catalog answers; readable domains only, capped at `twin.catalogMax`), `EntitySearch` (D4's ranking, shared by `/mineqtt twin entities` and the picker; since M3-13 also the candidates and the read gate of a listing, `candidates`/`readable`), `BindingPreset` (M3-17: an MQTT device preset as a document synthesizer for one Home Assistant kind: the state topic's payload as an `EntityDocument`, the adapter's `Call` rendered into the preset's command through typed placeholders, the device-name rules), `PresetCodec` (strict parsing of preset files with problem lines; a bad file is skipped), `AreaNames` (M4-23: Home Assistant's area-name key, casefolded with spaces removed; the distinct areas of the catalog and a room name's spelling). `HaDomains.TRIGGER_DOMAINS` (scene, script, button, input_button) never infer drift. |
 | `twin` | The twin's server side (M3). `TwinAdapter` (Minecraft-free: how a type takes part in the twin: primary port, mirrored keys, source domains with their reads, the statestream leaves to hold, forward to `HaCalls` outcomes, targets on out-ports with a per-target `Target` translation (M3-14; `targetsOnly()` adapters have no primary, no mirrored key and no source), `Extras` (M3-15: read-only values a source gives besides the in-port values, under the command key `twin`, honoured only from a twin apply), and extra statestream leaves (`Builder.leaves`: attributes a type reads, such as a unit; `Builder.extraLeaves`: per-domain leaves a write-back needs, such as an `input_number`'s `step`)), `BindingCodecs` (the `twin` compound of blocks and records), `TwinRuntime` (the read side: shared per-leaf statestream subscriptions of loaded bound devices, entity documents, coalescing and the apply cap, health, the mirror freshness; target holdings for devices with targets, M3-14; the catalog's share gate `shareProblem`, entity search and drift, M3-11; topic holdings of preset sources with their own coalescer, `presetDocument`, M3-17), `BindingPresets` (M3-17: the `SERVER_DATA` reload listener for `data/<ns>/mineqtt/binding_presets/*.json`; a reload judges every binding again), `HaEntityCatalog` (M3-11: the catalog's own subscription 5 s after the first CONNACK and the fallback scan 10 s after it while no catalog status came), `TwinGate` (the root gate: only `PLAYER` and `WORLD` may request), `TwinRequests` (the write-back: `twin.haActionAllowlist`, sliding-window rates per device, player and bridge (a world-caused explicit state over a rate is held, newest wins, `holds`; every rate refusal is counted per device and logged once per burst, `RateRefusals`), the circuit breaker (world-caused rate refusals count as attempts), `forwardPreset`/`sendPreset` for a preset source's commands (M3-17), `bridge/ha_request`, the advisory `bridge/ha_response`, ping and `bridge/ha_sync`), `PendingRequests` (requests waiting for their entity), `HaSink` (the bus's sink for Home Assistant ends: target wires and forwards). |
-| `device` | `DeviceType`/`Field`/`Setting`/`Action`/`EventSpec`/`LinkSetting` declarations, derived `Port`s, `DeviceView` (a screen's snapshot), `DeviceLink` (per-BE state), `DeviceRuntime` (attach, routing, groups, pending commands), `DeviceRegistry` + `RegistryStore`, `RawLink`, `Slugs`, `ValueCodecs`, `TwinRules` (the twin gate for edits, the judgement for owner and placer, what a bound device refuses; `Rights` carries a `Topics` judge, the ACL for a preset's topics, M3-17; `targetHealth` for targets-only devices), `TwinWiring` (the derived `Scope.TWIN` wires of bound devices: source and target wires, a preset's topic source wire carrying a payload fingerprint, `targetDevices` for catalog changes), `TwinView` (M3-13: what the Twin tab shows one viewer; no entity, refusal or answer without CONFIGURE). `device/types` holds `SmartLamp`, `RedstoneOutput`, `RedstoneInput`, `PresenceSensor`, `SmartPlug`, `ClimateSensor`, `WallSwitch`, `DisplayPanel`. Blocks live in `blocks` (the panel: `DisplayPanelBlock`, `DisplayPanelBlockEntity`) and client renderers in `client` (`DisplayPanelRenderer`). |
-| `ha` | `DiscoveryPublisher`, `BirthWatcher`, `BridgeDevice`, `LegacyDiscoveryMigration`, `GhostCleanup`, `Ha`/`HaEntity` component builders. |
-| `legacy` | `LegacySubscriptionFacade` (the Block Sensor and the Block Emitter, the two v1 blocks that are no devices yet), `LegacyNbtV1` (v1 NBT reader), `LegacyTopicStateImport` (v1 topic-state file), `LegacyConverterBlock` (retiring blocks that turn into their successor, M2-19), `DecommissionedBlock` and `DecommissionedBlockEntity` (retired blocks that only wait to be broken for their parts, M2-21). |
+| `device` | `DeviceType`/`Field`/`Setting`/`Action`/`EventSpec`/`LinkSetting` declarations, derived `Port`s, `DeviceView` (a screen's snapshot), `DeviceLink` (per-BE state), `DeviceRuntime` (attach, routing, groups, pending commands), `DeviceRegistry` + `RegistryStore`, `RawLink`, `Slugs`, `ValueCodecs`, `TwinRules` (the twin gate for edits, the judgement for owner and placer, what a bound device refuses; `Rights` carries a `Topics` judge, the ACL for a preset's topics, M3-17; `targetHealth` for targets-only devices), `TwinWiring` (the derived `Scope.TWIN` wires of bound devices: source and target wires, a preset's topic source wire carrying a payload fingerprint, `targetDevices` for catalog changes), `TwinView` (M3-13: what the Twin tab shows one viewer; no entity, refusal or answer without CONFIGURE). `device/types` holds `SmartLamp`, `RedstoneOutput`, `RedstoneInput`, `PresenceSensor`, `SmartPlug`, `ClimateSensor`, `WallSwitch`, `DisplayPanel`, the four timers of `Timers` (M4-2), `BlockObserver` (M4-9) and `BlockPlacer` (M4-10); `device/timer/core` the timers' pure schedules and `device/PlacerRules` the placer's rules ([Devices](#devices)). Blocks live in `blocks` (the panel: `DisplayPanelBlock`, `DisplayPanelBlockEntity`; the timers: `TimerBlock`, `TimerBlockEntity`) and client renderers in `client` (`DisplayPanelRenderer`). |
+| `telemetry` | World telemetry and player events (M4-7, M4-8). `telemetry/core` is **Minecraft-free** (`verifyCoreIsolation`): `WorldReading`, `Weather`, `TelemetrySnapshot`, `TelemetryThrottle`, `NamePolicy`, `PlayerEventMessage`, `EventLimiter`, `BroadcastText` (M4-22: the broadcast text's cleaning and rate). `TelemetrySampler` reads the server (names through each player's consent since M4-11; `statusLine`, M4-17), `PlayerEvents` registers the player listeners ([Home Assistant](#home-assistant)). |
+| `presence` | Consent and presence (M4-11 to M4-13, plan D9, D10): `Consent`, `PlayerEntry` (the registry's `players` list), `PrivacyPolicy` (the one rule over config and consent), `PlayerPrivacy` (held by `MineqttRuntime.privacy()`), `PrivacyCommands` (`/mineqtt privacy`, `/mineqtt players`), `PresenceRuntime` (the presence devices, `MineqttRuntime.presence()`), `FullSample` ([Home Assistant](#home-assistant)). |
+| `rooms` | Rooms (M4-14, M4-15, plan D11): `Room`, `RoomRules` (pure rules), `RoomIndex` (which room a device is in), `RoomEdits` (the one edit path of commands and the Room mode), `RoomOffer`, `RoomSwitch` (M4-19: a room's All on and All off, pure) ([Devices](#devices)). They use `BlockPos`/`GlobalPos`, so they are outside the isolation scopes and checked in sensorChecks. |
+| `ui/explorer` | The Configurator's Devices tab (M4-16, plan D13): `DevicesTab` (server-safe, layout and pacing), `ExplorerPage` (the page and its bounded codec), `ExplorerDirectory` (the server's search, scope, room grouping and the You row), `ExplorerActions` (M4-18: Use, Locate, Open and the room switch of a selected row, and the privacy choice of the You row; server side), `DevicesTabView` (client). |
+| `ha` | `DiscoveryPublisher` (with `suggested_area` since M4-14, in Home Assistant's spelling of a matching area since M4-23), `BirthWatcher`, `BridgeDevice` (with the world telemetry and player events since M4-7, M4-8, and the broadcast text since M4-22), `PresenceDevice` (M4-12), `LegacyDiscoveryMigration`, `GhostCleanup`, `Ha`/`HaEntity` component builders. |
+| `legacy` | `LegacyNbtV1` (v1 NBT reader, also of the timers, the Block Sensor and the Block Emitter), `LegacyTopicStateImport` (v1 topic-state file), `LegacyConverterBlock` (retiring blocks that turn into their successor, M2-19), `DecommissionedBlock` and `DecommissionedBlockEntity` (retired blocks that only wait to be broken for their parts, M2-21). |
 | `security` | `AclContext` (player → ACL subject), `C2SGuard` + `TokenBucket`/`RateLimit`, `DeviceAccess`, `AccessMode`. |
 | `registry` | `Catalog` (every block and item: craftable, creative, converter, decommissioned or unreleased (M3-15: hidden, no recipe makes or uses it, it drops itself); the creative tab's order; a plain id table that `verifyCatalog` reads under a bare bootstrap), `MineqttDataComponents`. Recipes live in `data/mineqtt/recipe/` (26.2 format; every block and the Configurator need the Network Chip) and unlock through `data/mineqtt/advancement/recipes/`. |
 
@@ -112,8 +117,13 @@ sets it. Both the client id and the will are known before CONNECT, so two worlds
 |---|---|---|
 | `<base>/<bridgeId>/bridge/state` | yes | `online`/`offline`; also the will |
 | `<base>/<bridgeId>/bridge/info` | yes | version, mc, loader, world, worldUuid, protocol, devices |
-| `<base>/<bridgeId>/bridge` | yes | telemetry, at most every 10 s |
+| `<base>/<bridgeId>/bridge` | yes | telemetry (players and drop counters; world keys with `telemetry.enabled`), sampled every second, a significant change within 2 s, the rest at most every `telemetry.intervalSeconds` ([Home Assistant](#home-assistant)) |
+| `<base>/<bridgeId>/bridge/event` | **never** | player events (`join`, `leave`; `death`, `advancement` only for a player who may be named), QoS 1, dropped while offline |
 | `<base>/<bridgeId>/bridge/request/republish` | n/a | inbound; republishes discovery and state |
+| `<base>/<bridgeId>/bridge/request/broadcast` | n/a | inbound; with `telemetry.allowBroadcast` shows the text in every player's chat behind `[MQTT]` (M4-22); a retained request is ignored |
+| `<base>/<bridgeId>/bridge/response/<command>` | **never** | the answer to a request: `{"status":"ok"}` or `{"status":"error","error":…}` |
+| `<base>/<bridgeId>/player/<slug>` | yes | a consenting player's presence device state (`presence` ON/OFF; with full sharing `health`, `dimension`, `x`, `y`, `z`), QoS 1; nobody publishes under `player/` from inside the game (`DENY_BRIDGE`) |
+| `homeassistant/device/mineqtt_player_<32hex>/config` | yes | a presence device's discovery (sha256 of world UUID and player UUID, first 32 hex) |
 | `<base>/<bridgeId>/<slug>` | yes | device state JSON |
 | `<base>/<bridgeId>/<slug>/availability` | yes | `online`/`offline` |
 | `<base>/<bridgeId>/<slug>/set`, `…/set/<field>` | **never** | commands; four wildcard subscriptions serve every device |
@@ -144,6 +154,15 @@ crash never survives.
   `EventSpec.busOnly` (M3-14) declares an event that wires and twin targets carry but nothing publishes (no action topic,
   Raw Link or HA entity; `build()` refuses an HA event entity or device trigger on one): the Wall Switch's `left` and
   `right` (attribute `gesture`), emitted next to `press`/`double_press`/`hold` for every gesture of that button.
+- **M4 seams (M4-1; the timers use all of them since M4-2, the Block Observer's `changed` the throttle).** `EventSpec.minInterval(Duration)`
+  (D3) throttles an event on its `action` topic and Raw Link only: `DeviceTraffic.admitEvent` keeps one clock per event
+  type (taken only when admitted) and counts what it holds back; the bus always carries the event; `build()` refuses a
+  minimum interval on a bus-only event. `DeviceRuntime.publishEvent(host, event, rawPayload)` and
+  `DeviceLink.publishEvent(be, event, rawPayload)` publish an event and its Raw Link payload under one throttle
+  decision. The Diagnostics tab and `devices info` add "N events throttled" only when N > 0.
+  `Builder.noV1Topic()` makes `DeviceLink.adopt` take no Raw Link from v1 slots (owner, name and legacy items still
+  adopt). `Builder.status(StatusLine)` gives a type a read-only status line (`DeviceView.statusLine`, at most 64 code
+  points, kept by `redacted()`, carried in `DeviceViewPayload`).
 - **Identity per block.** Each device BE holds a `DeviceLink` with a random UUID (`mineqtt.id`), name, slug, owner,
   access mode, expose flag, Raw Link and state. Discovery object id `mineqtt_<uuid32>`, unique_ids
   `mineqtt_<uuid32>_<key>`; renaming changes the slug and topics but never the unique_ids.
@@ -165,9 +184,17 @@ crash never survives.
   `devices info` and `devices list` show faulted devices.
 - **Registry.** `<world>/data/mineqtt/devices.nbt`, written atomically by `RegistryStore` (not `SavedData`: a `null`
   `DataFixTypes` wipes it on the second start). It holds the bridge id, world UUID, records (type, position, slug,
-  pending command, last state, discovery hash, legacy unique_id, the twin binding's copy), groups and migration flags. Saved when created, on
-  overworld saves when dirty, and at `SERVER_STOPPED`. A structural change (device or group added or removed, slug,
-  name or membership changed, owner literal added) is saved at the end of its tick (`tickEnd`, also in a paused
+  pending command, last state, discovery hash, legacy unique_id, the twin binding's copy, since M4-14 `discoveryArea`),
+  groups, wires, since M4-14 `rooms` (after `wires`, always written, decoded with `decodeAll`: duplicates and anything
+  over 512 skipped and reported, sizes not judged again, names only for being blank or over 32 code points), migration
+  flags and since M4-11 `players` (after `v1StatusCleared`: one `PlayerEntry` per player with a choice or a presence
+  device; a damaged entry, a duplicate UUID or a second holder of a slug is reported, the second holder loses the slug;
+  a missing list means every consent is unset), and since M4-22 the top-level `bridgeBroadcastDiscovered` (written only
+  while true, a structural change: the bridge's broadcast text entity was discovered and its removal has not reached
+  an online Home Assistant yet). Saved when created, on
+  overworld saves when dirty, and at `SERVER_STOPPED`. A structural change (device, group, wire or room added or
+  removed, slug, name or membership changed, a room edited, owner literal added, a player's consent, prompt, name or
+  slug changed) is saved at the end of its tick (`tickEnd`, also in a paused
   server's pump), at most once a second counted from the last save; a failed one is tried again a second later (the
   error is logged once, then the recovery). Everything else (states, pending commands, discovery hashes,
   owner/access/expose copies, migration flags) waits for the autosave. A device broken in a loaded chunk is removed at
@@ -181,7 +208,8 @@ crash never survives.
   unchanged and `discoveryCleanup` is written only while true), which shows how a later key fits.
 - **One command path** (M2-5, M2 plan §3.8 #2). `DeviceRuntime.command(target, json, source, origin)` is how every
   command reaches a device: HA's `/set` and `/set/<field>`, group commands and joins, Raw Link inputs (also a legacy
-  group's v1 topic), `/mineqtt devices set`, the device screens and their command twins, and wires; the timers will use it too (M4). The pure
+  group's v1 topic), `/mineqtt devices set`, the device screens and their command twins, and wires; the timers, the
+  Block Observer and the Block Placer take theirs the same way (M4). The pure
   `DeviceRuntime.route` picks the route: a loaded device applies (`applyCommand`, then the state is published), an
   unloaded `QUEUE` device queues through `DeviceType.preview`, a group fans out, and the rest drops (an unloaded
   sensor, an unknown type). A group's members always see `CommandSource.GROUP`. Only the attach applies a queued
@@ -216,8 +244,8 @@ crash never survives.
   topics, Raw Link or legacy items. `DeviceBlockEntity.loadAdditional` dispatches with `RenderTag.dispatch`: a
   `mineqtt` compound is v2 data, a render compound alone a client's render update (`loadRender` replaces only what it
   carries; the `DeviceLink` stays as it was), neither is v1 data, so a client never runs the v1 migrator on an update
-  packet. The device screens read the `DeviceView` only. Blocks that are no devices (the legacy blocks and the timers)
-  still send `saveWithFullMetadata`, which their screens read. The Display Panel's render compound (M3-15) holds either
+  packet. The device screens read the `DeviceView` only. Blocks that are no devices still send
+  `saveWithFullMetadata`, which their screens read. The Display Panel's render compound (M3-15) holds either
   `lines` (at most 4 × 32, laid out on the server by `DisplayText`, under the device name as `title` while bound) or
   `at` (a point in time in epoch millis that each client words itself), plus the resolved size, the colour as a dye id,
   `glow` and `waiting` (bound, no value yet); it is sent at most 4 times a second (the last one always). The client
@@ -272,8 +300,9 @@ crash never survives.
   them into the player's inventory, `/mineqtt devices eject <device>` drops them at the block; a device whose v1 data
   still waits for adoption ejects nothing. A placement (`DeviceBlockEntity.placedBy`, from `BaseMqttBlock.setPlacedBy`)
   drops copied legacy items with the copied identity and resets what the copy did (plan D14: output power 0, lamp off,
-  sensor count 0, input signal 0), keeping its settings and Raw Link. `BaseMqttBlockEntity` is now only the legacy
-  blocks' and the timers'; `BaseMqttBlock.click` and `SetActiveTabPayload` take either through `TabbedScreenHost`.
+  sensor count 0, input signal 0), keeping its settings and Raw Link. `BaseMqttBlockEntity` is now only the base of the
+  two converters (the Humidity Sensor and the Static Publisher, until they convert); the timers, the Block Observer and
+  the Block Placer are devices since M4-3, M4-9 and M4-10; `BaseMqttBlock.click` and `SetActiveTabPayload` take either through `TabbedScreenHost`.
   Comparator and hopper access to the four devices, to the Smart Plug since M2-18 and to the Climate Sensor since M2-19,
   is gone (neither was documented).
 - **Generated device screen** (M2-8, design §6.9, plan §3.8 #8). A device opens a `DeviceMenu`
@@ -306,6 +335,12 @@ crash never survives.
   every 100 ms (the guard allows 20 payloads a second) and the last one always (the light picker's partial commands
   merge, `LightControl.merge`), and a control keeps what the player picked for 750 ms before it follows the views
   again. The lamp's old Status tab is gone.
+  M4-1: an integral NUMBER with more than `Widget.NUMBER_FIELD_STEPS` = 10 000 steps is a `NUMBER_FIELD` (a typed,
+  digits-only field with Set/Enter, red and unsent when out of range, validated again by the server) instead of a
+  slider; the Climate Sensor's interval and the Presence Sensor's clear delay (3600 steps) stay sliders. A type whose
+  Home Assistant switch reads a writable BOOL field shows that field's toggle instead of the `state` action row
+  (`ControlsTab.collapsesState`; the action still works for commands, Home Assistant and wires), and a type with a
+  status line draws it on the last row, so it may use at most four rows for controls.
 - **Advanced tab** (M2-10, design §6.9, §7.4). Every device has one, after Controls. `AdvancedTab.controls(type)` is
   one `DeviceTabs.Control` per Raw Link link setting the type has (`raw.channel`, `raw.private`, `raw.topic`, an
   output's `raw.retain` and `raw.qos`, custom `raw.on`/`raw.off`; gate CONFIGURE), checked like the other tabs by
@@ -327,7 +362,7 @@ crash never survives.
   binding key's `DeviceConfigPayload`, the command twin's key. What it shows comes as a `TwinView` (`TwinViewPayload`,
   apart from the `DeviceView`, with every view of a twin type and when a request starts or ends waiting), built per
   viewer by `DeviceRuntime.twinView`: without CONFIGURE it names no entity and no MQTT device. The source cycle
-  (`TwinTab.SourceMode`: This block, Home Assistant, MQTT device; wave 7) unbinds a bound device in one press and steps
+  (`TwinTab.SourceMode`: This block, Home Assistant, MQTT device) unbinds a bound device in one press and steps
   an unbound one This block → Home Assistant (opening the picker) → MQTT device; the step is kept on the `DeviceMenu`
   (`sourceChoice`) across the picker. A `BySource(homeAssistant, mqttDevice)` place shows the Home Assistant cell or
   the MQTT device cell (`Preset`: the preset cycle, `twin.preset`; `Device`: the device-name field, `twin.device
@@ -356,7 +391,7 @@ crash never survives.
   (`DeviceRuntime.use`: `action(key, Action.handValue())`, so it goes through `command`); else the screen opens.
   `CyberdeckItem.use` (the Configurator) steps its `ConfiguratorMode` (component `mineqtt:configurator_mode`) when
   sneaking, else picks a block up to `C2SGuard.CONFIGURATOR_RANGE` (16) and opens a device's screen, or the explorer
-  when it hits no MineQTT block. `C2SGuard.reaches(player, level, pos, slack)` is the reach of both the guard (slack 1)
+  (on its Devices tab since M4-16) when it hits no MineQTT block; in Room mode it takes a corner instead (M4-15, below). `C2SGuard.reaches(player, level, pos, slack)` is the reach of both the guard (slack 1)
   and `DeviceMenu.stillValid` (slack 4): same dimension, and the interaction range or, with a Configurator in either
   hand, 16 blocks where `Level.mayInteract` allows (spawn protection, world border: vanilla asks it before a click
   within reach, never before a use into the air, so `configureAtRange` asks it too). A hand without anything of meaning
@@ -377,7 +412,11 @@ crash never survives.
   `DeviceTabs.forViewer(type, controlsOnly)` on both sides (the client reads the flag from the view in the open data):
   the Controls tab alone. `MineqttNetworking.sendDeviceStatus`/`sendDeviceLinks`/`sendDeviceGroups` skip a
   controls-only screen (`DeviceMenu.controlsOnly(player)`). `DeviceBlockEntity.openScreen` refuses a type without
-  controls and `BaseMqttBlockEntity.openScreen` every legacy screen, in the action bar (`mineqtt.game_mode.*`);
+  controls, in the action bar (`mineqtt.game_mode.*`; a timer opens its Controls tab alone, whose *Trigger now* is
+  USE). `BaseMqttBlockEntity.openScreen` has no caller since the timers became devices in M4-3 (the remaining legacy
+  block entities are the converters, whose blocks are no `BaseMqttBlock` and convert on their first tick), so its old
+  refusal `mineqtt.game_mode.no_screen` was removed in M4-20; a future caller must refuse a player who may not build
+  first;
   `BaseMqttBlock.click` refuses PAPER, RENAME, LINK, GROUP and COPY, and `CyberdeckItem.configureAtRange`/`stepAtRange`
   refuse every MineQTT block, likewise (`mineqtt.game_mode.uses_only`). The Bridge Console's view is `operator` only for
   an operator who may build, so its buttons and its lists go. `TabbedMqttMenu` remembers `mayBuild` at its making;
@@ -412,14 +451,19 @@ crash never survives.
   (its actions) is for operators who may build only (P2). `BridgeConsole` (one per `MineqttRuntime`) builds each viewer's `ConsoleView`:
   the bridge (`mqtt.state()`, the redacted broker, protocol, `BirthWatcher.heard()` (birth or last will, since the
   server started or the topic changed), the pause state, `MqttService.Stats` drops and queues, the wire count with the
-  bus's delivered and dropped totals), the devices the viewer may configure (`DeviceRuntime.configurer`; all for an
+  bus's delivered and dropped totals), since M4-17 the `ConsoleView.World` (sampled live at each refresh through
+  `runtime.telemetry().sample()`, so it shows without a broker or with telemetry off: tps, mspt, time of day, day,
+  day or night, weather, players online, and for an operator only the names the name policy allows, at most 16, the
+  rest counted; plus `TelemetrySampler.statusLine`, the line `/mineqtt status` prints too), the devices the viewer may configure (`DeviceRuntime.configurer`; all for an
   operator; faulted, unknown type and Raw Link problem first; at most 64 rows) and the groups they manage
   (`GroupRules.manages`; all for an operator; at most 32). It travels in the tabbed menu's open data
   (`TabbedMqttMenu.writeOpenData(..., ConsoleView)`, which builds a `ConsoleMenu` on the client) and in
   `ConsoleViewPayload`, which `tickEnd` sends every open console once a second. `BridgeActionPayload(pos, BridgeAction)`
   (a closed enum: reconnect, republish, prune; an unknown ordinal does not decode) passes `C2SGuard.require(...,
   TerminalBlockEntity, CONFIGURE)`, and `BridgeConsole.act` checks the op level again and runs the command's own method
-  (`MineQTTCommands.reconnect`/`republish`/`prune`) with the player's command source, then resends the view.
+  (`MineQTTCommands.reconnect`/`republish`/`prune`) with the player's command source, then resends the view. The
+  Bridge tab's rows are MQTT (the broker on hover), Topics, HA, Server, Traffic (drops and wires), World and Players
+  (the telemetry line on hover). `ConsoleView.state`, `typeName` and `dimensionName` are shared with the explorer's rows.
 - **Groups.** Homogeneous, actuator-only. A group command fans out to members (applied or queued). Members are hidden
   from HA by default; HA sees one entity per group. Member-local changes do not update the group state. Groups have no
   owner (M2-17): `device/GroupRules` (pure) lets a player join a device to a group, rename the group or show its
@@ -445,7 +489,7 @@ crash never survives.
   the item slots in M1 and on the Advanced tab, with a paper or with `devices raw` since M2-12. Inputs subscribe with
   no-local + loopback; outputs publish edges. Every topic is checked by the `TopicAcl`; v1 topics of migrated blocks
   are grandfathered to their owner.
-- **Slots closed to automation** (M2 plan D7). `BaseMqttBlockEntity` (the legacy blocks and the timers since M2-12) is a
+- **Slots closed to automation** (M2 plan D7). `BaseMqttBlockEntity` (the legacy blocks since M2-12) is a
   `WorldlyContainer` with no faces
   (`getSlotsForFace` empty, both `...ThroughFace` methods refuse, also vanilla's side-less insert), so hoppers, hopper
   minecarts, droppers and sided wrappers (Fabric `InventoryStorage.of(container, side)`, NeoForge
@@ -480,15 +524,12 @@ crash never survives.
   name resolves; a player's claim of an ownerless device and untrusted data never fill it.
 - **Visible refusals** (M2 F2). A Raw Link that moves or becomes refused is told in chat to the player who edited the
   device within the last 30 s (`DeviceBlockEntity.recentEditor`, set by `DeviceRuntime.editRaw` for the screen and a
-  paper; a legacy block's `BaseMqttBlockEntity.recentEditor`, set by `TabbedMqttMenu.clicked` when a click of a player
-  who may configure the block changed its slots, and by the private-mode payload), else to its owner (at
-  once, or queued until they join or open a screen), plus the owner's action bar; an edit that lands on
-  `mineqtt/shared/` tells the editor too. `NoticeGate` tells the same refusal once per device or legacy block topic; an
-  unmigrated block's reload refusal reaches its owner by UUID while online. Open screens get `DeviceStatusPayload`
-  (status line and problem, cut to 512 chars). A config reload that changed the ACL's rules calls
-  `DeviceRuntime.aclChanged()` and `LegacySubscriptionFacade.aclChanged()`: links with a channel are resolved again
-  (`RawTopics.recheck`), other links and legacy subscriptions open or close as the new ACL allows, and an output that
-  works again publishes its current value. Fabric dedicated servers have no config reload; NeoForge reloads on file change.
+  paper), else to its owner (at once, or queued until they join or open a screen), plus the owner's action bar; an
+  edit that lands on `mineqtt/shared/` tells the editor too. `NoticeGate` tells the same refusal once per device. Open
+  screens get `DeviceStatusPayload` (status line and problem, cut to 512 chars). A config reload that changed the ACL's
+  rules calls `DeviceRuntime.aclChanged()` alone (M4-20): links with a channel are resolved again
+  (`RawTopics.recheck`), other links and legacy groups' v1 topics open or close as the new ACL allows, and an output
+  that works again publishes its current value. Fabric dedicated servers have no config reload; NeoForge reloads on file change.
 - **Retained wireless redstone** (M2 F3). `RawLink.retain` is an override (`null` = the type's
   `RawLinkSpec.retainByDefault`, true for the Redstone Input), so M1 and v1 links are retained without a migration.
   `Outbound.rawRetained` is an EDGE (every edge, 40/s per origin) with `OfflinePolicy.COALESCE` (the last level waits in
@@ -501,6 +542,129 @@ crash never survives.
   clear are `Outbound.rawRetainedFinal` (KEEP, never evicted). The other retaining outputs of the server on a topic left
   off or cleared republish theirs in the same tick (last writer wins). Unloading publishes nothing. Raw grammars and
   Raw Link inputs ignore empty payloads.
+- **Timers** (M4-2 to M4-5, plan D2 to D5). The schedules are pure: `device/timer/core` (`verifyCoreIsolation` scope
+  `device.timer.core`: JDK, `GameClock`, `CronSchedule`) holds `TimerKind` (the four kinds with their block ids and pulse
+  lengths: 1 tick for interval and cron, 30 for the day kinds), `TimerNow` (game time, overworld clock, wall clock, zone,
+  tick rate, frozen), `TimerState` (v1's counters: tick counter, last trigger day, tick and time), the sealed
+  `TimerSchedule` (`IntervalSchedule`, `DayTimeSchedule` with its ±20-tick window counted on the day of the moment it
+  fires around, so sunrise fires once, `CronTimerSchedule` on the wall clock in `TimerNow.zone`), `TimerStep` (one tick:
+  NONE, FIRE or PULSE_OFF, and a manual trigger), `NextFire` (ISO-8601 with offset or `""`; the 5 s deadband and the
+  60 s resync) and `TimerStatus` (the status line). `device/types/Timers` builds the four types from one factory:
+  `enabled`, `next_fire` and the kind's schedule fields, the `state` and `trigger` actions, the `fired` event with its
+  `source` (`schedule`, `manual`; 250 ms on MQTT, every fire on the bus), Home Assistant's switch, event, *Trigger now*
+  button, timestamp sensor (template `… if value_json.next_fire else None`), config number/select/text and location;
+  `UNAVAILABLE`, `noV1Topic()`, a status line, and `RawLinkSpec.events()` publishing `ON` per fire through
+  `DeviceLink.publishEvent` (never retained). One `blocks/TimerBlock(kind)` and one `TimerBlockEntity extends
+  DeviceBlockEntity` serve the four unchanged block and BE ids (`TimerBlockEntity.create(kind, …)`). The BE keeps
+  `Timers.Settings` under `mineqtt.state` (defaults omitted; the time of day in ticks, so a v1 time off the minute stays
+  exact) and `TimerState` under `mineqtt.timer`; it ticks whether or not it is attached (redstone works without a
+  broker), arms on enable without firing, restarts the count on an interval or unit change, refuses a trigger during a
+  pulse with its reason (counted as dropped), and recomputes `next_fire` on each fire, edit and attach and every 60 s,
+  showing a new value only when it moved by more than 5 s. v1, 0.6.0 and 0.7.0 timer data (all v1-shaped) is read by
+  `LegacyNbtV1.hasTimerKeys`/`timerState` and written back by `writeTimer` until the attach adopts it; `DeviceLink.adopt`
+  drops a `noV1Topic` type's v1 private mode and last tab. The Cron Timer's *Schedule* tab (`ui/device/CronScheduleTab`,
+  server-safe, with `CronScheduleTabView`) is the one custom tab `DeviceTabs.forType` adds (after Controls, for types
+  with the Cron Timer's `cron` setting); it sends `cron` through `DeviceConfigPayload` like any setting. `util/CronSchedule`
+  steps `*/n` from the field's first value and `v/n` from `v` to the field's last.
+  **A standing clock**: the pure `device/timer/core/ClockWatch` is fed at
+  `MineqttRuntime.tickStart` (SERVER_PRE, so never by the paused server's pump, which runs no tick) with the clock's real
+  state, never guessed from its movement: `gamerule advance_time`, the overworld clock's `ClockState` (`paused` from
+  `/time pause`, `rate` from `/time rate`, read through `WorldClock.overworldState`, i.e.
+  `ServerClockManager.packState()`) and `isFrozen()`. The clock runs while `advance_time && !paused && !frozen`, so a
+  slowed clock (a rate below 1 leaves its tick count standing on some ticks) keeps running. On a change of running or rate
+  `DeviceRuntime.forEachAttached` calls `TimerBlockEntity.clockChanged()`, which recomputes and publishes.
+  `TimerNow.clockRunning` and `TimerNow.clockRate` (from `WorldClock.running`/`rate`) make `DayTimeSchedule.next` empty
+  while the clock stands and stretch its estimate by the rate (`TimerNow.serverTicksFor`); frozen ticks empty every
+  tick-based kind (interval, day kinds), while an interval keeps its next fire with `advance_time false` (it counts block
+  entity ticks) and cron is untouched (wall clock).
+- **Block Observer** (M4-9, plan D12). `device/types/BlockObserver` (`mineqtt:block_observer`, on the
+  `block_sensor_block` ids): `block`, `properties` (a JSON map, the HA sensor's `json_attributes`), `signal`,
+  `change_on` (`block`/`state`), `payload` (`full`/`block_id`/`name`/`properties`, its HA select disabled by default) and
+  `location`; the `changed` event (`block`) throttled to 500 ms, the state to 1 s; `UNAVAILABLE`; Raw Link
+  `RawLinkSpec.out(…).withoutCustomPayloads()`. `BlockSensorBlockEntity` is a `DeviceBlockEntity`: once attached it looks
+  every tick (never loading the target's chunk, `hasChunkAt`), reads the comparator level with every new state and every
+  4 ticks otherwise, publishes `changed` through `publishEvent` and the payload through `publishRaw` unthrottled (on
+  every change, the first look and a `payload` change; `full` also every 10 ticks when it differs). `full` carries
+  `block_entity` only with `blockObserver.exportBlockEntityData` and `PermissionManager.sameClaim(level, observer,
+  target)` (true without Flan; with Flan, one permission container for both positions), cut at 16 KiB UTF-8 to
+  `"block_entity":null,"truncated":true`. v1 and 0.7.0 sensors adopt their topic as a grandfathered, unretained Raw Link
+  output (`LegacyNbtV1.hasSensorKeys`/`sensorState`/`writeSensor`), the data mode as `payload`. Its `signal` resolves to
+  the `power` of a Redstone Output and a Smart Plug by default.
+- **Block Placer** (M4-10, plan D12). `device/PlacerRules` is the rule set: `parse` (the setblock form or `{"id":…,
+  "properties":{…}}`; braces, `block_entity`, other keys, tags and trailing text refused), `hardDenial` (block entity,
+  game master block, TNT, unbreakable, fluid, fire, air, portal), `check` against `#mineqtt:placeable`
+  (`data/mineqtt/tags/block/placeable.json`), `options` (the tag without hard denies, sorted), `claimAllows`,
+  `underSpawnProtection` (the dedicated server's rule for an offline owner) and `take`/`give` (the container behind,
+  sided faces respected). `device/types/BlockPlacer` (`mineqtt:block_placer`, on the `block_emitter_block` ids): the
+  `block` setting, `placed`, `last_result`, `location`, the `place` and `clear` actions; HA's
+  `Ha.selectDynamic("block", …, BlockPlacer::options)` with the template `{{ value_json.block.split('[')[0] if
+  value_json.block else None }}`, buttons, a binary sensor and a diagnostic `last_result`; `UNAVAILABLE`, `editsWorld()`;
+  Raw Link `RawLinkSpec.in(ValueCodecs.PLACER)` with `acceptRetained` false (`place`/`ON`/`true`, `clear`/`OFF`/`false`,
+  anything else a block to set and place). `BlockEmitterBlockEntity` (a `DeviceBlockEntity`) runs a command as: the action
+  gate (`blockPlacer.enabled`, then a 4-per-second `TokenBucket` that refused actions spend too), the block against the
+  live tag, then place (world border, spawn protection and the claim for its owner, a replaceable target or its own
+  block, the item taken, `setBlock` with sound and game event; without properties the dispenser's state) or clear (its
+  own block only, no drops, the item given back). A refusal sets `last_result`, publishes the state and returns
+  REJECTED. It tracks the block it placed through its own state changes (`PlacerRules.follow`: the same block in any
+  state stays its own, so a lamp it placed stays clearable while redstone lights it) and lets go on any other block;
+  `clear` compares a fresh `getBlockState` with the record (`PlacerRules.ownBlock`) right before `destroyBlock`. Broker
+  input never loads a chunk: `place` and `clear` are refused with `FRONT_NOT_LOADED` while the space in front is not
+  loaded, and with `consumeItems` `place` also with `BEHIND_NOT_LOADED`. The container behind follows the target's claim
+  rule (`claimAllows(claimMod, sameClaim(placer, behind), owner online && PermissionManager.canOpenContainer(owner,
+  behind))`, Flan's OPENCONTAINER); refused, `place` answers `BEHIND_CLAIMED`, and `clear` still clears its own block
+  but drops the item where it stood, as it does when the container's chunk is not loaded or the container is full. While
+  `blockPlacer.enabled` is off it subscribes to nothing: `DeviceHost.rawInputOpen()` and one guard in
+  `DeviceRuntime.openRaw`, with `DeviceLink.rawInputChanged`/`DeviceRuntime.rawInputChanged` following the flag (the
+  Advanced tab still shows the link as set). `DeviceType.editsWorld()` with `DeviceConfig.mayConfigure(type, op,
+  playersMayConfigure)` withholds all of CONFIGURE from a non-op on a dedicated server unless
+  `blockPlacer.playersMayConfigure`, applied in `DeviceAccess` (block entity and record checks and the grants), so
+  screens, C2S, paste and lists agree; the owner keeps the access mode. `runtime/ServerHooks` refreshes the select's
+  options on `LifecycleEvent.TAGS_UPDATED`. v1 emitters adopt their topic as a grandfathered Raw Link input.
+- **Rooms** (M4-14, plan D11; `rooms/`). `Room(id, name, dimension, min, max, owner, forAll, created)`; the codec
+  normalises the corners. `RoomRules` (pure): names (sanitised, 1-32 code points, unique per owner ignoring case),
+  size (each axis `max - min + 1 <= rooms.maxSize`), counts (`limits.maxRoomsPerPlayer`, ops exempt; 512 per world for
+  everyone), `mayEdit` (owner or op), `visibleTo` (own, for everyone, or op), `PRECEDENCE` (volume, then created, then
+  id) and `resolve` (a name, own room first, or `"#<8 hex>"`; ambiguous answers list the ids). `RoomIndex` (rebuilt by
+  every registry room edit) derives a device's room from its position: the smallest room of its owner or for
+  everyone that holds it; `affected(records, before, after)` is the dirty set of an edit (devices inside the old or new
+  box the room applies to; a stranger's room touches nothing) and `commonRoom(members)` a group's room. Server-made
+  rooms (console, RCON, command block) belong to `Util.NIL_UUID` and are for everyone. `RoomEdits` is the single edit
+  path (`Actor`; `createProblem`, `buildProblem`: `DeviceAccess.mayBuild`, one dimension, `Level.mayInteract` and
+  CONFIGURE in the claim at both corners) whose `Result` carries the affected devices; `DeviceRuntime.roomChanged(before,
+  after)` refreshes their discovery and their groups' and marks their views changed. `DeviceView.Registration` carries
+  `room` and `keptArea` (`Registration.keptArea(retained, discoveryArea, suggested)`), which `GeneralTabView` shows as a
+  room row ("Kitchen *" with a tooltip when the area Home Assistant was first told differs from the room);
+  `TabbedMqttMenu.GUI_HEIGHT_NO_INVENTORY` grew to 108 for it. `/mineqtt rooms` has no requirement on the literal or its
+  leaves; the leaves judge the source.
+  **All on and All off** (M4-19): the pure `rooms/RoomSwitch` picks the targets (`targets(records, room, roomOf, finds,
+  hasState)`: the devices `RoomIndex.roomOf` puts into that room, so a nested room's device belongs to the nested room,
+  whose type `switches` (groupable and with a `state` action: lamps, plugs and outputs; a timer's `state` arms it, so
+  timers are left alone) and that the actor finds by the explorer's rule; at most `MAX_DEVICES` 64, the rest counted as
+  skipped) and the rate (`due`: one switch a second per player, `MIN_INTERVAL_MILLIS`; the console has no limit).
+  `DeviceRuntime.roomSwitch(room, on, player, finds)` sends `{"state":"ON|OFF"}` through `set(record, cmd, player)` (a
+  `PLAYER` command; queued for an unloaded device that queues) and keeps the per-player timestamps in `roomSwitches`
+  (a monotonic clock); `RoomSwitch.admit` drops every entry older than the interval before it judges a switch, so the
+  map holds only the players who switched within the last second. `RoomSwitch.Result.describe` is the one reply of the explorer's header buttons
+  and `/mineqtt rooms switch <room> on|off` (a player: their devices and not in adventure mode; the console: every
+  such device in the room).
+  **Home Assistant area names** (M4-23): `twin/core/AreaNames.key` is Home Assistant's own area-name normalisation
+  (casefolded, spaces removed, so `livingroom` matches `Living Room`). `EntityDocuments.areas()` (cached, invalidated
+  with the catalog) lists the catalog's distinct areas, `areas(EntityGlobs)` those the read gate lets through, and
+  `TwinRuntime.areas()`/`readableAreas()` expose them. `RoomRules.area(roomName, areas)` gives Home Assistant's
+  spelling, else the room's name, and `DiscoveryPublisher.setAreaNames(twin::areas)` (wired in `MineqttRuntime`) sends
+  it as `sa`. The spelling applies at a device's next refresh, not when the catalog arrives (no republish hook: the
+  catalog comes about 5 s after the connect's republish). `ConfiguratorRoom.suggestions(registry, actor, areas)` adds
+  up to `AreaNames.MAX_SUGGESTIONS` 16 area names after the room names, only to a player who may bind
+  (`AclContext.mayBindTwin`: ops and `mineqtt:twin.bind` holders on a dedicated server, everyone on an integrated one),
+  only names that pass `RoomRules.nameProblem`, deduplicated by the key against the suggested and the player's own
+  room names.
+  **The Room mode's clicks**: `BaseMqttBlock`'s `RIGHT_CLICK_BLOCK` handler takes a click on a block that is no MineQTT
+  block in Room mode only when the player sneaks (it picks the room there). An ordinary click goes to the block first
+  (doors, chests, levers work, also while a corner A waits); a block that does nothing with it returns PASS, so the
+  client uses the item and `CyberdeckItem.use` → `ConfiguratorRoom.clickAtRange` makes that block a corner. A block with
+  its own use becomes a corner when clicked from beyond the hand's reach. A MineQTT block keeps `Interaction.decide`'s
+  ROOM outcome, so a device is always a corner. Both sides decide alike, so the client never sends a second click for
+  one the server took.
 
 ## Flows
 
@@ -533,8 +697,7 @@ ports, and wires join an out-port to an in-port. `flow/core` holds the Minecraft
 - **Roots (M3).** Every message carries a `Root` (`WORLD`, `PLAYER`, `RAW`, `HA`, `TWIN`, `STARTUP`): what caused its
   chain. `MessageBus` keeps one current root: a delivery's is the delivered message's, and the runtime opens extents
   with `withRoot` (a command: its source's root per `DeviceRuntime.root`, GROUP and BINDING inherit; `powerOnRecords`
-  and the attach: `STARTUP`; a v1 Block Emitter's broker message: `RAW`, through `DeviceRuntime.fromBroker`, which
-  `LegacySubscriptionFacade` delivers in). A message emitted outside both is `WORLD` (block tickers, neighbour updates,
+  and the attach: `STARTUP`; a Raw Link input's broker message: `RAW`, like every device's). A message emitted outside both is `WORLD` (block tickers, neighbour updates,
   hands), so a same-tick neighbour cascade inside a command inherits that command's root. Held values and drain
   carry-over keep their root. A nested extent never clears `RAW`, `HA`, `TWIN` or `STARTUP` (`Root.nested`). A sink
   refuses for a root with `Outcome.ROOT`, counted as the drop `root`. Roots are transient and never persisted; the bus
@@ -621,8 +784,15 @@ How the server runs it (M2-15):
   removing a wire, a device or a group forgets what the bus kept for them.
 - `/mineqtt wires list | add | remove` is the command twin of Link mode (a port is `<device>.<port>` or
   `group.<group>.<port>`; without a mapping `DefaultWiring.mapping`: an event into a toggling state toggles, anything
-  else follows). `DefaultWiring.of(fromType, toType)` gives the pair Link mode offers first: `powered` or `occupancy`
-  follows into `state`, `press` toggles it. `/mineqtt status` shows the wire count and the bus counters; console and
+  else follows). `DefaultWiring.of(fromType, toType)` gives the pair Link mode offers first, the first match of the D15
+  list (M4-1, `DefaultWiring.pairs()`): `press` into `trigger` follows, `fired` into `trigger` follows, `powered` into
+  `state` follows, `press` into `state` toggles, `occupancy` into `state` follows, `signal` into `power` follows, `fired`
+  into `state` toggles. Among the 0.7.0 types this resolves exactly as M3 did (`verifyRuntimeWiring.defaultWiring`
+  compares all ordered pairs with a copy of the M3 list). The shipped M4 types exercise the rest
+  (`shippedTimerWiring`): a Wall Switch's `press` fires a timer (Trigger now), a timer's `fired` fires the next, a
+  Redstone Input's `powered` and a Presence Sensor's `occupancy` arm a timer through `state`, a timer's `fired` toggles a
+  lamp, an output or a plug; the Block Observer's `signal` follows into the `power` of a Redstone Output and of a Smart
+  Plug. A chain of timers wired `fired` → `trigger` is cut at the bus's 16 hops. `/mineqtt status` shows the wire count and the bus counters; console and
   command-block wires are owned by `Util.NIL_UUID`.
 
 Who wires what, and the Configurator's Link mode (M2-16):
@@ -669,6 +839,62 @@ Who wires what, and the Configurator's Link mode (M2-16):
   opens its screen on the Twin tab with a one-shot picker request in its first `TwinView` (`""` asks which target
   first); a device without a twin adapter is told so. No offer is kept: the picker's payloads pass the device screen's
   guard.
+- **Room mode** (M4-15, plan D11): `ConfiguratorMode.ROOM` (`room`, ordinal 5, after Bind); `Held.CONFIGURATOR_ROOM`
+  gives `Outcome.ROOM` whether sneaking or not. Within hand reach the `BaseMqttBlock` RIGHT_CLICK_BLOCK handler sends
+  only a sneaking Room-mode click on a block that is no MineQTT block to `items/ConfiguratorRoom.clickBlock` (the room
+  pick); an ordinary click goes to the block's own use first, and a block that does nothing with it passes the click on
+  to `CyberdeckItem.use`, whose `clickAtRange` makes it a corner (see *The Room mode's clicks* under Rooms). `click()`
+  handles ROOM before the USE check (a device is always a corner and never used); beyond reach `CyberdeckItem.use`
+  calls `clickAtRange` (a pick within 16 blocks, else cancel; a sneak-use there steps the mode as in every mode). Corner A, then B: B is judged by `RoomEdits.createProblem` and either offers a `RoomOffer` through
+  `RoomPromptPayload` (S2C: offer, size, existing name, at most 32 suggestions, `mayForAll`) or tells the refusal in the
+  action bar and keeps A. A sneak-click within reach picks the smallest room the player may edit that holds the block.
+  `ui/RoomNameScreen` answers with `RoomNamePayload(offer, Op {CREATE, RENAME, REMOVE}, name ≤ 132 bytes, forAll)`
+  through `C2SGuard.requireOffer(player, payload, mode, offerOpen, dimension, AABB box, permitted)` (token, not
+  spectator, offer open, Configurator in mode, same dimension, within 17 blocks of the box, `mayBuild && permitted`;
+  pure `boxOfferFacts`), then the same `RoomEdits` path the commands use. Any answer that passes the guard uses the
+  offer up (120 s lifetime). Build rights are checked at the clicked corners when offering and at the normalised
+  corners when applying. `ConfiguratorRoom.tick` (SERVER_POST, registered in `MineQTT`) outlines the pending box and up
+  to 4 rooms within 32 blocks with dust particles sent to that player only (`overrideLimiter`), at most 512 points every
+  10 ticks, while they hold the Configurator in Room mode and may build.
+- **Devices tab** (M4-16, plan D13; `ui/explorer`). The explorer's tabs are Devices (`cyberdeck_devices`, opened first),
+  Settings, Traffic (the former Explorer tab, id `cyberdeck_explorer` unchanged) and Publish. `ExplorerQueryPayload(query
+  ≤ 64, room ≤ 32, page)` passes `C2SGuard.requireCyberdeck` and the open menu's own `TokenBucket` (burst 6, 4/s,
+  `CyberdeckMenu.takeExplorerQuery`); `ExplorerDirectory` answers with `ExplorerPagePayload(ExplorerPage)` (≤ 64 KiB;
+  the page echoes query, room and page so the client drops stale answers, and carries its `Scope`). Scope: `ALL` for an
+  operator who may build, else `OWN` (the viewer's own devices that they may also configure; another player's device is
+  never listed, whatever its access mode or the claim), `NONE` for a player who may not build. Search over name, slug,
+  model and type id (normalised: stripped, sanitised, lower case), pages of 50. Since M4-18 the rows are grouped by
+  room: rooms first (by name, then id), devices in no room last, by name then slug inside each; the `room` filter
+  matches a room's name ignoring case (two same-named rooms of different owners pass together in an operator's view).
+  A row (`ExplorerPage.Row`) has its `Kind` (DEVICE or GROUP), name, slug, model, availability (online, no broker,
+  queued, unavailable, faulted, unknown type, from `ConsoleView.state` and the type's `UnloadedPolicy`), a detail, up to
+  3 values from `type.outputs` (no settings, no `location`; sanitised, cut to 32 code points), dimension, distance, an
+  8-way bearing, `usable` (the type has a `use()` action), its room as an index into the page's `rooms`
+  (`RoomRef(id, name, devices)`, at most 64, the rooms of the devices the player finds whatever the search) and a
+  group's member count. A room header does not say whether the room's name matches a Home Assistant area (D13's
+  "HA area" marker is not built). Group rows are listed for scope `ALL` only, without actions. The `You` record (`You.of`: the
+  player's choice, what is shared and offered, the host flag, up to 12 report lines of `/mineqtt privacy`, and for an
+  operator up to 16 presence devices as name and online/offline, no coordinates, the rest counted) rides on page 0 of
+  an unfiltered, unsearched page, also in adventure mode. The codec stays within 64 KiB and refuses a row whose room
+  index points past the page's rooms. The client debounces searches (250 ms), resends unanswered ones (1 s, 3 times),
+  asks for the shown page again every 2 s and at once after any action.
+- **Explorer actions** (M4-18, M4-19; `ui/explorer/ExplorerActions`). Selecting a row offers Use (usable types only),
+  Locate and Open; a room header offers All on and All off; the You row offers Presence, All (only where the server
+  shares full data) and Off. `ExplorerActionPayload(UUID target, Kind)` (Kind USE, LOCATE, OPEN, ROOM_ON, ROOM_OFF;
+  for the room kinds the target is a room id) and `PrivacyChoicePayload(PrivacyCommands.Choice)` pass
+  `C2SGuard.requireCyberdeck` and one per-screen `TokenBucket` (burst 4, then 2 per second,
+  `CyberdeckMenu.takeExplorerAction`), under the global C2S limit. Every action asks the listing rule afresh
+  (`ExplorerDirectory.finds`: a non-op must own the device and may configure it, an op who may build reaches all), so
+  no action reaches or reveals a device the tab would not list; an unknown id gets the same answer as a foreign one.
+  Use: `DeviceRuntime.explorerUse(record, player)` runs the type's `use()` through `action()`, so it goes through `set`
+  and `command(PLAYER)`; `mayInteract` is asked on the device's own level for a loaded device; an unloaded `QUEUE`
+  device queues, an unloaded `UNAVAILABLE` one is refused with the reason. Locate (`located`): END_ROD particles sent
+  to that player only, over a column 8 blocks high, every 10 ticks for 100 ticks, within 128 blocks
+  (`ExplorerActions.tick` at SERVER_POST, `forget` at PLAYER_QUIT, `clear` at SERVER_STOPPING), else how far and where.
+  Open (`opens`): the device's screen within 16 blocks, measured from the eyes to the block like `C2SGuard.reaches`,
+  else the distance. The room kinds need a room visible to the player (`RoomRules.visibleTo`) and go to
+  `DeviceRuntime.roomSwitch` (see Rooms). The privacy choice runs `PrivacyCommands.share`, the command's code path,
+  and answers in chat with the command's lines.
 - **Links list**: `DeviceLinks` (rows of wire id, direction, the device's port, the other end as name and port, the
   group, mapping, enabled; at most 64 with the total) is its own S2C payload, not part of the `DeviceView`, whose bytes
   it would crowd: sent right after a device screen's open data (`DeviceRuntime.sendLinks`) and at the end of a tick to
@@ -683,6 +909,93 @@ Who wires what, and the Configurator's Link mode (M2-16):
   only command entities), a **MineQTT Bridge** device (keyed by the world
   UUID, so a `bridgeId` change does not orphan it) as `via_device` of every device. The primary entity has
   `name: null`, so HA names it after the device (`light.kitchen`).
+- **World telemetry and player events** (M4-7, M4-8, plan D6, D7). The pure part is `telemetry/core`
+  (`verifyCoreIsolation` scope `telemetry.core`: JDK, Gson, `GameClock`, `TokenBucket`): `WorldReading` (what the server
+  reads), `Weather`, `TelemetrySnapshot` (the D6 JSON: `players_online`, then with world keys `players` (sorted ignoring
+  case, always present), `tps` (0 while frozen, capped at the tick rate), `mspt`, `time_of_day` (15-minute steps),
+  `day`, `is_day`, `weather`, then the drop counters), `TelemetryThrottle` (sampled every 1 s; players, `is_day`, weather
+  or the key set publish after a 2 s floor, the rest at most every `telemetry.intervalSeconds` (5-300) with the TPS 0.5
+  and MSPT 1.0 deadbands measured from the published value), `NamePolicy` (the one name gate: `publishPlayerNames &&
+  the server shares players && consent(uuid)`; `TelemetrySampler(server, Predicate<UUID> consents)` takes the consent
+  from `PlayerPrivacy` since M4-11),
+  `PlayerEventMessage` (join and leave, named only when allowed; death (its `death.attack.<msgId>` key, never the
+  rendered message) and advancement (announced, displayed, not hidden) only for a player who may be named) and
+  `EventLimiter` (per player and type 5 s for join and leave, 1 s for death and advancement, then a bridge
+  `TokenBucket(10, 10/s)` whose drops count). `telemetry/TelemetrySampler(server)` reads the player list, the tick
+  manager, `getAverageTickTimeNanos()` (vanilla's rolling average), `WorldClock.overworldTicks` and the overworld's rain
+  and thunder. `ha/BridgeDevice(mqtt, topics, Supplier<WorldReading>, Supplier<Settings>, clock, republish)` samples on
+  the wall clock, keeps `lastTelemetry()`, publishes `publishPlayerEvent` on `bridge/event` (`Outbound.event`: QoS 1,
+  never retained, dropped offline) and adds `dropped()` of the limiter to `dropped_outbound`. Its new components
+  (`mineqtt_bridge_<uuid32>_<key>`): `tps` (diagnostic), `mspt` (diagnostic, disabled), `time_of_day`, `day`
+  (measurement), `is_day` (binary sensor), `weather` (enum) with templates that read `None` while a key is absent
+  (`telemetry.enabled` off keeps them discovered and unknown), `player_event` (event: join, leave, death, advancement), and
+  `players` as `json_attributes` of `players_online`; the 0.7.0 components keep their unique_ids. `telemetry/PlayerEvents`
+  (registered once in `MineQTT.init`) maps Architectury's PLAYER_JOIN, PLAYER_QUIT, LIVING_DEATH (server players) and
+  PLAYER_ADVANCEMENT to the running runtime's bridge; both loaders fire the advancement once per completion. A server
+  paused while empty samples only when something else pumps it.
+- **Consent** (M4-11, plan D9; `presence/`). `Consent` (UNSET, PRESENCE, FULL, OFF; `effective(singleplayerOwner)`:
+  UNSET counts as PRESENCE only for the integrated host, never for LAN guests or on a dedicated server).
+  `PlayerEntry(uuid, consent, asked, name, slug, lastSeenDay, fullDiscovered)` lives in the registry; it keeps a name
+  (16 code points, no control characters), a slug and the last UTC day seen only while the player consents, and
+  `forgotten()` keeps consent and `asked`. `PrivacyPolicy(mode, publishPlayerNames)` is the one rule: the config only
+  narrows (`shared(effective)` caps a stored FULL at the mode, and a wider mode later honours it), `prompt(entry, host,
+  bridgeShares)` asks once (a broker configured and `ha.expose` not NONE; the host gets a note instead of the choices;
+  *[Share all]* only in `FULL`), and `report` builds `/mineqtt privacy`. `PlayerPrivacy` (`MineqttRuntime.privacy()`)
+  handles joins (a never-consenting, never-asked player leaves no entry) and `choose(player, consent)`, the one path of
+  the command and of any later screen, and tells its listeners (`PresenceRuntime`). `PrivacyCommands`: `privacy` (no
+  requirement; its leaves need a player) with `share on|full|off`, and `players list|forget <player>` (level 2). The
+  prompt's buttons are `ClickEvent.RunCommand("/mineqtt privacy share <word>")`.
+- **Presence devices** (M4-12, M4-13, plan D10). `PresenceDevice.objectId(worldUuid, player)` is `mineqtt_player_`
+  plus the first 32 hex of sha256(world UUID bytes ‖ player UUID bytes), so ids differ per world and show no Mojang
+  UUID. The discovery: device "Player <name>" (model "MineQTT Player", `via_device` the bridge), availability the
+  bridge's state only, QoS 1, the primary `presence` binary sensor (ON/OFF, device class presence) on
+  `<base>/<bridge>/player/<slug>`. `PresenceRuntime` (a `PlayerPrivacy.Listener`, `MineqttRuntime.presence()`) creates
+  the device on a join or a choice (slug `player_<name>`, unique, kept across renames), publishes ON at a join and OFF
+  at a quit and at a graceful stop (before the MQTT close), republishes every state (offline OFF) at each CONNACK and
+  birth, so a crash leaves no stale ON, and removes it (two KEEP clears) on `share off`, `players forget`,
+  `telemetry.forgetAfterDays` (UTC days since `lastSeenDay`, checked at start and every 20 real minutes, never for a
+  player online), mode OFF or the names veto (consents kept). At `telemetry.maxPresenceDevices` it refuses new devices
+  (no eviction) and tells the operators online once. Discovery goes only while `ha.expose != NONE` (OPT_IN included)
+  and within `DiscoveryPublisher.tryTakeToken`; clears and states are not rate limited. Full sharing (`FullSample`:
+  health to 0.5, dimension, block x/y/z; sampled once a second; `due()`: the first, a dimension change at once, else
+  ≥ 5 s and ≥ 4 blocks or a health change ≥ 1; a 20/s `TokenBucket` for sampled updates only) adds the health,
+  dimension and position sensors (`PresenceDevice.fullComponents`; position with `json_attributes` x/y/z). Narrowing
+  removes them through `DiscoveryPublisher.componentsRemoved`; `PlayerEntry.fullDiscovered` persists that the full
+  config was published, so a restart re-issues a removal that Home Assistant missed, instead of the in-memory mark
+  (which would remove at every restart for every presence-only device). An offline state never carries a reading.
+- **Suggested area** (M4-14). `DiscoveryPublisher` adds `dev.sa` for a device inside a room (`area(DeviceRecord)`) and
+  for a group whose members are all in one room (`area(DeviceGroup)`); the overloads without an area keep the older
+  golden messages byte for byte. Since M4-23 the area is Home Assistant's spelling of a catalog area whose key
+  matches the room's name (`RoomRules.area`, see Rooms), else the room's name. `DeviceRecord.discoveryArea` (the third
+  flat key of `DISCOVERY`, the area or `""`; not for a v1-merged lamp, whose device Home Assistant already has) is the
+  area of the message that **first** created the device in Home Assistant: `publish` records it only while it is
+  absent (`Subject.createdArea`), and since the M4 fix of the kept-area hint hiding, `/mineqtt discovery clear` and a
+  prefix change keep it. An absent `discoveryArea` (devices discovered before 0.8.0) reads as no area.
+  `DeviceView.Registration.keptArea` compares it with the current room by `AreaNames.key`, so case and spaces never
+  give a hint. MineQTT cannot see Home Assistant's area registry, and the versions differ (measured): both create the
+  device and a missing area for a new device and keep the area of a device that has one; for a known device without an
+  area 2026.10.0 keeps none while 2025.2.5 moves it into the suggested area; a device hidden and exposed again gets its
+  old area back on 2026.10.0 and the current room on 2025.2.5. So the General tab's hint says which area Home
+  Assistant was first told (`mineqtt.device.room.kept`) or that it got none (`room.kept_none`) and never claims what
+  Home Assistant did; on 2025.2.5 it may show while Home Assistant already agrees.
+- **Broadcast text** (M4-22, plan D8). Off by default (`telemetry.allowBroadcast`; Fabric reads it at start, NeoForge's
+  config watcher applies it live). `telemetry/core/BroadcastText.parse(byte[])` refuses more than 1 KiB before
+  decoding and anything that is not strict UTF-8; `clean` removes `§` with the code point after it, bidi controls
+  (U+202A–U+202E, U+2066–U+2069, U+200E, U+200F, U+061C) and ISO controls, collapses whitespace to one space and cuts
+  to 256 code points (never splitting a surrogate pair, never ending on a space); an empty result is refused;
+  `Limiter` is a `TokenBucket` of 3, refilled at 1 per second. `BridgeDevice.onRequest` ignores retained requests (the
+  stored copy is never replayed; a live `pub -r` reaches current subscribers as an ordinary message), answers
+  `broadcast disabled` while off, `rate limited` over the bucket, and logs each shown text with its topic.
+  `MineqttRuntime.showBroadcast` sends `[MQTT]` (lang `mineqtt.broadcast.prefix`, dark aqua) and the text as a literal
+  to every player; it is never a command or a JSON component. While on, the bridge's discovery has the `broadcast` text
+  entity (`BridgeDevice.broadcastComponent`: `command_topic` `bridge/request/broadcast`, `retain` false, `max` 255, Home
+  Assistant's own limit for an MQTT text, `entity_category` config, the bridge's availability, no state topic).
+  `DiscoveryPublisher.bridgeConfig()` builds the bridge message per the key, `bridgePublished` sets the registry mark
+  `bridgeBroadcastDiscovered` when a message with the entity went out, and `removeBroadcast()` (from `republishAll()`
+  and `configChanged()`) runs `bridgeComponentsRemoved({broadcast})` while the key is off and the mark is set, clearing
+  the mark once Home Assistant is online. A discovery clear, a prefix change and a bridge without discovery clear the
+  mark. Until Home Assistant's birth is heard on the current connection each connect, republish and config save with
+  the mark set re-issues the stub (harmless); the first online birth runs DISCOVER then REMOVE once.
 - **Reduced discovery of bound devices** (M3-7). A device bound to a source keeps its `dev`, `o`, availability and
   identifiers, but its `cmps` hold every declared entity as a platform-only stub `{"p": …}` plus the disabled
   diagnostic `binding` sensor (`<objectId>_binding`, reading `binding.entity` and `binding.health` from the device's
@@ -697,6 +1010,30 @@ Who wires what, and the Configurator's Link mode (M2-16):
   The stubs stay in the retained reduced message. One mark serves one Home Assistant per broker. A refused binding is
   still reduced; targets alone give the full config. 2025.2.5 cannot remove a disabled, unloaded entity through
   discovery, so a disabled Binding entity stays there after unbinding.
+- **Cleanups by object id and component removal** (M4-1). The M3-7b cleanups are kept by discovery object id (a
+  device's derives from its UUID; the device path is unchanged). `componentsRemoved(objectId, removed, current)` runs
+  the same removal for an object whose message the publisher does not build from a record (M4's presence devices) and
+  `bridgeComponentsRemoved(removed)` for the bridge's own message (the broadcast text): each removed component, as it
+  was last published, becomes a platform stub, then the steady message follows `CLEANUP_STEP_MILLIS` later, or sooner
+  on Home Assistant's clear; offline it is marked and runs at the next birth. While other components remain, both
+  pinned Home Assistant versions remove the stubbed one at once and publish no clear (checked on both before M4-2), so the step
+  ends the removal; entity ids and user renames of the remaining components are kept. These marks are in memory only (a restart
+  before the birth or a discovery-prefix change forgets them, so their owners re-issue a removal at start). A component
+  the message declares in full again before a step (turned back on, say while Home Assistant was offline) leaves the
+  removal, so it is never stubbed nor replaced by its old definition; with none left the current message ends the
+  removal and its mark. The object id of any registry device or group is refused: devices drop components only
+  through their binding, groups never.
+- **M4 discovery seams** (M4-1, used since M4-2 and M4-9). `HaEntity.Sensor.jsonAttributes(field)` adds `json_attributes_topic`
+  (the state topic) and a `json_attributes_template` that gives `{}` when the key is missing.
+  `HaEntity.Text.pattern(regex)` adds `pattern`: at most 128 characters in the subset Java, JavaScript and Python read
+  alike (`Text.patternProblem`). `Ha.selectDynamic(key, field, Supplier<List<String>>)` is a select over a TEXT or ENUM
+  field whose options come from a source at publish time (sorted, distinct, at most 128; `Select.valueTemplate` can
+  strip block properties); the options are part of the discovery hash, an empty or failing source makes the select
+  a platform-only stub `{"p":"select"}` kept in the retained message (never an empty select, which Home Assistant
+  refuses, and never left out, which would leave the old select there); a Home Assistant online since it discovered
+  the select removes it without clearing the device, one that was offline keeps it unavailable until the options come
+  back (no cleanup can discover a select without options first), and `refreshDynamicOptions()` re-checks every device
+  and group with such a select (after a datapack reload).
 - **Availability** is `[bridge/state, <slug>/availability]` with `availability_mode: all`. The bridge's own
   connectivity sensor has no availability, so it shows `off` (not unavailable) when the bridge is offline.
 - **Connect sequence** (every CONNACK): bridge `online`, one batched SUBSCRIBE, force unattached sensors `offline`,
@@ -709,7 +1046,16 @@ Who wires what, and the Configurator's Link mode (M2-16):
   `GhostCleanup.judge` keeps everything but a **retained** config whose object id is exactly `mineqtt_<uuid32>` (lowercase,
   as `DeviceRecord.objectId` writes it), whose id `DeviceRegistry.contains` denies (devices and groups), that is at most
   16 KiB (checked before parsing; the subscription's own cap is unlimited so a large foreign config is not logged as a
-  drop) and whose `dev.via_device` (or `device.via_device`) is this bridge's `mineqtt_bridge_<worldUuid32>`. Live
+  drop) and whose `dev.via_device` (or `device.via_device`) is this bridge's `mineqtt_bridge_<worldUuid32>`; since
+  M4-12 also such a config of `mineqtt_player_<32hex>` that no player entry of this world has
+  (`GhostCleanup(..., Predicate<UUID> known, Predicate<String> knownPlayer, ...)`, `playerId(prefix, topic)`; each
+  clear is re-checked per kind at release). The same window subscribes to `TopicScheme.playerRoot()` + `/+` (this
+  bridge's presence states, read at each connect, so a moved root moves the scan) and `judgeState` clears a retained
+  state whose slug no player entry holds (`PresenceRuntime.knowsSlug`): its topic names the player and a full reading
+  holds their position. When the topics move during a run (`reconnect`, a connection settings change),
+  `PresenceRuntime.topicsChanged(before)` clears every device's state under the old root, and `/mineqtt discovery clear
+  <old bridge>` clears the presence states under that bridge id too. A base topic or bridge id changed while the server
+  was stopped leaves the old root's states on the broker (no old root is kept). Live
   messages are ignored: own republishes and clears arrive live, and a live config naming this bridge could only come from
   a server running a copy of the world. Clears are `Outbound.clear` released through `DiscoveryPublisher.tryTakeToken`
   (the shared 50 msg/s budget), re-checked against the registry at release; a lost connection ends the scan and drops
@@ -724,8 +1070,9 @@ Who wires what, and the Configurator's Link mode (M2-16):
   OPT_IN a group is discovered only while a member's own setting is on, or when it replaces a v1 topic
   (`DiscoveryPublisher.exposed(DeviceGroup)`), so any player may make a group without making a Home Assistant device;
   `setExpose`, `leave` and `forget` refresh the group's discovery. Exposing a device needs op level 2 or
-  `mineqtt:ha.expose` (`AclContext.mayExpose(PermissionSet)`) plus CONFIGURE on the device; the `/mineqtt` root admits
-  holders of that permission, so every other subcommand carries its own op requirement.
+  `mineqtt:ha.expose` (`AclContext.mayExpose(PermissionSet)`) plus CONFIGURE on the device; `devices` and
+  `devices expose` require `mayExpose`, and every other subcommand carries its own op requirement (the root has none
+  since M4-0, see [Security](#security)).
 - **v1 migration, per topic** (`LegacyDiscoveryMigration`): `{"migrate_discovery": true}` on the old
   `homeassistant/light/<id>/config`, ≥2 s later the new device config carrying the v1 unique_id on its light, ≥2 s later
   an empty retained payload on the old topic; the topic is marked done on that PUBACK. HA keeps the entity registry
@@ -820,7 +1167,7 @@ in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wi
   | a twin apply (`command(…, TWIN)`) | `TWIN` |
   | a device's `/set` topic | `HA` |
   | a player's use, a C2S payload, a command twin | `PLAYER` |
-  | a Raw Link, a legacy group's v1 topic, a v1 Block Emitter's broker message (`DeviceRuntime.fromBroker`) | `RAW` |
+  | a Raw Link (the Block Placer's included), a legacy group's v1 topic | `RAW` |
   | `powerOnRecords` and the whole attach (queued commands landing included) | `STARTUP` |
   | group fan-out and wire seeds | the outer root |
   | block tickers, neighbour updates, hands | the current root, else `WORLD` |
@@ -834,8 +1181,8 @@ in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wi
   Everything emitted in a TWIN extent carries `TWIN`, and the bus keeps it through hops, holds and carry-over. (3) No
   nested extent clears an outside root, and the attach and the queue's landing are `STARTUP`, so neither a nested
   command nor a queued `/set` turns incoming state into a player's or the world's. (4) Every path on which a broker
-  message changes the world synchronously opens an outside root: `/set` topics (`HA`), Raw Links and legacy groups and
-  the v1 Block Emitter (`RAW`), the twin (`TWIN`). (5) So no request is causally downstream of incoming state within
+  message changes the world synchronously opens an outside root: `/set` topics (`HA`), Raw Links (the Block Placer's
+  included) and legacy groups (`RAW`), the twin (`TWIN`). (5) So no request is causally downstream of incoming state within
   one tick's synchronous chain. Outside the proof: delayed redstone (repeaters, observers, scheduled ticks start a new
   `WORLD` chain, also after a `RAW`, `HA` or `TWIN` cause) and Home Assistant automations that write raw topics; the
   rates, the dedupe and the breaker bound them (`verifyMirrorNoLoop`'s repeater loops). M6's logic nodes must carry
@@ -846,7 +1193,7 @@ in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wi
   `bridge/ha_sync` 5 s after every CONNACK and Home Assistant birth. The picker and `/mineqtt twin entities` rank
   through `EntitySearch`; drift (a catalog entry moving twice without a live statestream value, where a move counts only
   when the state or the whitelisted attributes changed, so Home Assistant's re-dating of restored entities at a start
-  is none; `EntityDocuments.changedContent`, wave 7) is reported for mirrored entities only, never for trigger domains.
+  is none; `EntityDocuments.changedContent`) is reported for mirrored entities only, never for trigger domains.
 - **Presets.** An MQTT device preset is a document synthesiser for one Home Assistant kind (`BindingPreset`): its state
   topic's payload becomes an `EntityDocument`, the adapter reads and forwards it unchanged, and `render` turns the
   adapter's `Call` into the device's command through typed placeholders. The source is `TopicRef(stateTopic, "")`
@@ -860,17 +1207,42 @@ in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wi
 
 ## Security
 
+- **The `/mineqtt` root is open** (M4-0, D14): it has no requirement and runs nothing; every child carries its own
+  (`publish` level 3; `status`, `reconnect`, `group`, `wires`, `discovery`, `twin` level 2; `devices` and
+  `devices expose` `mayExpose`, every other `devices` child level 2; `players` level 2), and the player commands
+  `privacy` (M4-11) and `rooms` (M4-14) are open literals whose leaves judge the source. There is one
+  `literal("mineqtt")` registration; `verifySecurityGuards.openCommandRoot` asserts the matrix per permission level and
+  the tab completion each source is sent (`CommandNode.canUse`, `OPEN_LITERALS`). `AclContext.ROOMS_ADMIN`
+  (`mineqtt:rooms.admin`) with `mayAdminRooms` (op level 2 or the atom) makes rooms for everyone (`forAll`).
+- Player topics (M4-12): `TopicAcl.Exposure.Kind.PLAYER` for `player/<slug>`; `AclContext.mayReadPlayerTopic(subject,
+  slug, slugOf)` shows one in the explorer to admins (`mineqtt:admin` or level 3) and to the player whose slug it is
+  (`CyberdeckSessionManager`), and nobody publishes there.
+- The explorer's Devices tab never lists another player's device: a non-op sees devices they own and may configure,
+  even where the claim or the access mode would let them configure a stranger's (stricter than the Bridge Console's
+  list); an operator who may build sees all, a player who may not build none (M4-16). Its actions (M4-18, M4-19:
+  `ExplorerActionPayload`, `PrivacyChoicePayload`, both with enum codecs that refuse an unknown ordinal) pass
+  `C2SGuard.requireCyberdeck`, a per-screen bucket (burst 4, 2/s) and the same listing rule again for every target, so
+  Use, Locate and Open never reach or reveal another player's device; an unknown id is answered like a foreign one.
+  A room switch reaches only the player's own devices with a state (at most 64, once a second per player); the console
+  switches every device in the room.
+- Broadcast text (M4-22) is off by default. It is never a command or a JSON component: a literal behind a fixed
+  `[MQTT]` prefix, at most 1 KiB before decoding, cut to 256 code points with formatting codes, control and bidi
+  characters removed, 3 at once then 1 per second, retained requests ignored, each shown text logged with its topic.
+  Nobody in the game may publish under `bridge/` (`DENY_BRIDGE`, another bridge's `DENY_FOREIGN_BRIDGE`); restrict
+  `<base>/+/bridge/request/#` in the broker ACL.
 - `TopicAcl` (pure, in `mqtt/core`) decides every topic a player, a block or a command uses. Hard denies (discovery
   prefix, this server's bridge namespace except `raw/`, every server's `bridge/` level under the base topic and under
   `mineqtt` (`DENY_FOREIGN_BRIDGE`), the statestream base (`DENY_STATESTREAM`), `$SYS`, other players' private
   subtrees) apply even to ops; listening on the statestream base needs `mineqtt.admin` (`mineqtt:admin` or op level 3,
   `DENY_STATESTREAM_LISTEN`), and the explorer shows non-admins only the size of the twin's `bridge/ha_*` messages and
-  hides statestream topics. v1 blocks (`checkLegacy`) have no admin and show what they receive, so they never listen
-  on the statestream base (`DENY_STATESTREAM_LEGACY`) or on any bridge's `bridge/ha_*` (`DENY_TWIN_TRAFFIC`). An MQTT
+  hides statestream topics. A legacy group's v1 topic (`checkLegacy`, the topic the group follows and echoes to) has no
+  admin, so it never follows the statestream base (`DENY_STATESTREAM_LEGACY`) or any bridge's `bridge/ha_*`
+  (`DENY_TWIN_TRAFFIC`); every other v1 topic is a migrated device's Raw Link and goes through `checkPublish` with its
+  grandfather flag (M4-20). An MQTT
   device preset's state topic (`checkTopicSource`, M3-17) follows `checkMirror` but, for every subject including admins
   and the console, never overlaps the statestream base (`DENY_STATESTREAM_SOURCE`) or the twin's traffic; its command
   topic needs `checkPublish`. Neither a preset's state topic nor a v1 listener reaches this server's device and group
-  topics (`DENY_DEVICE_TOPICS`, wave 6 review: a bound device's state names its entity, and the explorer shows those
+  topics (`DENY_DEVICE_TOPICS`: a bound device's state names its entity, and the explorer shows those
   topics only to players who may configure the device); its `bridge/` and `raw/` subtrees stay open. A binding's entities (Twin tab, status line, Raw Link status) reach only viewers with
   CONFIGURE (M3-13). The raw allowlist (`acl.rawAllow`) comes from the config; v1 topics of migrated devices are
   grandfathered per owner. `MineqttRuntime.createAcl` always passes the normalised `twin.statestreamBase`, so a reload
@@ -879,7 +1251,7 @@ in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wi
   the permission dedicated) and `twin.allowedEntities`, which nobody bypasses (`AclContext.twinBindRefusal` takes no
   subject). They are server-wide atoms, not `MineqttPermission` claim permissions: a twin edit also needs CONFIGURE on
   the block, which carries the P2 rule (no CONFIGURE for a player who may not build).
-- The Twin tab's preset search (`TwinSearchPayload` of kind `PRESET`, wave 7) shares the entity search's guard
+- The Twin tab's preset search (`TwinSearchPayload` of kind `PRESET`) shares the entity search's guard
   (`requireDevice`, CONFIGURE), per-player bucket and `twin.bind` requirement, is answered only for `twin.device` on a
   type with a source (`TwinPicker.searchable`), and never asks the Home Assistant twin.
 - Twin keys (`twin.*`, M3-7) need CONFIGURE plus the twin gate (`TwinRules.edit`): `mineqtt:twin.bind` and
@@ -907,14 +1279,29 @@ in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wi
   limited, and paths without a placing player (`/setblock`, `/clone`, structures) are not checked. A claim of an
   ownerless device (`DeviceRuntime.claim`: the Access tab's claim button and `/mineqtt devices claim`) is refused
   likewise for a player at the limit.
-- The Block Placer (ex block emitter) is off unless `blockPlacer.enabled`. MQTT never runs server commands.
+- The Block Placer (ex block emitter) is off unless `blockPlacer.enabled`, and then subscribes to nothing. It places
+  only `#mineqtt:placeable` minus the hard denies (`PlacerRules`), never with NBT or block entity data, never from a
+  retained message, at most 4 actions a second, within the world border and outside spawn protection, across a claim
+  line only for an online owner who may build there, and clears only its own block; on a dedicated server only operators
+  configure it unless `blockPlacer.playersMayConfigure` ([Devices](#devices)). The Block Observer exports block entity
+  data only under `blockObserver.exportBlockEntityData` and within one claim, never to Home Assistant. MQTT never runs
+  server commands.
+- Player data: nothing names a player without consent (`NamePolicy`, `PrivacyPolicy`, [Home Assistant](#home-assistant)); joins and
+  leaves of other players are published anonymously, deaths and advancements not at all. Presence ids are salted per
+  world; the Bridge Console names players only to operators.
+- Rooms (M4-14, M4-15): commands and the Room mode go through `RoomEdits` (build rights at both corners, size and count
+  caps, `forAll` only with `mayAdminRooms`); `RoomNamePayload` passes the box-offer guard of `C2SGuard.requireOffer` and
+  answers only the player's open offer.
 
 ## Migration of v1 worlds
 
-- Block, item and BE-type ids are unchanged. The two unmigrated blocks, the Block Sensor (publishes) and the Block
-  Emitter (subscribes), keep their exact v1 NBT and run on `LegacySubscriptionFacade` (registration only for server BEs,
-  hard-deny ACL, no-local + loopback). Since M2-26 they extend `BaseMqttBlockEntity` directly; the v1 base classes
-  `MqttPublisherBlockEntity`/`MqttSubscriberBlockEntity` and the `SubscriptionManager` delegator are gone.
+- Block, item and BE-type ids are unchanged. Since M4-9 and M4-10 no block ran on the legacy subscription facade any
+  more (the Block Sensor and the Block Emitter, its last users, became the Block Observer and the Block Placer), and
+  M4-20 removed it with `ICallbackTarget`. The v1 base classes `MqttPublisherBlockEntity`/`MqttSubscriberBlockEntity`
+  and the `SubscriptionManager` delegator are gone. A migrated v1 Block Sensor's or Block Emitter's topic follows the
+  device Raw Link rules (grandfathered for its owner, under the hard denies), so a topic that is a wildcard filter,
+  longer than 256 bytes, under the discovery prefix (e.g. `homeassistant/status`) or under any bridge's `bridge/`
+  level no longer works after the upgrade; `/mineqtt devices info` shows why.
 - A migrated type reads v1 NBT through `LegacyNbtV1` when the `mineqtt` compound is missing and keeps writing v1 keys
   until the device has attached; adoption happens at attach (`LegacyAdoption`).
 - The Smart Plug (M2-18) was a legacy block through M1 and most of M2, so its data can also carry the `ownerUuid` the
@@ -995,33 +1382,74 @@ in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wi
   visiting the lamps. The v1 file is read, never written or renamed.
 - Config files migrate to `configVersion: 2` on both loaders; the v1 file is kept as `mineqtt.json.v1.bak` /
   `mineqtt.toml.v1.bak`.
+- **Narrowing keys** (M4-7). `telemetry.players` and `telemetry.publishPlayerNames` fall back to the narrowest value
+  (`OFF`, `false`) when present but invalid, not to the default: `ConfigValidation.telemetryPlayersOrNarrowest` and
+  `publishPlayerNamesOrNarrowest` take the raw value (any-case names; booleans or `"true"`/`"false"`), an absent key takes
+  its default. On NeoForge both keys use the validator `isPresent` (`v != null`), so NeoForge never corrects a present
+  value to the widest default at load or on a file-watcher reload; `TELEMETRY_PUBLISH_PLAYER_NAMES` is a plain
+  `ConfigValue<Boolean>`, read raw, and `MineQTTConfigScreen` seeds a telemetry section into `sectionCache` that draws it
+  as an on/off button. The narrowed values live in memory; the file keeps its text until the next save, as on Fabric.
+- **Timers, Block Observer and Block Placer** (M4-3, M4-9, M4-10) adopt v1 data through `LegacyNbtV1` (`hasTimerKeys`,
+  `hasSensorKeys`, and the common v1 snapshot for the emitter) and keep writing it back until their first attach ([Devices](#devices)). A timer's
+  v1 slots never published, so it takes no Raw Link; the observer's topic becomes an unretained Raw Link output, the
+  emitter's a Raw Link input that takes no retained message. A downgrade to 0.7.0 resets their settings.
+  An upgrade from 0.7.0 is proven on both loaders by `e2e/tools/upgrade07.sh` (e2e checklist item 40): counters,
+  `lastAlarmDay` and owner UUIDs carried, slots as legacy items, an off-minute custom time exact, topics unchanged, the
+  config kept. Known limitation: a Daylight Timer at sunrise that 0.7.0 saved in the 20 ticks before the day turned
+  (between 0.7.0's two fires of that sunrise) fires once more right after the upgrade.
+- **Registry additions of 0.8.0** (M4-11, M4-14, M4-22): the `players` and `rooms` lists, the records' `discoveryArea`
+  and the top-level `bridgeBroadcastDiscovered` need no migration (absent means every consent unset, no room, no area
+  recorded, no broadcast entity to remove). 0.7.0 ignores them, so a downgrade forgets every privacy choice, presence
+  slug and room, and leaves the presence configs it does not know on the broker.
 
 ## Testing
 
-- `./gradlew check` runs plain `main`-method checks: `sensorChecks` (bootstrapped Minecraft: block sensor, emitter,
-  timers, value codecs, registry round trip, lifecycle guards, legacy NBT migration, discovery payload golden files,
+- `./gradlew check` runs plain `main`-method checks (37 tasks): `sensorChecks` (bootstrapped Minecraft: the Block
+  Observer (`verifyBlockSensor`), the Block Placer and its rules (`verifyBlockEmitter`), the timers (`verifyTimers`, with
+  `verifyAlarmClock` and `verifyGameTimeTimer`; since the clock fix also a standing clock), `verifyPrivacy` (the consent
+  matrix, the prompt and its buttons, `/mineqtt privacy`'s report, player entries, and `PresenceLifecycleCheck`: presence
+  devices from consent to removal, slugs, the cap, forgetting, the crash rule, full sharing with its deadbands and
+  budget), `verifyRooms` (corners, names, sizes, counts, which room a device is in, the dirty set, a group's room,
+  references, offers, outlines, suggestions with Home Assistant's area names, `RoomRules.area`, the room switch's
+  targets, cap and rate), value codecs, registry round trip, lifecycle guards, legacy NBT migration, discovery payload golden files,
   config migration, security guards, `verifyDeviceTypes` (derived and frozen ports, strict settings and link settings,
   which port pairs a wire may join, the default wiring and the bus routing over a registry, the device view's stream
   codec and 32 KiB cap), `verifyMirrorNoLoop` (the mirror route table, the twin type build rules, reading and
   forwarding of a synthetic twin type and the Smart Lamp, the side doors of bound devices, 1000 seeded statestream sequences through a real bus, roots through a real `MessageBus` and the real `TwinRequests`: the root gate, dedupe,
   rates, the breaker, answers, `powerOnRecords` as `STARTUP`; M3-12's Output and Plug level sequences and forwards;
   M3-14's targets through the real `DeviceRegistry`, `TwinWiring` and `RegistryWiring` and the repeater loop against the
-  breaker; M3-15's read-only panel; wave 6: presets through the real bus and `TwinRequests`, the fast repeater loop
-  ending paused, rate refusals, target sharing; wave 7: the rate listener), `verifyDeviceTabs` (since M3-13 the Twin
-  tab: rows per type, every twin key placed exactly once since wave 7 (no exemption for `twin.device`/`twin.preset`),
+  breaker; M3-15's read-only panel; M3-17's presets through the real bus and `TwinRequests`; the fast repeater loop
+  ending paused, rate refusals, target sharing and the rate listener), `verifyDeviceTabs` (since M3-13 the Twin
+  tab: rows per type, every twin key placed exactly once (no exemption for `twin.device`/`twin.preset`),
   editable exactly when the server takes it, the picker's area groups, free text and control filter),
-  `verifySecurityGuards` (32 payloads; the picker's wire caps, views without details, the search bucket; preset
-  bindings; wave 7: `presetSearch()` and `pickerAnswersAndRates()`: the search kind, the answer's domain, resends, the
+  `verifySecurityGuards` (32 payloads: 26 after the timers', the Block Sensor's and the Block Emitter's went, then the Room mode's prompt and answer, the Devices tab's query and page, and its action and privacy choice; the explorer's scope, query bounds, room grouping and filter, group rows per scope and page codec with rooms and the You row; `explorerActions`: the listing rule, Use, Locate, Open, both payloads and the action bucket; the console's World part without names for non-operators; `roomMode` and `roomsCommand`; the Block
+  Placer's configure gate; the picker's wire caps, views without details, the search bucket; preset
+  bindings; `presetSearch()` and `pickerAnswersAndRates()`: the search kind, the answer's domain, resends, the
   view's preset source and rate fields), and `verifyCatalog`: every `Catalog` entry's assets, loot table and lang keys,
   every 26.2 recipe and unlock advancement parsed with the vanilla codecs) and `brokerChecks` (no Minecraft: topic
-  trie, broker URIs, ACL, queues, outbound buffer, `verifyMessageBus` (the flows bus and the coercion table; a target wire carries the out-port value as it is, M3-14), `verifyStatestreamParse` (the twin core against the HA 2026.10.0 statestream capture: raw states, strict attributes, the catalog and the merge table), `verifyValuePath` and `verifyValueMap` (the twin's value paths, value maps and panel layout), `verifyHaCalls` (HA domain ports, the service-call table, the data-key whitelist, impossible calls, one target, privacy domains, D11 switching, D5 edges; it reads `docs/blueprints/automation/mineqtt/` (its task input and argument) through the brokerChecks helper `BlueprintFile`: the control blueprint's services line, defaults, reply rule and guards, M3-10, and the catalog blueprint's attributes line, triggers and topics, M3-11), `verifyStatestreamParse` also covers M3-11's restart snapshot, drift (never for trigger domains; since wave 7 never for a re-dating alone, e.g. two Home Assistant restarts), catalog health, scan and search and targets leaving the catalog, `verifyPresetLoad` (M3-17: the built-in presets, rendering, hostile values, bad datapack files, device names, documents, the ACL of preset topics), and `verifyBrokerIntegration` against an in-process Moquette (scenario 18: the twin's shared statestream subscriptions), MQTT
+  trie, broker URIs, ACL, queues, outbound buffer, `verifyMessageBus` (the flows bus and the coercion table; a target wire carries the out-port value as it is, M3-14), `verifyStatestreamParse` (the twin core against the HA 2026.10.0 statestream capture: raw states, strict attributes, the catalog and the merge table), `verifyValuePath` and `verifyValueMap` (the twin's value paths, value maps and panel layout), `verifyHaCalls` (HA domain ports, the service-call table, the data-key whitelist, impossible calls, one target, privacy domains, D11 switching, D5 edges; it reads `docs/blueprints/automation/mineqtt/` (its task input and argument) through the brokerChecks helper `BlueprintFile`: the control blueprint's services line, defaults, reply rule and guards, M3-10, and the catalog blueprint's attributes line, triggers and topics, M3-11), `verifyStatestreamParse` also covers M3-11's restart snapshot, drift (never for trigger domains, nor for a re-dating alone, e.g. two Home Assistant restarts), catalog health, scan and search and targets leaving the catalog, `verifyPresetLoad` (M3-17: the built-in presets, rendering, hostile values, bad datapack files, device names, documents, the ACL of preset topics), and `verifyBrokerIntegration` against an in-process Moquette (scenario 18: the twin's shared statestream subscriptions), MQTT
   3.1.1 only).
+- `verifyCoreIsolation` scans each Minecraft-free package against its allowed imports: `mqtt.core`, `flow.core`,
+  `twin.core`, the ghost cleanup and, since M4-1, `device.timer.core` and `telemetry.core` (JDK, Gson,
+  `util.GameClock`, `util.CronSchedule`, `security.TokenBucket`/`RateLimit` and their own package) and the single-class
+  scope `clocks` (`GameClock`, `CronSchedule`: JDK only), plus `telemetry.core checks` for `verifyTelemetry`'s sources.
+  The task also runs a self-test each time: its matcher must refuse `net.minecraft` and `DeviceType` imports in a
+  synthetic source. `verifyTelemetry` (brokerChecks) covers the D6 payload, the throttle, the name policy and the player
+  events with their caps, and since M4-22 the broadcast text's cleaning and rate (`broadcastText`, `broadcastRate`).
+  Since M4-20 `verifyTopicAcl` judges the v1 rows as legacy groups' topics (`legacyGroups`) and the former facade
+  blocks' topics as grandfathered Raw Links (`migratedLinks`), and `verifyRuntimeWiring.migratedLinks` holds a
+  placer-shaped input and an observer-shaped output on their topic through an allowlist loss and refuses both under a
+  moved statestream base. `verifyDiscoveryPublisher` covers the broadcast requests and the entity's removal mark
+  (`broadcastRequests`, `broadcastEntity`), the area spelling and the kept first area; `verifyDiscoveryPayloads` has
+  the golden `bridge_broadcast.json`; `verifyStatestreamParse.catalogAreas` the catalog's areas; `verifyPrivacy.guiChoices`
+  the You row's choices.
 - `e2e/` is the manual end-to-end environment: Mosquitto 2 (TCP, TLS, WebSockets), Mosquitto 1.5, and Home Assistant at
   the supported floor and current stable. Its README holds the checklist and the last recorded results, including the
-  MQTT 5 integration run (`-PexternalBroker`).
+  MQTT 5 integration run (`-PexternalBroker`). `ha.py dashboard-check docs/dashboards/mineqtt-world.yaml` holds the
+  example dashboard to entities of MineQTT devices that are registered and enabled.
 - `:fabric:runClientGameTest` runs the Fabric client game tests (`fabric/src/gametest`): a real client joins an
   in-process dedicated server as a non-op player. It opens a game window, so `check` only compiles them; how to run
-  them, the suites (27 entrypoints since M3-13's `mirror` and `bind`; `TwinFixture` gives the twin suites a per-run
+  them, the suites (33 entrypoints since M4's `timers`, `world_devices`, `telemetry`, `privacy`, `rooms` and `explorer`; `TwinFixture` gives the twin suites a per-run
   statestream base) and the helpers are in `e2e/README.md`. `e2e/tools/run-gametests.sh [suites]` runs them one window at a
   time across worktrees (a machine-wide lock; `MINEQTT_LANE` sets the bridge id, `MINEQTT_GAMETEST_SUITES` filters suites).
 

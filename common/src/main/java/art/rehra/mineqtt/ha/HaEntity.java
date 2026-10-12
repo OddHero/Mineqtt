@@ -5,7 +5,12 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.TreeSet;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * One Home Assistant entity of a device type: a component of the device's discovery message (design §4). Entities are
@@ -251,30 +256,46 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
     /**
      * A sensor showing a field.
      *
-     * @param stateClass    e.g. {@code measurement}; null for none
-     * @param valueTemplate replaces the generated template, for fields whose value is not a plain scalar
+     * @param stateClass     e.g. {@code measurement}; null for none
+     * @param valueTemplate  replaces the generated template, for fields whose value is not a plain scalar
+     * @param jsonAttributes a field of the same state whose JSON object becomes the entity's attributes (M4 plan §3.2:
+     *                       the Block Observer's block properties); null for none
      */
     record Sensor(Meta meta, Field<?> field, @Nullable String unit, @Nullable String deviceClass,
-                  @Nullable String stateClass, @Nullable String valueTemplate) implements HaEntity<Sensor> {
+                  @Nullable String stateClass, @Nullable String valueTemplate, @Nullable Field<?> jsonAttributes) implements HaEntity<Sensor> {
+        /** A sensor without attributes. */
+        public Sensor(Meta meta, Field<?> field, @Nullable String unit, @Nullable String deviceClass, @Nullable String stateClass,
+                      @Nullable String valueTemplate) {
+            this(meta, field, unit, deviceClass, stateClass, valueTemplate, null);
+        }
+
         public Sensor unit(String unit) {
-            return new Sensor(meta, field, unit, deviceClass, stateClass, valueTemplate);
+            return new Sensor(meta, field, unit, deviceClass, stateClass, valueTemplate, jsonAttributes);
         }
 
         public Sensor deviceClass(String deviceClass) {
-            return new Sensor(meta, field, unit, deviceClass, stateClass, valueTemplate);
+            return new Sensor(meta, field, unit, deviceClass, stateClass, valueTemplate, jsonAttributes);
         }
 
         public Sensor stateClass(String stateClass) {
-            return new Sensor(meta, field, unit, deviceClass, stateClass, valueTemplate);
+            return new Sensor(meta, field, unit, deviceClass, stateClass, valueTemplate, jsonAttributes);
         }
 
         public Sensor valueTemplate(String valueTemplate) {
-            return new Sensor(meta, field, unit, deviceClass, stateClass, valueTemplate);
+            return new Sensor(meta, field, unit, deviceClass, stateClass, valueTemplate, jsonAttributes);
+        }
+
+        /**
+         * The sensor with the JSON object of {@code field} as its attributes ({@code json_attributes_topic} on the state
+         * topic). The field must be declared on the type and readable, which {@code DeviceType.Builder#build()} checks.
+         */
+        public Sensor jsonAttributes(Field<?> field) {
+            return new Sensor(meta, this.field, unit, deviceClass, stateClass, valueTemplate, Objects.requireNonNull(field, "field"));
         }
 
         @Override
         public Sensor withMeta(Meta meta) {
-            return new Sensor(meta, field, unit, deviceClass, stateClass, valueTemplate);
+            return new Sensor(meta, field, unit, deviceClass, stateClass, valueTemplate, jsonAttributes);
         }
 
         @Override
@@ -282,9 +303,10 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
             return "sensor";
         }
 
+        /** The shown field, then the attributes' field when it is another one. */
         @Override
         public List<Field<?>> fields() {
-            return List.of(field);
+            return jsonAttributes == null || jsonAttributes.equals(field) ? List.of(field) : List.of(field, jsonAttributes);
         }
 
         @Override
@@ -293,16 +315,67 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
         }
     }
 
-    /** A select over an enum field; the options are the enum's serialized names. */
-    record Select(Meta meta, Field<?> field, List<String> options) implements HaEntity<Select> {
+    /**
+     * A select over a field. Its options are fixed (an enum field's serialized names) or come from a source asked each
+     * time the device's discovery is built (M4 plan §3.2: the Block Placer's allow-listed blocks), over a TEXT or ENUM
+     * field. Runtime options are sorted, without duplicates or blank entries, at most {@value #MAX_OPTIONS}; they are part
+     * of the discovery message, so its hash changes with them. A source that yields none makes the select a
+     * platform-only stub in the message rather than publish one Home Assistant refuses; the stub removes it there.
+     *
+     * @param options       the fixed options; empty for a select with a source
+     * @param optionsSource where the runtime options come from; null for fixed options
+     * @param valueTemplate replaces the generated template, so the state is always an option (a block id without its
+     *                      properties); null for the generated one
+     */
+    record Select(Meta meta, Field<?> field, List<String> options, @Nullable Supplier<List<String>> optionsSource,
+                  @Nullable String valueTemplate) implements HaEntity<Select> {
+        /** The most options a select with a source offers. */
+        public static final int MAX_OPTIONS = 128;
+
         public Select {
             options = List.copyOf(options);
-            if (options.isEmpty()) throw new IllegalArgumentException("Select " + meta.key() + " needs options");
+            if (optionsSource == null && options.isEmpty()) throw new IllegalArgumentException("Select " + meta.key() + " needs options");
+            if (optionsSource != null && !options.isEmpty()) throw new IllegalArgumentException("Select " + meta.key() + " has fixed options and a source");
+        }
+
+        /** A select with fixed options. */
+        public Select(Meta meta, Field<?> field, List<String> options) {
+            this(meta, field, options, null, null);
+        }
+
+        /** Whether the options come from a source ({@link #currentOptions()}). */
+        public boolean dynamic() {
+            return optionsSource != null;
+        }
+
+        public Select valueTemplate(String valueTemplate) {
+            return new Select(meta, field, options, optionsSource, valueTemplate);
+        }
+
+        /**
+         * The options as discovery publishes them now: the fixed ones, or the source's, sorted, distinct, without blank
+         * entries and cut to {@value #MAX_OPTIONS}. Empty when the source has none, or fails, which makes the select a
+         * platform-only stub in the device's discovery message, so Home Assistant removes it.
+         */
+        public List<String> currentOptions() {
+            if (optionsSource == null) return options;
+            List<String> offered;
+            try {
+                offered = optionsSource.get();
+            } catch (RuntimeException e) {
+                return List.of();
+            }
+            if (offered == null) return List.of();
+            TreeSet<String> sorted = new TreeSet<>();
+            for (String option : offered) {
+                if (option != null && !option.isBlank()) sorted.add(option);
+            }
+            return sorted.stream().limit(MAX_OPTIONS).toList();
         }
 
         @Override
         public Select withMeta(Meta meta) {
-            return new Select(meta, field, options);
+            return new Select(meta, field, options, optionsSource, valueTemplate);
         }
 
         @Override
@@ -376,19 +449,93 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
         }
     }
 
-    /** A text input over a text field. */
-    record Text(Meta meta, Field<String> field, int maxLength) implements HaEntity<Text> {
+    /**
+     * A text input over a text field.
+     *
+     * @param pattern a regular expression Home Assistant checks the text against, in its frontend (JavaScript) and its
+     *                backend (Python), e.g. {@code HH:MM}; null for none. Only the subset all three engines read alike
+     *                is accepted ({@link #patternProblem}).
+     */
+    record Text(Meta meta, Field<String> field, int maxLength, @Nullable String pattern) implements HaEntity<Text> {
+        /** The longest pattern a text accepts. */
+        public static final int MAX_PATTERN_LENGTH = 128;
+        // The escapes Java, JavaScript and Python read alike: classes, boundaries, control characters and escaped specials.
+        private static final String PORTABLE_ESCAPES = "dDwWsSbBnrtf\\.^$|?*+()[]{}-/";
+
         public Text {
             if (maxLength <= 0) throw new IllegalArgumentException("Text " + meta.key() + " needs a positive length");
+            if (pattern != null) {
+                Optional<String> problem = patternProblem(pattern);
+                if (problem.isPresent()) throw new IllegalArgumentException("Text " + meta.key() + ": " + problem.get());
+            }
+        }
+
+        /** A text without a pattern. */
+        public Text(Meta meta, Field<String> field, int maxLength) {
+            this(meta, field, maxLength, null);
         }
 
         public Text maxLength(int maxLength) {
-            return new Text(meta, field, maxLength);
+            return new Text(meta, field, maxLength, pattern);
+        }
+
+        /** The text with a pattern Home Assistant checks it against ({@link #patternProblem}). */
+        public Text pattern(String regex) {
+            return new Text(meta, field, maxLength, Objects.requireNonNull(regex, "regex"));
+        }
+
+        /**
+         * Why {@code regex} cannot be a text's pattern, or empty when it can: at most {@value #MAX_PATTERN_LENGTH}
+         * characters, a valid Java regular expression, and within the subset JavaScript and Python read the same way:
+         * escapes only of {@code \d \D \w \W \s \S \b \B \n \r \t \f} and of special characters, groups only
+         * {@code (...)}, {@code (?:...)} and lookarounds, no possessive quantifiers, no character class intersection.
+         */
+        public static Optional<String> patternProblem(String regex) {
+            if (regex.isEmpty()) return Optional.of("the pattern is empty");
+            if (regex.length() > MAX_PATTERN_LENGTH) return Optional.of("the pattern is longer than " + MAX_PATTERN_LENGTH + " characters");
+            try {
+                Pattern.compile(regex);
+            } catch (PatternSyntaxException e) {
+                return Optional.of("the pattern is no regular expression: " + e.getDescription());
+            }
+            boolean inClass = false;
+            for (int i = 0; i < regex.length(); i++) {
+                char c = regex.charAt(i);
+                if (c == '\\') {
+                    char escaped = regex.charAt(i + 1);
+                    if (PORTABLE_ESCAPES.indexOf(escaped) < 0) return Optional.of("the escape \\" + escaped + " differs between Java, JavaScript and Python");
+                    i++;
+                } else if (inClass) {
+                    if (c == ']') inClass = false;
+                    else if (c == '[') return Optional.of("a nested character class differs between Java, JavaScript and Python");
+                    else if (c == '&' && i + 1 < regex.length() && regex.charAt(i + 1) == '&') return Optional.of("a class intersection (&&) is Java only");
+                } else if (c == '[') {
+                    inClass = true;
+                    // A ] right after [ or [^ is a literal in Java and Python but closes an empty class in JavaScript.
+                    int next = i + 1 < regex.length() && regex.charAt(i + 1) == '^' ? i + 2 : i + 1;
+                    if (next < regex.length() && regex.charAt(next) == ']') return Optional.of("a ] at the start of a class differs between Java, JavaScript and Python");
+                } else if (c == '(' && i + 1 < regex.length() && regex.charAt(i + 1) == '?') {
+                    String group = regex.substring(i + 2, Math.min(regex.length(), i + 4));
+                    if (!(group.startsWith(":") || group.startsWith("=") || group.startsWith("!") || group.startsWith("<=") || group.startsWith("<!"))) {
+                        return Optional.of("only (...), (?:...) and lookaround groups read alike in Java, JavaScript and Python");
+                    }
+                } else if (c == '+' && i > 0 && "*+?}".indexOf(regex.charAt(i - 1)) >= 0 && !escaped(regex, i - 1)) {
+                    return Optional.of("a possessive quantifier is not JavaScript");
+                }
+            }
+            return Optional.empty();
+        }
+
+        // Whether the character at index is escaped: an odd run of backslashes before it (\\+ is a literal backslash, then +).
+        private static boolean escaped(String regex, int index) {
+            int backslashes = 0;
+            for (int i = index - 1; i >= 0 && regex.charAt(i) == '\\'; i--) backslashes++;
+            return backslashes % 2 == 1;
         }
 
         @Override
         public Text withMeta(Meta meta) {
-            return new Text(meta, field, maxLength);
+            return new Text(meta, field, maxLength, pattern);
         }
 
         @Override

@@ -1,13 +1,7 @@
 package art.rehra.mineqtt.network;
 
 import art.rehra.mineqtt.MineQTT;
-import art.rehra.mineqtt.blocks.entities.AlarmClockBlockEntity;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
-import art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity;
-import art.rehra.mineqtt.blocks.entities.BlockSensorBlockEntity;
-import art.rehra.mineqtt.blocks.entities.CronTimerBlockEntity;
-import art.rehra.mineqtt.blocks.entities.GameTimeTimerBlockEntity;
-import art.rehra.mineqtt.blocks.entities.IntervalTimerBlockEntity;
 import art.rehra.mineqtt.blocks.entities.TerminalBlockEntity;
 import art.rehra.mineqtt.device.DeviceConfig;
 import art.rehra.mineqtt.device.DeviceGroups;
@@ -20,15 +14,23 @@ import art.rehra.mineqtt.flow.core.Mapping;
 import art.rehra.mineqtt.integrations.MineqttPermission;
 import art.rehra.mineqtt.items.ConfiguratorGroup;
 import art.rehra.mineqtt.items.ConfiguratorLink;
+import art.rehra.mineqtt.items.ConfiguratorRoom;
 import art.rehra.mineqtt.mqtt.CyberdeckSessionManager;
-import art.rehra.mineqtt.security.AclContext;
+import art.rehra.mineqtt.rooms.RoomOffer;
+import art.rehra.mineqtt.rooms.RoomRules;
 import art.rehra.mineqtt.security.C2SGuard;
+import art.rehra.mineqtt.ui.CyberdeckMenu;
 import art.rehra.mineqtt.ui.console.BridgeAction;
 import art.rehra.mineqtt.ui.console.BridgeConsole;
 import art.rehra.mineqtt.ui.console.ConsoleMenu;
 import art.rehra.mineqtt.ui.console.ConsoleView;
 import art.rehra.mineqtt.ui.device.DeviceMenu;
 import art.rehra.mineqtt.ui.device.TwinPicker;
+import art.rehra.mineqtt.presence.PrivacyCommands;
+import art.rehra.mineqtt.ui.explorer.DevicesTab;
+import art.rehra.mineqtt.ui.explorer.ExplorerActions;
+import art.rehra.mineqtt.ui.explorer.ExplorerDirectory;
+import art.rehra.mineqtt.ui.explorer.ExplorerPage;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedScreenHost;
 import dev.architectury.networking.NetworkManager;
@@ -38,7 +40,6 @@ import net.minecraft.core.UUIDUtil;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.VarInt;
-import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -59,14 +60,8 @@ public final class MineqttNetworking {
     public static final Identifier CYBERDECK_PUBLISH_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_publish");
     public static final Identifier CYBERDECK_LISTEN_TOGGLE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_listen_toggle");
     public static final Identifier CYBERDECK_TOPIC_UPDATE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "cyberdeck_topic_update");
-    public static final Identifier SET_BLOCK_SENSOR_MODE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_block_sensor_mode");
     public static final Identifier SET_ACTIVE_TAB_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_active_tab");
     public static final Identifier SET_PRIVATE_MODE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_private_mode");
-    public static final Identifier SET_CRON_EXPRESSION_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_cron_expression");
-    public static final Identifier SET_INTERVAL_TIMER_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_interval_timer");
-    public static final Identifier SET_SINGLE_ALARM_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_single_alarm");
-    public static final Identifier SET_GAME_TIME_TIMER_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "set_game_time_timer");
-    public static final Identifier TRIGGER_BLOCK_EMITTER_TEST_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "trigger_block_emitter_test");
     public static final Identifier DEVICE_STATUS_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "device_status");
     public static final Identifier DEVICE_CONFIG_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "device_config");
     public static final Identifier DEVICE_ACTION_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "device_action");
@@ -88,6 +83,12 @@ public final class MineqttNetworking {
     public static final Identifier TWIN_VIEW_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "twin_view");
     public static final Identifier TWIN_SEARCH_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "twin_search");
     public static final Identifier TWIN_RESULTS_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "twin_results");
+    public static final Identifier ROOM_PROMPT_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "room_prompt");
+    public static final Identifier ROOM_NAME_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "room_name");
+    public static final Identifier EXPLORER_QUERY_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "explorer_query");
+    public static final Identifier EXPLORER_PAGE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "explorer_page");
+    public static final Identifier EXPLORER_ACTION_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "explorer_action");
+    public static final Identifier PRIVACY_CHOICE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "privacy_choice");
 
     @Deprecated
     public static final Identifier CYBERDECK_PUBLISH = CYBERDECK_PUBLISH_ID;
@@ -117,17 +118,6 @@ public final class MineqttNetworking {
                     MineQTT.LOGGER.debug("[Cyberdeck] Player {} is now {}listening", player.getGameProfile().name(), payload.listening() ? "" : "not ");
                 }));
 
-        receive(SetBlockSensorModePayload.TYPE, SetBlockSensorModePayload.CODEC, (player, payload) ->
-                C2SGuard.require(player, payload, payload.pos(), BlockSensorBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(sensor -> {
-                    // Reject unknown network values; missing/old save values still use the default.
-                    for (var mode : BlockSensorBlockEntity.DataMode.values()) {
-                        if (mode.id().equals(payload.mode())) {
-                            sensor.setDataMode(mode);
-                            return;
-                        }
-                    }
-                }));
-
         // Remember the last tab opened in a tabbed screen; only tabs the screen has are accepted.
         receive(SetActiveTabPayload.TYPE, SetActiveTabPayload.CODEC, (player, payload) -> {
             if (payload.pos().isPresent()) {
@@ -147,8 +137,6 @@ public final class MineqttNetworking {
         receive(SetPrivateModePayload.TYPE, SetPrivateModePayload.CODEC, (player, payload) -> {
             if (payload.pos().isPresent()) {
                 C2SGuard.require(player, payload, payload.pos().get(), BaseMqttBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(mqtt -> {
-                    // The toggle moves the topic; the player hears where it went.
-                    mqtt.setLastEditor(player);
                     // A block without a recorded owner (world generation, pre-feature blocks) becomes the player's.
                     if (mqtt.getOwnerName().isEmpty()) mqtt.setOwner(player.getUUID(), player.getGameProfile().name());
                     mqtt.setPrivateMode(payload.enabled());
@@ -160,45 +148,6 @@ public final class MineqttNetworking {
                 });
             }
         });
-
-        receive(SetCronExpressionPayload.TYPE, SetCronExpressionPayload.CODEC, (player, payload) ->
-                C2SGuard.require(player, payload, payload.pos(), CronTimerBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(cronTimer -> {
-                    cronTimer.setCronExpression(payload.expression());
-                    MineQTT.LOGGER.debug("[CronTimer] Player {} set cron expression: {}", player.getGameProfile().name(), payload.expression());
-                }));
-
-        receive(SetIntervalTimerPayload.TYPE, SetIntervalTimerPayload.CODEC, (player, payload) ->
-                C2SGuard.require(player, payload, payload.pos(), IntervalTimerBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(intervalTimer -> {
-                    intervalTimer.setInterval(payload.value(), payload.unitIndex());
-                    MineQTT.LOGGER.debug("[IntervalTimer] Player {} set interval: {} unit {}", player.getGameProfile().name(), payload.value(), payload.unitIndex());
-                }));
-
-        // minecraftTicks=-1 clears the alarm.
-        receive(SetSingleAlarmPayload.TYPE, SetSingleAlarmPayload.CODEC, (player, payload) ->
-                C2SGuard.require(player, payload, payload.pos(), AlarmClockBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(alarmClock -> {
-                    alarmClock.setAlarm(payload.minecraftTicks());
-                    MineQTT.LOGGER.debug("[AlarmClock] Player {} set alarm to {} ticks", player.getGameProfile().name(), payload.minecraftTicks());
-                }));
-
-        receive(SetGameTimeTimerPayload.TYPE, SetGameTimeTimerPayload.CODEC, (player, payload) ->
-                C2SGuard.require(player, payload, payload.pos(), GameTimeTimerBlockEntity.class, MineqttPermission.CONFIGURE).ifPresent(gameTimeTimer -> {
-                    gameTimeTimer.setTriggerModeIndex(payload.triggerModeIndex());
-                    gameTimeTimer.setCustomTime(payload.customTime());
-                    MineQTT.LOGGER.debug("[GameTimeTimer] Player {} set trigger mode: {} custom time: {}", player.getGameProfile().name(), payload.triggerModeIndex(), payload.customTime());
-                }));
-
-        // The test places any block with any data, so beyond CONFIGURE it is for operators only.
-        receive(TriggerBlockEmitterTestPayload.TYPE, TriggerBlockEmitterTestPayload.CODEC, (player, payload) ->
-                C2SGuard.require(player, payload, payload.pos(), BlockEmitterBlockEntity.class, MineqttPermission.CONFIGURE)
-                        .filter(blockEmitter -> C2SGuard.fitsPayload(payload.payload()))
-                        .ifPresent(blockEmitter -> {
-                            if (!AclContext.isOp(player.permissions())) {
-                                player.sendSystemMessage(Component.translatable("mineqtt.block_emitter.test_ops_only"), true);
-                                return;
-                            }
-                            blockEmitter.triggerTest(payload.payload());
-                            MineQTT.LOGGER.debug("[BlockEmitter] Player {} tested emitter payload '{}' at {}", player.getGameProfile().name(), payload.payload(), payload.pos());
-                        }));
 
         // A setting of a device's type or link (M2-6), or a command to one of its writable fields (M2-9): USE for a command,
         // CONFIGURE for the rest, then the key's own gate and bounds (DeviceConfig).
@@ -247,6 +196,10 @@ public final class MineqttNetworking {
         // the guard runs in ConfiguratorGroup, which knows the prompt.
         receive(GroupNamePayload.TYPE, GroupNamePayload.CODEC, ConfiguratorGroup::named);
 
+        // The answer to the Configurator's Room mode prompt (M4 plan D11): it must answer the player's open offer; the guard,
+        // the room rules and the build rights run in ConfiguratorRoom, which knows the offer, as for the room commands.
+        receive(RoomNamePayload.TYPE, RoomNamePayload.CODEC, ConfiguratorRoom::named);
+
         // An action from the Bridge Console's screen (M2-23): CONFIGURE on the console, which only operators hold, then the
         // command the action stands for.
         receive(BridgeActionPayload.TYPE, BridgeActionPayload.CODEC, (player, payload) ->
@@ -258,6 +211,21 @@ public final class MineqttNetworking {
         receive(TwinSearchPayload.TYPE, TwinSearchPayload.CODEC, (player, payload) ->
                 C2SGuard.requireDevice(player, payload, payload.pos(), MineqttPermission.CONFIGURE)
                         .ifPresent(device -> DeviceRuntime.twinSearch(player, device, payload)));
+
+        // A search of the Configurator explorer's Devices tab (M4 plan D13): the explorer must be open, then the search
+        // rate and the scope (ExplorerDirectory): only devices the player owns and may configure, all for an operator.
+        receive(ExplorerQueryPayload.TYPE, ExplorerQueryPayload.CODEC, (player, payload) ->
+                C2SGuard.requireCyberdeck(player, payload).ifPresent(menu -> ExplorerDirectory.query(player, menu, payload)));
+
+        // An action of the Devices tab on one device (M4 plan D13): the explorer must be open, then the pace of its actions,
+        // and afresh whether the player finds the device (ExplorerActions): its use, locate or open.
+        receive(ExplorerActionPayload.TYPE, ExplorerActionPayload.CODEC, (player, payload) ->
+                C2SGuard.requireCyberdeck(player, payload).ifPresent(menu -> ExplorerActions.act(player, menu, payload)));
+
+        // A choice of the Devices tab's You row (M4 plan D9): the explorer must be open, then the pace of its actions, then
+        // the code path of /mineqtt privacy share for the player who sent it.
+        receive(PrivacyChoicePayload.TYPE, PrivacyChoicePayload.CODEC, (player, payload) ->
+                C2SGuard.requireCyberdeck(player, payload).ifPresent(menu -> ExplorerActions.choose(player, menu, payload)));
 
         // S2C: Cyberdeck topic update (topic, payload)
         // Architectury 17+ on Fabric requires the codec to be registered for S2C on the server
@@ -277,6 +245,8 @@ public final class MineqttNetworking {
             NetworkManager.registerReceiver(NetworkManager.Side.S2C, ConsoleViewPayload.TYPE, ConsoleViewPayload.CODEC, ClientPacketHandler::handleConsoleView);
             NetworkManager.registerReceiver(NetworkManager.Side.S2C, TwinViewPayload.TYPE, TwinViewPayload.CODEC, ClientPacketHandler::handleTwinView);
             NetworkManager.registerReceiver(NetworkManager.Side.S2C, TwinResultsPayload.TYPE, TwinResultsPayload.CODEC, ClientPacketHandler::handleTwinResults);
+            NetworkManager.registerReceiver(NetworkManager.Side.S2C, RoomPromptPayload.TYPE, RoomPromptPayload.CODEC, ClientPacketHandler::handleRoomPrompt);
+            NetworkManager.registerReceiver(NetworkManager.Side.S2C, ExplorerPagePayload.TYPE, ExplorerPagePayload.CODEC, ClientPacketHandler::handleExplorerPage);
         } else {
             NetworkManager.registerS2CPayloadType(CyberdeckTopicUpdatePayload.TYPE, CyberdeckTopicUpdatePayload.CODEC);
             NetworkManager.registerS2CPayloadType(DeviceStatusPayload.TYPE, DeviceStatusPayload.CODEC);
@@ -289,6 +259,8 @@ public final class MineqttNetworking {
             NetworkManager.registerS2CPayloadType(ConsoleViewPayload.TYPE, ConsoleViewPayload.CODEC);
             NetworkManager.registerS2CPayloadType(TwinViewPayload.TYPE, TwinViewPayload.CODEC);
             NetworkManager.registerS2CPayloadType(TwinResultsPayload.TYPE, TwinResultsPayload.CODEC);
+            NetworkManager.registerS2CPayloadType(RoomPromptPayload.TYPE, RoomPromptPayload.CODEC);
+            NetworkManager.registerS2CPayloadType(ExplorerPagePayload.TYPE, ExplorerPagePayload.CODEC);
         }
     }
 
@@ -358,6 +330,11 @@ public final class MineqttNetworking {
         NetworkManager.sendToPlayer(player, prompt);
     }
 
+    /** Asks a player in the Configurator's Room mode to name the room of their two corners, or to rename or remove one (M4 plan D11). */
+    public static void sendRoomPrompt(ServerPlayer player, RoomPromptPayload prompt) {
+        NetworkManager.sendToPlayer(player, prompt);
+    }
+
     /** Sends a player with a Bridge Console's screen open their view of it. */
     public static void sendConsoleView(ServerPlayer player, ConsoleView view) {
         NetworkManager.sendToPlayer(player, new ConsoleViewPayload(view));
@@ -375,6 +352,11 @@ public final class MineqttNetworking {
     /** Answers a player's entity picker search ({@link TwinSearchPayload}). */
     public static void sendTwinResults(ServerPlayer player, TwinResultsPayload results) {
         NetworkManager.sendToPlayer(player, results);
+    }
+
+    /** Answers a search of a player's Devices tab ({@link ExplorerQueryPayload}). */
+    public static void sendExplorerPage(ServerPlayer player, ExplorerPage page) {
+        NetworkManager.sendToPlayer(player, new ExplorerPagePayload(page));
     }
 
     /** The players whose open menu is the block entity's. */
@@ -743,7 +725,85 @@ public final class MineqttNetworking {
         }
     }
 
-    /** A device's view for one player with its screen open ({@link #sendDeviceView}); at most {@link DeviceView#MAX_BYTES}. */
+    /**
+     * The Configurator's Room mode asks a player to name a room (M4 plan D11): the box of their two corners, which a name
+     * makes a room, or, with an existing name, a room of theirs they picked, which they rename or remove. The player's
+     * {@link RoomNamePayload} answers it; the server judges the answer against its own offer and the room rules.
+     *
+     * @param offer        what the answer names, so a late answer to an earlier prompt does nothing
+     * @param sizeX        the box's size in blocks along x, both corners included
+     * @param existingName the picked room's name; empty for a box to make a room of
+     * @param suggestions  names to offer ({@code ConfiguratorRoom.suggestions}): the rooms the player sees but does not own (rooms
+     *                     for everyone, and for an operator every room), without the names of their own rooms, which are taken,
+     *                     then up to 16 Home Assistant area names for a player who may bind devices to it; at most
+     *                     {@value #MAX_SUGGESTIONS}
+     * @param mayForAll    whether the player may make a room for every device in it
+     */
+    public record RoomPromptPayload(int offer, int sizeX, int sizeY, int sizeZ, String existingName, List<String> suggestions,
+                                    boolean mayForAll) implements CustomPacketPayload {
+        public static final int MAX_SUGGESTIONS = 32;
+        public static final int MAX_NAME_BYTES = RoomRules.MAX_NAME_LENGTH * 4;
+        public static final Type<RoomPromptPayload> TYPE = new Type<>(ROOM_PROMPT_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, RoomPromptPayload> CODEC = StreamCodec.composite(
+                ByteBufCodecs.VAR_INT, RoomPromptPayload::offer,
+                ByteBufCodecs.VAR_INT, RoomPromptPayload::sizeX,
+                ByteBufCodecs.VAR_INT, RoomPromptPayload::sizeY,
+                ByteBufCodecs.VAR_INT, RoomPromptPayload::sizeZ,
+                ByteBufCodecs.stringUtf8(MAX_NAME_BYTES), RoomPromptPayload::existingName,
+                ByteBufCodecs.stringUtf8(MAX_NAME_BYTES).apply(ByteBufCodecs.list(MAX_SUGGESTIONS)), RoomPromptPayload::suggestions,
+                ByteBufCodecs.BOOL, RoomPromptPayload::mayForAll,
+                RoomPromptPayload::new);
+
+        public RoomPromptPayload {
+            if (sizeX < 1 || sizeY < 1 || sizeZ < 1) throw new IllegalArgumentException("A room prompt's box has no size");
+            existingName = DeviceView.cap(existingName, MAX_NAME_BYTES);
+            suggestions = suggestions.stream().limit(MAX_SUGGESTIONS).map(name -> DeviceView.cap(name, MAX_NAME_BYTES)).toList();
+        }
+
+        /** Whether it offers a room to rename or remove rather than a box. */
+        public boolean edits() {
+            return !existingName.isEmpty();
+        }
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * A player's answer to the Room mode prompt {@code offer} ({@link RoomPromptPayload}): make the offered box a room of
+     * that name, for every device in it when {@code forAll}; rename the picked room; or remove it.
+     */
+    public record RoomNamePayload(int offer, RoomOffer.Op op, String name, boolean forAll) implements CustomPacketPayload {
+        // Room for a name the server refuses as too long, so the player hears why.
+        public static final int MAX_NAME_BYTES = RoomRules.MAX_NAME_LENGTH * 4 + 4;
+        private static final StreamCodec<RegistryFriendlyByteBuf, RoomOffer.Op> OP_CODEC = StreamCodec.of(
+                (buf, op) -> VarInt.write(buf, op.ordinal()),
+                buf -> {
+                    int ordinal = VarInt.read(buf);
+                    if (ordinal < 0 || ordinal >= RoomOffer.Op.values().length) throw new DecoderException("Unknown room answer " + ordinal);
+                    return RoomOffer.Op.values()[ordinal];
+                });
+        public static final Type<RoomNamePayload> TYPE = new Type<>(ROOM_NAME_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, RoomNamePayload> CODEC = StreamCodec.composite(
+                ByteBufCodecs.VAR_INT, RoomNamePayload::offer,
+                OP_CODEC, RoomNamePayload::op,
+                ByteBufCodecs.stringUtf8(MAX_NAME_BYTES), RoomNamePayload::name,
+                ByteBufCodecs.BOOL, RoomNamePayload::forAll,
+                RoomNamePayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * A device's view for one player with its screen open ({@link #sendDeviceView}); at most {@link DeviceView#MAX_BYTES}.
+     * It carries the type's Controls tab status line (M4 plan D5) of at most {@value art.rehra.mineqtt.device.StatusLine#MAX_LENGTH}
+     * characters and the count of throttled events (D3), so no payload of its own is needed for either.
+     */
     public record DeviceViewPayload(DeviceView view) implements CustomPacketPayload {
         public static final Type<DeviceViewPayload> TYPE = new Type<>(DEVICE_VIEW_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, DeviceViewPayload> CODEC = DeviceView.STREAM_CODEC.<RegistryFriendlyByteBuf>cast()
@@ -804,100 +864,6 @@ public final class MineqttNetworking {
                 net.minecraft.network.codec.ByteBufCodecs.optional(net.minecraft.core.BlockPos.STREAM_CODEC), SetPrivateModePayload::pos,
                 net.minecraft.network.codec.ByteBufCodecs.BOOL, SetPrivateModePayload::enabled,
                 SetPrivateModePayload::new
-        );
-
-        @Override
-        public Type<? extends CustomPacketPayload> type() {
-            return TYPE;
-        }
-    }
-
-    public record SetBlockSensorModePayload(net.minecraft.core.BlockPos pos,
-                                            String mode) implements CustomPacketPayload {
-        public static final Type<SetBlockSensorModePayload> TYPE = new Type<>(SET_BLOCK_SENSOR_MODE_ID);
-        public static final StreamCodec<RegistryFriendlyByteBuf, SetBlockSensorModePayload> CODEC = StreamCodec.composite(
-                net.minecraft.core.BlockPos.STREAM_CODEC, SetBlockSensorModePayload::pos,
-                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(32), SetBlockSensorModePayload::mode,
-                SetBlockSensorModePayload::new
-        );
-
-        @Override
-        public Type<? extends CustomPacketPayload> type() {
-            return TYPE;
-        }
-    }
-
-    public record SetCronExpressionPayload(net.minecraft.core.BlockPos pos,
-                                           String expression) implements CustomPacketPayload {
-        public static final Type<SetCronExpressionPayload> TYPE = new Type<>(SET_CRON_EXPRESSION_ID);
-        public static final StreamCodec<RegistryFriendlyByteBuf, SetCronExpressionPayload> CODEC = StreamCodec.composite(
-                net.minecraft.core.BlockPos.STREAM_CODEC, SetCronExpressionPayload::pos,
-                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(128), SetCronExpressionPayload::expression,
-                SetCronExpressionPayload::new
-        );
-
-        @Override
-        public Type<? extends CustomPacketPayload> type() {
-            return TYPE;
-        }
-    }
-
-    public record SetIntervalTimerPayload(net.minecraft.core.BlockPos pos,
-                                          long value,
-                                          int unitIndex) implements CustomPacketPayload {
-        public static final Type<SetIntervalTimerPayload> TYPE = new Type<>(SET_INTERVAL_TIMER_ID);
-        public static final StreamCodec<RegistryFriendlyByteBuf, SetIntervalTimerPayload> CODEC = StreamCodec.composite(
-                net.minecraft.core.BlockPos.STREAM_CODEC, SetIntervalTimerPayload::pos,
-                net.minecraft.network.codec.ByteBufCodecs.LONG, SetIntervalTimerPayload::value,
-                net.minecraft.network.codec.ByteBufCodecs.INT, SetIntervalTimerPayload::unitIndex,
-                SetIntervalTimerPayload::new
-        );
-
-        @Override
-        public Type<? extends CustomPacketPayload> type() {
-            return TYPE;
-        }
-    }
-
-    public record SetSingleAlarmPayload(net.minecraft.core.BlockPos pos,
-                                        int minecraftTicks) implements CustomPacketPayload {
-        public static final Type<SetSingleAlarmPayload> TYPE = new Type<>(SET_SINGLE_ALARM_ID);
-        public static final StreamCodec<RegistryFriendlyByteBuf, SetSingleAlarmPayload> CODEC = StreamCodec.composite(
-                net.minecraft.core.BlockPos.STREAM_CODEC, SetSingleAlarmPayload::pos,
-                net.minecraft.network.codec.ByteBufCodecs.INT, SetSingleAlarmPayload::minecraftTicks,
-                SetSingleAlarmPayload::new
-        );
-
-        @Override
-        public Type<? extends CustomPacketPayload> type() {
-            return TYPE;
-        }
-    }
-
-    public record SetGameTimeTimerPayload(net.minecraft.core.BlockPos pos,
-                                          int triggerModeIndex,
-                                          int customTime) implements CustomPacketPayload {
-        public static final Type<SetGameTimeTimerPayload> TYPE = new Type<>(SET_GAME_TIME_TIMER_ID);
-        public static final StreamCodec<RegistryFriendlyByteBuf, SetGameTimeTimerPayload> CODEC = StreamCodec.composite(
-                net.minecraft.core.BlockPos.STREAM_CODEC, SetGameTimeTimerPayload::pos,
-                net.minecraft.network.codec.ByteBufCodecs.INT, SetGameTimeTimerPayload::triggerModeIndex,
-                net.minecraft.network.codec.ByteBufCodecs.INT, SetGameTimeTimerPayload::customTime,
-                SetGameTimeTimerPayload::new
-        );
-
-        @Override
-        public Type<? extends CustomPacketPayload> type() {
-            return TYPE;
-        }
-    }
-
-    public record TriggerBlockEmitterTestPayload(net.minecraft.core.BlockPos pos,
-                                                 String payload) implements CustomPacketPayload {
-        public static final Type<TriggerBlockEmitterTestPayload> TYPE = new Type<>(TRIGGER_BLOCK_EMITTER_TEST_ID);
-        public static final StreamCodec<RegistryFriendlyByteBuf, TriggerBlockEmitterTestPayload> CODEC = StreamCodec.composite(
-                net.minecraft.core.BlockPos.STREAM_CODEC, TriggerBlockEmitterTestPayload::pos,
-                net.minecraft.network.codec.ByteBufCodecs.stringUtf8(2048), TriggerBlockEmitterTestPayload::payload,
-                TriggerBlockEmitterTestPayload::new
         );
 
         @Override
@@ -992,7 +958,7 @@ public final class MineqttNetworking {
      * @param key    the binding key searched for, repeated
      * @param query  the query answered, repeated, so the picker drops an answer to an older one
      * @param domain the domain filter answered (a chip, {@code ""} for all), repeated, so the picker drops an answer to a
-     *               chip it has left (wave 6 review low)
+     *               chip it has left
      * @param detail what the notice names: why the twin is off; {@code ""} otherwise
      */
     public record TwinResultsPayload(BlockPos pos, TwinPicker.SearchKind kind, String key, String query, String domain, List<TwinPicker.Row> rows,
@@ -1027,6 +993,84 @@ public final class MineqttNetworking {
             domain = domain.length() <= TwinPicker.MAX_DOMAIN_LENGTH ? domain : domain.substring(0, TwinPicker.MAX_DOMAIN_LENGTH);
             detail = detail.length() <= TwinView.MAX_REASON_LENGTH ? detail : detail.substring(0, TwinView.MAX_REASON_LENGTH);
         }
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * A search of the Configurator explorer's Devices tab (M4 plan D13): the devices whose name, slug or model contains
+     * {@code query} (at most {@value ExplorerPage#MAX_QUERY_LENGTH} characters), in the room {@code room} ({@code ""} for
+     * every room), page {@code page} of {@value ExplorerPage#PAGE_SIZE} rows. The client debounces it to
+     * {@value DevicesTab#DEBOUNCE_MILLIS} ms and sends one the server dropped over its rate again; the server answers
+     * with an {@link ExplorerPagePayload}.
+     */
+    public record ExplorerQueryPayload(String query, String room, int page) implements CustomPacketPayload {
+        public static final Type<ExplorerQueryPayload> TYPE = new Type<>(EXPLORER_QUERY_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, ExplorerQueryPayload> CODEC = StreamCodec.composite(
+                ByteBufCodecs.stringUtf8(ExplorerPage.MAX_QUERY_LENGTH), ExplorerQueryPayload::query,
+                ByteBufCodecs.stringUtf8(ExplorerPage.MAX_ROOM_LENGTH), ExplorerQueryPayload::room,
+                ByteBufCodecs.VAR_INT, ExplorerQueryPayload::page,
+                ExplorerQueryPayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * An action of the Devices tab on the device {@code target} (M4 plan D13): its use, locate or open. The server judges
+     * afresh whether the player finds the device ({@code ExplorerActions}); an unknown kind does not decode.
+     */
+    public record ExplorerActionPayload(UUID target, ExplorerActions.Kind kind) implements CustomPacketPayload {
+        private static final StreamCodec<RegistryFriendlyByteBuf, ExplorerActions.Kind> KIND_CODEC = StreamCodec.of(
+                (buf, kind) -> VarInt.write(buf, kind.ordinal()),
+                buf -> {
+                    int ordinal = VarInt.read(buf);
+                    if (ordinal < 0 || ordinal >= ExplorerActions.Kind.values().length) throw new DecoderException("Unknown explorer action " + ordinal);
+                    return ExplorerActions.Kind.values()[ordinal];
+                });
+        public static final Type<ExplorerActionPayload> TYPE = new Type<>(EXPLORER_ACTION_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, ExplorerActionPayload> CODEC = StreamCodec.composite(
+                UUIDUtil.STREAM_CODEC, ExplorerActionPayload::target,
+                KIND_CODEC, ExplorerActionPayload::kind,
+                ExplorerActionPayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * A choice of the Devices tab's You row (M4 plan D9): what the player shares about themselves, as
+     * {@code /mineqtt privacy share on|full|off} chooses it; an unknown choice does not decode.
+     */
+    public record PrivacyChoicePayload(PrivacyCommands.Choice choice) implements CustomPacketPayload {
+        private static final StreamCodec<RegistryFriendlyByteBuf, PrivacyCommands.Choice> CHOICE_CODEC = StreamCodec.of(
+                (buf, choice) -> VarInt.write(buf, choice.ordinal()),
+                buf -> {
+                    int ordinal = VarInt.read(buf);
+                    if (ordinal < 0 || ordinal >= PrivacyCommands.Choice.values().length) throw new DecoderException("Unknown privacy choice " + ordinal);
+                    return PrivacyCommands.Choice.values()[ordinal];
+                });
+        public static final Type<PrivacyChoicePayload> TYPE = new Type<>(PRIVACY_CHOICE_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, PrivacyChoicePayload> CODEC = CHOICE_CODEC.map(PrivacyChoicePayload::new, PrivacyChoicePayload::choice);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /** A page of a player's Devices tab ({@link #sendExplorerPage}); at most {@link ExplorerPage#MAX_BYTES}. */
+    public record ExplorerPagePayload(ExplorerPage page) implements CustomPacketPayload {
+        public static final Type<ExplorerPagePayload> TYPE = new Type<>(EXPLORER_PAGE_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, ExplorerPagePayload> CODEC = ExplorerPage.STREAM_CODEC.<RegistryFriendlyByteBuf>cast()
+                .map(ExplorerPagePayload::new, ExplorerPagePayload::page);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -1087,6 +1131,10 @@ public final class MineqttNetworking {
             context.queue(() -> art.rehra.mineqtt.ui.GroupNameScreen.open(payload));
         }
 
+        public static void handleRoomPrompt(RoomPromptPayload payload, NetworkManager.PacketContext context) {
+            context.queue(() -> art.rehra.mineqtt.ui.RoomNameScreen.open(payload));
+        }
+
         // Only the screen of that console takes it.
         public static void handleConsoleView(ConsoleViewPayload payload, NetworkManager.PacketContext context) {
             context.queue(() -> {
@@ -1111,6 +1159,13 @@ public final class MineqttNetworking {
                 if (context.getPlayer().containerMenu instanceof DeviceMenu menu && payload.pos().equals(menu.blockPos)) {
                     menu.setTwinResults(payload);
                 }
+            });
+        }
+
+        // Only an open explorer takes it; its Devices tab drops an answer to a search it has moved on from.
+        public static void handleExplorerPage(ExplorerPagePayload payload, NetworkManager.PacketContext context) {
+            context.queue(() -> {
+                if (context.getPlayer().containerMenu instanceof CyberdeckMenu menu) menu.setExplorerPage(payload.page());
             });
         }
 

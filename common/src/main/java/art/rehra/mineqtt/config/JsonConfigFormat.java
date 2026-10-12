@@ -75,11 +75,20 @@ public final class JsonConfigFormat {
         root.add("acl", acl);
         JsonObject blockPlacer = new JsonObject();
         blockPlacer.addProperty("enabled", MineQTTConfig.blockPlacerEnabled);
+        blockPlacer.addProperty("playersMayConfigure", MineQTTConfig.blockPlacerPlayersMayConfigure.name());
+        blockPlacer.addProperty("consumeItems", MineQTTConfig.blockPlacerConsumeItems);
         root.add("blockPlacer", blockPlacer);
+        JsonObject blockObserver = new JsonObject();
+        blockObserver.addProperty("exportBlockEntityData", MineQTTConfig.blockObserverExportBlockEntityData);
+        root.add("blockObserver", blockObserver);
         JsonObject limits = new JsonObject();
         limits.addProperty("maxDevicesPerPlayer", MineQTTConfig.limitsMaxDevicesPerPlayer);
         limits.addProperty("maxWiresPerPlayer", MineQTTConfig.limitsMaxWiresPerPlayer);
+        limits.addProperty("maxRoomsPerPlayer", MineQTTConfig.limitsMaxRoomsPerPlayer);
         root.add("limits", limits);
+        JsonObject rooms = new JsonObject();
+        rooms.addProperty("maxSize", MineQTTConfig.roomsMaxSize);
+        root.add("rooms", rooms);
         JsonObject twin = new JsonObject();
         twin.addProperty("statestreamBase", MineQTTConfig.twinStatestreamBase);
         JsonArray allowedEntities = new JsonArray();
@@ -92,6 +101,15 @@ public final class JsonConfigFormat {
         twin.addProperty("catalog", MineQTTConfig.twinCatalog);
         twin.addProperty("catalogMax", MineQTTConfig.twinCatalogMax);
         root.add("twin", twin);
+        JsonObject telemetry = new JsonObject();
+        telemetry.addProperty("enabled", MineQTTConfig.telemetryEnabled);
+        telemetry.addProperty("intervalSeconds", MineQTTConfig.telemetryIntervalSeconds);
+        telemetry.addProperty("players", MineQTTConfig.telemetryPlayers.name());
+        telemetry.addProperty("publishPlayerNames", MineQTTConfig.telemetryPublishPlayerNames);
+        telemetry.addProperty("allowBroadcast", MineQTTConfig.telemetryAllowBroadcast);
+        telemetry.addProperty("maxPresenceDevices", MineQTTConfig.telemetryMaxPresenceDevices);
+        telemetry.addProperty("forgetAfterDays", MineQTTConfig.telemetryForgetAfterDays);
+        root.add("telemetry", telemetry);
         JsonObject server = new JsonObject();
         server.addProperty("keepTickingWhenEmpty", MineQTTConfig.serverKeepTickingWhenEmpty);
         root.add("server", server);
@@ -133,9 +151,18 @@ public final class JsonConfigFormat {
         MineQTTConfig.aclExplorerBrokerWide = in.bool(acl, "acl.explorerBrokerWide", StaticDefaults.DEFAULT_ACL_EXPLORER_BROKER_WIDE);
         JsonObject blockPlacer = in.section(root, "blockPlacer");
         MineQTTConfig.blockPlacerEnabled = in.bool(blockPlacer, "blockPlacer.enabled", StaticDefaults.DEFAULT_BLOCK_PLACER_ENABLED);
+        MineQTTConfig.blockPlacerPlayersMayConfigure = in.autoBoolean(blockPlacer, "blockPlacer.playersMayConfigure",
+                StaticDefaults.DEFAULT_BLOCK_PLACER_PLAYERS_MAY_CONFIGURE);
+        MineQTTConfig.blockPlacerConsumeItems = in.bool(blockPlacer, "blockPlacer.consumeItems", StaticDefaults.DEFAULT_BLOCK_PLACER_CONSUME_ITEMS);
+        JsonObject blockObserver = in.section(root, "blockObserver");
+        MineQTTConfig.blockObserverExportBlockEntityData = in.bool(blockObserver, "blockObserver.exportBlockEntityData",
+                StaticDefaults.DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA);
         JsonObject limits = in.section(root, "limits");
         MineQTTConfig.limitsMaxDevicesPerPlayer = in.integer(limits, "limits.maxDevicesPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER);
         MineQTTConfig.limitsMaxWiresPerPlayer = in.integer(limits, "limits.maxWiresPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER);
+        MineQTTConfig.limitsMaxRoomsPerPlayer = in.integer(limits, "limits.maxRoomsPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_ROOMS_PER_PLAYER);
+        JsonObject rooms = in.section(root, "rooms");
+        MineQTTConfig.roomsMaxSize = in.integer(rooms, "rooms.maxSize", StaticDefaults.DEFAULT_ROOMS_MAX_SIZE);
         JsonObject twin = in.section(root, "twin");
         MineQTTConfig.twinStatestreamBase = in.string(twin, "twin.statestreamBase", StaticDefaults.DEFAULT_TWIN_STATESTREAM_BASE);
         MineQTTConfig.twinAllowedEntities = in.narrowingList(twin, "twin.allowedEntities", StaticDefaults.DEFAULT_TWIN_ALLOWED_ENTITIES);
@@ -143,6 +170,15 @@ public final class JsonConfigFormat {
         MineQTTConfig.twinMaxRequestsPerSecond = in.integer(twin, "twin.maxRequestsPerSecond", StaticDefaults.DEFAULT_TWIN_MAX_REQUESTS_PER_SECOND);
         MineQTTConfig.twinCatalog = in.bool(twin, "twin.catalog", StaticDefaults.DEFAULT_TWIN_CATALOG);
         MineQTTConfig.twinCatalogMax = in.integer(twin, "twin.catalogMax", StaticDefaults.DEFAULT_TWIN_CATALOG_MAX);
+        JsonObject telemetry = in.section(root, "telemetry");
+        MineQTTConfig.telemetryEnabled = in.bool(telemetry, "telemetry.enabled", StaticDefaults.DEFAULT_TELEMETRY_ENABLED);
+        MineQTTConfig.telemetryIntervalSeconds = in.integer(telemetry, "telemetry.intervalSeconds", StaticDefaults.DEFAULT_TELEMETRY_INTERVAL_SECONDS);
+        // Both only ever narrow what is published about players: an invalid value falls back to the narrowest, not the default.
+        MineQTTConfig.telemetryPlayers = ConfigValidation.telemetryPlayersOrNarrowest(in.raw(telemetry, "telemetry.players"), in.messages);
+        MineQTTConfig.telemetryPublishPlayerNames = ConfigValidation.publishPlayerNamesOrNarrowest(in.raw(telemetry, "telemetry.publishPlayerNames"), in.messages);
+        MineQTTConfig.telemetryAllowBroadcast = in.bool(telemetry, "telemetry.allowBroadcast", StaticDefaults.DEFAULT_TELEMETRY_ALLOW_BROADCAST);
+        MineQTTConfig.telemetryMaxPresenceDevices = in.integer(telemetry, "telemetry.maxPresenceDevices", StaticDefaults.DEFAULT_TELEMETRY_MAX_PRESENCE_DEVICES);
+        MineQTTConfig.telemetryForgetAfterDays = in.integer(telemetry, "telemetry.forgetAfterDays", StaticDefaults.DEFAULT_TELEMETRY_FORGET_AFTER_DAYS);
         JsonObject server = in.section(root, "server");
         MineQTTConfig.serverKeepTickingWhenEmpty = in.bool(server, "server.keepTickingWhenEmpty", StaticDefaults.DEFAULT_SERVER_KEEP_TICKING_WHEN_EMPTY);
         JsonObject legacy = in.section(root, "legacy");
@@ -266,6 +302,18 @@ public final class JsonConfigFormat {
             if (value.isJsonPrimitive()) return value.getAsJsonPrimitive();
             messages.add(key + ": expected a single value, not an object or a list; the value is ignored");
             return null;
+        }
+
+        /**
+         * The value as the file holds it, for a key whose own rule judges it: a string, boolean or number, the element
+         * itself for an object or a list, null when absent or null.
+         */
+        Object raw(JsonObject parent, String key) {
+            JsonElement value = parent.get(member(key));
+            if (value == null || value.isJsonNull()) return null;
+            if (!value.isJsonPrimitive()) return value;
+            JsonPrimitive primitive = value.getAsJsonPrimitive();
+            return primitive.isString() ? primitive.getAsString() : primitive.isBoolean() ? (Object) primitive.getAsBoolean() : primitive.getAsNumber();
         }
 
         private static String fallingBackTo(Object fallback) {

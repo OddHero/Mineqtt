@@ -9,11 +9,15 @@ Or maybe you want to know if your virtual nuclear reactor is about to blow up, w
 airhorn/sirene to wake you up before its too late.
 
 MineQTT blocks are real smart-home devices: Home Assistant discovers each placed Smart Lamp, Redstone Output, Redstone
-Input, Smart Plug, Presence Sensor, Climate Sensor, Wall Switch and Display Panel as its own device under a **MineQTT
-Bridge** device for the world. Devices can also be wired to each other on the server, so local contraptions keep
-working without the broker. The other way round, blocks can [mirror your house](#mirror-your-house): a lamp follows
-the real kitchen light, a Display Panel shows the outdoor temperature, and a pressure plate switches the real hallway
-light. What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
+Input, Smart Plug, Presence Sensor, Climate Sensor, Wall Switch, Display Panel, timer, Block Observer and Block Placer
+as its own device under a **MineQTT Bridge** device for the world, which also reports the world's time, weather and
+load and, for players who agree to it, who is online ([World telemetry](#world-telemetry),
+[Privacy and presence](#privacy-and-presence)). [Rooms](#rooms) put devices into Home Assistant areas. Devices can
+also be wired to each other on the server, so local contraptions keep working without the broker; a Daylight Timer
+switches the lamps at sunset with no automation at all. The other way round, blocks can
+[mirror your house](#mirror-your-house): a lamp follows the real kitchen light, a Display Panel shows the outdoor
+temperature, and a pressure plate switches the real hallway light. What changed in each release is in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Inter Server Communication - Signals Between Minecraft Worlds
 
@@ -49,7 +53,7 @@ and kept as `mineqtt.json.v1.bak` / `mineqtt.toml.v1.bak`.
 | `acl.rawAllow` | `mineqtt/shared/#`, `<base>/<bridgeId>/raw/#` | Topics players may use for raw links and the Configurator's explorer. |
 | `acl.opsBypassAllowlist` | `AUTO` | Whether ops may use topics outside `acl.rawAllow`; `AUTO` = yes in single player and LAN worlds, no on dedicated servers. |
 | `acl.explorerBrokerWide` | false | Lets admins listen to the whole broker with the Configurator's explorer. |
-| `limits.maxDevicesPerPlayer` | 0 | Maximum devices one player may own, loaded or not; 0 is unlimited. A player who owns as many cannot place another device (the action bar says why) or claim an ownerless one; operators are not limited. Only placing and claiming are checked: devices made by `/setblock`, `/clone` or structures, and an owner's devices above a lowered limit, are kept. The Block Sensor, Block Emitter, timers and Bridge Console are no devices and do not count. |
+| `limits.maxDevicesPerPlayer` | 0 | Maximum devices one player may own, loaded or not; 0 is unlimited. A player who owns as many cannot place another device (the action bar says why) or claim an ownerless one; operators are not limited. Only placing and claiming are checked: devices made by `/setblock`, `/clone` or structures, and an owner's devices above a lowered limit, are kept. The timers, the Block Observer and the Block Placer are devices and count; the Bridge Console is no device and does not. |
 | `limits.maxWiresPerPlayer` | 256 | Maximum wires (Configurator links and `/mineqtt wires add` of a player) one player may own; 0 is unlimited. Wires made from the console or a command block count for nobody. |
 | `twin.statestreamBase` | `ha_statestream` | The `base_topic` of Home Assistant's `mqtt_statestream`. Read-only for players and ops; only admins (op level 3 or the `mineqtt:admin` permission) may listen there in the explorer. Must not overlap `discoveryPrefix`, `baseTopic` or `mineqtt/shared`; one trailing `/` is ignored. Empty: the twin reads nothing. |
 | `twin.allowedEntities` | `AUTO` | Home Assistant entities the twin may read and bind, as globs over the entity id (`*`, `?`), e.g. `light.*`. Operators do not bypass it. `[]` turns the twin off; `AUTO` alone means every entity in single player and LAN worlds and **none on dedicated servers** (the twin starts off there; `/mineqtt status` and the log name this key). Set it before you open a world to LAN or share it: every guest may then bind and control what it allows. |
@@ -57,8 +61,31 @@ and kept as `mineqtt.json.v1.bak` / `mineqtt.toml.v1.bak`.
 | `twin.maxRequestsPerSecond` | 20 | Home Assistant requests per second for the whole server (1-1000). |
 | `twin.catalog` | true | Read the entity catalog of the MineQTT catalog blueprint. |
 | `twin.catalogMax` | 2000 | Home Assistant entities the twin keeps at most (1-10000). |
-| `blockPlacer.enabled` | false | Enables the block emitter (places blocks from MQTT payloads). |
+| `blockPlacer.enabled` | false | Lets Block Placers place and clear blocks. While it is off a placer listens on nothing and answers every action with "disabled". |
 | `server.keepTickingWhenEmpty` | false | Dedicated servers only: never pause with nobody online, overriding `pause-when-empty-seconds`. See "Dedicated servers pause when empty" under [Home Assistant](#home-assistant). |
+
+**Keys added in 0.8.0** (world telemetry, players, the Block Placer and Block Observer, rooms). They are read,
+checked and saved on both loaders (on Fabric `telemetry.allowBroadcast` needs a server restart). An existing config
+needs no change: a missing key takes its default and is written on the next save. On NeoForge they are the TOML tables `[telemetry]`, `[blockObserver]` and `[rooms]`
+plus two keys in `[blockPlacer]` and one in `[limits]`; on Fabric they are the **World** category of the Mod Menu
+screen. A value out of range falls back to its default with one log line, except the two player keys: an invalid
+`telemetry.players` counts as `OFF` and an invalid `telemetry.publishPlayerNames` as `false` (the narrowest value, with
+one log line) until it is fixed.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `telemetry.enabled` | true | Publish the world's time, weather, day and server load on the bridge device; off keeps only the player count and drop counters. |
+| `telemetry.intervalSeconds` | 10 | At most this often (5-300 s) a telemetry change other than players, day or weather is published. |
+| `telemetry.players` | `PRESENCE` | The most published about a player who consents: `OFF` (counts only), `PRESENCE` (name and a presence device) or `FULL` (also health, dimension and position). Nothing is published about a player without their consent; see [Privacy and presence](#privacy-and-presence). |
+| `telemetry.publishPlayerNames` | true | `false` publishes counts only (no names, no presence devices), whatever players consent to. It only narrows: `true` names nobody who has not consented. |
+| `telemetry.allowBroadcast` | false | Let Home Assistant show a line of plain text in every player's chat, prefixed `[MQTT]`; see [World telemetry](#world-telemetry). Fabric reads it at start only. |
+| `telemetry.maxPresenceDevices` | 64 | Presence devices at most (1-1000); beyond it no new player gets one. |
+| `telemetry.forgetAfterDays` | 90 | Days a player may stay away before their presence device and name are forgotten (0-3650, 0 = never); their consent is kept. |
+| `blockPlacer.playersMayConfigure` | `AUTO` | Whether players who may otherwise configure a Block Placer may do so (its block, its raw link and its other settings); operators always may, and the owner may always set its access mode. `AUTO` = yes on integrated servers, no on dedicated servers. |
+| `blockPlacer.consumeItems` | true | A placed block costs its item from the container behind the Block Placer; clearing returns it. |
+| `blockObserver.exportBlockEntityData` | false | Include the observed block's block-entity data in the Block Observer's full raw payload, only when observer and target share a claim (or no claim mod is installed); never in Home Assistant. |
+| `rooms.maxSize` | 128 | The longest side of a room, in blocks (8-512). |
+| `limits.maxRoomsPerPlayer` | 16 | Rooms one player may own (0-512, 0 = unlimited); operators are not limited, and a world holds at most 512 rooms. |
 
 **Broker URI forms**
 
@@ -97,6 +124,8 @@ Each device publishes under `<baseTopic>/<bridgeId>/<slug>`, the slug derived fr
 | `…/<slug>/action` | Events |
 | `…/group/<slug>` (+ `/set`) | Groups |
 | `…/bridge/state`, `…/bridge/info`, `…/bridge` | Bridge availability (also the last will), version info, telemetry |
+| `…/bridge/event` | Player events (join, leave; death and advancement of consenting players), never retained |
+| `…/player/<slug>` | A consenting player's presence (`{"presence":"ON"}`, with `telemetry.players=FULL` and their consent also health, dimension and position), retained; see [Privacy and presence](#privacy-and-presence) |
 
 Commands are never retained. A retained message on a device's `/set` topics is ignored, so a stale command left on the
 broker cannot change a device when the server starts. Raw links are different, see below.
@@ -111,9 +140,12 @@ broker cannot change a device when the server starts. Raw links are different, s
 | **Wall Switch** (light remote) | `location` | Two buttons. A right-click presses the button it hits (left or right as you face the switch); its events on `…/action` are `{"event_type":"press","button":"left"}`, `double_press` (a second click within 8 ticks) and `hold` (the use key held for 10 ticks; fired once, nothing when you let go), each with the `button`. A single press is told 8 ticks after the click, once no second click came. `{"press_left":"PRESS"}` (or `/set/press_left` with `PRESS`, the Controls tab's buttons, `/mineqtt devices action <switch> press_right`) presses a button at once. Home Assistant shows an event entity and a device trigger per gesture and button ("left" pressed, double clicked, continuously pressed). Its raw link, if you give it one, publishes the event's name with the button (`press_left`, `double_press_right`, `hold_left`), never retained. Wire its `press` to a lamp, plug or output (Link mode or `/mineqtt wires`) to switch it without the broker; a wire carries both buttons' presses. |
 | **Climate Sensor** (temperature sensor; humidity sensors convert into it) | `temperature` °C, `humidity` %, `illuminance` lx, `biome`, `interval`, `raw_value` | Takes a reading every `interval` seconds (`/set/interval`, 1-3600, default 10). The state is published when the temperature moved by 0.2 °C, the humidity by 1 % or anything else changed, at most once per second. The readings come from the spot: the biome's temperature and whether it rains or snows there, the height, day and night, rain, an open sky or a roof, heat (fire, lava, magma, campfires) and water or ice within 5 blocks, and daylight plus block light. Its raw link publishes the reading `raw_value` names (`temperature`, `humidity` or `illuminance`) at every reading, as v1 sensors did, with a decimal point whatever the server's language (`21.5`). |
 | **Display Panel** | `message` (up to 255 characters, line breaks kept), `level` 0-15, `color`, `glow`, `size`, `location` | A wall plate that shows up to four lines of text: `{"message":"Washer done!"}`, `/set/message`, its Home Assistant text entity, a wire into `message` or its Raw Link (which follows the topic's retained value; blank text clears it). Settings `color` (the 16 dye colours, default `cyan`), `glow` (on by default; off draws in the block's light) and `size` (`auto`, `large`, `medium`, `small`). A comparator reads `level`: a number as a gauge (0..15, or over the mirrored entity's range or `twin.min`/`twin.max`), on/off words as 15/0, one of a mirrored entity's options as its index, any other text as 15, nothing, `unknown` or `unavailable` as 0. A point in time (a timestamp sensor's state) is worded by each player's game ("in 2 h 14 min", "07:30") and keeps moving. A right-click opens its screen. |
+| **Timers**: Interval Timer, Daylight Timer (formerly Game Time Timer), Alarm Clock, Cron Timer | `enabled`, `next_fire`, and the schedule of the kind: `interval` (1-1 000 000) with `unit` (`ticks`, `seconds`, `minutes`, `hours`); `trigger_at` (`sunrise`, `noon`, `sunset`, `midnight`, `custom`) with `time` (HH:MM, for `custom`); the Alarm Clock's `time`; the Cron Timer's `cron` (up to 64 characters, empty for no schedule) | Each fire pulses the block's redstone output (1 tick for the Interval and Cron Timer, 30 ticks for the Daylight Timer and the Alarm Clock) and publishes `{"event_type":"fired","source":"schedule"}` on `…/action`, at most 4 a second (wires get every fire). `{"state":"OFF"}` or `/set/enabled` `false` disarms the schedule, and enabling never fires at once. `{"trigger":"PRESS"}` (Home Assistant's *Trigger now*, the Controls tab, `/mineqtt devices action <timer> trigger`) fires at once with `source` `manual`, also while disabled; during the pulse of the last fire it is refused with the reason. A new interval or unit restarts the count (as in v1, the tick that ends a pulse is not counted, so a 20-tick interval fires every 21 ticks). The Daylight Timer and the Alarm Clock fire once a game day at their time; a `/time set` back over it does not fire it again that day. The Cron Timer follows the server's clock in the server's time zone; its seven fields are tick (0-19), second, minute, hour, day of month, month and weekday, so `0 */5 * * * * *` fires every 5 seconds and `0 0 30 7 * * 1-5` at 07:30 on weekdays. A step takes every n-th value: `*/n` from the field's first value, `v/n` from `v` to the field's last, `a-b/n` within the range. Its *Schedule* tab edits the expression field by field, with presets and the next three fires. `next_fire` is an ISO-8601 time with the server's offset (`Z` on a UTC server): an estimate from the tick rate for the tick-driven kinds, empty under 60 s ahead, while disabled, while the game is frozen (`/tick freeze`; every timer but the Cron Timer), for the Daylight Timer and the Alarm Clock while the day clock stands (`gamerule advance_time false`, `/time pause`; a clock slowed by `/time rate` keeps running and their estimate follows its rate), or when no fire comes within 400 days; it comes back within a tick or two once the clock or the ticks run again. It changes only when it moves by more than 5 s and is worked out again on every fire and edit and every 60 s. The Controls tab's status line says what comes next ("Next 06:00, in 19 min"). The Raw Link publishes `ON` on each fire, never retained, at most 4 a second. Timers keep running while the broker is down; unloaded they do not tick, so they are unavailable then and refuse commands. |
+| **Block Observer** (formerly Block Sensor) | `block` (id), `properties` (the block state's properties), `signal` (its comparator level 0-15), `change_on`, `payload`, `location` | Watches the block at its observer face (place it like a vanilla observer, in any of the six directions). Home Assistant shows the block as a sensor with its properties as attributes, the level, and a `changed` event (`{"event_type":"changed","block":"minecraft:oak_stairs"}`, at most 2 a second); the state is published at most once a second. `change_on` (`/set/change_on`): `state` (default, any property counts) or `block` (only another block). Its Raw Link sends what `payload` names on every change, never retained: `full` (default, see [Block Observer payloads](#block-observer-payloads)), `block_id`, `name` or `properties`. It never loads the chunk in front. |
+| **Block Placer** (formerly Block Emitter) | `block` (a setting), `placed`, `last_result`, `location` | Places its `block` in front (`place`) and clears it again (`clear`): Home Assistant's select of placeable blocks with *Place* and *Clear* buttons, the Controls tab, `/mineqtt devices action <placer> place`, or its Raw Link, which takes `place`/`ON`/`true`, `clear`/`OFF`/`false`, or a block to set and place, as `minecraft:redstone_lamp[lit=true]` or `{"id":"minecraft:white_wool"}` (with `"properties"`). See [Block Placer rules](#block-placer-rules) for what it places where. At most 4 actions a second; a retained message never builds; `last_result` says what happened or why not. It needs `blockPlacer.enabled`; on a dedicated server only operators configure it unless `blockPlacer.playersMayConfigure`. |
 
 Lamps, outputs, plugs and Display Panels stay `online` while their chunk is unloaded: a command is queued and applied when the chunk loads.
-Sensors and Wall Switches go `offline` when unloaded.
+Sensors, Wall Switches, timers, Block Observers and Block Placers go `offline` when unloaded.
 
 **Raw link.** The topic a device had in its v1 item slots (named paper) still works as a *raw link* next to the device
 topics: outputs, plugs and lamps follow it, inputs and sensors publish to it with the v1 payloads (`ON`/`OFF`,
@@ -121,9 +153,9 @@ topics: outputs, plugs and lamps follow it, inputs and sensors publish to it wit
 Advanced tab, with a renamed paper or with `/mineqtt devices raw`. Wireless redstone on one server keeps working
 while the broker is down. Players may only use topics in `acl.rawAllow` (by default `mineqtt/shared/…` and their own
 `<base>/<bridgeId>/raw/…`); topics that v1 blocks already used keep working for their owner. As in v1, a Redstone
-Output and a Smart Plug apply the retained value on their raw link when they subscribe, and so does the Block Emitter,
-which is not yet migrated to the device model. Whoever may publish retained messages to those topics can
-therefore change the world when the server starts, so limit write access to them in the broker ACL.
+Output and a Smart Plug apply the retained value on their raw link when they subscribe (a Block Placer never does).
+Whoever may publish retained messages to those topics can therefore change the world when the server starts, so limit
+write access to them in the broker ACL.
 
 **Item and paper names go to a shared namespace.** A channel (an item or paper name, as in the v1 slots) that the
 allowlist does not cover as written becomes `mineqtt/shared/<name>`: stone is `mineqtt/shared/minecraft/stone`, paper
@@ -154,10 +186,29 @@ right to configure the device.
 
 **Configurator** (formerly the Cyberdeck; same item id). A right-click opens the screen of the device you point at
 from up to 16 blocks away, e.g. a ceiling lamp; the screen stays open while you hold the Configurator and stay within
-that range. Pointing at nothing, it opens the topic explorer (listen, publish). Sneak + right-click into
-the air steps its mode: *Configure*, *Link*, *Group*, *Copy-Paste* and *Bind* (the
-[Twin tab](#bind-a-block)). Blocks that are not devices open from
-close by only. The explorer no longer keeps anything on the item: whether you listen is kept by the
+that range. Pointing at nothing, it opens the explorer on its *Devices* tab. Sneak + right-click into
+the air steps its mode: *Configure*, *Link*, *Group*, *Copy-Paste*, *Bind* (the
+[Twin tab](#bind-a-block)) and *Room* (see [Rooms](#rooms)). Blocks that are not devices open from
+close by only.
+
+The explorer's tabs are *Devices*, *Settings*, *Traffic* (formerly *Explorer*: listen and see the topics' messages) and
+*Publish*. *Devices* lists your own devices (an operator who may build sees every device, a player who may not build
+sees none; other players' devices are never listed, not even public ones), searchable by name, slug, model or type,
+in pages of 50, grouped by [room](#rooms) (rooms by name, then devices in no room) and sorted by name inside each. The
+room button next to the search filters by one room (*All rooms* shows every one). Operators also see the device
+groups. Each row shows the device's name, model, whether it is online (or without broker, queueing while unloaded,
+unavailable, faulted, of an unknown type), up to three of its values, and how far away it is in which direction; the
+slug, the place and the fault show on hover. The page follows the devices every 2 s.
+
+Click a device to select it: *Use* does what a right-click on it does (switches a lamp, from anywhere; a lamp in an
+unloaded chunk queues it and switches when it loads, a sensor there is refused), *Locate* marks it with particles
+only you see for 5 s when it is within 128 blocks, else says how far and in which direction, and *Open* opens its
+screen within 16 blocks. A room's header has *All on* and *All off*: they switch your lamps, plugs and outputs in that
+room (at most 64, once a second; timers stay as they are), as `/mineqtt rooms switch` does. No button ever reaches another
+player's device. The first page starts with the *You* row: what the server shares about you (on hover) and the buttons
+*Presence*, *All* (only where the server shares full data) and *Off*, the same choices as `/mineqtt privacy share`;
+the choice you made shows pressed. For an operator its hover also lists which players share their presence. The
+explorer no longer keeps anything on the item: whether you listen is kept by the
 server (it resumes when you rejoin, until the server restarts), and its topic slots give their items back when the
 screen closes. An old Cyberdeck gives back the items its slots held the first time you carry it.
 
@@ -192,10 +243,25 @@ target's screen: without the right to expose devices or to change the access mod
 chat, and a typed topic must be one you may use. Clicking the copied device again, or into the air, empties the
 clipboard.
 
+**Room mode** makes and edits [rooms](#rooms). Click one corner block, then the opposite one, up to the
+Configurator's 16 blocks away. Within hand reach an ordinary click uses doors, chests, levers and other blocks as with
+any item, also while a first corner waits; a block that does nothing with the click becomes the corner, and so does
+a device. A block with a use of its own becomes a corner when you click it from beyond reach. A prompt shows the box's
+size and asks for the room's name, with suggestions (the rooms you see but do not own, and for players who may bind
+devices to Home Assistant up to 16 of its area names) and, for operators and holders of `mineqtt:rooms.admin`, a
+toggle between *Your devices* and *Everyone's devices*. Sneak + right-click on a block of one of your rooms, within hand reach, offers *Rename* and *Remove*.
+Clicking into the air cancels. While you hold the Configurator in Room mode, the box you are making (white) and up to
+four rooms nearby (yours cyan, rooms for everyone green, others grey) are outlined with particles only you see.
+Refusals (too large, too many rooms, no right to build at a corner, adventure mode) show in the action bar, and the
+first corner stays picked.
+
 **Bridge Console** (formerly the Terminal; same block and item). A right-click opens a screen of the bridge: its *Bridge*
-tab shows whether MQTT is connected (and the protocol), the broker (credentials masked), the bridge's topics, whether
-Home Assistant's birth or last will was heard, whether the server ticks or is paused for being empty, the messages the
-bridge dropped, and the wires with what they delivered and dropped; details show on hover. Its *Devices* tab lists the
+tab shows whether MQTT is connected (and the protocol; the broker, credentials masked, on hover), the bridge's topics,
+whether Home Assistant's birth or last will was heard, whether the server ticks or is paused for being empty, *Traffic*
+(the messages the bridge dropped and the wires, with what they delivered and dropped on hover), *World* (TPS, the
+game time and the weather; MSPT, the day and the telemetry line on hover; a warning below 15 TPS) and *Players* (how many
+are online; an operator also reads the names of up to 16 players who share their name). The telemetry line, also in
+`/mineqtt status`, reads like `Telemetry: every 10 s · players: presence by consent (2 sharing) · broadcast off`. Its *Devices* tab lists the
 devices you may configure (an operator sees all of them), faulted ones and ones with a problem first, each with how it
 runs (online, no broker, unloaded, faulted, unknown type) and its type, place and fault or Raw Link problem on hover; its
 *Groups* tab lists the groups whose every device you may configure. The screen follows the bridge every second. Only an
@@ -218,8 +284,7 @@ them as well.
 only *uses* MineQTT blocks, an operator and a device's owner included, as vanilla lets no one break blocks in adventure
 mode. A right-click still switches a lamp or a plug and presses the Wall Switch, as far as the device's access mode
 lets them. A device's screen shows its *Controls* tab alone, without the device's topics, owner or diagnostics; its
-settings there are read-only. A device without controls (the Redstone Input), the screens of the other blocks (timers,
-Block Sensor, Block Emitter), a name tag, a renamed paper, the Configurator's Link, Group and Copy-Paste modes and its
+settings there are read-only, while a timer's *Trigger now* still works. A device without controls (the Redstone Input), a name tag, a renamed paper, the Configurator's Link, Group and Copy-Paste modes and its
 reach from afar are refused, and the action bar says why; within reach it opens the Controls tab as sneak +
 right-click does, and that screen stays open only within the player's reach. The Bridge Console opens read-only, without its actions and without its device
 and group lists. A screen open when the game mode changes is rebuilt for the new mode, or closed.
@@ -250,9 +315,12 @@ right to configure every device in it. `/mineqtt group` does all of it by comman
 
 ### Commands
 
-All need op level 2 (`/mineqtt publish` level 3), except `devices expose`: a player with the `mineqtt:ha.expose`
-permission may use it on devices they may configure. Quotes around a name are dropped: `rename lamp "Living Room"`
-names it `Living Room`.
+All need op level 2 (`/mineqtt publish` level 3), except `devices expose`, `privacy` and `rooms`: a player with the
+`mineqtt:ha.expose` permission may use `devices expose` on devices they may configure, and `privacy` and `rooms` are
+open to every player. `/mineqtt` itself is open to every player and each subcommand checks its own permission, so a
+player without op sees and completes only `privacy` and `rooms` (and `devices expose` with `mineqtt:ha.expose`), and
+`/mineqtt status` answers them "Incorrect argument for command" (0.7.0 said "Unknown or incomplete command"). Quotes
+around a name are dropped: `rename lamp "Living Room"` names it `Living Room`.
 
 `mineqtt:twin.bind` binds a device to a Home Assistant entity, `mineqtt:twin.control` turns its control on (the
 [Home Assistant twin](#mirror-your-house)). Everyone has both in single player and LAN worlds (every player on an
@@ -263,16 +331,23 @@ preset, and switches what Home Assistant labels *MineQTT control*. Set `twin.all
 guests may switch, before you share a world. A binding is also judged for the device's owner (an
 ownerless device cannot be bound until it is claimed), again at every load and config reload.
 
+`mineqtt:rooms.admin` (ops of level 2 and holders of the permission) makes [rooms](#rooms) that apply to every
+device inside them, not only to the maker's own.
+
 | Command | Purpose |
 |---|---|
-| `/mineqtt status` | Connection, broker, protocol, device counts, wires and their messages, Home Assistant mode, dropped messages |
+| `/mineqtt status` | Connection, broker, protocol, device counts, wires and their messages, Home Assistant mode, dropped messages, and the telemetry line (interval, what is shared about players, broadcast) |
+| `/mineqtt privacy`, `/mineqtt privacy share on \| full \| off` | Every player: what is published about you, and your choice (presence, everything the server shares, nothing); see [Privacy and presence](#privacy-and-presence) |
+| `/mineqtt players list \| forget <player>` | The players with a stored privacy choice and their presence devices; `forget` removes a player's name and presence device and keeps their choice (a stored name in any case, a UUID or an online player) |
+| `/mineqtt rooms list \| info <room> \| create <name> <from> <to> [for-all] \| rename <room> <name> \| resize <room> <from> <to> \| remove <room>` | Every player: [rooms](#rooms). `<room>` is a name (your own room first) or `"#<8 hex>"` from `list` when several rooms share it; a name with spaces needs quotes before the corners, e.g. `create "Living Room" 0 64 0 5 67 5`. `for-all` (operators and `mineqtt:rooms.admin`) makes a room for every device inside; from the console or RCON every room is one for everyone |
+| `/mineqtt rooms switch <room> on \| off` | Every player: switch your lamps, plugs and outputs in the room, at most 64, once a second (not in adventure mode; timers stay armed or disarmed); from the console every such device in the room. The reply counts them: "Kitchen: 2 switched on, 1 already on" |
 | `/mineqtt reconnect` | Rebuild the connection from the current config |
 | `/mineqtt devices list \| info <device> \| rename <device> <name> \| remove <device> \| prune` | Manage devices |
 | `/mineqtt devices set <device> <json>` | Command a device like its `…/set` topic, e.g. `set kitchen_lamp {"state":"ON"}`; an unloaded lamp or output queues it |
 | `/mineqtt devices setting <device> <key> <value>` | Change a setting, as the device screen does: the type's settings (`mode`, `range`, …), its other writable fields as the Controls tab sets them (`power 7`, `light {"state":"ON","brightness":128}`) and `name`, `expose`, `access`, `raw.channel`, `raw.private`, `raw.topic`, `raw.retain`, `raw.qos`, `raw.on`, `raw.off`, and the Home Assistant twin's keys: on a Smart Lamp and a Smart Plug `twin.entity`, `twin.device "<preset> <name>"`, `twin.preset`, `twin.unavailable hold\|off`, `twin.control true\|false`, `twin.resume press`; on a Redstone Output `twin.entity`, `twin.device`, `twin.preset`, `twin.path`, `twin.invert`, `twin.min`, `twin.max`, `twin.unavailable`, `twin.control`, `twin.resume`; on a Display Panel `twin.entity`, `twin.device`, `twin.preset`, `twin.path`, `twin.min`, `twin.max`, `twin.decimals`, `twin.unavailable`; on a Redstone Input `twin.target`, `twin.resume`; on a Wall Switch `twin.left`, `twin.right`, `twin.resume`; out-of-range values are refused |
 | `/mineqtt devices bind <device> <entity> \| none \| resume`, `/mineqtt devices bind <device> target <target> <entity> \| none`, `/mineqtt devices bind <device> preset <preset> <name>` | Mirror a Home Assistant entity on a device (Smart Lamp, Redstone Output, Smart Plug, Display Panel), unbind it, or end the pause of its control after too many requests; `target` sets or removes what a Redstone Input (`target`) or a Wall Switch button (`left`, `right`) switches; `preset` mirrors an MQTT device through a preset instead. The entity must be in `twin.allowedEntities` and, while the catalog blueprint runs, labelled in Home Assistant; a preset's topics must pass the ACL |
 | `/mineqtt devices raw <device> channel <name> \| private <name> \| topic <topic> \| none \| retain on\|off \| qos 0\|1 \| on <payload> \| off <payload>` | Edit the Raw Link: a channel resolves like a v1 item or paper topic (`mineqtt/shared/<name>` unless allowed as written), a private channel into the owner's own subtree; a topic is used as typed when the ACL allows it for you and for the device's owner; `""` clears a payload |
-| `/mineqtt devices action <device> <action> [value]` | Perform an action the device declares, e.g. `action garage_door state TOGGLE` |
+| `/mineqtt devices action <device> <action> [value]` | Perform an action the device declares, e.g. `action garage_door state TOGGLE`, `action porch_timer trigger`, `action wool_placer place` |
 | `/mineqtt devices expose <device> on \| off \| default` | Show a device to Home Assistant, hide it, or follow `ha.expose` again |
 | `/mineqtt devices access <device> private \| claim \| public` | Set who besides the owner and operators may use and configure a loaded device |
 | `/mineqtt devices claim <device>` | Become the owner of a loaded device that has none (run as a player) |
@@ -294,16 +369,23 @@ Tested with 2025.2.5 and 2026.10.0.
 What appears in Home Assistant:
 
 - A **MineQTT Bridge** device per world (named after the world) with a connectivity sensor, version, device count,
-  players online, a Republish button and (disabled by default) dropped-message counters.
+  players online, the world's TPS, time of day, day, whether it is day and the weather, a *Player event* entity, a
+  Republish button and (disabled by default) MSPT and the dropped-message counters; with `telemetry.allowBroadcast`
+  also a *Broadcast* text entity; see [World telemetry](#world-telemetry).
 - One device per exposed MineQTT block, linked to the bridge. The main entity is named after the device: a lamp named
-  "Kitchen Lamp" becomes `light.kitchen_lamp`. Renaming the device keeps the entity and its history.
+  "Kitchen Lamp" becomes `light.kitchen_lamp` (Home Assistant 2026.10 puts the area first when it creates a device in
+  one: the lamp "Smart Lamp 724a" in a room *Living Room* became `light.living_room_smart_lamp_724a`; 2025.2 does not). Renaming the device keeps the
+  entity and its history. A device inside a [room](#rooms) suggests the room as its area.
+- A *Player <name>* device per player who shares their presence, under the bridge; see
+  [Privacy and presence](#privacy-and-presence).
 - All device entities become unavailable when the server stops or crashes; the bridge's connectivity sensor turns off.
 - When Home Assistant restarts, MineQTT republishes everything within a few seconds; no server restart is needed.
 - A block that mirrors a Home Assistant entity keeps only a disabled diagnostic *Binding* entity while it is bound
   (see [What Home Assistant sees](#what-each-block-mirrors)).
 - Devices that are gone do not linger: for five seconds after every connect MineQTT reads the retained device configs
   under the discovery prefix and clears each one that names this world's bridge but no device or group the world knows,
-  such as a device whose placement a crash undid. Home Assistant then removes it. Configs of other worlds' bridges and of
+  such as a device whose placement a crash undid, and each presence device that no player of the world has any more.
+  Home Assistant then removes it. Configs of other worlds' bridges and of
   other integrations are never touched, and configs over 16 KiB are skipped. The cleanup is off while the device registry
   cannot be saved (a newer MineQTT wrote it), since it may then lack devices that exist.
 
@@ -318,7 +400,9 @@ What appears in Home Assistant:
 Expose a device with `/mineqtt devices expose <device> on` (`off` hides it again and removes its discovery, `default`
 follows `ha.expose`); it also works while the device's chunk is unloaded. A device in a group is hidden while the group
 hides its members (the group page's *Members* button, or `/mineqtt group expose-members`). With `OPT_IN` a group is
-discovered only while one of its devices is exposed, or when it was made from a v1 topic.
+discovered only while one of its devices is exposed, or when it was made from a v1 topic. Hiding a device clears its
+discovery once; Home Assistant then logs `No device components to cleanup for mineqtt_…` once per entity it removed
+(two for a lamp: the light and its location), for clears it publishes itself. The warning is harmless.
 
 **Dedicated servers pause when empty.** Since Minecraft 1.21.2 a dedicated server stops ticking after
 `pause-when-empty-seconds` (default 60) without players. MineQTT keeps handling MQTT between the paused ticks: Home
@@ -326,12 +410,121 @@ Assistant commands and wireless redstone still switch lamps, emitters and other 
 published, and devices placed or loaded by commands attach. `/mineqtt status` shows `Server: paused (empty): MQTT handled
 between ticks` and the `pause-when-empty-seconds` value. What the pause still holds back: block changes and their
 immediate neighbour updates happen at once, but scheduled ticks (repeaters, comparators, observers, pistons), light
-updates, block entity tickers (sensors, slot edits) and timers wait until a player joins. Only when such contraptions
+updates, block entity tickers (sensors, slot edits), timers and the bridge's telemetry wait until a player joins. Only when such contraptions
 must keep running with nobody online, set `server.keepTickingWhenEmpty` to true in the MineQTT config (or
 `pause-when-empty-seconds=0` in `server.properties`). The opt-in keeps `server.properties` as it is, logs at startup that
 it overrides `pause-when-empty-seconds`, and `/mineqtt status` then shows `Server: ticking, never pauses
 (server.keepTickingWhenEmpty overrides pause-when-empty-seconds=60)`. It costs a full tick, 20 times a second, while
 nobody plays.
+
+### World telemetry
+
+The bridge's telemetry on `…/bridge` (retained) holds `players_online`, `dropped_inbound` and `dropped_outbound` and,
+while `telemetry.enabled` is on, `players` (the names of the players online who share their presence, sorted; see
+[Privacy and presence](#privacy-and-presence)), `tps`, `mspt`, `time_of_day` (the game time in 15-minute steps, `19:00`), `day`,
+`is_day` (06:00 to 18:00 game time) and `weather` (`clear`, `rain` or `thunder`). Home Assistant shows them as *Players
+online* (with `players` as an attribute), *TPS* and *MSPT* (diagnostic, MSPT disabled by default), *Time of day*,
+*Day*, *Is day* and *Weather*. MineQTT samples the world every second: a change of the players, of day and night or of
+the weather goes out within about 2 s, anything else at most every `telemetry.intervalSeconds`, TPS only when it moved
+by 0.5 and MSPT by 1 ms. TPS and MSPT are vanilla's rolling average; TPS reads 0 while the game is frozen. With
+`telemetry.enabled` off the six world entities read unknown. A dedicated server paused while empty samples nothing
+(TPS keeps its last value) until it ticks again.
+
+*Player event* (`…/bridge/event`, never retained) fires `{"event_type":"join"}` and `{"event_type":"leave"}` for every
+player, with `player` (their name) only for a player who shares their presence. Deaths (`{"event_type":"death",
+"player":"Steve","cause":"death.attack.fall"}`, the cause's translation key) and announced advancements are published
+only for players who share their presence. At most
+one join and one leave per player every 5 s and 10 events a second for the bridge are published; the excess counts in
+`dropped_outbound`.
+
+**Broadcast text** (off by default). With `telemetry.allowBroadcast` on, Home Assistant's *Broadcast* entity on the
+bridge, or any client that may publish to `<base>/<bridge>/bridge/request/broadcast`, shows a line of plain text in
+every player's chat behind `[MQTT]`. The text is never a command or a JSON component: at most 1 KiB of strict UTF-8,
+formatting codes (`§`), control and bidi characters removed, whitespace collapsed, cut to 256 characters. Three are
+shown at once, then one a second; a retained request is ignored, and each shown text is logged with its topic. The
+answer goes to `bridge/response/broadcast`: `{"status":"ok"}` or `{"status":"error","error":…}` (`broadcast disabled`,
+`rate limited`, `message over 1024 bytes`, `message is not UTF-8`, `empty message`). The Home Assistant entity (a text
+of at most 255 characters, Home Assistant's own limit; configuration category, no state) exists only while the key is
+on; turning it off removes it, also when Home Assistant was offline then. Restrict `<base>/+/bridge/request/#` in the
+broker ACL to the clients that should send it.
+
+**Example dashboard.** [`docs/dashboards/mineqtt-world.yaml`](docs/dashboards/mineqtt-world.yaml) is a Home Assistant
+dashboard of the world: whether the server is online, TPS, players and their names, time of day, day and night,
+weather, the load over the last hours and the player events. It uses only entities MineQTT creates. Create a dashboard
+(Settings → Dashboards → Add dashboard → New dashboard from scratch), open its raw configuration editor and paste the
+file. Its entity ids are those of a world named `world` (the bridge device is named after the world, so a world
+*Survival* has `sensor.survival_tps`): replace `world_` with your world's name first. *MSPT* is disabled by default;
+enable it in Home Assistant before you add it.
+
+### Privacy and presence
+
+Nothing that names a player is published until that player chooses. The one exception is the host of a single player
+or LAN world, who shares their presence until they say otherwise (they get a note in chat); LAN guests and every
+player on a dedicated server share nothing until they choose. The server's config can only narrow what players
+choose: `telemetry.players` caps it (`OFF` shares no player at all, `PRESENCE` presence only, `FULL` also health,
+dimension and position), and `telemetry.publishPlayerNames=false` shares counts only.
+
+- **The prompt.** When the server shares players, MQTT is set up and `ha.expose` is not `NONE`, a player who never chose is asked once, at their
+  first join, with clickable *[Share presence]* and *[Don't share]* (and *[Share all]* when the server is in `FULL`).
+  The buttons run the command below.
+- **`/mineqtt privacy`** tells you what is published about you and offers the choices again; `/mineqtt privacy share
+  on` shares your presence, `share full` everything the server shares (on a `PRESENCE` server it says it shares presence
+  only, and a wider mode later honours it), `share off` nothing. Operators list the stored choices with `/mineqtt players
+  list` and remove a player's name and presence device with `/mineqtt players forget <player>`; the choice stays.
+- **What a choice changes.** A sharing player's name appears in the bridge's `players` attribute and on their joins and
+  leaves on *Player event*, and their deaths and advancements are published.
+- **Presence devices.** Each sharing player is a Home Assistant device *Player <name>* (model *MineQTT Player*) under
+  the bridge, with a presence sensor on `…/player/<slug>` (`{"presence":"ON"}` while online, `OFF` after they quit or the
+  server stops, and `OFF` at the next connect after a crash). The slug (`player_steve`) stays when the player renames;
+  the device's name follows. Its id is salted per world (`mineqtt_player_<32 hex>`) and never shows the Mojang UUID. It
+  is discovered under `OPT_IN` too, since the player's consent is the opt-in; `ha.expose=NONE` removes the discovery and
+  keeps the state topic. It goes away at `share off`, at `players forget`, after `telemetry.forgetAfterDays` days away
+  (UTC days, checked at start and every 20 minutes, never for a player online) and for every player when the server
+  stops sharing players (`telemetry.players=OFF` or `publishPlayerNames=false`; the choices are kept). Beyond
+  `telemetry.maxPresenceDevices` no new player gets a device (none is taken from another player) and the operators
+  online are told once.
+- **Full sharing.** With `telemetry.players=FULL` and `share full`, the presence device also has *Health* (rounded to
+  0.5 points, a quarter of a heart), *Dimension* and *Position* (`x, y, z`, with `x`, `y`, `z` as attributes). They are sampled every second
+  and published at once on a dimension change, else at most every 5 s and only after 4 blocks of movement or a change of
+  half a heart; at most 20 such updates a second for the whole server. Nothing of it is kept after the player quits. `share
+  on`, or a server narrowed to `PRESENCE`, removes the three sensors and keeps the device.
+- **Explorer.** A player's own `player/` topic shows in the Configurator's *Traffic* tab to that player and to admins
+  (op level 3 or `mineqtt:admin`), never to other players.
+
+### Rooms
+
+A room is a named box of blocks in one dimension. Every device inside it suggests the room's name to Home Assistant as
+its area (`suggested_area`). A room applies to its owner's devices; a room for everyone (`for-all`, made by operators
+and holders of `mineqtt:rooms.admin`, and every room made from the console or RCON) applies to every device inside.
+When rooms overlap, the smallest room that applies wins (a pantry inside the kitchen), the older one on a tie. Rooms
+are made with the Configurator's [Room mode](#devices-and-topics) or `/mineqtt rooms`, by any player who may build at
+both corners. A room's sides are at most `rooms.maxSize` blocks (both corners included), a player owns at most
+`limits.maxRoomsPerPlayer` rooms (operators are not limited) and a world holds at most 512. Names are 1 to 32
+characters and unique per owner, ignoring case. A device's General tab shows its room. Only a room's owner or an
+operator renames, resizes or removes it, never in adventure or spectator mode; renaming or resizing a room for everyone
+needs the right that making it needed, also for its owner.
+
+Home Assistant creates an area that does not exist yet, and reuses one whose name differs only in case (`kitchen`
+lands in *Kitchen*). With the [catalog blueprint](#set-up-home-assistant-about-five-minutes) running, a room named like
+one of Home Assistant's areas, case and spaces ignored (`living room` or `livingroom` for *Living Room*), suggests the
+area in Home Assistant's own spelling, from the device's next refresh on. The room prompt suggests up to 16 area names
+to players who may bind devices to Home Assistant.
+
+Home Assistant applies a suggested area when it creates a device. A device that Home Assistant already knew keeps its
+area when a room comes, moves, is renamed or goes: MineQTT republishes it with the new suggestion, but you change the
+area in Home Assistant. The two tested versions differ:
+
+| Case | 2026.10 | 2025.2 |
+|---|---|---|
+| A new device | gets the room's area (created if missing) | the same |
+| A known device without an area, now in a room | keeps no area | moves into the room's area |
+| A device with an area | keeps it | keeps it |
+| A device hidden and exposed again | gets its old area back | gets the current room's area |
+
+The General tab shows the room with a `*` when the area Home Assistant was first told differs from the room (case
+and spaces ignored), and says on hover which area that was, or that the device was first discovered without an area;
+it never claims what Home Assistant did, so check the area there. A group suggests a room when all of its devices are
+in that room. Copy-Paste copies no room.
 
 ### Broker ACL (Mosquitto)
 
@@ -371,14 +564,13 @@ anyway; a broker that withholds it leaves such an output at its saved level unti
 subscribe: yes" means it delivers. Outputs on other servers and on MQTT 3.1.1 are not affected.
 
 Give other broker users write access to `mineqtt/shared/#` and to raw-link topics only if you trust them: a retained
-message there sets a Redstone Output or an unmigrated block when the server starts (see [Raw link](#devices-and-topics)).
+message there sets a Redstone Output or a Smart Plug when the server starts (see [Raw link](#devices-and-topics)).
 
 Keep `topic read ha_statestream/#` read-only for MineQTT's user. Inside the game, nobody (operators and the console
 included) can publish into the statestream namespace (`twin.statestreamBase`) nor into any MineQTT server's `bridge/`
 level (`<baseTopic>/+/bridge/#` and `mineqtt/+/bridge/#`, e.g. `mineqtt/shared/bridge/…`), even when `acl.rawAllow`
-covers it. A Block Emitter shows what it receives to every player nearby, so it never listens on the statestream
-namespace, on any server's `bridge/ha_request`, `ha_response` or `ha_sync`, or on this server's device and group
-topics (a bound device's state names its Home Assistant entity).
+covers it. The Block Placer (formerly the Block Emitter) listens through its raw link under the same rules as every
+device's and never acts on a retained message.
 
 With the [Home Assistant twin](#mirror-your-house) on a broker that other clients share, keep the twin's topics to
 the two parties that own them: Home Assistant runs a request on `mineqtt/+/bridge/ha_request` as if Minecraft had sent
@@ -608,7 +800,7 @@ Every change in the game remembers what started it. Only a chain a player or the
 | The world | a lever, a pressure plate, a redstone clock, a wire from them | yes |
 | Home Assistant's state | a mirrored block changing because the entity changed, and everything it powers in the same tick | no |
 | A Home Assistant command | a device's `/set` topic, and wires from that device | no |
-| A raw topic | a Raw Link, a v1 Block Emitter's placed block | no |
+| A raw topic | a Raw Link, and what a Block Placer reports on its out-ports after a raw message | no |
 | A server start or chunk load | power-on behaviour, a queued command landing | no |
 
 So a mirrored block cannot echo Home Assistant's state back, a Home Assistant automation that switches a plain MineQTT
@@ -738,6 +930,25 @@ cannot be triggers of a Redstone Input or Wall Switch.
   waits for the lamps that have not loaded since the upgrade, however long that takes, and gives lamps MineQTT knows
   nothing of yet one minute while the switch is loaded. Otherwise its topic is dropped, with a line in the server log; wire it yourself in
   Link mode.
+- **Timers:** the Interval Timer, the Game Time Timer (now the Daylight Timer), the Alarm Clock and the Cron Timer
+  become devices in place, with their settings, counters, owner and anvil name; the items of their old slots are kept as
+  legacy items (Diagnostics tab, *Eject*). A v1 Alarm Clock without an alarm is a disabled one set to 06:00, and an
+  interval over 1 000 000 is clamped. Their slots never published, so they get no raw link. A Daylight Timer or Alarm
+  Clock at or near sunrise fires once a day (v1 fired twice around the day boundary), a Cron Timer's `*/n` and `v/n`
+  steps take every n-th value (v1 took every value, so `0 */5 * * * * *` fired every second), and a *Trigger now* during
+  a pulse is refused with the reason. Their items count against `limits.maxDevicesPerPlayer`.
+- **Block Sensor:** it is now the Block Observer, a device. Its topic becomes its raw link on the same topic (not
+  retained), its data mode its `payload`, and its slot items are kept as legacy items. The `full` payload carries block
+  entity data only with `blockObserver.exportBlockEntityData` ([Block Observer payloads](#block-observer-payloads)).
+- **Block Emitter:** it is now the Block Placer, a device, and listens on its v1 topic as its raw link. It places only
+  blocks of `#mineqtt:placeable` and never acts on NBT, block entity data, a property-only edit, a display name or a
+  retained message ([Block Placer rules](#block-placer-rules)); by default the block's item comes from the container
+  behind it. Its test tab is gone, and a block it placed in v1 is never cleared.
+- **Block Sensor and Block Emitter topics** follow the raw link rules of every device: the topic stays its owner's
+  (grandfathered) under the hard denies. A topic that is a wildcard filter (`+`, `#`), longer than 256 bytes, under the
+  discovery prefix (e.g. `homeassistant/status`) or under any bridge's `bridge/` level no longer works after the upgrade;
+  `/mineqtt devices info` shows why. A sensor and an emitter on one topic keep talking to each other on the server
+  alone, also without the broker.
 - **Terminal:** it is now the Bridge Console (same block and item), which shows the bridge's state and the devices you
   may configure. A Terminal placed in v1 faces north; a new one faces the player who places it.
 - **Dynamic Publisher and Topic Relay:** both are retired and do nothing any more: they neither subscribe nor publish,
@@ -781,9 +992,11 @@ cannot be triggers of a Redstone Input or Wall Switch.
   own state, and lamps that shared a topic form a group. The old file is left untouched.
 - **Names:** the blocks are named after what they are now: the RGB LED Subscriber is the Smart Lamp, the Redstone
   Emitter the Redstone Output, the Redstone Publisher the Redstone Input, the Motion Sensor the Presence Sensor, the
-  Temperature Sensor the Climate Sensor, the Light Remote the Wall Switch, the Terminal the Bridge Console and the
-  Cyberdeck the Configurator. Their ids are unchanged, so existing blocks and items stay what they are.
-- **Blocks** keep their ids, items and settings. Blocks not yet migrated to the device model work exactly as in v1.
+  Temperature Sensor the Climate Sensor, the Light Remote the Wall Switch, the Terminal the Bridge Console, the Block
+  Sensor the Block Observer, the Block Emitter the Block Placer, the Game Time Timer the Daylight Timer and the Cyberdeck
+  the Configurator. Their ids are unchanged, so existing blocks and items stay what they are.
+- **Blocks** keep their ids, items and settings. Since 0.8.0 every block that talks MQTT is a device; the retired
+  Dynamic Publisher and Topic Relay stay as described above.
 
 ## Crafting
 
@@ -803,31 +1016,29 @@ a chip unlocks once you hold one. Each timer-cycle recipe unlocks once you hold 
 | Wall Switch (formerly Light Remote) | `B B / SNS` | B stone button |
 | Display Panel | `GGG / GNG / SRS` | G black stained glass pane |
 | Alarm Clock | `SCS / RNR / SSS` | C clock |
-| Block Sensor | `SOS / ONO / SSS` | O observer |
-| Block Emitter | `SDS / RNR / SSS` | D dispenser |
+| Block Observer (formerly Block Sensor) | `SOS / ONO / SSS` | O observer |
+| Block Placer (formerly Block Emitter) | `SDS / RNR / SSS` | D dispenser |
 | Configurator (formerly Cyberdeck) | `_CA / _CN / S__` | _ empty, C copper ingot, A amethyst shard, S stick |
 | Bridge Console (formerly Terminal) | `IGI / NCN / III` | I iron ingot, G glass, C comparator |
 
 Unlisted letters keep their meaning from the rows above (S smooth stone, R redstone, N Network Chip). The four timers
-cycle in the crafting grid: one timer alone gives the next, Alarm Clock → Game Time Timer → Cron Timer → Interval
+cycle in the crafting grid: one timer alone gives the next, Alarm Clock → Daylight Timer → Cron Timer → Interval
 Timer → Alarm Clock. A Humidity Sensor alone in the grid (or a crafter) gives a Climate Sensor; that recipe unlocks once
 you hold one; a Static Publisher alone gives a Redstone Input the same way. The Dynamic Publisher and Topic Relay are
 retired: no recipe makes or uses them (see [Upgrading from v1](#upgrading-from-v1)).
 
 ## Features
 
-### Block Sensor
+### Block Observer payloads
 
-The Block Sensor watches the adjacent block at its observer face. Place it like a vanilla observer;
-it supports all six directions. Configure its topic in **MQTT Settings** with base/sub-topic item slots and
-private mode, as v1 blocks did (the Block Sensor is not a device yet). In **Block Data**, select the payload:
+The Block Observer's Raw Link sends the payload its `payload` setting names, on every change of the block in front:
 
-| Mode                      | MQTT payload                                                                                                   |
-|---------------------------|----------------------------------------------------------------------------------------------------------------|
-| Full block data (default) | JSON containing ID, display name, state properties, position, dimension and block entity NBT converted to JSON |
-| Block ID                  | Plain registry name, e.g. minecraft:stone                                                                      |
-| Display name              | Plain display name, e.g. Stone, using the server language                                                      |
-| State properties          | JSON object, e.g. {"facing":"north","powered":"true"}; {} for blocks without properties                        |
+| `payload` | Raw Link payload |
+|---|---|
+| `full` (default) | JSON with the id, display name, state properties, position, dimension and block entity data |
+| `block_id` | The registry name, e.g. `minecraft:stone` |
+| `name` | The display name, e.g. `Stone`, in the server's language |
+| `properties` | The state properties as JSON, e.g. `{"facing":"north","powered":"true"}`; `{}` for a block without properties |
 
 Full data example (the position is the watched block's position):
 
@@ -846,25 +1057,33 @@ Full data example (the position is the watched block's position):
 }
 ~~~
 
-The sensor publishes when the block in front updates, including replacement with air or changes to
-its state properties. Full-data mode also checks block entity data every 10 game ticks (normally
-0.5 seconds), so inventory changes can be published without replacing a chest. It sends a fresh
-snapshot when enabled, loaded, reconnected, or when its topic or data mode changes. The selected
-mode persists across world saves. A base-topic item or a valid private-mode owner is required;
-the sensor uses the configured server MQTT connection.
+`block_entity` is `null` unless the server sets `blockObserver.exportBlockEntityData` and the observer and its target
+share one land claim (always, without a claim mod); block entity data never reaches Home Assistant. Data longer than
+16 KiB is left out as `"block_entity":null,"truncated":true`. In `full` the payload is also compared every 10 ticks, so
+a chest's changed contents go out without replacing the chest, and data the server stops allowing leaves at the next
+comparison. The first look after placing sends the payload too, and so does a change of the `payload` setting.
 
-Craft one from three observers around a Network Chip on smooth stone (see [Crafting](#crafting)):
+### Block Placer rules
 
-~~~text
-Smooth Stone  Observer      Smooth Stone
-Observer      Network Chip  Observer
-Smooth Stone  Smooth Stone  Smooth Stone
-~~~
+A Block Placer places only blocks in the block tag `#mineqtt:placeable`: by default the wool, concrete and terracotta
+colours, glass and stained glass, the redstone lamp and the sea lantern (68 blocks). A datapack extends it with
+`data/mineqtt/tags/block/placeable.json`, e.g. `{"values":["minecraft:oak_planks"]}`; after `/reload` Home Assistant's
+select offers the new blocks. Whatever the tag says, a placer never places a block with a block entity, a game master
+block, TNT, a block no tool breaks, a fluid, fire, air or a portal, and it refuses NBT or block entity data, display
+names and blocks given by their properties alone.
 
-Run payload regression checks with ./gradlew :common:verifyBlockSensor (also included in check).
-For an in-game check, subscribe to the configured MQTT topic, replace the watched block, toggle
-a lever in front, test each payload mode, change chest contents in full-data mode, then reload the
-world and reconnect the broker. Also check the sensing face when placing upward or downward.
+It places into a replaceable space in front (such as air or tall grass) or replaces its own block, inside the world
+border and outside spawn protection, both judged for its owner. Across a claim line (with a claim mod such as Flan) it
+places only while its owner is online and may build there. A placement without properties takes the state a dispenser
+would place. It clears only the block it placed itself, in any state of that block (a lamp it placed stays its own
+while redstone lights it), without drops, and looks again right before it clears; a block a v1 Block Emitter placed is
+never cleared. With `blockPlacer.consumeItems` (the default) the block's item comes from the container behind the
+placer and goes back there on clear; it drops where the block stood when it does not fit, when the container's chunk
+is not loaded or when the container lies across a claim line the placer may not reach. The container behind follows
+the same claim rule as the space in front: the same claim as the placer, or its owner online and allowed to open
+containers there; otherwise placing answers "refused by the claim behind it". The placer acts only on loaded chunks and never loads one: while the space in front is not loaded it
+answers "the space in front is not loaded", and with `consumeItems` "the container behind it is not loaded" while
+that is not. Each action, refused ones included, counts against the 4 a second.
 
 ## Development launches
 
@@ -926,10 +1145,22 @@ Home Assistant) and the manual end-to-end checklist. The architecture is describ
   for players who may configure a block
 - Smart Lamps on walls and ceilings; adventure-mode players only use MineQTT blocks
 
+### Implemented (MineQTT 0.8.0: milestone 4, the world twin)
+
+- The four timers as devices with Home Assistant entities, a next-fire timestamp and the Cron Timer's Schedule tab, and
+  as flow triggers that switch lamps without the broker
+- World telemetry on the bridge device (TPS, MSPT, time of day, day, day or night, weather, players), player events
+  and an optional broadcast text into the chat, never a command
+- Per-player consent (`/mineqtt privacy`, a one-time prompt, the explorer's You row) and presence devices for players
+  who share
+- Rooms that put devices into Home Assistant areas, in Home Assistant's own spelling, with the Configurator's Room mode
+- The Block Observer and a Block Placer limited to a tag of safe blocks, with claims, rates and no NBT
+- A device-centric Configurator explorer: your devices by room, Use, Locate and Open from afar, a room's All on and All
+  off
+- An example Home Assistant dashboard of the world
+
 ### Planned
 
-- Milestone 4: rooms (Home Assistant areas), the timers as devices and flow triggers, world telemetry and player
-  presence, the Block Observer and a safe Block Placer
 - Milestone 5: hardening, localisation and a documentation site
 - Milestone 6: flows, like Node-RED made of blocks: logic blocks, data cables and a Flow Terminal
 

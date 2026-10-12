@@ -1,21 +1,23 @@
 package art.rehra.mineqtt.runtime;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.blocks.entities.TimerBlockEntity;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.device.DeviceRegistry;
 import art.rehra.mineqtt.device.DeviceRuntime;
 import art.rehra.mineqtt.device.DeviceTypes;
 import art.rehra.mineqtt.device.RegistryStore;
+import art.rehra.mineqtt.device.timer.core.ClockWatch;
 import art.rehra.mineqtt.flow.core.Root;
 import art.rehra.mineqtt.ha.BirthWatcher;
 import art.rehra.mineqtt.ha.BridgeDevice;
 import art.rehra.mineqtt.ha.DiscoveryPublisher;
 import art.rehra.mineqtt.ha.GhostCleanup;
-import art.rehra.mineqtt.legacy.LegacySubscriptionFacade;
 import art.rehra.mineqtt.legacy.LegacyTopicStateImport;
 import art.rehra.mineqtt.mqtt.CyberdeckSessionManager;
 import art.rehra.mineqtt.mqtt.core.BrokerConfig;
+import art.rehra.mineqtt.mqtt.core.ConnectionState;
 import art.rehra.mineqtt.mqtt.core.HiveMqttService;
 import art.rehra.mineqtt.mqtt.core.MqttLog;
 import art.rehra.mineqtt.mqtt.core.MqttService;
@@ -23,7 +25,11 @@ import art.rehra.mineqtt.mqtt.core.Outbound;
 import art.rehra.mineqtt.mqtt.core.ProtocolVersion;
 import art.rehra.mineqtt.mqtt.core.Subscription;
 import art.rehra.mineqtt.mqtt.core.TopicAcl;
+import art.rehra.mineqtt.presence.FullSample;
+import art.rehra.mineqtt.presence.PlayerPrivacy;
+import art.rehra.mineqtt.presence.PresenceRuntime;
 import art.rehra.mineqtt.security.AclContext;
+import art.rehra.mineqtt.telemetry.TelemetrySampler;
 import art.rehra.mineqtt.twin.BindingPresets;
 import art.rehra.mineqtt.twin.HaSink;
 import art.rehra.mineqtt.twin.TwinAdapter;
@@ -36,14 +42,23 @@ import art.rehra.mineqtt.ui.console.BridgeConsole;
 import com.google.gson.JsonObject;
 import dev.architectury.platform.Platform;
 import net.fabricmc.api.EnvType;
+import net.minecraft.core.BlockPos;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.dedicated.DedicatedServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Util;
+import net.minecraft.world.clock.ClockState;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.gamerules.GameRules;
 
 import java.security.SecureRandom;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.random.RandomGenerator;
 
 /**
@@ -83,11 +98,16 @@ public final class MineqttRuntime {
     private final DiscoveryPublisher.Identity identity;
     private final DiscoveryPublisher discovery;
     private final GhostCleanup ghosts;
+    private final PlayerPrivacy privacy;
+    private final PresenceRuntime presence;
+    private final TelemetrySampler telemetry;
     private final BridgeDevice bridge;
     private final BirthWatcher birth;
     private final BridgeConsole console;
     private final boolean dedicated;
     private final PausedServerPump pump;
+    // Whether the overworld clock runs and how fast (M4 plan D2), read at the start of each real tick.
+    private final ClockWatch clock = new ClockWatch();
     // Written by the tick, read by the MQTT client threads and the wake thread.
     private volatile long lastTickNanos = System.nanoTime();
     private volatile long tickNanos;
@@ -155,9 +175,39 @@ public final class MineqttRuntime {
         this.identity = new DiscoveryPublisher.Identity(server.getWorldData().getLevelName(), registry.worldUuid(),
                 Platform.getMod(MineQTT.MOD_ID).getVersion());
         this.discovery = new DiscoveryPublisher(registry, mqtt, () -> topics, identity, server.isDedicatedServer(), Util::getMillis, this::haOnline);
+        // Rooms suggest Home Assistant's own spelling of the catalog's areas (M4 plan D11).
+        discovery.setAreaNames(twin::areas);
+        this.privacy = new PlayerPrivacy(server, registry, this::mqttConfigured, () -> LocalDate.now(ZoneOffset.UTC).toEpochDay());
+        // The presence devices of consenting players (M4 plan D10) follow every privacy choice.
+        this.presence = new PresenceRuntime(registry, mqtt, () -> topics, identity, server.isDedicatedServer(), discovery::tryTakeToken,
+                discovery::componentsRemoved, this::haOnline, Util::getMillis, privacy::today, new PresenceRuntime.Game() {
+            @Override
+            public boolean host(UUID player) {
+                return privacy.host(player);
+            }
+
+            @Override
+            public Optional<FullSample> sample(UUID player) {
+                ServerPlayer online = server.getPlayerList().getPlayer(player);
+                if (online == null) return Optional.empty();
+                BlockPos pos = online.blockPosition();
+                return Optional.of(new FullSample(online.getHealth(), online.level().dimension().identifier().toString(), pos.getX(), pos.getY(), pos.getZ()));
+            }
+
+            @Override
+            public void tellOps(String text) {
+                MineQTT.LOGGER.warn(text);
+                server.getPlayerList().getPlayers().stream().filter(player -> AclContext.isOp(player.permissions()))
+                        .forEach(player -> player.sendSystemMessage(Component.literal(text)));
+            }
+        }, log);
+        privacy.listen(presence);
+        presence.start();
         this.ghosts = new GhostCleanup(mqtt, () -> MineQTTConfig.discoveryPrefix, identity.bridgeObjectId(),
-                registry::contains, discovery::tryTakeToken, Util::getMillis, log);
-        this.bridge = new BridgeDevice(mqtt, () -> topics, server::getPlayerCount, Util::getMillis, this::republish);
+                registry::contains, presence::knows, () -> topics.playerRoot(), presence::knowsSlug, discovery::tryTakeToken, Util::getMillis, log);
+        this.telemetry = new TelemetrySampler(server, privacy::consents);
+        this.bridge = new BridgeDevice(mqtt, () -> topics, telemetry::sample, TelemetrySampler::settings, Util::getMillis, this::republish,
+                this::showBroadcast, log);
         this.birth = new BirthWatcher(mqtt, this::republish, Util::getMillis, RandomGenerator.getDefault());
         // At once: the twin's values become retained, and a fresh catalog is asked for 5 s later (M3 plan D3).
         birth.onBirth(() -> {
@@ -242,7 +292,7 @@ public final class MineqttRuntime {
         return topics;
     }
 
-    /** Checks every topic a player or an unmigrated block uses; follows config changes. */
+    /** Checks every topic a player, a device or a legacy group uses; follows config changes. */
     public TopicAcl acl() {
         return acl;
     }
@@ -287,6 +337,26 @@ public final class MineqttRuntime {
         return console;
     }
 
+    /** The bridge device: its telemetry and the player events (M4 plan D6, D7). */
+    public BridgeDevice bridge() {
+        return bridge;
+    }
+
+    /** The players' privacy choices (M4 plan D9): who consents, the first-join prompt, {@code /mineqtt privacy}. */
+    public PlayerPrivacy privacy() {
+        return privacy;
+    }
+
+    /** The presence devices of players who consent (M4 plan D10). */
+    public PresenceRuntime presence() {
+        return presence;
+    }
+
+    /** What the bridge's telemetry reads off the world, and who may be named (M4 plan D9). */
+    public TelemetrySampler telemetry() {
+        return telemetry;
+    }
+
     public ProtocolVersion protocol() {
         return protocol;
     }
@@ -294,6 +364,12 @@ public final class MineqttRuntime {
     /** The configured broker for {@code /mineqtt status}, credentials masked; "none" when MQTT is disabled. */
     public String broker() {
         return broker;
+    }
+
+    /** Whether a broker is configured and usable, so anything MineQTT publishes leaves the server. */
+    public boolean mqttConfigured() {
+        ConnectionState.Status status = mqtt.state().status();
+        return status != ConnectionState.Status.DISABLED && status != ConnectionState.Status.FAILED;
     }
 
     /** Whether the bridge id is the generated one, not set in the config. */
@@ -339,9 +415,11 @@ public final class MineqttRuntime {
     public void reconnect() {
         if (stopping) return;
         MineQTT.LOGGER.info("Reconnecting to MQTT: {}", MineQTTConfig.connectionSettings());
+        TopicScheme before = topics;
         mqtt.replace(this::createService);
         devices.topicsChanged();
         bridge.topicsChanged();
+        presence.topicsChanged(before);
         subscribeResponses();
     }
 
@@ -367,7 +445,22 @@ public final class MineqttRuntime {
         tickNanos = server.tickRateManager().nanosecondsPerTick();
         playersAtLastTick = server.getPlayerCount();
         pauseLogged = false;
+        // Here, not in tickEnd, which a paused server's pump runs too without a tick. Block entities do not tick while
+        // the ticks are frozen, so the timers hear a stop, a start or a new rate from here.
+        Optional<ClockState> overworld = WorldClock.overworldState(server);
+        if (clock.tick(server.getGlobalGameRules().get(GameRules.ADVANCE_TIME), overworld.map(ClockState::paused).orElse(false),
+                server.tickRateManager().isFrozen(), overworld.map(ClockState::rate).orElse(1f))) {
+            devices.forEachAttached(TimerBlockEntity.class, TimerBlockEntity::clockChanged);
+        }
         handleInbound();
+    }
+
+    /**
+     * Whether the overworld clock runs and how fast ({@link ClockWatch}): stopped by {@code gamerule advance_time false},
+     * {@code /time pause} or {@code /tick freeze}; its rate set by {@code /time rate}.
+     */
+    public ClockWatch clock() {
+        return clock;
     }
 
     /**
@@ -390,6 +483,7 @@ public final class MineqttRuntime {
             migrateAfterState = false;
         }
         bridge.tick();
+        presence.tick();
         if (syncDueMillis >= 0 && now >= syncDueMillis) {
             syncDueMillis = -1;
             if (MineQTTConfig.twinOffReason(dedicated).isEmpty()) twinRequests.sync(syncReason);
@@ -420,6 +514,8 @@ public final class MineqttRuntime {
         if (responses != null) responses.close();
         discovery.stop();
         ghosts.stop();
+        // Before the connection closes: the presence devices of the players online go OFF ahead of the bridge's offline.
+        presence.stop();
         bridge.stop();
         birth.stop();
         mqtt.close();
@@ -552,7 +648,8 @@ public final class MineqttRuntime {
      */
     private boolean ownerWorkPending() {
         boolean connected = mqtt.state().isConnected();
-        return devices.hasPendingWork() || twin.pending() || twinRequests.pending() || birth.pending() || ghosts.pending() || store.structureSavePending(registry)
+        return devices.hasPendingWork() || twin.pending() || twinRequests.pending() || birth.pending() || ghosts.pending() || presence.hasPendingWork()
+                || store.structureSavePending(registry)
                 || syncDueMillis >= 0
                 || connected && discovery.hasPendingWork()
                 || republishStep == RepublishStep.STATE || republishStep == RepublishStep.DISCOVERY && (connected || discovery.idle());
@@ -566,18 +663,18 @@ public final class MineqttRuntime {
             acl = createAcl();
         } else {
             MineQTT.LOGGER.info("MQTT connection settings changed, reconnecting: {}", MineQTTConfig.connectionSettings());
+            TopicScheme before = topics;
             mqtt.replace(this::createService);
             devices.topicsChanged();
             bridge.topicsChanged();
+            presence.topicsChanged(before);
             subscribeResponses();
         }
-        // Raw Links and legacy subscriptions follow the new ACL without a restart (M2 plan D1). A save that left the ACL
-        // as it was (another key, or NeoForge's second reload of the same save) judges nothing again.
-        if (!acl.rules().equals(aclBefore)) {
-            devices.aclChanged();
-            LegacySubscriptionFacade.aclChanged();
-        }
+        // Raw Links and the v1 topics of legacy groups follow the new ACL without a restart (M2 plan D1). A save that left
+        // the ACL as it was (another key, or NeoForge's second reload of the same save) judges nothing again.
+        if (!acl.rules().equals(aclBefore)) devices.aclChanged();
         discovery.configChanged();
+        presence.configChanged();
         birth.configChanged();
         CyberdeckSessionManager.scopeChanged(server);
         logPauseOverride();
@@ -667,6 +764,8 @@ public final class MineqttRuntime {
         if (stopping) return;
         discovery.republishAll();
         bridge.publishTelemetry();
+        // Every presence device as its player is now: after a CONNACK, offline players OFF (M4 plan D10).
+        presence.republish();
         republishStep = RepublishStep.DISCOVERY;
         migrateAfterState |= afterConnect;
     }
@@ -675,6 +774,16 @@ public final class MineqttRuntime {
     private void publishBridge() {
         mqtt.publish(Outbound.state(topics.bridgeState(), ONLINE));
         mqtt.publish(Outbound.state(topics.bridgeInfo(), bridgeInfo()));
+    }
+
+    /**
+     * A broadcast text the bridge accepted (M4 plan D8), in every player's chat: the fixed {@code [MQTT]} prefix names the
+     * channel, never Home Assistant, a player or the server, and the text is a literal, which no client reads as a
+     * component, a click event or a command.
+     */
+    private void showBroadcast(String text) {
+        Component prefix = Component.translatableWithFallback("mineqtt.broadcast.prefix", "[MQTT]").withStyle(ChatFormatting.DARK_AQUA);
+        server.getPlayerList().broadcastSystemMessage(Component.empty().append(prefix).append(" ").append(Component.literal(text)), false);
     }
 
     private JsonObject bridgeInfo() {

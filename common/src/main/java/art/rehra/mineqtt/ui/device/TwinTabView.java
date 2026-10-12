@@ -791,7 +791,7 @@ public class TwinTabView implements MqttTabView {
             if (view.pending()) text.append(" · ").append(Component.translatable("mineqtt.twin.pending"));
             view.answer().filter(status -> !status.equals("accepted") && !status.equals("pong"))
                     .ifPresent(status -> text.append(" · ").append(Component.translatable("mineqtt.twin.last_answer", status)));
-            // Wave 6 open finding 2: the requests the rates refused, the last one's target and reason on hover for CONFIGURE.
+            // The requests the rates refused, the last one's target and reason on hover for CONFIGURE.
             // A device with targets only leads with the count: its own words say nothing new and would cut it off.
             MutableComponent shown = text;
             if (view.rateRefused() > 0) {

@@ -17,9 +17,14 @@ public record TopicScheme(String base, String bridgeId) {
         return bridge("info");
     }
 
-    /** The bridge's retained telemetry JSON: players online and the dropped message counters. */
+    /** The bridge's retained telemetry JSON: players online, the dropped message counters and the world (M4 plan D6). */
     public String bridgeTelemetry() {
         return root() + "/bridge";
+    }
+
+    /** The bridge's player events (M4 plan D7), {@code bridge/event}: QoS 1, never retained, dropped while offline. */
+    public String bridgeEvent() {
+        return bridge("event");
     }
 
     /** The filter of the requests the bridge answers, {@code bridge/request/<command>}. */
@@ -68,6 +73,19 @@ public record TopicScheme(String base, String bridgeId) {
     /** A device's events, never retained. */
     public String action(String slug) {
         return device(slug) + "/action";
+    }
+
+    /**
+     * A player's presence device (M4 plan D10), {@code player/<slug>}: retained JSON, published only while the player
+     * consents. {@code player} is a reserved device slug, so no device topic collides with it.
+     */
+    public String player(String slug) {
+        return playerRoot() + "/" + slug;
+    }
+
+    /** Where the presence devices' states live, {@code <base>/<bridgeId>/player}. */
+    public String playerRoot() {
+        return root() + "/player";
     }
 
     /** A group's retained state JSON. */

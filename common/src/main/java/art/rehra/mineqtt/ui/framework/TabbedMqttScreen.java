@@ -68,6 +68,11 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
         return topPos;
     }
 
+    /** The view of the active tab, for client tests that read what it shows; empty while none is built. */
+    public Optional<MqttTabView> activeView() {
+        return Optional.ofNullable(activeView);
+    }
+
     /** The note the active tab's view puts at the right of the title row ({@link MqttTabView#titleNote()}), if any. */
     public Optional<Component> titleNote() {
         return activeView != null ? activeView.titleNote() : Optional.empty();

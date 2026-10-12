@@ -33,7 +33,7 @@ import java.util.UUID;
  * E2E checklist item 12 (design §8.4, §8.6): a non-op creative player copies another player's private lamp, whose Raw
  * Link is a grandfathered v1 topic outside the allowlist, with Ctrl + pick block and places the copy. The copy becomes a
  * new device owned by the placer, its Raw Link never reaches the other player's topic: it is resolved for the placer into
- * the shared namespace, and the placer is told (M2 plan D1). The player cannot run {@code /mineqtt}, and the Cyberdeck
+ * the shared namespace, and the placer is told (M2 plan D1). The player cannot run {@code /mineqtt status}, and the Cyberdeck
  * explorer shows neither Home Assistant topics nor the other player's private topics (needs {@value GameTestSession#BROKER_ENV}).
  */
 public final class PlacementSecurityGameTest implements FabricClientGameTest {
@@ -59,11 +59,13 @@ public final class PlacementSecurityGameTest implements FabricClientGameTest {
         session.teleport(STAND);
         session.check(session.onServer(s -> session.player(s).hasInfiniteMaterials()), "the player is in creative mode");
 
+        // Every player reaches the /mineqtt root (M4 plan D14), but none of its op subcommands: status is no argument
+        // the root offers a non-op, so the command fails at it and nothing runs.
         int mark = ChatLog.mark();
         session.playerCommand("mineqtt status");
-        String unknown = session.onClient(mc -> Component.translatable("command.unknown.command").getString());
-        session.check(session.awaitChat(mark, line -> line.text().contains(unknown), CHAT_TIMEOUT_TICKS).isPresent(),
-                "a non-op player cannot run /mineqtt (chat: " + ChatLog.since(mark) + ")");
+        String refused = session.onClient(mc -> Component.translatable("command.unknown.argument").getString());
+        session.check(session.awaitChat(mark, line -> line.text().contains(refused), CHAT_TIMEOUT_TICKS).isPresent(),
+                "a non-op player cannot run /mineqtt status (chat: " + ChatLog.since(mark) + ")");
 
         BlockPos placed = copyAndPlace(session);
         if (placed != null) {

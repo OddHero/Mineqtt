@@ -72,6 +72,8 @@ public final class ValueCodecs {
     private static final int KELVIN_THRESHOLD = 1000;
     private static final int REDSTONE_MAX = 15;
     private static final String TOGGLE = Coerce.TOGGLE;
+    private static final String PLACE = "place";
+    private static final String CLEAR = "clear";
 
     public static final Codec<Boolean> BOOL = lenient(Codec.BOOL, ValueCodecs::decodeBool);
     /** Free text: control characters and Minecraft formatting codes are stripped, the length is capped. */
@@ -137,6 +139,26 @@ public final class ValueCodecs {
             command.add("color", rgb.toJson());
             return command;
         });
+    };
+
+    /**
+     * Raw payloads of a Block Placer (M4 plan D12): {@code place}, {@code ON} or another true spelling places the block it
+     * is set to, {@code clear}, {@code OFF} or another false spelling clears the block it placed, and anything else is a
+     * block to set and place at once: {@code minecraft:white_wool}, {@code minecraft:oak_stairs[facing=east]} or
+     * {@code {"id":"minecraft:oak_stairs","properties":{"facing":"east"}}}. The grammar reads only the shape; the device
+     * checks the block ({@link PlacerRules#parse}), so a payload with block entity data reaches it to be refused and
+     * counted. Gives {@code place}, {@code clear} or {@code block} with {@code place}.
+     */
+    public static final RawGrammar PLACER = (payload, custom) -> {
+        String text = payload.trim();
+        if (text.isEmpty()) return Optional.empty();
+        if (text.equalsIgnoreCase(PLACE)) return Optional.of(command(PLACE, new JsonPrimitive(Coerce.PRESS)));
+        if (text.equalsIgnoreCase(CLEAR)) return Optional.of(command(CLEAR, new JsonPrimitive(Coerce.PRESS)));
+        Optional<Boolean> on = bool(text);
+        if (on.isPresent()) return Optional.of(command(on.get() ? PLACE : CLEAR, new JsonPrimitive(Coerce.PRESS)));
+        JsonObject command = command("block", new JsonPrimitive(text));
+        command.addProperty(PLACE, Coerce.PRESS);
+        return Optional.of(command);
     };
 
     private ValueCodecs() {
@@ -611,7 +633,8 @@ public final class ValueCodecs {
         return packed.isPresent() ? Optional.of(Rgb.ofPacked(packed.getAsInt())) : Optional.empty();
     }
 
-    private static Optional<JsonElement> strictJson(String text) {
+    /** A strict JSON document, nothing after it; empty for anything else. */
+    static Optional<JsonElement> strictJson(String text) {
         try {
             JsonReader reader = new JsonReader(new StringReader(text));
             reader.setStrictness(Strictness.STRICT);

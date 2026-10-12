@@ -64,6 +64,15 @@ public interface DeviceHost {
     }
 
     /**
+     * Whether the device follows its Raw Link input now; true by default. A device that must not take messages for a
+     * reason of its own (the Block Placer while {@code blockPlacer.enabled} is off, M4 plan D12) answers false, so the
+     * runtime subscribes nothing for it, and tells its link when that changes ({@link DeviceLink#rawInputChanged}).
+     */
+    default boolean rawInputOpen() {
+        return true;
+    }
+
+    /**
      * The value a Raw Link output carries now, read live, or null for a device that publishes none or does not know its
      * value yet (a Redstone Input before it read its signal after the attach). A device publishes it on change; the
      * runtime sends it again when the device gets its first owner, since its publishes were refused until then, and a

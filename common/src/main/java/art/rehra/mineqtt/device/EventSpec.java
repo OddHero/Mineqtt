@@ -4,6 +4,7 @@ import art.rehra.mineqtt.flow.core.PortType;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -16,17 +17,31 @@ import java.util.Optional;
  * A {@linkplain #busOnly() bus-only} event (M3 plan D16) is an out-port and nothing else: wires and twin targets carry
  * it, but it is not published on the {@code action} topic, not on the Raw Link and not on any Home Assistant entity, so
  * Home Assistant's event entity and device triggers never see an event type they do not know.
+ * <p>
+ * An event with a {@linkplain #minInterval() minimum interval} (M4 plan D3) is published on the {@code action} topic and
+ * the Raw Link at most that often per device: one that comes sooner is dropped there and counted on the device's
+ * Diagnostics tab. The bus still carries every one (its per-source buckets bound it), and redstone is never capped. No
+ * type declared before M4 has one, so their events are unchanged.
  *
- * @param type       the event type, also the port id; frozen like field keys
- * @param attributes the keys every event of this type carries besides {@code event_type}, with their kinds
- * @param busOnly    whether the event stays on the message bus
+ * @param type        the event type, also the port id; frozen like field keys
+ * @param attributes  the keys every event of this type carries besides {@code event_type}, with their kinds
+ * @param busOnly     whether the event stays on the message bus
+ * @param minInterval the shortest time between two publishes of this event by one device; {@link Duration#ZERO} for no
+ *                    limit. A bus-only event is never published, so {@code DeviceType.Builder#build()} refuses one with a
+ *                    limit
  */
-public record EventSpec(String type, Map<String, PortType> attributes, boolean busOnly) {
+public record EventSpec(String type, Map<String, PortType> attributes, boolean busOnly, Duration minInterval) {
     public EventSpec {
         // The port kind checks the type's spelling.
         PortType.event(type);
         attributes = Map.copyOf(attributes);
         if (attributes.containsKey(PortType.Event.TYPE_KEY)) throw new IllegalArgumentException("Event " + type + " declares " + PortType.Event.TYPE_KEY + " as an attribute");
+        if (minInterval == null || minInterval.isNegative()) throw new IllegalArgumentException("Event " + type + " needs a minimum interval of zero or more: " + minInterval);
+    }
+
+    /** An event without a minimum interval. */
+    public EventSpec(String type, Map<String, PortType> attributes, boolean busOnly) {
+        this(type, attributes, busOnly, Duration.ZERO);
     }
 
     /** An event published on the action topic as well as on the bus. */
@@ -48,7 +63,17 @@ public record EventSpec(String type, Map<String, PortType> attributes, boolean b
     public EventSpec attribute(String key, PortType kind) {
         Map<String, PortType> more = new LinkedHashMap<>(attributes);
         if (more.put(key, kind) != null) throw new IllegalArgumentException("Event " + type + " declares attribute " + key + " twice");
-        return new EventSpec(type, more, busOnly);
+        return new EventSpec(type, more, busOnly, minInterval);
+    }
+
+    /** The event published at most once per {@code interval} per device ({@link #minInterval()}, M4 plan D3). */
+    public EventSpec minInterval(Duration interval) {
+        return new EventSpec(type, attributes, busOnly, interval);
+    }
+
+    /** Whether the event has a minimum interval. */
+    public boolean throttled() {
+        return !minInterval.isZero();
     }
 
     /** The kind of the event's out-port. */

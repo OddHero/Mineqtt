@@ -35,6 +35,7 @@ public final class TopicAcl {
     private static final String BRIDGE_LEVEL = "bridge";
     private static final String RAW_LEVEL = "raw";
     private static final String GROUP_LEVEL = "group";
+    private static final String PLAYER_LEVEL = "player";
 
     public enum Decision {
         ALLOWED(true, "allowed"),
@@ -50,7 +51,7 @@ public final class TopicAcl {
         DENY_STATESTREAM(false, "the Home Assistant statestream namespace is read-only"),
         DENY_FOREIGN_BRIDGE(false, "the bridge/ namespace of every MineQTT server is reserved"),
         DENY_STATESTREAM_LISTEN(false, "listening on the Home Assistant statestream namespace needs mineqtt.admin"),
-        DENY_STATESTREAM_LEGACY(false, "v1 blocks do not listen on the Home Assistant statestream namespace"),
+        DENY_STATESTREAM_LEGACY(false, "v1 topics are not followed on the Home Assistant statestream namespace"),
         DENY_TWIN_TRAFFIC(false, "the twin's Home Assistant requests, responses and syncs of every MineQTT server are reserved"),
         DENY_STATESTREAM_SOURCE(false, "the Home Assistant statestream namespace is mirrored through Home Assistant bindings only (twin.entity)"),
         DENY_DEVICE_TOPICS(false, "this server's device and group topics are shown only to players who may configure them (only its bridge/ and raw/ subtrees are open)"),
@@ -213,7 +214,7 @@ public final class TopicAcl {
      * such as the Generic topic takes any topic a player names, and what the device mirrors every client in range sees;
      * Home Assistant entities are read only through Home Assistant bindings, which {@code twin.allowedEntities}, the
      * catalog's labels and the privacy domains gate (D2, D13), and the twin traffic carries entity ids and player names.
-     * Nor this server's own device and group topics ({@link Decision#DENY_DEVICE_TOPICS}, wave 6 review): a bound
+     * Nor this server's own device and group topics ({@link Decision#DENY_DEVICE_TOPICS}): a bound
      * device's state names its Home Assistant entity (D13 #7), and the explorer shows a device's topics only to players
      * who may configure it, which a mirror's viewers need not.
      */
@@ -228,15 +229,16 @@ public final class TopicAcl {
     }
 
     /**
-     * The hard deny alone, for unmigrated v1 blocks (the allowlist does not apply to them, so no world breaks). Only
-     * MQTT validity is checked, not the 256-byte limit, because v1 topics were never limited. A block has no admin, owns
-     * no private subtree, and nothing filters its messages afterwards: any player who can place one reads what it
-     * receives (the Block Emitter shows its last payload). So it listens on no filter that can reach a player's private
-     * topics, the statestream namespace (M3 plan D13: only admins listen there) or the twin's request, response and sync
-     * traffic of any bridge, whose payloads the explorer shows non-admins only as sizes, nor this server's device and
-     * group topics (wave 6 review: a bound device's state names its entity, and the explorer shows them only to players
-     * who may configure the device). The discovery prefix stays open to listeners, which v1 blocks use for HA's birth
-     * topic.
+     * The hard deny alone, for the v1 topic a legacy group follows and echoes its state to (design §6.6; the allowlist
+     * does not apply to it, so no v1 world breaks). Only MQTT validity is checked, not the 256-byte limit, because v1
+     * topics were never limited. A group has no admin, owns no private subtree, and nothing filters its messages
+     * afterwards: any player who sees the group's lamps sees what it receives. So it listens on no filter that can reach
+     * a player's private topics, the statestream namespace (M3 plan D13: only admins listen there) or the twin's request,
+     * response and sync traffic of any bridge, whose payloads the explorer shows non-admins only as sizes, nor this
+     * server's device and group topics (a bound device's state names its entity, and the explorer shows
+     * them only to players who may configure the device). The discovery prefix stays open to listeners, as it was to v1
+     * blocks, which used it for HA's birth topic. Every other v1 topic is a device's grandfathered Raw Link, judged by
+     * {@link #checkPublish(Subject, String, Grandfather)}.
      */
     public Decision checkLegacy(String topicOrFilter, boolean publish) {
         if (publish) {
@@ -314,6 +316,7 @@ public final class TopicAcl {
                 case BRIDGE_LEVEL -> Exposure.SHOW;
                 case RAW_LEVEL -> intoForeignPrivate(subject, topic) ? Exposure.HIDE : Exposure.SHOW;
                 case GROUP_LEVEL -> new Exposure(Exposure.Kind.GROUP, levels.length > first + 1 ? levels[first + 1] : "");
+                case PLAYER_LEVEL -> new Exposure(Exposure.Kind.PLAYER, levels.length > first + 1 ? levels[first + 1] : "");
                 default -> new Exposure(Exposure.Kind.DEVICE, levels[first]);
             };
         }
@@ -323,7 +326,8 @@ public final class TopicAcl {
     /**
      * The explorer's verdict on one message.
      *
-     * @param slug the device or group slug for {@link Kind#DEVICE} and {@link Kind#GROUP}, else empty
+     * @param slug the device, group or presence device slug for {@link Kind#DEVICE}, {@link Kind#GROUP} and
+     *             {@link Kind#PLAYER}, else empty
      */
     public record Exposure(Kind kind, String slug) {
         public static final Exposure SHOW = new Exposure(Kind.SHOW, "");
@@ -340,7 +344,12 @@ public final class TopicAcl {
             /** A device's topic: shown to players who may configure the device with that slug. */
             DEVICE,
             /** A group's topic: shown to players who may configure groups. */
-            GROUP
+            GROUP,
+            /**
+             * A player's presence device, {@code player/<slug>} (M4 plan D10): shown only to admins and to the player whose
+             * device it is; the bare {@code player} level belongs to no one.
+             */
+            PLAYER
         }
     }
 

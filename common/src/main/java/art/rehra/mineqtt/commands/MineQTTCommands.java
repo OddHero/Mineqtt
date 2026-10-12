@@ -28,10 +28,16 @@ import art.rehra.mineqtt.mqtt.core.MqttService;
 import art.rehra.mineqtt.mqtt.core.Outbound;
 import art.rehra.mineqtt.mqtt.core.ProtocolVersion;
 import art.rehra.mineqtt.mqtt.core.TopicAcl;
+import art.rehra.mineqtt.presence.PrivacyCommands;
+import art.rehra.mineqtt.rooms.Room;
+import art.rehra.mineqtt.rooms.RoomEdits;
+import art.rehra.mineqtt.rooms.RoomRules;
+import art.rehra.mineqtt.rooms.RoomSwitch;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
 import art.rehra.mineqtt.security.AccessMode;
 import art.rehra.mineqtt.security.AclContext;
 import art.rehra.mineqtt.security.DeviceAccess;
+import art.rehra.mineqtt.telemetry.TelemetrySampler;
 import art.rehra.mineqtt.twin.BindingPresets;
 import art.rehra.mineqtt.twin.TwinAdapter;
 import art.rehra.mineqtt.twin.core.HaCalls;
@@ -46,6 +52,8 @@ import art.rehra.mineqtt.twin.core.EntitySearch;
 import art.rehra.mineqtt.twin.core.HaTime;
 import art.rehra.mineqtt.twin.core.StatestreamValue;
 import art.rehra.mineqtt.twin.core.TwinHealth;
+import art.rehra.mineqtt.ui.explorer.ExplorerDirectory;
+import art.rehra.mineqtt.ui.explorer.ExplorerPage;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
@@ -65,6 +73,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.players.NameAndId;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
 import org.jetbrains.annotations.Nullable;
@@ -146,11 +155,20 @@ public class MineQTTCommands {
             SharedSuggestionProvider.suggest(running(context.getSource()).map(runtime -> runtime.registry().wires().stream()
                     .map(wire -> wire.id().toString()).toList()).orElse(List.of()), builder);
 
+    // The rooms the source sees (M4 plan D11): its own, those for everyone, and every room for an operator.
+    private static final SuggestionProvider<CommandSourceStack> ROOM_NAMES = (context, builder) ->
+            SharedSuggestionProvider.suggest(running(context.getSource()).map(runtime -> visibleRooms(context.getSource(), runtime)
+                    .map(room -> StringArgumentType.escapeIfRequired(room.name())).distinct().toList()).orElse(List.of()), builder);
+    // At most this many rooms in /mineqtt rooms list, and devices named in /mineqtt rooms info.
+    private static final int MAX_ROOM_ROWS = 40;
+    private static final int MAX_ROOM_DEVICES = 10;
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-        // Ops use every subcommand. A holder of mineqtt:ha.expose reaches /mineqtt only for devices expose (M2 plan D6),
-        // so every other subcommand needs op level 2 itself.
-        LiteralArgumentBuilder<CommandSourceStack> mineqtt = Commands.literal("mineqtt")
-                .requires(source -> AclContext.mayExpose(source.permissions()));
+        // The root is open to every source (M4 plan D14), so each child carries its own requirement: ops use every
+        // subcommand but publish (level 3), a holder of mineqtt:ha.expose reaches only devices expose (M2 plan D6), and
+        // every player reaches privacy and rooms.
+        // Brigadier keeps the requirement of the first registration of a literal, so this is the only "mineqtt" literal.
+        LiteralArgumentBuilder<CommandSourceStack> mineqtt = Commands.literal("mineqtt");
 
         // /mineqtt publish <topic> <payload...>: op level 3, full topic ACL (the hard deny applies to every level).
         LiteralArgumentBuilder<CommandSourceStack> publish = Commands.literal("publish")
@@ -168,6 +186,7 @@ public class MineQTTCommands {
                 .executes(context -> withRuntime(context, runtime -> reconnect(context.getSource(), runtime)));
 
         LiteralArgumentBuilder<CommandSourceStack> devices = Commands.literal("devices")
+                .requires(source -> AclContext.mayExpose(source.permissions()))
                 .then(Commands.literal("list")
                         .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
                         .executes(context -> withRuntime(context, runtime -> listDevices(context.getSource(), runtime))))
@@ -283,6 +302,7 @@ public class MineQTTCommands {
                                 .executes(context -> withDevice(context, (runtime, record) ->
                                         reply(context.getSource(), runtime.devices().claim(record, editor(context.getSource())))))))
                 .then(Commands.literal("expose")
+                        .requires(source -> AclContext.mayExpose(source.permissions()))
                         .then(Commands.argument("device", StringArgumentType.word()).suggests(EXPOSABLE_SLUGS)
                                 .then(Commands.literal("on")
                                         .executes(context -> withDevice(context, (runtime, record) -> expose(context.getSource(), runtime, record, true))))
@@ -433,6 +453,47 @@ public class MineQTTCommands {
                                 .executes(context -> withRuntime(context, runtime ->
                                         twinEntities(context.getSource(), runtime, StringArgumentType.getString(context, "query"))))));
 
+        // /mineqtt rooms (M4 plan D11): open to every player like the root (D14); each leaf judges the room's owner and the
+        // build rights at the corners itself (RoomEdits), so a player makes and changes only their own rooms.
+        LiteralArgumentBuilder<CommandSourceStack> rooms = Commands.literal("rooms")
+                .then(Commands.literal("list")
+                        .executes(context -> withRuntime(context, runtime -> listRooms(context.getSource(), runtime))))
+                .then(Commands.literal("info")
+                        .then(Commands.argument("room", StringArgumentType.string()).suggests(ROOM_NAMES)
+                                .executes(context -> withRoom(context, (runtime, room) -> roomInfo(context.getSource(), runtime, room)))))
+                .then(Commands.literal("create")
+                        .then(Commands.argument("name", StringArgumentType.string())
+                                .then(Commands.argument("from", BlockPosArgument.blockPos())
+                                        .then(Commands.argument("to", BlockPosArgument.blockPos())
+                                                .executes(context -> createRoom(context, false))
+                                                .then(Commands.literal("for-all")
+                                                        .executes(context -> createRoom(context, true)))))))
+                .then(Commands.literal("rename")
+                        .then(Commands.argument("room", StringArgumentType.string()).suggests(ROOM_NAMES)
+                                .then(Commands.argument("name", StringArgumentType.greedyString())
+                                        .executes(context -> withRoom(context, (runtime, room) -> roomReply(context.getSource(),
+                                                RoomEdits.rename(runtime, RoomEdits.Actor.of(context.getSource()), room,
+                                                        ValueCodecs.unquote(StringArgumentType.getString(context, "name").strip()))))))))
+                .then(Commands.literal("resize")
+                        .then(Commands.argument("room", StringArgumentType.string()).suggests(ROOM_NAMES)
+                                .then(Commands.argument("from", BlockPosArgument.blockPos())
+                                        .then(Commands.argument("to", BlockPosArgument.blockPos())
+                                                .executes(context -> withRoom(context, (runtime, room) -> roomReply(context.getSource(),
+                                                        RoomEdits.resize(runtime, RoomEdits.Actor.of(context.getSource()), room,
+                                                                BlockPosArgument.getBlockPos(context, "from"), BlockPosArgument.getBlockPos(context, "to")))))))))
+                .then(Commands.literal("remove")
+                        .then(Commands.argument("room", StringArgumentType.string()).suggests(ROOM_NAMES)
+                                .executes(context -> withRoom(context, (runtime, room) -> roomReply(context.getSource(),
+                                        RoomEdits.remove(runtime, RoomEdits.Actor.of(context.getSource()), room))))))
+                // All on and All off (M4 plan D1), the command twin of the explorer's room header: a player switches only the
+                // devices of the room they find, the console every device of it.
+                .then(Commands.literal("switch")
+                        .then(Commands.argument("room", StringArgumentType.string()).suggests(ROOM_NAMES)
+                                .then(Commands.literal("on")
+                                        .executes(context -> withRoom(context, (runtime, room) -> switchRoom(context.getSource(), runtime, room, true))))
+                                .then(Commands.literal("off")
+                                        .executes(context -> withRoom(context, (runtime, room) -> switchRoom(context.getSource(), runtime, room, false))))));
+
         mineqtt.then(publish);
         mineqtt.then(status);
         mineqtt.then(twin);
@@ -441,6 +502,10 @@ public class MineQTTCommands {
         mineqtt.then(group);
         mineqtt.then(wires);
         mineqtt.then(discovery);
+        // M4 plan D9: privacy is open to every player (its leaves act on the player who runs them), players is for ops.
+        mineqtt.then(PrivacyCommands.privacy());
+        mineqtt.then(PrivacyCommands.players());
+        mineqtt.then(rooms);
         dispatcher.register(mineqtt);
     }
 
@@ -656,6 +721,7 @@ public class MineQTTCommands {
                 .append(" under ").append(MineQTTConfig.discoveryPrefix).append(", ").append(runtime.discovery().discovered())
                 .append(" devices and groups discovered, ").append(runtime.discovery().migration().pending()).append(" v1 discoveries to migrate")
                 .append("\nTwin: ").append(MineQTTConfig.twinSummary(runtime.server().isDedicatedServer()))
+                .append(telemetryLine(runtime))
                 .append("\nDropped: ").append(stats.droppedInbound()).append(" inbound, ").append(stats.droppedOutbound()).append(" outbound")
                 .append("; queued: ").append(stats.queuedInbound()).append(" inbound, ").append(stats.outboxSize()).append(" in the outbox");
         if (runtime.server().isDedicatedServer()) {
@@ -678,6 +744,12 @@ public class MineQTTCommands {
         }
         source.sendSuccess(() -> Component.literal(text.toString()), false);
         return state.isConnected() ? 1 : 0;
+    }
+
+    // The telemetry line (M4 plan §1.3), as the Bridge Console shows it, on a line of its own.
+    private static String telemetryLine(MineqttRuntime runtime) {
+        TelemetrySampler telemetry = runtime.telemetry();
+        return "\n" + telemetry.statusLine(telemetry.sample());
     }
 
     private static int listDevices(CommandSourceStack source, MineqttRuntime runtime) {
@@ -768,7 +840,7 @@ public class MineQTTCommands {
         }).toList()));
         if (binding.bound()) return text.toString();
         if (!binding.active()) text.append("; refused: ").append(binding.refused());
-        // A target whose entity left the catalog is not switched until Home Assistant labels it again (wave 5 finding 3).
+        // A target whose entity left the catalog is not switched until Home Assistant labels it again.
         if (runtime.devices().twinHealth(record.id()).orElse(null) == TwinHealth.NOT_SHARED) {
             text.append("; not_shared: ").append(TwinRules.unsharedTarget(binding, runtime.twin()::readable).orElse("an entity"))
                     .append(" is no longer shared by Home Assistant, so presses for it are not sent");
@@ -780,7 +852,7 @@ public class MineQTTCommands {
         return text.toString();
     }
 
-    // The device's requests the rates refused (wave 5 finding 1): how many, and the last one with its reason and age.
+    // The device's requests the rates refused: how many, and the last one with its reason and age.
     private static void rateInfo(MineqttRuntime runtime, DeviceRecord record, StringBuilder text) {
         runtime.devices().twinRateRefusals(record.id()).ifPresent(rate -> text.append("; ").append(rate.refused())
                 .append(rate.refused() == 1 ? " request" : " requests").append(" refused by the rate, the last for ").append(rate.target())
@@ -1186,6 +1258,128 @@ public class MineQTTCommands {
 
     private static int withGroupAndDevice(CommandContext<CommandSourceStack> context, GroupDeviceAction action) {
         return withGroup(context, (runtime, group) -> withDevice(context, (sameRuntime, record) -> action.run(runtime, group, record)));
+    }
+
+    // ---- rooms (M4 plan D11) ----
+
+    private static Stream<Room> visibleRooms(CommandSourceStack source, MineqttRuntime runtime) {
+        RoomEdits.Actor actor = RoomEdits.Actor.of(source);
+        return runtime.registry().rooms().stream().filter(room -> RoomRules.visibleTo(room, actor.id(), actor.op()));
+    }
+
+    /** {@code /mineqtt rooms list}: the rooms the source sees, smallest first, with their owner and size. */
+    private static int listRooms(CommandSourceStack source, MineqttRuntime runtime) {
+        List<Room> shown = visibleRooms(source, runtime).sorted(RoomRules.PRECEDENCE).toList();
+        if (shown.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("No rooms. Make one with /mineqtt rooms create <name> <from> <to>"), false);
+            return 0;
+        }
+        StringBuilder text = new StringBuilder(shown.size() + (shown.size() == 1 ? " room:" : " rooms:"));
+        shown.stream().limit(MAX_ROOM_ROWS).forEach(room -> text.append("\n  ").append(room.name()).append(" #").append(room.shortId())
+                .append(": ").append(describeBox(room)).append(", ").append(room.size()).append(", ").append(roomOwner(runtime, room)));
+        if (shown.size() > MAX_ROOM_ROWS) text.append("\n  and ").append(shown.size() - MAX_ROOM_ROWS).append(" more");
+        source.sendSuccess(() -> Component.literal(text.toString()), false);
+        return shown.size();
+    }
+
+    /**
+     * {@code /mineqtt rooms info <room>}: the room, and the devices that are in it ({@code RoomIndex#roomOf}); a player who
+     * is no operator learns only how many of their own devices those are.
+     */
+    private static int roomInfo(CommandSourceStack source, MineqttRuntime runtime, Room room) {
+        RoomEdits.Actor actor = RoomEdits.Actor.of(source);
+        List<DeviceRecord> inside = runtime.registry().records().stream()
+                .filter(record -> runtime.registry().roomOf(record).map(Room::id).filter(room.id()::equals).isPresent()).toList();
+        StringBuilder text = new StringBuilder("Room ").append(room.name()).append(" #").append(room.shortId()).append(": ").append(describeBox(room))
+                .append(", ").append(room.size()).append(", ").append(roomOwner(runtime, room)).append(", ").append(RoomEdits.scope(room));
+        if (actor.op()) {
+            text.append("\nDevices in it: ").append(inside.size());
+            inside.stream().limit(MAX_ROOM_DEVICES).forEach(record -> text.append("\n  ").append(record.slug()));
+            if (inside.size() > MAX_ROOM_DEVICES) text.append("\n  and ").append(inside.size() - MAX_ROOM_DEVICES).append(" more");
+        } else {
+            text.append("\nYour devices in it: ").append(inside.stream().filter(record -> actor.id().equals(record.owner())).count());
+        }
+        text.append("\nHome Assistant suggests ").append(room.name()).append(" as the area of the devices in it that it discovers from now on");
+        source.sendSuccess(() -> Component.literal(text.toString()), false);
+        return 1;
+    }
+
+    // /mineqtt rooms create <name> <from> <to> [for-all], in the source's dimension.
+    private static int createRoom(CommandContext<CommandSourceStack> context, boolean forAll) {
+        return withRuntime(context, runtime -> {
+            CommandSourceStack source = context.getSource();
+            return roomReply(source, RoomEdits.create(runtime, RoomEdits.Actor.of(source), StringArgumentType.getString(context, "name"),
+                    source.getLevel().dimension(), BlockPosArgument.getBlockPos(context, "from"), BlockPosArgument.getBlockPos(context, "to"), forAll));
+        });
+    }
+
+    /**
+     * {@code /mineqtt rooms switch <room> on|off} (M4 plan D1, D13): the switch state of the room's devices that the
+     * source finds, as the explorer's room header sends it ({@code DeviceRuntime#roomSwitch}): a player's own devices they
+     * may configure (every device for an operator who may build), at most once a second; the console's every device.
+     */
+    private static int switchRoom(CommandSourceStack source, MineqttRuntime runtime, Room room, boolean on) {
+        ServerPlayer player = source.getPlayer();
+        if (player != null && ExplorerDirectory.scope(player) == ExplorerPage.Scope.NONE) {
+            source.sendFailure(Component.literal("Devices can be used but not configured in this game mode"));
+            return 0;
+        }
+        DeviceRuntime devices = runtime.devices();
+        RoomSwitch.Result result = devices.roomSwitch(room, on, player,
+                player == null ? record -> true : record -> ExplorerDirectory.finds(player, devices, record));
+        if (result.rate()) {
+            source.sendFailure(Component.literal(result.describe(room.name(), on)));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal(result.describe(room.name(), on)), result.applied() > 0);
+        return result.applied();
+    }
+
+    private static int roomReply(CommandSourceStack source, RoomEdits.Result result) {
+        if (!result.applied() && result.room() == null) {
+            source.sendFailure(Component.literal(result.message()));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal(result.message()), result.applied());
+        return result.applied() ? 1 : 0;
+    }
+
+    // Who owns a room, as the lists name them: the server, or the player by their last known name.
+    private static String roomOwner(MineqttRuntime runtime, Room room) {
+        if (room.serverMade()) return "the server's";
+        ServerPlayer online = runtime.server().getPlayerList().getPlayer(room.owner());
+        String name = online != null ? online.getGameProfile().name()
+                : runtime.server().services().nameToIdCache().get(room.owner()).map(NameAndId::name).orElse(room.owner().toString());
+        return name + "'s" + (room.forAll() ? ", for everyone" : "");
+    }
+
+    private static String describeBox(Room room) {
+        return room.dimension().identifier() + " " + room.min().toShortString() + " to " + room.max().toShortString();
+    }
+
+    // Runs the action on the room the command names (RoomRules#resolve) among those the source sees.
+    private static int withRoom(CommandContext<CommandSourceStack> context, RoomAction action) {
+        return withRuntime(context, runtime -> {
+            RoomEdits.Actor actor = RoomEdits.Actor.of(context.getSource());
+            String reference = StringArgumentType.getString(context, "room");
+            return switch (RoomRules.resolve(runtime.registry().rooms(), reference, actor.id(), actor.op())) {
+                case RoomRules.Resolution.Found found -> action.run(runtime, found.room());
+                case RoomRules.Resolution.NotFound notFound -> {
+                    context.getSource().sendFailure(Component.literal("No room " + notFound.reference() + " that you can see"));
+                    yield 0;
+                }
+                case RoomRules.Resolution.Ambiguous ambiguous -> {
+                    context.getSource().sendFailure(Component.literal("Several rooms are named " + reference + "; name one by its id in quotes: "
+                            + String.join(", ", ambiguous.rooms().stream().map(room -> "\"#" + room.shortId() + "\" (" + roomOwner(runtime, room) + ")").toList())));
+                    yield 0;
+                }
+            };
+        });
+    }
+
+    @FunctionalInterface
+    private interface RoomAction {
+        int run(MineqttRuntime runtime, Room room);
     }
 
     @FunctionalInterface

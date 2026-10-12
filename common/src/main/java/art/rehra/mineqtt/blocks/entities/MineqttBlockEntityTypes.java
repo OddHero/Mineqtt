@@ -2,6 +2,7 @@ package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
+import art.rehra.mineqtt.device.timer.core.TimerKind;
 import art.rehra.mineqtt.legacy.DecommissionedBlockEntity;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
@@ -26,12 +27,12 @@ public class MineqttBlockEntityTypes {
     public static RegistrySupplier<BlockEntityType<BlockSensorBlockEntity>> BLOCK_SENSOR_BLOCK;
     public static RegistrySupplier<BlockEntityType<BlockEmitterBlockEntity>> BLOCK_EMITTER_BLOCK;
     public static RegistrySupplier<BlockEntityType<LightRemoteBlockEntity>> LIGHT_REMOTE_BLOCK;
-    public static RegistrySupplier<BlockEntityType<CronTimerBlockEntity>> CRON_TIMER_BLOCK;
-    public static RegistrySupplier<BlockEntityType<IntervalTimerBlockEntity>> INTERVAL_TIMER_BLOCK;
+    public static RegistrySupplier<BlockEntityType<TimerBlockEntity>> CRON_TIMER_BLOCK;
+    public static RegistrySupplier<BlockEntityType<TimerBlockEntity>> INTERVAL_TIMER_BLOCK;
     public static RegistrySupplier<BlockEntityType<TemperatureSensorBlockEntity>> TEMPERATURE_SENSOR_BLOCK;
     public static RegistrySupplier<BlockEntityType<HumiditySensorBlockEntity>> HUMIDITY_SENSOR_BLOCK;
-    public static RegistrySupplier<BlockEntityType<AlarmClockBlockEntity>> ALARM_CLOCK_BLOCK;
-    public static RegistrySupplier<BlockEntityType<GameTimeTimerBlockEntity>> GAME_TIME_TIMER_BLOCK;
+    public static RegistrySupplier<BlockEntityType<TimerBlockEntity>> ALARM_CLOCK_BLOCK;
+    public static RegistrySupplier<BlockEntityType<TimerBlockEntity>> GAME_TIME_TIMER_BLOCK;
     public static RegistrySupplier<BlockEntityType<StaticPublisherBlockEntity>> STATIC_PUBLISHER_BLOCK;
     public static RegistrySupplier<BlockEntityType<DecommissionedBlockEntity>> DYNAMIC_PUBLISHER_BLOCK;
     public static RegistrySupplier<BlockEntityType<DecommissionedBlockEntity>> TOPIC_RELAY_BLOCK;
@@ -54,12 +55,12 @@ public class MineqttBlockEntityTypes {
         LIGHT_REMOTE_BLOCK = registerBlockEntity("light_remote_block", LightRemoteBlockEntity::new, MineqttBlocks.LIGHT_REMOTE_BLOCK);
         BLOCK_SENSOR_BLOCK = registerBlockEntity("block_sensor_block", BlockSensorBlockEntity::new, MineqttBlocks.BLOCK_SENSOR_BLOCK);
         BLOCK_EMITTER_BLOCK = registerBlockEntity("block_emitter_block", BlockEmitterBlockEntity::new, MineqttBlocks.BLOCK_EMITTER_BLOCK);
-        CRON_TIMER_BLOCK = registerBlockEntity("cron_timer", CronTimerBlockEntity::new, MineqttBlocks.CRON_TIMER_BLOCK);
-        INTERVAL_TIMER_BLOCK = registerBlockEntity("interval_timer", IntervalTimerBlockEntity::new, MineqttBlocks.INTERVAL_TIMER_BLOCK);
+        CRON_TIMER_BLOCK = registerBlockEntity("cron_timer", (pos, state) -> new TimerBlockEntity(CRON_TIMER_BLOCK.get(), TimerKind.CRON, pos, state), MineqttBlocks.CRON_TIMER_BLOCK);
+        INTERVAL_TIMER_BLOCK = registerBlockEntity("interval_timer", (pos, state) -> new TimerBlockEntity(INTERVAL_TIMER_BLOCK.get(), TimerKind.INTERVAL, pos, state), MineqttBlocks.INTERVAL_TIMER_BLOCK);
         TEMPERATURE_SENSOR_BLOCK = registerBlockEntity("temperature_sensor_block", TemperatureSensorBlockEntity::new, MineqttBlocks.TEMPERATURE_SENSOR_BLOCK);
         HUMIDITY_SENSOR_BLOCK = registerBlockEntity("humidity_sensor_block", HumiditySensorBlockEntity::new, MineqttBlocks.HUMIDITY_SENSOR_BLOCK);
-        ALARM_CLOCK_BLOCK = registerBlockEntity("alarm_clock", AlarmClockBlockEntity::new, MineqttBlocks.ALARM_CLOCK_BLOCK);
-        GAME_TIME_TIMER_BLOCK = registerBlockEntity("game_time_timer", GameTimeTimerBlockEntity::new, MineqttBlocks.GAME_TIME_TIMER_BLOCK);
+        ALARM_CLOCK_BLOCK = registerBlockEntity("alarm_clock", (pos, state) -> new TimerBlockEntity(ALARM_CLOCK_BLOCK.get(), TimerKind.ALARM, pos, state), MineqttBlocks.ALARM_CLOCK_BLOCK);
+        GAME_TIME_TIMER_BLOCK = registerBlockEntity("game_time_timer", (pos, state) -> new TimerBlockEntity(GAME_TIME_TIMER_BLOCK.get(), TimerKind.GAME_TIME, pos, state), MineqttBlocks.GAME_TIME_TIMER_BLOCK);
         STATIC_PUBLISHER_BLOCK = registerBlockEntity("static_publisher", StaticPublisherBlockEntity::new, MineqttBlocks.STATIC_PUBLISHER_BLOCK);
         // Decommissioned (M2-21): both keep their ids, so saved blocks load into the inert block entity with their items.
         DYNAMIC_PUBLISHER_BLOCK = registerBlockEntity("dynamic_publisher", (pos, state) -> new DecommissionedBlockEntity(DYNAMIC_PUBLISHER_BLOCK.get(), pos, state),
@@ -86,7 +87,8 @@ public class MineqttBlockEntityTypes {
     public static List<BlockEntityType<?>> slottedTypes() {
         Set<BlockEntityType<?>> noSlots = Set.of(PUBLISHER_BLOCK.get(), REDSTONE_EMITTER_BLOCK_ENTITY.get(), RGB_LED_BLOCK.get(), MOTION_SENSOR_BLOCK.get(),
                 SMART_PLUG_BLOCK_ENTITY.get(), TEMPERATURE_SENSOR_BLOCK.get(), LIGHT_REMOTE_BLOCK.get(), DYNAMIC_PUBLISHER_BLOCK.get(), TOPIC_RELAY_BLOCK.get(), TERMINAL_BLOCK.get(),
-                DISPLAY_PANEL.get());
+                DISPLAY_PANEL.get(), INTERVAL_TIMER_BLOCK.get(), GAME_TIME_TIMER_BLOCK.get(), ALARM_CLOCK_BLOCK.get(), CRON_TIMER_BLOCK.get(),
+                BLOCK_SENSOR_BLOCK.get(), BLOCK_EMITTER_BLOCK.get());
         List<BlockEntityType<?>> slotted = new ArrayList<>();
         for (RegistrySupplier<BlockEntityType<?>> type : BLOCK_ENTITIES) {
             if (!noSlots.contains(type.get())) slotted.add(type.get());

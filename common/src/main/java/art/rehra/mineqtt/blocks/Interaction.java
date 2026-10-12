@@ -24,7 +24,8 @@ import java.util.Optional;
  * opens the screen; a renamed paper fills a device's Raw Link channel and a named name tag renames a device, neither
  * used up; the Configurator configures. A sneaking player holding a block places it against the block, as vanilla lets
  * them place against a chest. In Link, Group, Copy-Paste and Bind mode the Configurator's plain click is a step of that
- * mode (M2-16, M2-17, M3 plan D19), and sneaking it opens the screen as in Configure mode. {@link #decide} is the pure table;
+ * mode (M2-16, M2-17, M3 plan D19), and sneaking it opens the screen as in Configure mode; in Room mode every click, also
+ * sneaking, belongs to the mode (M4 plan D11). {@link #decide} is the pure table;
  * {@link BaseMqttBlock#click} carries it out, except for a spectator, who only looks, as into a chest: their click
  * opens the screen, where they change nothing.
  */
@@ -49,7 +50,13 @@ public final class Interaction {
         /** A step of the Configurator's Copy-Paste mode ({@code ConfiguratorCopy}). */
         COPY,
         /** The Configurator's Bind mode ({@code ConfiguratorBind}): the device's Twin tab with the entity picker. */
-        BIND
+        BIND,
+        /**
+         * The Configurator's Room mode ({@code ConfiguratorRoom}): the block is a corner of a room, or, sneaking, a room of
+         * the player's that holds it is picked. It takes the click on any block, a MineQTT block too, before the block's
+         * own use; the device is never used, so no USE check applies.
+         */
+        ROOM
     }
 
     /** What the clicking hand holds, as far as a click on a MineQTT block cares. */
@@ -71,7 +78,9 @@ public final class Interaction {
         /** The Configurator in Copy-Paste mode. */
         CONFIGURATOR_COPY,
         /** The Configurator in Bind mode. */
-        CONFIGURATOR_BIND;
+        CONFIGURATOR_BIND,
+        /** The Configurator in Room mode. */
+        CONFIGURATOR_ROOM;
 
         public static Held of(ItemStack stack) {
             if (stack.getItem() instanceof CyberdeckItem) return of(CyberdeckDataUtil.mode(stack));
@@ -89,6 +98,7 @@ public final class Interaction {
                 case GROUP -> CONFIGURATOR_GROUP;
                 case COPY_PASTE -> CONFIGURATOR_COPY;
                 case BIND -> CONFIGURATOR_BIND;
+                case ROOM -> CONFIGURATOR_ROOM;
             };
         }
 
@@ -111,6 +121,8 @@ public final class Interaction {
      * @param type     the device's type, or null for a block that is no device
      */
     public static Outcome decide(boolean sneaking, Held held, @Nullable DeviceType type) {
+        // Room mode takes every click, sneaking ones too: a corner, or the pick of a room.
+        if (held == Held.CONFIGURATOR_ROOM) return Outcome.ROOM;
         // The Configurator configures whatever it is used on: a step of its mode, or the screen while sneaking.
         Outcome configurator = switch (held) {
             case CONFIGURATOR -> Outcome.SCREEN;

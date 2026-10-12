@@ -24,19 +24,22 @@ import java.util.UUID;
  * <p>
  * <b>The codec is at its limit.</b> A DFU {@code RecordCodecBuilder} takes at most 16 fields in one {@code group()}, and
  * {@link #CODEC} has 16 (M3 plan D14). A field is one {@link MapCodec}, not necessarily one key: the Home Assistant
- * discovery state is one field of two flat keys ({@code discoveryHash}, {@code discoveryCleanup}, M3-7b), so the
- * compound stays flat and a record without the new key saves as before. A later key joins such a group (or a new one
- * built from neighbouring fields); every later twin field nests inside the {@code twin} compound ({@link BindingCodecs}).
+ * discovery state is one field of three flat keys ({@code discoveryHash}, {@code discoveryCleanup}, M3-7b, and
+ * {@code discoveryArea}, M4 plan D11), so the compound stays flat and a record without a newer key saves as before. A
+ * later key joins such a group (or a new one built from neighbouring fields); every later twin field nests inside the
+ * {@code twin} compound ({@link BindingCodecs}).
  */
 public final class DeviceRecord {
-    // The discovery state: two flat keys of the record's own compound, one field of CODEC's group().
-    private record DiscoveryState(Optional<String> hash, boolean cleanup) {
+    // The discovery state: three flat keys of the record's own compound, one field of CODEC's group().
+    private record DiscoveryState(Optional<String> hash, boolean cleanup, Optional<String> area) {
     }
 
     private static final MapCodec<DiscoveryState> DISCOVERY = RecordCodecBuilder.mapCodec(instance -> instance.group(
             Codec.STRING.optionalFieldOf("discoveryHash").forGetter(DiscoveryState::hash),
             // Written only while true: a record without a pending cleanup saves exactly as before M3-7b.
-            Codec.BOOL.optionalFieldOf("discoveryCleanup", false).forGetter(DiscoveryState::cleanup)
+            Codec.BOOL.optionalFieldOf("discoveryCleanup", false).forGetter(DiscoveryState::cleanup),
+            // Absent for a device discovered before rooms (M4 plan D11) and one not discovered: it saves exactly as before.
+            Codec.STRING.optionalFieldOf("discoveryArea").forGetter(DiscoveryState::area)
     ).apply(instance, DiscoveryState::new));
 
     public static final Codec<DeviceRecord> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -51,7 +54,7 @@ public final class DeviceRecord {
             UUIDUtil.CODEC.optionalFieldOf("group").forGetter(r -> Optional.ofNullable(r.group)),
             JsonCodecs.OBJECT.optionalFieldOf("pending").forGetter(r -> Optional.ofNullable(r.pending)),
             JsonCodecs.OBJECT.optionalFieldOf("lastState").forGetter(r -> Optional.ofNullable(r.lastState)),
-            DISCOVERY.forGetter(r -> new DiscoveryState(Optional.ofNullable(r.discoveryHash), r.discoveryCleanup)),
+            DISCOVERY.forGetter(r -> new DiscoveryState(Optional.ofNullable(r.discoveryHash), r.discoveryCleanup, Optional.ofNullable(r.discoveryArea))),
             Codec.STRING.optionalFieldOf("legacyUniqueId").forGetter(r -> Optional.ofNullable(r.legacyUniqueId)),
             Codec.STRING.optionalFieldOf("legacyTopic").forGetter(r -> Optional.ofNullable(r.legacyTopic)),
             Codec.STRING.optionalFieldOf("v1Topic").forGetter(r -> Optional.ofNullable(r.v1Topic)),
@@ -68,6 +71,7 @@ public final class DeviceRecord {
         record.lastState = lastState.orElse(null);
         record.discoveryHash = discovery.hash().orElse(null);
         record.discoveryCleanup = discovery.cleanup();
+        record.discoveryArea = discovery.area().orElse(null);
         record.legacyUniqueId = legacyUniqueId.orElse(null);
         record.legacyTopic = legacyTopic.orElse(null);
         record.v1Topic = v1Topic.orElse(null);
@@ -88,6 +92,7 @@ public final class DeviceRecord {
     private @Nullable JsonObject lastState;
     private @Nullable String discoveryHash;
     private boolean discoveryCleanup;
+    private @Nullable String discoveryArea;
     private @Nullable String legacyUniqueId;
     private @Nullable String legacyTopic;
     private @Nullable String v1Topic;
@@ -211,6 +216,23 @@ public final class DeviceRecord {
 
     public void setDiscoveryCleanup(boolean discoveryCleanup) {
         this.discoveryCleanup = discoveryCleanup;
+    }
+
+    /**
+     * The {@code suggested_area} of the discovery message that first made Home Assistant create the device (M4 plan D11):
+     * its room's area then, {@code ""} for none. Home Assistant applies a suggested area when it creates a device and keeps
+     * the area a device has, so a later room edit changes the message, not that area. Kept when the device is hidden or
+     * cleared and created again: Home Assistant 2026.10 then restores the area it had, while 2025.2 applies the area of
+     * the new message (and puts a known device without an area into the suggested one at any message), so what Home
+     * Assistant shows can only be told from the first one. Null for a device not discovered yet, and for one discovered
+     * before rooms existed, which got none.
+     */
+    public @Nullable String discoveryArea() {
+        return discoveryArea;
+    }
+
+    public void setDiscoveryArea(@Nullable String discoveryArea) {
+        this.discoveryArea = discoveryArea;
     }
 
     /**

@@ -1,12 +1,15 @@
 #!/bin/sh
 # One of each MineQTT block entity, placed with data and checked again after a restart (M2 plan M2-3, D13).
 #   allblocks.sh place            force-load the row, place the 19 blocks with data, save
-#   allblocks.sh verify [log]     after a restart: every block entity has its data back and the ten devices
+#   allblocks.sh verify [log]     after a restart: every block entity has its data back and the sixteen devices
 #                                 re-attached, the seven placed as devices with their ids; with the server log also no
 #                                 block entity load warning. The humidity sensor converted into a Climate Sensor (M2-19),
 #                                 the Static Publisher into a Redstone Input of rising edges (M2-20); the Dynamic
 #                                 Publisher and the Topic Relay keep only their slot paper as legacy items (M2-21); the
-#                                 v1 Light Remote is a Wall Switch with its slot paper as a legacy item (M2-22).
+#                                 v1 Light Remote is a Wall Switch with its slot paper as a legacy item (M2-22); the four
+#                                 v1 timers are timer devices with their anvil names and v1 settings (M4-3); the v1
+#                                 Block Sensor is a Block Observer with its data mode as its payload (M4-9), the v1 Block
+#                                 Emitter a Block Placer with its slot paper as a legacy item (M4-10).
 # Run place on a fresh world (the devices carry fixed ids; MQTT may be disabled), stop the server, start it again,
 # then verify. RCON goes through game.py (MINEQTT_RCON_PORT, MINEQTT_RCON_PASSWORD), so either loader's dev server works.
 DIR=$(cd "$(dirname "$0")" && pwd)
@@ -30,15 +33,15 @@ blocks() {
 2|redstone_emitter_block|{mineqtt:{id:${ID}2],name:"Allblocks Output",slug:"allblocks_output"}}|mineqtt.name|"Allblocks Output"
 4|rgb_led_block|{mineqtt:{id:${ID}4],name:"Allblocks Lamp",slug:"allblocks_lamp"}}|mineqtt.name|"Allblocks Lamp"
 6|motion_sensor_block|{mineqtt:{id:${ID}6],name:"Allblocks Presence",slug:"allblocks_presence"}}|mineqtt.name|"Allblocks Presence"
-8|block_sensor_block|{BlockSensorDataMode:"name",$(paper block_sensor)}|BlockSensorDataMode|"name"
-10|block_emitter_block|{$(paper block_emitter)}|Items[0].components|"allblocks/block_emitter"
+8|block_sensor_block|{BlockSensorDataMode:"name",CustomName:"Allblocks Observer",$(paper block_sensor)}|mineqtt.state.payload|"name"
+10|block_emitter_block|{CustomName:"Allblocks Placer",$(paper block_emitter)}|mineqtt.legacyItems[0].components|"allblocks/block_emitter"
 12|light_remote_block|{CustomName:"Allblocks Switch",$(paper light_remote)}|mineqtt.legacyItems[0].components|"allblocks/light_remote"
-14|cron_timer|{cronExpression:"0 0 0 12 * * *",$(paper cron_timer)}|cronExpression|"0 0 0 12 * * *"
-16|interval_timer|{intervalValue:7L,$(paper interval_timer)}|intervalValue|7L
+14|cron_timer|{cronExpression:"0 0 0 12 * * *",CustomName:"Allblocks Cron",$(paper cron_timer)}|mineqtt.state.cron|"0 0 0 12 * * *"
+16|interval_timer|{intervalValue:7L,CustomName:"Allblocks Interval",$(paper interval_timer)}|mineqtt.state.interval|7
 18|temperature_sensor_block|{mineqtt:{id:${ID}18],name:"Allblocks Climate",slug:"allblocks_climate"}}|mineqtt.name|"Allblocks Climate"
 20|humidity_sensor_block|{UpdateIntervalTicks:40,Humidity:55.0d,CustomName:"Allblocks Humidity",$(paper humidity_sensor)}|mineqtt.state.raw_value|"humidity"
-22|alarm_clock|{alarmTime:6000,$(paper alarm_clock)}|alarmTime|6000
-24|game_time_timer|{customTime:4321,$(paper game_time_timer)}|customTime|4321
+22|alarm_clock|{alarmTime:6000,CustomName:"Allblocks Alarm",$(paper alarm_clock)}|mineqtt.state.time_ticks|6000
+24|game_time_timer|{triggerModeIndex:4,customTime:4321,CustomName:"Allblocks Daylight",$(paper game_time_timer)}|mineqtt.state.time_ticks|4321
 26|static_publisher|{staticMessage:"allblocks",wasPowered:0b,CustomName:"Allblocks Static",$(paper static_publisher)}|mineqtt.raw.edges|"rising"
 28|dynamic_publisher|{dataType:2,$(paper dynamic_publisher)}|legacyItems[0].components|"allblocks/dynamic_publisher"
 30|topic_relay|{sourceTopic:"allblocks/relay_source",$(paper topic_relay)}|legacyItems[0].components|"allblocks/topic_relay"
@@ -95,6 +98,17 @@ verify() {
     else
         echo "FAIL the Display Panel at x 36 lost its facing"; failed=1
     fi
+    # The v1 timers became devices with their anvil names (M4 plan D4).
+    for row in "14 Allblocks Cron" "16 Allblocks Interval" "22 Allblocks Alarm" "24 Allblocks Daylight"; do
+        x=${row%% *}
+        name=${row#* }
+        actual=$(value "$x" mineqtt.name)
+        if [ "$actual" = "\"$name\"" ]; then
+            echo "PASS timer at x $x is the device $actual"
+        else
+            echo "FAIL timer at x $x has the name '$actual', expected \"$name\""; failed=1
+        fi
+    done
     for x in 0 2 4 6 18 32 36; do
         actual=$(value "$x" mineqtt.id | tr -d ' ')
         if [ "$actual" = "$ID$x]" ]; then
@@ -106,10 +120,10 @@ verify() {
     devices=$($E rcon mineqtt devices list)
     echo "$devices"
     loaded=$(echo "$devices" | grep -c "^allblocks_.* loaded at ")
-    if [ "$loaded" -eq 10 ] && echo "$devices" | grep -q "^10 devices:"; then
-        echo "PASS the ten devices are loaded"
+    if [ "$loaded" -eq 16 ] && echo "$devices" | grep -q "^16 devices:"; then
+        echo "PASS the sixteen devices are loaded"
     else
-        echo "FAIL expected exactly the ten allblocks devices, loaded"; failed=1
+        echo "FAIL expected exactly the sixteen allblocks devices, loaded"; failed=1
     fi
     if [ -n "$1" ]; then
         if grep -iE "$LOAD_WARNINGS" "$1"; then

@@ -429,7 +429,7 @@ public final class MirrorNoLoopCheck {
     }
 
     /**
-     * Wave 5 finding 3: a device with targets only is judged by its targets' share like a mirroring device by its
+     * A device with targets only is judged by its targets' share like a mirroring device by its
      * source's. Every target shared: no health (it reads nothing); one that left the catalog: NOT_SHARED, and it is the
      * entity a press is not sent to; labelled again: healthy; a refused binding stays REFUSED.
      */
@@ -577,7 +577,7 @@ public final class MirrorNoLoopCheck {
         harness.now += 1_000;
         harness.requests.tick();
         check(harness.published.size() == 5 && harness.last().get("action").getAsString().equals("light.turn_on"),
-                "...and is sent in the next second, so the entity ends as the world left it (wave 5 finding 1)");
+                "...and is sent in the next second, so the entity ends as the world left it");
         harness.now += 1_000;
         check(harness.requests.forward(origin(device, null), "light.kitchen", SmartLamp.TWIN, lampLight(), toggle(), HaCalls.Mirror.live("on"), Root.WORLD)
                 instanceof TwinRequests.Sent, "...and the next second sends again");
@@ -660,7 +660,7 @@ public final class MirrorNoLoopCheck {
      * The circuit breaker (D10): requests the world caused, spaced within the rate as a loop through delayed redstone sends
      * them, pass 8 times in 10 s; the 9th trips it, pausing the device's control (CONTROL_PAUSED; the runtime tells the
      * owner). A paused device sends nothing, a player's command included, until it is resumed, and then counts anew. A
-     * player's own commands are not counted (wave 4 review): dragging a picker for 10 s sends at most 4 a second and
+     * player's own commands are not counted: dragging a picker for 10 s sends at most 4 a second and
      * never pauses the lamp, while the same stream from the world does.
      */
     private static void breaker() {
@@ -925,7 +925,7 @@ public final class MirrorNoLoopCheck {
         coalescer.forget("light.m3_lamp");
         check(!coalescer.pending(), "An entity nobody mirrors waits for nothing");
 
-        // The per-entity cap itself (wave 4 review): the bursts above settle on MAX_WAIT_DRAINS, which alone spaces them
+        // The per-entity cap itself: the bursts above settle on MAX_WAIT_DRAINS, which alone spaces them
         // 300 ms apart. Bursts that settle after one quiet drain (a change every other drain, 50 ms drains), and constant
         // changes on a paused server's pump (10 ms drains), would apply 10 and 16 times a second without the cap.
         for (long[] pattern : new long[][]{{50, 2}, {10, 1}}) {
@@ -1373,7 +1373,7 @@ public final class MirrorNoLoopCheck {
     }
 
     /**
-     * Wave 5 finding 1, with Home Assistant answering as fast as the real one did: the repeater loop (an Output mirroring
+     * With Home Assistant answering as fast as the real one did, the repeater loop (an Output mirroring
      * switch.m3_loop inverted → a repeater → a Redstone Input targeting it) sent 6 requests in about 1.5 s, then the
      * device rate refused the 7th edge, which ended the loop with the world and the entity disagreeing, nothing paused
      * and nothing logged. Now an explicit state the world asked for waits over the rate instead (newest wins), so the
@@ -1436,7 +1436,7 @@ public final class MirrorNoLoopCheck {
     }
 
     /**
-     * Wave 5 finding 1: a request a rate refuses is counted per device with its reason (for its info, its status line and
+     * A request a rate refuses is counted per device with its reason (for its info, its status line and
      * the Twin tab's Diagnostics), and logged once per burst: a world cause as a warning (the entity and the game may
      * disagree), a player's at debug (the player hears it). A world-caused refusal counts towards the breaker, so a
      * target the rates keep refusing pauses as a looping one does; a player's switch is still refused, never held.
@@ -1456,7 +1456,7 @@ public final class MirrorNoLoopCheck {
         TwinRequests.RateRefusals counted = harness.requests.rateRefusals(wall).orElseThrow();
         check(counted.refused() == 2 && counted.entityId().equals("scene.movie") && counted.reason().contains("4 requests a second"),
                 "...counted per device with the last reason: " + counted);
-        // Wave 6 open finding 2: each refusal tells the device, whose Twin tab shows the count.
+        // Each refusal tells the device, whose Twin tab shows the count.
         check(harness.events.stream().filter(("rate " + wall)::equals).count() == 2, "...and each refusal is heard, so the Twin tab shows it: " + harness.events);
         check(harness.warnings.size() == 1 && harness.warnings.getFirst().contains("scene.movie") && harness.warnings.getFirst().contains("disagree"),
                 "...and logged once for the burst: " + harness.warnings);
@@ -1509,7 +1509,7 @@ public final class MirrorNoLoopCheck {
     }
 
     /**
-     * Wave 6 review: a world-caused explicit state waits over the rate, and a Wall Switch's two targets each wait in their
+     * A world-caused explicit state waits over the rate, and a Wall Switch's two targets each wait in their
      * own slot. With one slot per device, the right button's press replaced (or, sent within the rate, dropped) the left
      * button's held one, so a press was lost with nothing counted or logged.
      */
@@ -1552,7 +1552,7 @@ public final class MirrorNoLoopCheck {
     }
 
     /**
-     * Wave 6 review: a lever flipped every 150 ms into a Redstone Input targeting a light, Home Assistant applying each
+     * A lever flipped every 150 ms into a Redstone Input targeting a light, Home Assistant applying each
      * request 100 ms later. The 5th edge (on) waits for the rate; the 6th (off) is a dedupe skip, as the light already
      * shows off. The waiting turn_on was sent late anyway, leaving the light on with the lever off; now the skip drops it.
      * With an odd count the waiting state is the last one and is sent. A waiting brightness survives a skipped "on" and
@@ -1560,8 +1560,7 @@ public final class MirrorNoLoopCheck {
      */
     private static void leverBursts() {
         // Not 8 edges: the state that waited is sent at 1.15 s and applied at 1.25 s, and the 8th edge (off, 1.2 s) dedupes
-        // against the light's off before that, an open finding of the wave 6 review fixes (a dedupe against a mirror with
-        // a request in flight).
+        // against the light's off before that, a known open point (a dedupe against a mirror with a request in flight).
         for (int edges = 5; edges <= 7; edges++) {
             Requests harness = new Requests();
             UUID input = UUID.randomUUID();
@@ -1724,7 +1723,7 @@ public final class MirrorNoLoopCheck {
         check(DeviceRuntime.refusal("porch_lamp", SWITCH.withRefused("switch.porch is not in twin.allowedEntities"), CommandSource.BINDING, false)
                 .contains("binding is refused"), "A refused binding says so");
 
-        // An unloaded device routes by its record's copy judged under the rules in force (wave 4 review): a copy stored
+        // An unloaded device routes by its record's copy judged under the rules in force: a copy stored
         // before light.kitchen left twin.allowedEntities, or before the twin was turned off, refuses instead of forwarding.
         Binding copy = lampLight();
         TwinRules.Rights allowed = new TwinRules.Rights(true, true, EntityGlobs.ALL, Optional.empty());
@@ -1841,7 +1840,7 @@ public final class MirrorNoLoopCheck {
         check(TwinRules.landingPending(null, ADAPTER, mixed) == mixed && TwinRules.landingPending(targetOnly, ADAPTER, mixed) == mixed,
                 "An unbound one's, or one with targets only, lands whole");
         check(TwinRules.landingPending(SWITCH, null, mixed) == null, "A bound device without an adapter lands nothing");
-        // The route table and the attach guard together (wave 4 review): whatever any source queues for an unloaded bound
+        // The route table and the attach guard together: whatever any source queues for an unloaded bound
         // device lands whole at its attach, with no mirrored key in it.
         JsonObject[] commands = {command("fade", new JsonPrimitive(3)), power, command(Action.STATE, new JsonPrimitive(Coerce.TOGGLE)), mixed};
         for (JsonObject queued : commands) {

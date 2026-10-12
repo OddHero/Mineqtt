@@ -1,0 +1,96 @@
+{
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/chest_watch/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "cmps": {
+    "block": {
+      "json_attributes_template": "{{ (value_json.properties if value_json.properties is defined else {}) | tojson }}",
+      "json_attributes_topic": "mineqtt/world_7f3a/chest_watch",
+      "name": null,
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/chest_watch",
+      "unique_id": "mineqtt_0b5e7a113c2d4e6f8a9b0c1d2e3f4a5b_block",
+      "value_template": "{{ value_json.block }}"
+    },
+    "change_on": {
+      "command_topic": "mineqtt/world_7f3a/chest_watch/set/change_on",
+      "entity_category": "config",
+      "name": "Change on",
+      "options": [
+        "block",
+        "state"
+      ],
+      "p": "select",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/chest_watch",
+      "unique_id": "mineqtt_0b5e7a113c2d4e6f8a9b0c1d2e3f4a5b_change_on",
+      "value_template": "{{ value_json.change_on }}"
+    },
+    "changed": {
+      "event_types": [
+        "changed"
+      ],
+      "name": "Changed",
+      "p": "event",
+      "state_topic": "mineqtt/world_7f3a/chest_watch/action",
+      "unique_id": "mineqtt_0b5e7a113c2d4e6f8a9b0c1d2e3f4a5b_changed"
+    },
+    "location": {
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Location",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/chest_watch",
+      "unique_id": "mineqtt_0b5e7a113c2d4e6f8a9b0c1d2e3f4a5b_location",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}"
+    },
+    "payload": {
+      "command_topic": "mineqtt/world_7f3a/chest_watch/set/payload",
+      "enabled_by_default": false,
+      "entity_category": "config",
+      "name": "Payload",
+      "options": [
+        "full",
+        "block_id",
+        "name",
+        "properties"
+      ],
+      "p": "select",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/chest_watch",
+      "unique_id": "mineqtt_0b5e7a113c2d4e6f8a9b0c1d2e3f4a5b_payload",
+      "value_template": "{{ value_json.payload }}"
+    },
+    "signal": {
+      "name": "Signal",
+      "p": "sensor",
+      "state_class": "measurement",
+      "state_topic": "mineqtt/world_7f3a/chest_watch",
+      "unique_id": "mineqtt_0b5e7a113c2d4e6f8a9b0c1d2e3f4a5b_signal",
+      "value_template": "{{ value_json.signal }}"
+    }
+  },
+  "dev": {
+    "ids": [
+      "mineqtt_0b5e7a113c2d4e6f8a9b0c1d2e3f4a5b"
+    ],
+    "mdl": "Block Observer",
+    "mdl_id": "mineqtt:block_observer",
+    "mf": "MineQTT",
+    "name": "Chest Watch",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "qos": 1
+}

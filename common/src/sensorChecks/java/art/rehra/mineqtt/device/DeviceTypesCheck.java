@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.device.types.BlockObserver;
+import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
@@ -7,6 +9,7 @@ import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.WallSwitch;
 import art.rehra.mineqtt.flow.core.Coerce;
 import art.rehra.mineqtt.flow.core.Endpoint;
@@ -86,7 +89,9 @@ public final class DeviceTypesCheck {
         DeviceTypes.registerBuiltIn();
         List<DeviceType> types = DeviceTypes.all();
         check(types.equals(List.of(SmartLamp.TYPE, RedstoneOutput.TYPE, RedstoneInput.TYPE, PresenceSensor.TYPE, SmartPlug.TYPE, ClimateSensor.TYPE,
-                WallSwitch.TYPE, DisplayPanel.TYPE)), "The eight built-in types are registered: " + types);
+                WallSwitch.TYPE, DisplayPanel.TYPE, Timers.INTERVAL_TIMER, Timers.DAYLIGHT_TIMER, Timers.ALARM_CLOCK, Timers.CRON_TIMER,
+                BlockObserver.TYPE, BlockPlacer.TYPE)),
+                "The fourteen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10): " + types);
         int ports = 0;
         for (DeviceType type : types) {
             declaration(type);
@@ -113,6 +118,7 @@ public final class DeviceTypesCheck {
         plugTwin();
         targetTwins();
         displayPanel();
+        m4Seams();
         System.out.println("Device type checks passed: " + types.size() + " types, " + ports + " ports.");
     }
 
@@ -230,12 +236,62 @@ public final class DeviceTypesCheck {
                 "OUT message text 255 FIELD", "OUT level level FIELD", "OUT color enum " + colors + " FIELD", "OUT glow bool FIELD",
                 "OUT size enum auto|large|medium|small FIELD", "OUT location json FIELD",
                 "IN message text 255 FIELD", "IN color enum " + colors + " SETTING", "IN glow bool SETTING", "IN size enum auto|large|medium|small SETTING"));
+        // M4-2 (plan D2): every timer arms through enabled (also its switch's state) and fires on trigger; fired names its source.
+        List<String> timerOut = List.of("OUT enabled bool FIELD", "OUT next_fire text 256 FIELD");
+        List<String> timerIn = List.of("IN state bool ACTION toggles", "IN trigger event trigger ACTION");
+        String units = "enum ticks|seconds|minutes|hours";
+        String moments = "enum sunrise|noon|sunset|midnight|custom";
+        expectPorts(Timers.INTERVAL_TIMER, timer(timerOut, List.of("OUT interval number 1..1000000 FIELD", "OUT unit " + units + " FIELD"),
+                List.of("IN interval number 1..1000000 SETTING", "IN unit " + units + " SETTING"), timerIn));
+        expectPorts(Timers.DAYLIGHT_TIMER, timer(timerOut, List.of("OUT trigger_at " + moments + " FIELD", "OUT time text 5 FIELD"),
+                List.of("IN trigger_at " + moments + " SETTING", "IN time text 5 SETTING"), timerIn));
+        expectPorts(Timers.ALARM_CLOCK, timer(timerOut, List.of("OUT time text 5 FIELD"), List.of("IN time text 5 SETTING"), timerIn));
+        expectPorts(Timers.CRON_TIMER, timer(timerOut, List.of("OUT cron text 64 FIELD"), List.of("IN cron text 64 SETTING"), timerIn));
+        for (DeviceType timer : Timers.all()) {
+            check(timer.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !timer.groupable() && timer.use().isEmpty() && timer.noV1Topic()
+                            && timer.minInterval().isZero() && timer.events().equals(List.of(Timers.FIRED)),
+                    timer + ": unavailable while unloaded, not groupable, no use by hand, no v1 topic, and fired its only event");
+        }
+        check(Timers.FIRED.attributes().equals(Map.of("source", PortType.enumOf(List.of("schedule", "manual")))) && !Timers.FIRED.busOnly()
+                && Timers.FIRED.minInterval().equals(Duration.ofMillis(250)), "fired names its source and is published at most every 250 ms");
+        // The block in front, its properties and level out, a change as an event; the two settings in (M4-9, D12).
+        expectPorts(BlockObserver.TYPE, List.of(
+                "OUT block text 256 FIELD", "OUT properties json FIELD", "OUT signal level FIELD", "OUT change_on enum block|state FIELD",
+                "OUT payload enum full|block_id|name|properties FIELD", "OUT location json FIELD", "OUT changed event changed EVENT",
+                "IN change_on enum block|state SETTING", "IN payload enum full|block_id|name|properties SETTING"));
+        check(BlockObserver.TYPE.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !BlockObserver.TYPE.groupable() && BlockObserver.TYPE.use().isEmpty()
+                        && BlockObserver.TYPE.minInterval().equals(Duration.ofSeconds(1)) && BlockObserver.TYPE.actions().isEmpty(),
+                "The observer is a sensor: unavailable while unloaded, no use, no actions, its state at most once a second");
+        check(BlockObserver.CHANGED_EVENT.attributes().equals(Map.of("block", PortType.text(ValueCodecs.MAX_TEXT_LENGTH)))
+                && BlockObserver.CHANGED_EVENT.minInterval().equals(Duration.ofMillis(500)), "changed names the block, at most twice a second");
+        // Its block in (a setting), place and clear as actions; whether its block stands and what came of the last action out (M4-10).
+        expectPorts(BlockPlacer.TYPE, List.of(
+                "OUT block text 256 FIELD", "OUT placed bool FIELD", "OUT last_result text 256 FIELD", "OUT location json FIELD",
+                "IN block text 256 SETTING", "IN place event place ACTION", "IN clear event clear ACTION"));
+        check(BlockPlacer.TYPE.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !BlockPlacer.TYPE.groupable() && BlockPlacer.TYPE.use().isEmpty()
+                        && BlockPlacer.TYPE.events().isEmpty() && BlockPlacer.TYPE.minInterval().isZero(),
+                "The placer never queues a world edit while unloaded, is no group member, has no use and no events");
+        for (DeviceType type : DeviceTypes.all()) {
+            check(type.editsWorld() == (type == BlockPlacer.TYPE), type + ": only the Block Placer edits the world (D12)");
+        }
         check(settingKeys(RedstoneOutput.TYPE.settings()).equals(List.of("mode", "power_on_behaviour")), "Output settings: mode and power-on behaviour");
         check(settingKeys(PresenceSensor.TYPE.settings()).equals(List.of("detect", "range", "clear_delay", "filter")),
                 "Presence settings: detect, range, clear delay and the mob filter (M2-12)");
         check(SmartLamp.TYPE.settings().isEmpty() && RedstoneInput.TYPE.settings().isEmpty(), "The lamp's light is a command (USE), not a setting; the input has none");
         check(RedstoneInput.TYPE.events().equals(List.of(RedstoneInput.PULSE_EVENT)) && RedstoneInput.PULSE_EVENT.attributes().equals(Map.of("signal", PortType.LEVEL)),
                 "The input declares its pulse with the signal");
+    }
+
+    // A timer's ports: the shared out-fields, its schedule's, the location and fired out; enabled, its schedule and the actions in.
+    private static List<String> timer(List<String> sharedOut, List<String> scheduleOut, List<String> scheduleIn, List<String> actions) {
+        List<String> ports = new ArrayList<>(sharedOut);
+        ports.addAll(scheduleOut);
+        ports.add("OUT location json FIELD");
+        ports.add("OUT fired event fired EVENT");
+        ports.add("IN enabled bool FIELD");
+        ports.addAll(scheduleIn);
+        ports.addAll(actions);
+        return ports;
     }
 
     private static void expectPorts(DeviceType type, List<String> expected) {
@@ -324,8 +380,9 @@ public final class DeviceTypesCheck {
                     refuses(setting, IntTag.valueOf(2), what + " 2");
                 }
                 case PortType.Text text -> {
-                    // The empty text is every text setting's default; what else a text is, its codec decides.
-                    accepts(setting, StringTag.valueOf(""), new JsonPrimitive(""), what);
+                    // A text setting takes its default (empty for most, a timer's 06:00); what else a text is, its codec decides.
+                    String defaultText = encode(setting.field(), setting.field().defaultValue()).getAsString();
+                    accepts(setting, StringTag.valueOf(defaultText), new JsonPrimitive(defaultText), what);
                     refuses(setting, StringTag.valueOf("x".repeat(text.maxLength() + 1)), what + " over its length");
                     refuses(setting, IntTag.valueOf(0), what + " as a number");
                 }
@@ -886,8 +943,12 @@ public final class DeviceTypesCheck {
                         Optional.of(false), false, Optional.of("a".repeat(1024)), Optional.of("b".repeat(1024)), Optional.of(DeviceView.cap("€".repeat(600), 1536)), RawLink.Edges.BOTH)),
                 true, DeviceView.cap("€".repeat(600), 1536), Optional.of(DeviceView.cap("€".repeat(600), 1536)), new DeviceView.Ownership(DeviceView.Owner.KNOWN, true),
                 new DeviceView.Diagnostics(Optional.of(DEVICE), DeviceView.Availability.FAULTED, DeviceView.cap("€".repeat(600), 1024), Optional.of(cut), Optional.of(cut),
-                        Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE), Integer.MAX_VALUE, false);
-        check(roundTrip(largest).equals(largest), "The largest view round-trips within 32 KiB");
+                        Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE), Integer.MAX_VALUE, false,
+                "😀".repeat(StatusLine.MAX_LENGTH));
+        check(roundTrip(largest).equals(largest), "The largest view, with a status line of four-byte characters, round-trips within 32 KiB");
+        expectFailure(() -> new DeviceView(POS, RedstoneInput.TYPE.id(), "n", "s", "", AccessMode.CLAIM, Optional.empty(), DeviceView.Registration.NONE,
+                DeviceView.Grants.NONE, "{}", Optional.empty(), false, "", Optional.empty(), OWNED, DeviceView.Diagnostics.notRunning(null), 0, false,
+                "x".repeat(StatusLine.MAX_LENGTH + 1)), "A status line over " + StatusLine.MAX_LENGTH + " characters");
         DeviceView tooLarge = new DeviceView(POS, RedstoneInput.TYPE.id(), "n", "s", "", AccessMode.CLAIM, Optional.empty(), DeviceView.Registration.NONE, DeviceView.Grants.NONE,
                 "{\"x\":\"" + "x".repeat(DeviceView.MAX_STATE_BYTES) + "\"}", Optional.empty(), false, "", Optional.empty(), OWNED, DeviceView.Diagnostics.notRunning(null), 0, false);
         try {
@@ -907,6 +968,144 @@ public final class DeviceTypesCheck {
             expectFailure(() -> new DeviceView(POS, RedstoneInput.TYPE.id(), "n", "", "", AccessMode.CLAIM, Optional.empty(), DeviceView.Registration.NONE, beyondUse,
                     "{}", Optional.empty(), false, "", Optional.empty(), OWNED, DeviceView.Diagnostics.notRunning(null), 0, true), "A controls-only view granting " + beyondUse);
         }
+    }
+
+    /**
+     * M4-1's dormant seams on synthetic types (M4 plan §3.2): the event throttle (D3), {@code noV1Topic}, the status line
+     * (D5), json attributes, patterned texts and runtime select options, and that no shipped type uses any of them yet.
+     */
+    private static void m4Seams() {
+        // D3: an event's minimum interval, refused on a bus-only event (the bus has its own buckets), kept by attributes.
+        EventSpec fired = EventSpec.of("fired").attribute("source", PortType.enumOf(List.of("schedule", "manual"))).minInterval(Duration.ofMillis(250));
+        check(fired.throttled() && fired.minInterval().equals(Duration.ofMillis(250)) && !fired.busOnly(), "An event takes a minimum interval");
+        check(fired.attribute("x", PortType.BOOL).minInterval().equals(Duration.ofMillis(250)), "Attributes keep the interval");
+        check(!EventSpec.of("press").throttled() && EventSpec.of("press").minInterval().isZero() && new EventSpec("press", Map.of()).minInterval().isZero()
+                && new EventSpec("press", Map.of(), true).minInterval().isZero(), "Without one, an event has none: the old constructors are unchanged");
+        expectFailure(() -> EventSpec.of("fired").minInterval(Duration.ofMillis(-1)), "A negative minimum interval");
+        failsToBuild(base("throttled_bus").event(EventSpec.busOnly("left").minInterval(Duration.ofMillis(500))), "only the bus carries",
+                "A minimum interval on a bus-only event");
+        DeviceType throttled = base("throttled").event(fired).entity(Ha.event("fired", "fired")).build();
+        check(throttled.event("fired").orElseThrow().throttled(), "A type keeps its event's interval");
+        // M4-2: the timers are the first to use them; every type M3 shipped behaves as it did.
+        for (DeviceType type : List.of(SmartLamp.TYPE, RedstoneOutput.TYPE, RedstoneInput.TYPE, PresenceSensor.TYPE, SmartPlug.TYPE, ClimateSensor.TYPE,
+                WallSwitch.TYPE, DisplayPanel.TYPE)) {
+            check(type.events().stream().noneMatch(EventSpec::throttled), type + ": no type of M3 throttles an event (D3), so none behaves differently");
+            check(!type.noV1Topic() && type.status().isEmpty(), type + ": no type of M3 has noV1Topic or a status line");
+        }
+        for (DeviceType timer : Timers.all()) {
+            check(timer.events().stream().allMatch(EventSpec::throttled) && timer.noV1Topic() && timer.status().isPresent(),
+                    timer + ": the timers throttle fired, adopt no v1 topic and have a status line");
+        }
+        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 2, "The M3 types, the timers, the observer and the placer are every built-in type");
+        for (DeviceType type : List.of(BlockObserver.TYPE, BlockPlacer.TYPE)) {
+            // Of the world devices only the Block Observer's changed (M4-9, D12) throttles; both adopt their v1 topic.
+            check(type.events().stream().filter(EventSpec::throttled).toList().equals(type == BlockObserver.TYPE ? List.of(BlockObserver.CHANGED_EVENT) : List.of()),
+                    type + ": of the world devices only the observer's changed event is throttled (D3)");
+            check(!type.noV1Topic() && type.status().isEmpty(), type + ": the world devices have no noV1Topic and no status line");
+        }
+
+        // D3: what the runtime asks before it publishes an event on its action topic and Raw Link (DeviceTraffic.admitEvent).
+        DeviceTraffic traffic = new DeviceTraffic();
+        EventSpec press = EventSpec.of("press");
+        check(traffic.admitEvent(press, 0) && traffic.admitEvent(press, 0) && traffic.admitEvent(press, 1), "An event without an interval is never held back");
+        check(traffic.admitEvent(fired, 1_000) && !traffic.admitEvent(fired, 1_100) && !traffic.admitEvent(fired, 1_249) && traffic.admitEvent(fired, 1_250)
+                && !traffic.admitEvent(fired, 1_400) && traffic.admitEvent(fired, 1_500), "One per 250 ms: those sooner are held back, the time is that of the last published");
+        EventSpec changed = EventSpec.of("changed").minInterval(Duration.ofMillis(500));
+        check(traffic.admitEvent(changed, 1_400) && !traffic.admitEvent(changed, 1_600), "Each event type has its own clock");
+        check(traffic.throttled() == 4, "Each held-back event is counted: " + traffic.throttled());
+        check(traffic.summary().equals("0 in (0 dropped), 0 out, 4 events throttled"), "devices info names them: " + traffic.summary());
+        check(new DeviceTraffic().summary().equals("0 in (0 dropped), 0 out"), "Without any, the summary is unchanged");
+        check(traffic.diagnostics(DEVICE, DeviceView.Availability.ONLINE, "", true, 2_000, 0, 0).throttled() == 4, "The Diagnostics tab gets the count");
+        DeviceView.Diagnostics withCount = new DeviceView.Diagnostics(Optional.of(DEVICE), DeviceView.Availability.ONLINE, "", Optional.empty(), Optional.empty(),
+                1, 0, 2, 0, 0, 7);
+        check(new DeviceView.Diagnostics(Optional.of(DEVICE), DeviceView.Availability.ONLINE, "", Optional.empty(), Optional.empty(), 1, 0, 2, 0, 0).throttled() == 0,
+                "The old constructor counts none");
+
+        // D5: noV1Topic and the status line, read from the type; a view carries the line, cut and sanitised.
+        DeviceType quiet = base("quiet").noV1Topic().status((state, now) -> state.has("next") ? "Next " + state.get("next").getAsString() : "Disabled").build();
+        check(quiet.noV1Topic() && quiet.status().isPresent(), "A type keeps noV1Topic and its status line");
+        check(quiet.statusLine(json("{\"next\":\"06:00\"}"), java.time.Instant.EPOCH).equals("Next 06:00") && quiet.statusLine(new JsonObject(), java.time.Instant.EPOCH)
+                .equals("Disabled"), "The line follows the state");
+        DeviceType loud = base("loud").status((state, now) -> "§c" + "€".repeat(100) + "\n").build();
+        String cut = loud.statusLine(new JsonObject(), java.time.Instant.EPOCH);
+        check(cut.codePointCount(0, cut.length()) == StatusLine.MAX_LENGTH && cut.endsWith("…") && !cut.contains("§") && !cut.contains("\n"),
+                "A long line is cut to " + StatusLine.MAX_LENGTH + " characters, without formatting codes or line breaks: " + cut);
+        check(RedstoneInput.TYPE.statusLine(new JsonObject(), java.time.Instant.EPOCH).isEmpty(), "A type without a status line has an empty one");
+        DeviceLink link = new DeviceLink(quiet);
+        link.assign(DEVICE, "Quiet", "quiet");
+        DeviceView view = DeviceView.of(POS, link, DeviceView.Registration.NONE, false, json("{\"powered\":false,\"next\":\"18:00\"}"), "", null,
+                new DeviceView.Grants(true, false, false, false), OWNED, withCount, java.time.Instant.EPOCH);
+        check(view.statusLine().equals("Next 18:00") && view.diagnostics().throttled() == 7, "The view carries the line and the count");
+        DeviceView copy = roundTrip(view);
+        check(copy.equals(view) && copy.statusLine().equals("Next 18:00") && copy.diagnostics().throttled() == 7, "Both survive the stream codec");
+        DeviceView redacted = roundTrip(view.redacted());
+        check(redacted.statusLine().equals("Next 18:00") && redacted.controlsOnly(), "A controls-only view keeps the line: its Controls tab shows it");
+        check(DeviceView.of(POS, new DeviceLink(RedstoneInput.TYPE), DeviceView.Registration.NONE, false, json("{\"powered\":true}"), "", null,
+                DeviceView.Grants.NONE, OWNED, DeviceView.Diagnostics.notRunning(null)).statusLine().isEmpty(), "A shipped type's view has no line");
+
+        // §3.2: json attributes over a declared, readable field.
+        Field<Boolean> powered = Field.bool("powered", Access.READ);
+        Field<String> block = Field.text("block", Access.READ);
+        Field<Map<String, String>> properties = Field.json("properties", com.mojang.serialization.Codec.unboundedMap(com.mojang.serialization.Codec.STRING,
+                com.mojang.serialization.Codec.STRING), Map.of(), Access.READ);
+        HaEntity.Sensor withAttributes = Ha.sensor("block", block).name(null).jsonAttributes(properties);
+        check(withAttributes.jsonAttributes() == properties && withAttributes.fields().equals(List.of(block, properties)) && !withAttributes.commands(),
+                "A sensor with attributes shows its field and reads the attributes' field");
+        check(Ha.sensor("block", block).jsonAttributes(block).fields().equals(List.of(block)), "Attributes from the shown field name it once");
+        DeviceType observer = DeviceType.builder(id("observer")).model("Observer").unloaded(UnloadedPolicy.UNAVAILABLE).field(block).field(properties)
+                .entity(withAttributes).build();
+        check(observer.entities().getFirst() instanceof HaEntity.Sensor sensor && sensor.jsonAttributes() == properties, "A type keeps the attributes");
+        failsToBuild(DeviceType.builder(id("observer2")).model("Observer").field(block).entity(withAttributes), "undeclared field properties",
+                "Attributes from an undeclared field");
+        Field<String> secret = Field.text("secret", Access.WRITE);
+        failsToBuild(DeviceType.builder(id("observer3")).model("Observer").field(block).field(secret).setting(new Setting<>(secret))
+                .entity(Ha.sensor("block", block).jsonAttributes(secret)), "write-only field secret", "Attributes from a write-only field");
+        failsToBuild(DeviceType.builder(id("observer4")).model("Observer").unloaded(UnloadedPolicy.UNAVAILABLE).field(block).field(powered)
+                .entity(Ha.sensor("block", block).jsonAttributes(powered)), "field powered, which is no JSON field", "Attributes from a field that is no JSON object");
+        failsToBuild(DeviceType.builder(id("observer5")).model("Observer").unloaded(UnloadedPolicy.UNAVAILABLE).field(block)
+                .entity(Ha.sensor("block", block).jsonAttributes(block)), "field block, which is no JSON field", "Attributes from the shown text field");
+
+        // §3.2: a text's pattern, within the subset Java, JavaScript and Python read alike; D2's HH:MM is the case it must take.
+        String hhMm = "^([01]\\d|2[0-3]):[0-5]\\d$";
+        Field<String> time = Field.text("time", Access.READ_WRITE);
+        HaEntity.Text patterned = Ha.text("time", time).pattern(hhMm);
+        check(patterned.pattern().equals(hhMm) && patterned.maxLength() == 255 && Ha.text("time", time).pattern() == null, "A text takes a pattern; none by default");
+        for (String portable : List.of(hhMm, "[a-z0-9_]+", "^\\d{1,6}$", "(?:on|off)", "a(?=b)", "x(?!y)", "(?<=a)b", "[^,]*", "\\.\\$\\/", "\\s+\\S",
+                "\\++", "\\\\+", "\\\\\\++")) {
+            check(HaEntity.Text.patternProblem(portable).isEmpty(), "A portable pattern is accepted: " + portable + " " + HaEntity.Text.patternProblem(portable));
+        }
+        for (String unportable : List.of("", "(", "a".repeat(129), "\\p{L}+", "\\A\\d\\z", "a++", "\\d*+", "(?<name>a)", "(?i)abc", "(?>a)", "[a-z&&[^e]]",
+                "[]a]", "\\Qa.b\\E", "\\h", "[[a]]", "\\\\++", "\\\\*+")) {
+            check(HaEntity.Text.patternProblem(unportable).isPresent(), "An unportable or invalid pattern is refused: " + unportable);
+        }
+        expectFailure(() -> Ha.text("time", time).pattern("\\p{L}"), "A text with an unportable pattern");
+
+        // §3.2: runtime select options over a TEXT or ENUM field: sorted, distinct, non-blank, at most 128; none when the source has none.
+        Field<String> chosen = Field.text("block", Access.READ_WRITE);
+        List<String> offered = new ArrayList<>(List.of("minecraft:white_wool", "minecraft:glass", " ", "minecraft:glass", "minecraft:black_wool"));
+        HaEntity.Select dynamic = Ha.selectDynamic("block", chosen, () -> offered);
+        check(dynamic.dynamic() && dynamic.options().isEmpty() && dynamic.currentOptions().equals(List.of("minecraft:black_wool", "minecraft:glass", "minecraft:white_wool")),
+                "Runtime options are sorted, distinct and without blanks: " + dynamic.currentOptions());
+        offered.clear();
+        for (int i = 0; i < 200; i++) offered.add(String.format(Locale.ROOT, "minecraft:block_%03d", i));
+        check(dynamic.currentOptions().size() == HaEntity.Select.MAX_OPTIONS && dynamic.currentOptions().getFirst().equals("minecraft:block_000"),
+                "At most " + HaEntity.Select.MAX_OPTIONS + " options");
+        offered.clear();
+        check(dynamic.currentOptions().isEmpty(), "A source without options gives none");
+        check(Ha.selectDynamic("block", chosen, () -> {
+            throw new IllegalStateException("tags not loaded");
+        }).currentOptions().isEmpty() && Ha.selectDynamic("block", chosen, () -> null).currentOptions().isEmpty(), "A failing source gives none");
+        check(!Ha.select("mode", RedstoneOutput.MODE).dynamic() && Ha.select("mode", RedstoneOutput.MODE).currentOptions()
+                .equals(Ha.select("mode", RedstoneOutput.MODE).options()), "A fixed select keeps its options");
+        check(dynamic.valueTemplate("{{ value_json.block.split('[')[0] }}").valueTemplate().equals("{{ value_json.block.split('[')[0] }}")
+                && dynamic.valueTemplate() == null, "A select takes a value template");
+        expectFailure(() -> new HaEntity.Select(new HaEntity.Meta("x", "X", HaEntity.Category.NONE, true), chosen, List.of("a"), List::of, null), "Fixed options and a source at once");
+        DeviceType placer = DeviceType.builder(id("placer")).model("Placer").unloaded(UnloadedPolicy.UNAVAILABLE).field(chosen)
+                .entity(Ha.selectDynamic("block", chosen, () -> List.of("minecraft:glass")).config()).build();
+        check(placer.port(Port.Direction.IN, "block").isPresent(), "A runtime select commands its text field");
+        Field<Integer> level = Field.level("level", Access.READ_WRITE);
+        failsToBuild(DeviceType.builder(id("placer2")).model("Placer").field(level).entity(Ha.selectDynamic("level", level, List::of)), "no text or enum",
+                "Runtime options into a level field");
     }
 
     private static <T> JsonElement encodeDefault(Field<T> field) {

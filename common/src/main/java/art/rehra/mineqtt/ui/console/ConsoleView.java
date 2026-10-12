@@ -1,11 +1,13 @@
 package art.rehra.mineqtt.ui.console;
 
+import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.device.DeviceGroup;
 import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.device.GroupRules;
 import art.rehra.mineqtt.device.Slugs;
 import art.rehra.mineqtt.mqtt.core.ConnectionState;
+import art.rehra.mineqtt.telemetry.core.Weather;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.EncoderException;
@@ -14,6 +16,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.VarInt;
 import net.minecraft.network.VarLong;
 import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.resources.Identifier;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -26,10 +29,11 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
- * What a Bridge Console shows one player (M2 plan §4.2 M2-23): how the bridge runs ({@link Bridge}), the devices and
- * groups the player may configure (every one for an operator), and whether they may run the console's actions. The server
- * builds it for each viewer ({@link BridgeConsole}), into the open data of the screen and again every second while it is
- * open, so a player never receives a device they may not configure.
+ * What a Bridge Console shows one player (M2 plan §4.2 M2-23): how the bridge runs ({@link Bridge}), the world's
+ * telemetry ({@link World}, M4-17), the devices and groups the player may configure (every one for an operator), and
+ * whether they may run the console's actions. The server builds it for each viewer ({@link BridgeConsole}), into the open
+ * data of the screen and again every second while it is open, so a player never receives a device they may not configure,
+ * nor a player's name unless they are an operator.
  * <p>
  * Its {@link #STREAM_CODEC} writes at most {@value #MAX_BYTES} bytes: {@link #of} keeps the first
  * {@value #MAX_DEVICE_ROWS} devices and {@value #MAX_GROUP_ROWS} groups and the rows cut their texts to their caps.
@@ -40,7 +44,7 @@ import java.util.function.Predicate;
  * @param groupTotal  how many groups the player manages, also those beyond the rows
  * @param operator    whether the player may run the console's actions ({@link BridgeAction})
  */
-public record ConsoleView(BlockPos pos, Bridge bridge, List<DeviceRow> devices, int deviceTotal, List<GroupRow> groups, int groupTotal,
+public record ConsoleView(BlockPos pos, Bridge bridge, World world, List<DeviceRow> devices, int deviceTotal, List<GroupRow> groups, int groupTotal,
                           boolean operator) {
     public static final int MAX_BYTES = 64 * 1024;
     public static final int MAX_DEVICE_ROWS = 64;
@@ -52,6 +56,11 @@ public record ConsoleView(BlockPos pos, Bridge bridge, List<DeviceRow> devices, 
     private static final int MAX_WHERE_BYTES = 96;
     private static final int MAX_BRIDGE_TEXT_BYTES = 512;
     private static final int MAX_WORD_BYTES = 32;
+    /** At most this many player names, which only an operator's view carries. */
+    public static final int MAX_PLAYER_NAMES = 16;
+    // A Minecraft name has at most 16 characters of a-z, A-Z, 0-9 and _; a modded server may allow more.
+    private static final int MAX_PLAYER_NAME_BYTES = 64;
+    private static final int MAX_TELEMETRY_BYTES = 256;
 
     public static final StreamCodec<ByteBuf, ConsoleView> STREAM_CODEC = StreamCodec.of(ConsoleView::write, ConsoleView::read);
 
@@ -64,8 +73,8 @@ public record ConsoleView(BlockPos pos, Bridge bridge, List<DeviceRow> devices, 
     }
 
     /** A console of every visible device and group, keeping the first rows of each and counting all of them. */
-    public static ConsoleView of(BlockPos pos, Bridge bridge, List<DeviceRow> devices, List<GroupRow> groups, boolean operator) {
-        return new ConsoleView(pos, bridge, devices.subList(0, Math.min(devices.size(), MAX_DEVICE_ROWS)), devices.size(),
+    public static ConsoleView of(BlockPos pos, Bridge bridge, World world, List<DeviceRow> devices, List<GroupRow> groups, boolean operator) {
+        return new ConsoleView(pos, bridge, world, devices.subList(0, Math.min(devices.size(), MAX_DEVICE_ROWS)), devices.size(),
                 groups.subList(0, Math.min(groups.size(), MAX_GROUP_ROWS)), groups.size(), operator);
     }
 
@@ -160,6 +169,71 @@ public record ConsoleView(BlockPos pos, Bridge bridge, List<DeviceRow> devices, 
         }
     }
 
+    /**
+     * The world as the bridge's telemetry reads it (M4 plan D6, M4-17), as the Bridge tab shows it, whether or not the
+     * telemetry is published.
+     *
+     * @param tps           ticks per second, one decimal: 0 while frozen
+     * @param mspt          the average milliseconds per tick, one decimal
+     * @param timeOfDay     {@code HH:MM}, in steps of 15 game minutes
+     * @param day           whole overworld days
+     * @param isDay         06:00 up to 18:00 by the clock
+     * @param playersOnline how many players are online, which is not personal
+     * @param players       the names of online players the name policy allows (M4 plan D9), at most
+     *                      {@value #MAX_PLAYER_NAMES}; only an operator's view carries them, everyone else's none
+     * @param named         how many online players the name policy allows, also those beyond {@code players}; 0 in a
+     *                      view that carries no names
+     * @param telemetry     the telemetry line of {@code /mineqtt status} (M4 plan §1.3)
+     */
+    public record World(double tps, double mspt, String timeOfDay, long day, boolean isDay, Weather weather, int playersOnline, List<String> players,
+                        int named, String telemetry) {
+        public World {
+            players = List.copyOf(players);
+            if (players.size() > MAX_PLAYER_NAMES) throw new IllegalArgumentException("A console names at most " + MAX_PLAYER_NAMES + " players");
+            if (named < players.size() || playersOnline < 0 || day < 0) throw new IllegalArgumentException("A console counts at least the players it names");
+        }
+
+        /**
+         * The world with its texts cut to what the stream codec carries, naming the first {@value #MAX_PLAYER_NAMES}
+         * players only for an operator.
+         *
+         * @param players  the names of online players the name policy allows
+         * @param operator whether the view is an operator's: only theirs carries names
+         */
+        public static World of(double tps, double mspt, String timeOfDay, long day, boolean isDay, Weather weather, int playersOnline,
+                               List<String> players, boolean operator, String telemetry) {
+            List<String> shown = operator ? players.stream().limit(MAX_PLAYER_NAMES).map(name -> DeviceView.cap(name, MAX_PLAYER_NAME_BYTES)).toList() : List.of();
+            return new World(tps, mspt, DeviceView.cap(timeOfDay, MAX_WORD_BYTES), Math.max(0, day), isDay, weather, Math.max(0, playersOnline), shown,
+                    operator ? players.size() : 0, DeviceView.cap(telemetry, MAX_TELEMETRY_BYTES));
+        }
+    }
+
+    /**
+     * How a device runs, as the console and the Configurator's Devices tab list it: faulted, of a type unknown to this
+     * MineQTT, loaded with the broker connected or not, or unloaded.
+     *
+     * @param faulted   its attach, power-on or prune check failed
+     * @param knownType its type is registered in this MineQTT
+     * @param attached  it runs on this server
+     * @param connected the broker is connected
+     */
+    public static State state(boolean faulted, boolean knownType, boolean attached, boolean connected) {
+        if (faulted) return State.FAULTED;
+        if (!knownType) return State.UNKNOWN_TYPE;
+        if (!attached) return State.UNLOADED;
+        return connected ? State.ONLINE : State.NO_BROKER;
+    }
+
+    /** A device type's id as the console and the Devices tab show it: without the {@code mineqtt} namespace. */
+    public static String typeName(Identifier type) {
+        return type.getNamespace().equals(MineQTT.MOD_ID) ? type.getPath() : type.toString();
+    }
+
+    /** A dimension as the console and the Devices tab name it: without the {@code minecraft} namespace. */
+    public static String dimensionName(Identifier dimension) {
+        return dimension.getNamespace().equals(Identifier.DEFAULT_NAMESPACE) ? dimension.getPath() : dimension.toString();
+    }
+
     /** How a device runs, as the console lists it. */
     public enum State {
         /** Loaded, with the broker connected. */
@@ -239,6 +313,18 @@ public record ConsoleView(BlockPos pos, Bridge bridge, List<DeviceRow> devices, 
         writeCount(buf, bridge.wires());
         writeCount(buf, bridge.delivered());
         writeCount(buf, bridge.wireDrops());
+        World world = view.world;
+        buf.writeDouble(world.tps());
+        buf.writeDouble(world.mspt());
+        writeText(buf, world.timeOfDay(), MAX_WORD_BYTES);
+        writeCount(buf, world.day());
+        buf.writeBoolean(world.isDay());
+        writeEnum(buf, world.weather());
+        writeCount(buf, world.playersOnline());
+        VarInt.write(buf, world.players().size());
+        for (String name : world.players()) writeText(buf, name, MAX_PLAYER_NAME_BYTES);
+        writeCount(buf, world.named());
+        writeText(buf, world.telemetry(), MAX_TELEMETRY_BYTES);
         VarInt.write(buf, view.devices.size());
         for (DeviceRow row : view.devices) {
             writeText(buf, row.name(), MAX_NAME_BYTES);
@@ -270,6 +356,18 @@ public record ConsoleView(BlockPos pos, Bridge bridge, List<DeviceRow> devices, 
                 readEnum(buf, HomeAssistant.values()), VarLong.read(buf) - 1, readText(buf, MAX_WORD_BYTES), readCount(buf),
                 readEnum(buf, ServerState.values()), readInt(buf), readCount(buf), readCount(buf), readInt(buf), readInt(buf), readInt(buf),
                 readCount(buf), readCount(buf));
+        double tps = buf.readDouble();
+        double mspt = buf.readDouble();
+        String timeOfDay = readText(buf, MAX_WORD_BYTES);
+        long day = readCount(buf);
+        boolean isDay = buf.readBoolean();
+        Weather weather = readEnum(buf, Weather.values());
+        int playersOnline = readInt(buf);
+        int nameCount = readRows(buf, MAX_PLAYER_NAMES);
+        List<String> names = new ArrayList<>(nameCount);
+        for (int i = 0; i < nameCount; i++) names.add(readText(buf, MAX_PLAYER_NAME_BYTES));
+        int named = readInt(buf);
+        String telemetry = readText(buf, MAX_TELEMETRY_BYTES);
         int deviceRows = readRows(buf, MAX_DEVICE_ROWS);
         List<DeviceRow> devices = new ArrayList<>(deviceRows);
         for (int i = 0; i < deviceRows; i++) {
@@ -287,7 +385,8 @@ public record ConsoleView(BlockPos pos, Bridge bridge, List<DeviceRow> devices, 
         boolean operator = buf.readBoolean();
         if (buf.readerIndex() - start > MAX_BYTES) throw new DecoderException("A console view takes more than " + MAX_BYTES + " bytes");
         try {
-            return new ConsoleView(pos, bridge, devices, deviceTotal, groups, groupTotal, operator);
+            World world = new World(tps, mspt, timeOfDay, day, isDay, weather, playersOnline, names, named, telemetry);
+            return new ConsoleView(pos, bridge, world, devices, deviceTotal, groups, groupTotal, operator);
         } catch (IllegalArgumentException e) {
             throw new DecoderException(e.getMessage());
         }

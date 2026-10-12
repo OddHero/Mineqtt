@@ -27,10 +27,11 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Draws the {@link ConsoleBridgeTab} from the player's {@link ConsoleView}: a row each for the broker connection, the
- * broker, the bridge's topics, Home Assistant, the server's pause state, the drop counters and the wires, the details on
- * hover; and, for an operator, a button per {@link BridgeAction} at the foot. Everyone else sees "Read only" in the title
- * row and no buttons.
+ * Draws the {@link ConsoleBridgeTab} from the player's {@link ConsoleView}: a row each for the broker connection (the
+ * broker on hover), the bridge's topics, Home Assistant, the server's pause state, the traffic (the drop counters and the
+ * wires), the world (tick rate, time and weather, M4-17) and the players online (their names only for an operator), the
+ * details and the telemetry line on hover; and, for an operator, a button per {@link BridgeAction} at the foot. Everyone
+ * else sees "Read only" in the title row and no buttons.
  */
 public class ConsoleBridgeTabView implements MqttTabView {
 
@@ -51,7 +52,9 @@ public class ConsoleBridgeTabView implements MqttTabView {
     private static final int REFUSED_COLOR = 0xFFAA0000;
     // How long a sent action keeps its button busy: the reply comes in chat and the console's view follows at once.
     private static final long SETTLE_MILLIS = 750;
-    private static final List<String> LABELS = List.of("connection", "broker", "topics", "home_assistant", "server", "dropped", "wires");
+    private static final List<String> LABELS = List.of("connection", "topics", "home_assistant", "server", "traffic", "world", "players");
+    // Below this the world row shows the server lagging.
+    private static final double LAGGING_TPS = 15;
 
     private final TabbedMqttScreen screen;
     private final Map<BridgeAction, Button> buttons = new EnumMap<>(BridgeAction.class);
@@ -127,10 +130,10 @@ public class ConsoleBridgeTabView implements MqttTabView {
             button.active = !busy;
         }
         int y = guiTop + FIRST_Y;
+        Component broker = Component.translatable("mineqtt.console.bridge.connection.tooltip", bridge.broker());
         row(g, "connection", connection(bridge), connectionColor(bridge.connection()),
-                bridge.connectionDetail().isEmpty() ? null : Component.literal(bridge.connectionDetail()), y, mouseX, mouseY);
-        row(g, "broker", Component.literal(bridge.broker()), bridge.broker().equals("none") ? MUTED_COLOR : VALUE_COLOR,
-                Component.literal(bridge.broker()), y += LINE_PITCH, mouseX, mouseY);
+                bridge.connectionDetail().isEmpty() ? broker : Component.translatable("mineqtt.console.lines", broker, bridge.connectionDetail()),
+                y, mouseX, mouseY);
         row(g, "topics", Component.literal(bridge.topicRoot()), VALUE_COLOR, Component.literal(bridge.topicRoot()), y += LINE_PITCH, mouseX, mouseY);
         row(g, "home_assistant", homeAssistant(bridge, menu().viewAgeMillis()), homeAssistantColor(bridge.homeAssistant()),
                 Component.translatable("mineqtt.console.bridge.home_assistant.tooltip", bridge.haExpose(), bridge.discovered()), y += LINE_PITCH, mouseX, mouseY);
@@ -138,13 +141,38 @@ public class ConsoleBridgeTabView implements MqttTabView {
                 bridge.server() == ConsoleView.ServerState.PAUSED ? WARNING_COLOR : VALUE_COLOR,
                 Component.translatable("mineqtt.console.server." + bridge.server().name().toLowerCase(Locale.ROOT) + ".tooltip", bridge.pauseSeconds()),
                 y += LINE_PITCH, mouseX, mouseY);
-        row(g, "dropped", Component.translatable("mineqtt.console.bridge.dropped.value", bridge.droppedIn(), bridge.droppedOut()),
-                bridge.droppedIn() + bridge.droppedOut() > 0 ? WARNING_COLOR : VALUE_COLOR,
-                Component.translatable("mineqtt.console.bridge.dropped.tooltip", bridge.queuedIn(), bridge.outbox()), y += LINE_PITCH, mouseX, mouseY);
-        row(g, "wires", Component.translatable("mineqtt.console.bridge.wires.value", bridge.wires(), bridge.wireDrops()),
-                bridge.wireDrops() > 0 ? WARNING_COLOR : VALUE_COLOR,
-                Component.translatable("mineqtt.console.bridge.wires.tooltip", bridge.delivered(), bridge.wireDrops()),
+        row(g, "traffic", Component.translatable("mineqtt.console.bridge.traffic.value", bridge.droppedIn(), bridge.droppedOut(), bridge.wires()),
+                bridge.droppedIn() + bridge.droppedOut() + bridge.wireDrops() > 0 ? WARNING_COLOR : VALUE_COLOR,
+                Component.translatable("mineqtt.console.bridge.traffic.tooltip", bridge.droppedIn(), bridge.droppedOut(), bridge.queuedIn(), bridge.outbox(),
+                        bridge.wires(), bridge.delivered(), bridge.wireDrops()), y += LINE_PITCH, mouseX, mouseY);
+        ConsoleView.World world = view.world();
+        Component weather = Component.translatable("mineqtt.console.weather." + world.weather().key());
+        row(g, "world", Component.translatable("mineqtt.console.bridge.world.value", tps(world.tps()), world.timeOfDay(), weather),
+                world.tps() < LAGGING_TPS ? WARNING_COLOR : VALUE_COLOR,
+                Component.translatable("mineqtt.console.bridge.world.tooltip", tps(world.tps()), tps(world.mspt()), world.day(), world.timeOfDay(),
+                        Component.translatable(world.isDay() ? "mineqtt.console.daytime.day" : "mineqtt.console.daytime.night"), weather, world.telemetry()),
                 y += LINE_PITCH, mouseX, mouseY);
+        row(g, "players", players(world), VALUE_COLOR, playersDetails(world), y += LINE_PITCH, mouseX, mouseY);
+    }
+
+    // A tick rate or time with its one decimal, as the telemetry publishes it.
+    private static String tps(double value) {
+        return String.format(Locale.ROOT, "%.1f", value);
+    }
+
+    // How many players are online and, for an operator, the names the name policy allows.
+    private static Component players(ConsoleView.World world) {
+        if (world.players().isEmpty()) return Component.translatable("mineqtt.console.bridge.players.value", world.playersOnline());
+        String names = String.join(", ", world.players());
+        return world.named() > world.players().size()
+                ? Component.translatable("mineqtt.console.bridge.players.named.more", world.playersOnline(), names, world.named() - world.players().size())
+                : Component.translatable("mineqtt.console.bridge.players.named", world.playersOnline(), names);
+    }
+
+    // On hover: who is named, why the others are not, and the telemetry line.
+    private static Component playersDetails(ConsoleView.World world) {
+        return Component.translatable(world.players().isEmpty() ? "mineqtt.console.bridge.players.tooltip.unnamed" : "mineqtt.console.bridge.players.tooltip",
+                world.telemetry());
     }
 
     /** One row: its label, its value cut to the row, and on hover the whole value with its details, if any. */

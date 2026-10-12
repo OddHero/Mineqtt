@@ -1,5 +1,215 @@
 # Changelog
 
+## 0.8.0 (MineQTT 2, Milestone 4: the world twin)
+
+0.8.0 makes the Minecraft world itself a Home Assistant device and gives blocks real jobs in automations: the bridge
+reports time, weather, load and the players who agree to it, the four timers become devices and flow triggers, the
+Block Sensor and the Block Emitter return as a Block Observer and a safe Block Placer, rooms put devices into Home
+Assistant areas, and the Configurator lists and switches your devices from anywhere. Nothing about a player leaves the
+server without that player's consent, and no MQTT message ever runs a command. It is for Minecraft 26.2 on Fabric and
+NeoForge and replaces 0.7.0, whose worlds and config files load unchanged on both loaders. Read **Breaking changes**
+before you update a server: the timers, the Block Sensor and the Block Emitter work differently now, and client and
+server must both run 0.8.0.
+
+### For players
+
+- **Timers are devices.** The Interval Timer, the Daylight Timer (formerly Game Time Timer), the Alarm Clock and the
+  Cron Timer open the generated device screen. Its Controls tab has *Enabled*, *Trigger now*, the schedule (a typed
+  number field for the interval, 1 to 1 000 000) and a status line ("Next 06:00, in 19 min", "Every 5 s", "Invalid
+  cron", "Disabled"). Enabling never fires at once; *Trigger now* fires also while disabled and is refused during the
+  pulse of the last fire. Settings, counters, owner and name carry over, and the items of the old slots are kept as
+  legacy items (Diagnostics tab, *Eject*). Timer, Block Observer and Block Placer items count against
+  `limits.maxDevicesPerPlayer`.
+- **The Cron Timer's Schedule tab** edits its expression field by field, with presets and a preview of the next three
+  fires.
+- **Timers are flow triggers.** A timer's `fired` event (with its source, `schedule` or `manual`) drives wires: in Link
+  mode a Daylight Timer wires to a lamp as a toggle, a Wall Switch to a timer as *Trigger now* and a timer to another
+  timer, and a lever wired to a timer arms and disarms it. All of it works with the broker down. A timer's Raw Link
+  publishes `ON` on each fire, never retained.
+- **Block Observer** (formerly Block Sensor), a device: the block in front with its state properties, its comparator
+  level, a `changed` event and the settings `change_on` (any state change, or only another block) and `payload` (what
+  its Raw Link sends: `full`, `block_id`, `name` or `properties`). It never loads the chunk in front. Its `signal`
+  wires to a Redstone Output's level.
+- **Block Placer** (formerly Block Emitter), a device: places its block in front and clears it again, from Home
+  Assistant, its Controls tab, a command, a wire or its Raw Link. It places only blocks of `#mineqtt:placeable` (wool,
+  concrete, terracotta, glass, stained glass, the redstone lamp and the sea lantern by default), takes the block's item
+  from the container behind it and gives it back on clear, clears only the block it placed (in any state of that
+  block), acts at most 4 times a second and never on a retained message, and `last_result` says what happened or why
+  not. It needs `blockPlacer.enabled`.
+- **Rooms.** The Configurator's new **Room** mode (after Bind) makes a room from two opposite corners and a name, with
+  suggestions; a sneak-click inside one of your rooms renames or removes it, and while you hold the Configurator in
+  Room mode the box and nearby rooms are outlined with particles only you see. An ordinary click still opens doors and
+  chests: a block without a use, a device, or any block beyond hand reach becomes the corner. The same by command:
+  `/mineqtt rooms list|info|create|rename|resize|remove`. Your devices in a room take its name as their Home Assistant
+  area when Home Assistant first sees them. A device's General tab shows its room, with a `*` when the area Home
+  Assistant was first told differs (on hover: which one, or none).
+- **Rooms follow Home Assistant's area names.** A room named like an area of the catalog, case and spaces ignored
+  (`living room` for *Living Room*), uses Home Assistant's own spelling, and the room prompt suggests up to 16 area
+  names to players who may bind devices to Home Assistant.
+- **The Configurator opens on a Devices tab**: your devices (every device for an operator who may build; nobody else's,
+  not even public ones), grouped by room, searchable and paged, with a room filter, each with its availability, up to
+  three values and how far away it is in which direction. Select a device to *Use* it from anywhere (a lamp in an
+  unloaded chunk switches when it loads), *Locate* it (particles for 5 s within 128 blocks, else how far and where) or
+  *Open* its screen within 16 blocks. A room's header has *All on* and *All off*: they switch your lamps, plugs and
+  outputs in that room (at most 64, once a second; timers are left alone), as `/mineqtt rooms switch <room> on|off`
+  does. Operators also see the device groups. The topic explorer tab is now called *Traffic*.
+- **Privacy.** Nothing that names you is published until you choose. A one-time chat prompt offers *[Share presence]*
+  and *[Don't share]* (and *[Share all]* where the server shares full data); `/mineqtt privacy` tells you what is
+  published about you, and `/mineqtt privacy share on|full|off` changes it, as does the *You* row at the top of the
+  Devices tab. The host of a single player or LAN world shares their presence until they say otherwise; LAN guests do
+  not.
+- **The Bridge Console** shows the world (TPS, time, weather; MSPT, the day and the telemetry line on hover) and the
+  players online, naming to operators only the players who share their name. The broker moved into the MQTT row's
+  hover, and the drop counters and wires into one *Traffic* row.
+- The Diagnostics tab counts events held back by an event's rate ("3 events throttled"), and screens without the
+  player's inventory are 3 px taller.
+
+### For server admins
+
+- **World telemetry on the bridge device.** Home Assistant's bridge gains *TPS* and *MSPT* (diagnostic; MSPT disabled
+  by default), *Time of day* (in 15-minute steps), *Day*, *Is day* (06:00 to 18:00 game time) and *Weather* (`clear`,
+  `rain`, `thunder`); *Players online* lists the names of consenting players as its `players` attribute. A change of
+  the players, of day and night or of the weather reaches Home Assistant within about 2 s, anything else at most every
+  `telemetry.intervalSeconds`, and unchanged telemetry is not republished. The existing bridge entities keep their
+  unique_ids and history.
+- **Player events.** A *Player event* entity (`bridge/event`, never retained): the join and leave of every player, named
+  only for consenting players; deaths (with the cause's translation key, never the death message) and announced
+  advancements only of consenting players. At most one join and one leave per player every 5 s, and 10 events a second
+  for the bridge.
+- **Presence devices.** Each consenting player becomes a Home Assistant device *Player <name>* under the bridge with a
+  presence sensor on `<base>/<bridge>/player/<slug>`: `OFF` after a quit, a graceful stop and, after a crash, at the
+  next connect. Ids are salted per world (`mineqtt_player_<32 hex>`) and never show a Mojang UUID. With
+  `telemetry.players=FULL` and a player's `share full` it also has health, dimension and position (at most every 5 s,
+  after 4 blocks or half a heart; 20 such updates a second for the server). A presence device goes away at `share off`,
+  `/mineqtt players forget`, after `telemetry.forgetAfterDays` away (counted from the last quit) and when the server
+  stops sharing players; beyond `telemetry.maxPresenceDevices` nobody new gets one. The ghost cleanup also removes
+  presence configs and retained presence states that no player of the world holds, and `/mineqtt discovery clear`
+  clears the presence devices too.
+- **Broadcast text, off by default.** With `telemetry.allowBroadcast`, Home Assistant's *Broadcast* text entity on the
+  bridge (or any client that may write `<base>/<bridge>/bridge/request/broadcast`) shows a line of plain text in every
+  player's chat behind `[MQTT]`. It is never a command or a JSON component: at most 1 KiB, cut to 256 characters,
+  formatting codes and control and bidi characters removed, 3 at once and then 1 a second, a retained request ignored,
+  each shown text logged, the answer on `bridge/response/broadcast`. Turning the key off removes the entity, also when
+  Home Assistant was offline then. Restrict `<base>/+/bridge/request/#` in the broker ACL to the clients that should
+  send it.
+- **Timers, Block Observer and Block Placer in Home Assistant.** A timer has an enable switch (its primary entity), a
+  *Fired* event, a *Trigger now* button, a *Next fire* timestamp and its schedule as configuration entities (the time
+  with a pattern Home Assistant checks). The Block Observer has a block sensor whose attributes are the block's
+  properties, a signal sensor, a *Changed* event and its two settings (the payload select disabled by default). The
+  Block Placer has a select of the placeable blocks (refreshed after a `/reload` that changes the tag), *Place* and
+  *Clear* buttons, a *Placed* binary sensor and a diagnostic *Last result*.
+- **Rooms and areas.** A device in a room is discovered with the room's name as `suggested_area`, a group when all its
+  devices are in one room. Home Assistant 2025.2.5 and 2026.10.0 create a missing area and reuse one spelled in another
+  case.
+- **New config keys**, all in effect on both loaders: `telemetry.enabled` (true), `telemetry.intervalSeconds` (10,
+  5-300), `telemetry.players` (`PRESENCE`; `OFF`, `PRESENCE` or `FULL`: the most published about a consenting player),
+  `telemetry.publishPlayerNames` (true; `false` publishes counts only and it never names anyone who did not consent),
+  `telemetry.allowBroadcast` (false; Fabric reads it at start), `telemetry.maxPresenceDevices` (64, 1-1000),
+  `telemetry.forgetAfterDays` (90, 0-3650, 0 = never), `blockPlacer.playersMayConfigure` (`AUTO`: yes on integrated,
+  no on dedicated servers), `blockPlacer.consumeItems` (true), `blockObserver.exportBlockEntityData` (false),
+  `rooms.maxSize` (128, 8-512) and `limits.maxRoomsPerPlayer` (16, 0 = unlimited; operators are not limited, and a
+  world holds at most 512 rooms). An invalid `telemetry.players` counts as `OFF` and an invalid
+  `telemetry.publishPlayerNames` as `false`. `configVersion` stays 2: the Fabric `mineqtt.json` is not rewritten, and
+  NeoForge adds the new keys to `mineqtt.toml` and keeps every existing value, `blockPlacer.enabled` included.
+- **New permission** `mineqtt:rooms.admin` (op level 2 by default): rooms that apply to every device inside them
+  (`for-all`), not only to the maker's own.
+- **Commands.** `/mineqtt` is reachable by every player and each subcommand checks its own permission: every player may
+  use `privacy` and `rooms` (whose commands check ownership and build rights), everything else keeps its level, and a
+  player without the right now reads "Incorrect argument for command" (0.7.0: "Unknown or incomplete command"). New:
+  `/mineqtt privacy`, `privacy share on|full|off`, `players list|forget <player>` (op level 2) and `rooms
+  list|info|create|rename|resize|remove|switch`. `/mineqtt status` ends with the telemetry line (`Telemetry: every
+  10 s · players: presence by consent (2 sharing) · broadcast off`).
+- **Block Placer rules.** On a dedicated server only operators configure a Block Placer unless
+  `blockPlacer.playersMayConfigure`. It never places a block with a block entity, a game master block, TNT, a block no
+  tool breaks, a fluid, fire, air or a portal, whatever a datapack adds to the tag. It respects the world border, spawn
+  protection and, with a claim mod, the claim (the same claim as the placer, or its owner online and allowed to build
+  there), also for the container behind it, and acts only while the chunks in front (and behind, when it takes items)
+  are loaded. `blockPlacer.consumeItems=false` places without items.
+- **Example dashboard.** `docs/dashboards/mineqtt-world.yaml` shows the world telemetry, the players and their events
+  with entities MineQTT creates.
+- **Downgrade.** 0.7.0 resets the settings of timers, Block Observers and Block Placers, loses the items of the timers'
+  old slots, and forgets rooms, privacy choices and presence devices. It leaves in Home Assistant the presence devices,
+  the timer, Block Observer and Block Placer devices (no longer refreshed, their buttons and switches doing nothing)
+  and the bridge's new 0.8.0 entities (world telemetry, *Player event*, *Broadcast*); run `/mineqtt discovery clear`
+  before the downgrade, or delete them in Home Assistant. Back up the world first.
+
+### Breaking changes
+
+- **Client and server must both run 0.8.0.** The screens of the four timers, the Block Sensor tab and the Block
+  Emitter's test tab are gone with their six network payloads; the Devices tab, Room mode and the privacy choice add
+  six new ones.
+- **Timers are unavailable in Home Assistant while unloaded** (they do not tick then) and refuse commands; wires drop
+  what they send to an unloaded timer.
+- **Cron steps follow the documented grammar**: `*/n` now takes every n-th value from the field's first (0.7.0 took
+  every value, so `0 */5 * * * * *` pulsed every second and now every 5 s), and `v/n` runs from v to the field's last
+  (0.7.0 took v alone, so `0 0 5/15 * * * *` fired at minute 5 and now at 5, 20, 35 and 50). Check your Cron Timers
+  after the upgrade.
+- **The Block Observer's `full` payload** carries `block_entity` only with `blockObserver.exportBlockEntityData` and when
+  the observer and its target share one claim (always, without a claim mod), cut at 16 KiB; otherwise it is `null`. The
+  data mode is now the `payload` setting.
+- **The Block Placer** no longer acts on NBT or block entity data, property-only edits of the block in front, display
+  names, blocks outside `#mineqtt:placeable` or retained messages, and by default it needs the block's item in the
+  container behind it. A block a v1 Block Emitter placed is never cleared. On a dedicated server a non-operator no
+  longer configures the Block Emitters they own (now Block Placers) unless `blockPlacer.playersMayConfigure` is `TRUE`.
+- **v1 Block Sensor and Block Emitter topics** follow the Raw Link rules of every device: grandfathered for their owner,
+  under the hard denies. A topic that is a wildcard filter (`+`, `#`), longer than 256 bytes, under the discovery
+  prefix (for example `homeassistant/status`) or under any bridge's `bridge/` level no longer works after the upgrade
+  (`/mineqtt devices info` shows why).
+- **No way back to 0.7.0 without losses** (see *Downgrade* under For server admins).
+
+### Fixed
+
+- A Daylight Timer or Alarm Clock at or near sunrise fires once a day (it fired twice around the day boundary).
+- The Daylight Timer and the Alarm Clock show no next fire while the day clock stands (`gamerule advance_time false`,
+  `/time pause`) and keep it under `/time rate`, their estimate following the clock's rate; with `/tick freeze` every
+  tick-based timer shows none until the ticks run again.
+
+### Known limitations
+
+- Home Assistant applies a suggested area only when it creates a device. A device it already knows keeps its area when
+  a room comes, moves, is renamed or goes, and the tested versions differ in two cases: a known device without an area
+  moves into the room's area on 2025.2.5 and stays without one on 2026.10.0, and a device hidden and exposed again
+  gets the current room's area on 2025.2.5 but its old area back on 2026.10.0. Change areas in Home Assistant.
+- Home Assistant 2026.10.0 puts the area into the entity id of a device it creates inside one
+  (`light.kitchen_smart_lamp_1a2b`); 2025.2.5 does not.
+- A catalog area's spelling reaches a device's suggested area at its next discovery refresh; a catalog change alone
+  republishes nothing.
+- The Devices tab's room headers do not mark rooms whose name matches a Home Assistant area.
+- `next_fire` of the Interval Timer, Daylight Timer and Alarm Clock is an estimate from the tick rate (lag and `/tick
+  rate` move the real fire), and a dedicated server paused while empty keeps the one it showed before the pause.
+- The Cron Timer follows the server's clock and time zone, so a daylight saving change can skip or repeat a fire.
+- A timer's Raw Link always publishes `ON`; it has no custom payloads.
+- A Daylight Timer at sunrise that 0.7.0 saved in the 20 ticks before the day turned (between 0.7.0's two fires of that
+  sunrise) fires once more right after the upgrade.
+- Timers fire only while their chunk is loaded.
+- With a claim mod, a Block Placer whose owner is offline places, and takes items, only inside its own claim: an
+  offline owner's build rights cannot be checked.
+- A Home Assistant that was offline when the Block Placer's placeable blocks ran out (a datapack emptying the tag)
+  keeps the select, unavailable, until blocks come back or it is deleted there.
+- Home Assistant keeps the history of removed presence devices. Changing `baseTopic` or `bridgeId` while the server is
+  stopped leaves the old presence states on the broker. After a `bridgeId` change alone, `/mineqtt discovery clear
+  --bridge <old id>` clears them; after a `baseTopic` change, clear the retained `<old base>/<bridge id>/player/#`
+  topics on the broker by hand.
+- Home Assistant logs `No device components to cleanup for mineqtt_…` once per entity when a device is hidden or
+  cleared; the warning is harmless.
+
+### For developers
+
+- Four new checks (37 in all): `verifyTimers`, `verifyTelemetry`, `verifyPrivacy` and `verifyRooms`;
+  `verifyBlockSensor` and `verifyBlockEmitter` are rewritten for the new devices, and `verifyAlarmClock` and
+  `verifyGameTimeTimer` keep their names and assertions on the new timer core. Six new client suites (33 in all):
+  `timers`, `world_devices`, `telemetry`, `privacy`, `rooms` and `explorer`. `SecurityGuardsCheck` counts 32 payloads
+  (six retired, six added).
+- New device-model seams: `EventSpec.minInterval` (an event's rate on MQTT; the bus carries every event),
+  `DeviceType.Builder.noV1Topic()` and `status(StatusLine)`, `Widget.NUMBER_FIELD`, `HaEntity.Sensor.jsonAttributes`,
+  `HaEntity.Text.pattern`, runtime select options (`Ha.selectDynamic`) and component removal by object id
+  (`DiscoveryPublisher.componentsRemoved`); the Minecraft-free packages `device.timer.core` and `telemetry.core`.
+- `LegacySubscriptionFacade` and `ICallbackTarget` are gone: no shipped block used them since the Block Observer and the
+  Block Placer. `BaseMqttBlockEntity` stays for the two converters.
+- e2e: `ha.py` gains `attrs`, `press`, `set-text`, `select`, `event-last`, `areas`, `area-of` and `dashboard-check`;
+  `tools/build07.sh` builds the 0.7.0 jars and `tools/upgrade07.sh` checks the upgrade on both loaders; `lane.sh` takes
+  `MINEQTT_LANE_JAR` and gains `exec`, and a lane's Home Assistant gets its automations file before it starts.
+
 ## 0.7.0 (MineQTT 2, Milestone 3: mirror your house)
 
 0.7.0 brings real Home Assistant entities into Minecraft and lets Minecraft switch them back, safely, also on a

@@ -155,7 +155,7 @@ public final class HaCalls {
      *
      * @param already for a dedupe, the on/off state the LIVE mirror already shows ({@code true} for on); empty when the
      *                value asks for nothing. A request still waiting for the rate that would leave another state is
-     *                stale then ({@code TwinRequests}, wave 6 review).
+     *                stale then ({@code TwinRequests}).
      */
     public record Skip(String reason, Optional<Boolean> already) implements Outcome {
         public Skip {

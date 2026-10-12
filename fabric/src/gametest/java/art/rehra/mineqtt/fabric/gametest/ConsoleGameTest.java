@@ -8,6 +8,7 @@ import art.rehra.mineqtt.mqtt.core.BrokerConfig;
 import art.rehra.mineqtt.mqtt.core.ConnectionState;
 import art.rehra.mineqtt.network.MineqttNetworking.BridgeActionPayload;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
+import art.rehra.mineqtt.telemetry.core.Weather;
 import art.rehra.mineqtt.ui.console.BridgeAction;
 import art.rehra.mineqtt.ui.console.ConsoleBridgeTab;
 import art.rehra.mineqtt.ui.console.ConsoleDevicesTab;
@@ -32,10 +33,12 @@ import java.util.function.Predicate;
 /**
  * The Bridge Console (M2 plan §4.2 M2-23). Placed by the player, it faces them. Opened by the non-op player, its screen
  * is the short panel titled "Bridge Console" with the Bridge, Devices and Groups tabs: the bridge's connection, broker and
- * topics, no action buttons and "Read only" in the title row; only the player's own lamp, not a private output of nobody,
- * and only the group of their lamps. An action payload the player sends anyway does nothing. Opped and reopened, the
- * player sees every device and group and the actions; a device placed while the screen is open appears within the
- * refresh; Republish answers in chat as the command does, and with a broker, Home Assistant's birth shows on the Bridge tab.
+ * topics, the world's tick rate, time and weather, the player online without a name and the telemetry line, no action
+ * buttons and "Read only" in the title row; only the player's own lamp, not a private output of nobody, and only the
+ * group of their lamps. An action payload the player sends anyway does nothing. Opped and reopened, the player sees every
+ * device and group and the actions; a device placed while the screen is open appears within the refresh; Republish
+ * answers in chat as the command does, rain shows within the refresh, {@code /mineqtt status} shows the same telemetry
+ * line, and with a broker, Home Assistant's birth shows on the Bridge tab.
  */
 public final class ConsoleGameTest implements FabricClientGameTest {
     private static final int Y = GameTestSession.GROUND_Y + 1;
@@ -101,6 +104,13 @@ public final class ConsoleGameTest implements FabricClientGameTest {
         session.check(view.bridge().topicRoot().equals("mineqtt/" + GameTestSession.BRIDGE_ID), "the Bridge tab names the bridge's topics (" + view.bridge().topicRoot() + ")");
         session.check(session.broker().isPresent() == (view.bridge().connection() == ConnectionState.Status.CONNECTED),
                 "and how its connection stands (" + view.bridge().connection() + ")");
+        ConsoleView.World world = view.world();
+        session.check(world.playersOnline() == 1 && world.players().isEmpty() && world.named() == 0,
+                "the Bridge tab counts the player online and names nobody to a player who is no operator (" + world + ")");
+        session.check(world.timeOfDay().matches("\\d\\d:\\d\\d") && world.tps() > 0 && world.weather() != null,
+                "it shows the tick rate, the time of day and the weather (" + world.tps() + " TPS, " + world.timeOfDay() + ", " + world.weather() + ")");
+        session.check(world.telemetry().equals("Telemetry: every 10 s · players: presence by consent (0 sharing) · broadcast off"),
+                "and the telemetry line (" + world.telemetry() + ")");
         session.check(session.awaitTitleNote(Optional.of("Read only"), ANSWER_TICKS), "\"Read only\" shows in the title row");
         session.check(!session.onClient(mc -> visible(mc, actionButton(BridgeAction.REPUBLISH))), "no action button shows");
         session.screenshot("console_bridge_read_only");
@@ -161,6 +171,15 @@ public final class ConsoleGameTest implements FabricClientGameTest {
         session.clickWidget(actionButton(BridgeAction.REPUBLISH), "the Republish button");
         Optional<ChatLog.Line> answer = session.awaitChat(mark, line -> line.text().startsWith("Republishing Home Assistant discovery"), ANSWER_TICKS);
         session.check(answer.isPresent(), "Republish answers in chat as /mineqtt discovery republish does (" + answer + ")");
+        session.consoleCommand("weather rain");
+        session.check(session.await(() -> view(session).world().weather() == Weather.RAIN, REFRESH_TICKS),
+                "rain shows on the Bridge tab within the refresh (" + view(session).world().weather() + ")");
+        session.check(view(session).world().named() == 0, "nobody shares their name, so even the operator sees none");
+        session.consoleCommand("weather clear");
+        int statusMark = ChatLog.mark();
+        session.playerCommand("mineqtt status");
+        Optional<ChatLog.Line> status = session.awaitChat(statusMark, line -> line.text().contains("Telemetry: every 10 s · players: presence by consent"), ANSWER_TICKS);
+        session.check(status.isPresent(), "/mineqtt status shows the same telemetry line (" + ChatLog.since(statusMark) + ")");
         session.check(session.clickTab(ConsoleDevicesTab.ID), "the Devices tab opens");
         session.screenshot("console_devices_operator");
         session.closeScreen();

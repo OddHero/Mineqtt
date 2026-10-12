@@ -3,6 +3,8 @@ package art.rehra.mineqtt.device;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,6 +22,9 @@ public final class DeviceTraffic {
     private long received;
     private long dropped;
     private long sent;
+    private long throttled;
+    // Event type -> when this device last published it (Util.getMillis), for the events with a minimum interval.
+    private final Map<String, Long> eventsPublishedAt = new HashMap<>();
 
     // One message: its topic, its payload's whole size and shown start, and when it went in or out (Util.getMillis).
     private record Message(String topic, int bytes, String shown, long at) {
@@ -51,9 +56,35 @@ public final class DeviceTraffic {
         sent++;
     }
 
-    /** The counts as {@code /mineqtt devices info} shows them: {@code 3 in (1 dropped), 7 out}. */
+    /**
+     * Whether the device may publish an event of {@code spec} on its {@code action} topic and Raw Link now (M4 plan D3): an
+     * event without a minimum interval always may; one with an interval may when its last publish is at least that long
+     * ago, and its time is taken now. One that comes sooner is counted as throttled.
+     *
+     * @param now {@code Util.getMillis()} now
+     */
+    public boolean admitEvent(EventSpec spec, long now) {
+        if (!spec.throttled()) return true;
+        Long last = eventsPublishedAt.get(spec.type());
+        if (last != null && now - last < spec.minInterval().toMillis()) {
+            throttled++;
+            return false;
+        }
+        eventsPublishedAt.put(spec.type(), now);
+        return true;
+    }
+
+    /** The events {@link #admitEvent} held back since the server started. */
+    public long throttled() {
+        return throttled;
+    }
+
+    /**
+     * The counts as {@code /mineqtt devices info} shows them: {@code 3 in (1 dropped), 7 out}, with
+     * {@code , 2 events throttled} once {@link #admitEvent} held one back.
+     */
     public String summary() {
-        return received + " in (" + dropped + " dropped), " + sent + " out";
+        return received + " in (" + dropped + " dropped), " + sent + " out" + (throttled == 0 ? "" : ", " + throttled + " events throttled");
     }
 
     /**
@@ -69,6 +100,6 @@ public final class DeviceTraffic {
                                               long bridgeDroppedIn, long bridgeDroppedOut) {
         return new DeviceView.Diagnostics(Optional.ofNullable(id), availability, detail,
                 Optional.ofNullable(lastIn).map(message -> message.view(showPayloads, now)), Optional.ofNullable(lastOut).map(message -> message.view(showPayloads, now)),
-                received, dropped, sent, bridgeDroppedIn, bridgeDroppedOut);
+                received, dropped, sent, bridgeDroppedIn, bridgeDroppedOut, throttled);
     }
 }

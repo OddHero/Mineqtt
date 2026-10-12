@@ -188,14 +188,22 @@ public class DiagnosticsTabView implements MqttTabView {
         traffic(g, "in", guiTop + IN_Y, diagnostics.lastIn(), since, mouseX, mouseY);
         traffic(g, "out", guiTop + OUT_Y, diagnostics.lastOut(), since, mouseX, mouseY);
 
-        Component counts = Component.translatable("mineqtt.device.diagnostics.counts", diagnostics.received(), diagnostics.dropped(), diagnostics.sent());
+        // Events held back by their minimum interval (M4 plan D3) are named only once there are any.
+        Component counts = diagnostics.throttled() == 0
+                ? Component.translatable("mineqtt.device.diagnostics.counts", diagnostics.received(), diagnostics.dropped(), diagnostics.sent())
+                : Component.translatable("mineqtt.device.diagnostics.counts.throttled", diagnostics.received(), diagnostics.dropped(), diagnostics.sent(),
+                diagnostics.throttled());
         int countsY = guiTop + FOOT_Y + (FOOT_H - LINE_H) / 2 + 1;
         int countsW = (ejectButton.visible ? ejectButton.getX() - GAP : left + CONTENT_W) - left;
         GuiText.drawTruncated(g, counts, left, countsY, countsW, MUTED_COLOR);
         if (hovered(mouseX, mouseY, left, countsY, countsW, LINE_H)) {
             Font font = GuiText.font();
-            g.setTooltipForNextFrame(font, font.split(Component.translatable("mineqtt.device.diagnostics.counts.tooltip",
-                    diagnostics.bridgeDroppedIn(), diagnostics.bridgeDroppedOut()), TOOLTIP_W), mouseX, mouseY);
+            List<FormattedCharSequence> tooltip = new ArrayList<>(font.split(Component.translatable("mineqtt.device.diagnostics.counts.tooltip",
+                    diagnostics.bridgeDroppedIn(), diagnostics.bridgeDroppedOut()), TOOLTIP_W));
+            if (diagnostics.throttled() > 0) {
+                tooltip.addAll(font.split(Component.translatable("mineqtt.device.diagnostics.counts.throttled.tooltip", diagnostics.throttled()), TOOLTIP_W));
+            }
+            g.setTooltipForNextFrame(font, tooltip, mouseX, mouseY);
         }
     }
 

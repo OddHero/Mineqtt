@@ -158,7 +158,7 @@ public final class HaCallsCheck {
                 && catalog.count("retain: true") == 2, "Retained lists per domain and a retained status under <base>/_mineqtt/");
         check(catalog.contains("for a in attributes[domain]"), "Each entry's attributes come from the whitelist only");
         // A whitelisted attribute may be a datetime object (a script's last_triggered once it ran), which to_json cannot
-        // write: one such attribute would end the whole catalog run (found against Home Assistant 2026.10.0, wave 5).
+        // write: one such attribute would end the whole catalog run (found against Home Assistant 2026.10.0).
         check(HaDomains.domain("script").orElseThrow().attributes().contains("last_triggered")
                         && catalog.contains("{%- if v is not string and v.isoformat is defined -%}{%- set v = v.isoformat() -%}{%- endif -%}"),
                 "A point-in-time attribute is written as its ISO text");

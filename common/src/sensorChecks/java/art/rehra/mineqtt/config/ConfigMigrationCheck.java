@@ -12,8 +12,15 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Config v2 (design §9.6): defaults, the v1 migration (Fabric's JSON file end to end, NeoForge's values through the
@@ -42,6 +49,9 @@ public final class ConfigMigrationCheck {
         sanitize();
         serverTypeDefaults();
         twinKeys();
+        worldKeys();
+        narrowingPlayerKeys();
+        neoForgeParity();
         credentialsNeverLogged();
         brokerUrlCredentialsNeverLogged();
         validation();
@@ -574,6 +584,311 @@ public final class ConfigMigrationCheck {
                 "Absent, both take their defaults");
         check(read("{\"configVersion\": 2, \"twin\": []}").messages().contains("twin: expected an object, using the defaults of its keys"),
                 "A twin section that is no object is reported");
+    }
+
+    /**
+     * The keys M4 adds (M4 plan D16): every default, what a 0.7.0 file (which lacks them all) reads as, the next save, a
+     * round trip of other values, the bounds and wrongly typed values. configVersion stays 2: the keys are additive.
+     */
+    private static void worldKeys() {
+        MineQTTConfig.resetToDefaults();
+        checkWorldDefaults("The defaults");
+        check(MineQTTConfig.blockPlacerPlayersMayConfigure(false) && !MineQTTConfig.blockPlacerPlayersMayConfigure(true),
+                "AUTO lets players configure Block Placers on integrated servers only");
+        MineQTTConfig.blockPlacerPlayersMayConfigure = AutoBoolean.TRUE;
+        check(MineQTTConfig.blockPlacerPlayersMayConfigure(true), "TRUE opens a dedicated server");
+        MineQTTConfig.blockPlacerPlayersMayConfigure = AutoBoolean.FALSE;
+        check(!MineQTTConfig.blockPlacerPlayersMayConfigure(false), "FALSE closes an integrated server");
+
+        // Exactly what MineQTT 0.7.0 (Milestone 3) wrote for its defaults: the twin section, none of the M4 keys.
+        MineQTTConfig.telemetryEnabled = false;
+        MineQTTConfig.telemetryPlayers = TelemetryPlayers.FULL;
+        MineQTTConfig.roomsMaxSize = 9;
+        JsonObject v070 = JsonParser.parseString("""
+                {"configVersion": 2, "broker": "", "protocol": "5", "keepAliveSec": 60, "username": "", "password": "",
+                 "tls": {"caFile": "", "insecureSkipVerify": false}, "bridgeId": "", "baseTopic": "mineqtt",
+                 "discoveryPrefix": "homeassistant", "haBirthTopic": "homeassistant/status", "ha": {"expose": "AUTO"},
+                 "acl": {"rawAllow": ["mineqtt/shared/#", "<base>/<bridgeId>/raw/#"], "opsBypassAllowlist": "AUTO", "explorerBrokerWide": false},
+                 "blockPlacer": {"enabled": false}, "limits": {"maxDevicesPerPlayer": 0, "maxWiresPerPlayer": 256},
+                 "twin": {"statestreamBase": "ha_statestream", "allowedEntities": ["AUTO"], "haActionAllowlist": [],
+                          "maxRequestsPerSecond": 20, "catalog": true, "catalogMax": 2000},
+                 "server": {"keepTickingWhenEmpty": false}, "legacy": {"v1StatusTopic": ""}}""").getAsJsonObject();
+        HaDomains.DEFAULT_CONTROL_DOMAINS.forEach(v070.getAsJsonObject("twin").getAsJsonArray("haActionAllowlist")::add);
+        JsonConfigFormat.Result read = JsonConfigFormat.read(v070);
+        check(!read.migrated() && read.messages().isEmpty(), "A 0.7.0 file reads without messages: " + read.messages());
+        checkWorldDefaults("A 0.7.0 file");
+        check(MineQTTConfig.configVersion == 2 && StaticDefaults.CONFIG_VERSION == 2, "configVersion stays 2: the M4 keys are additive (D16)");
+        check(MineQTTConfig.twinHaActionAllowlist.equals(HaDomains.DEFAULT_CONTROL_DOMAINS), "Its twin keys are read as before");
+        JsonObject written = JsonConfigFormat.write();
+        JsonObject telemetry = written.getAsJsonObject("telemetry");
+        check(telemetry.get("enabled").getAsBoolean() && telemetry.get("intervalSeconds").getAsInt() == 10 && telemetry.get("players").getAsString().equals("PRESENCE")
+                && telemetry.get("publishPlayerNames").getAsBoolean() && !telemetry.get("allowBroadcast").getAsBoolean()
+                && telemetry.get("maxPresenceDevices").getAsInt() == 64 && telemetry.get("forgetAfterDays").getAsInt() == 90,
+                "Its next save adds the telemetry section with the defaults: " + telemetry);
+        JsonObject blockPlacer = written.getAsJsonObject("blockPlacer");
+        check(!blockPlacer.get("enabled").getAsBoolean() && blockPlacer.get("playersMayConfigure").getAsString().equals("AUTO")
+                && blockPlacer.get("consumeItems").getAsBoolean(), "and the two Block Placer keys, the master switch still off: " + blockPlacer);
+        check(!written.getAsJsonObject("blockObserver").get("exportBlockEntityData").getAsBoolean(), "and blockObserver.exportBlockEntityData as false");
+        check(written.getAsJsonObject("rooms").get("maxSize").getAsInt() == 128 && written.getAsJsonObject("limits").get("maxRoomsPerPlayer").getAsInt() == 16,
+                "and rooms.maxSize and limits.maxRoomsPerPlayer");
+        check(JsonConfigFormat.read(written).messages().isEmpty(), "The saved file reads back without messages");
+        checkWorldDefaults("The saved 0.7.0 file");
+
+        // A 0.6.0 or 0.7.0 config that turned the Block Placer on keeps it on: the master switch is unchanged (D12).
+        check(read("{\"configVersion\": 2, \"blockPlacer\": {\"enabled\": true}}").messages().isEmpty() && MineQTTConfig.blockPlacerEnabled
+                && MineQTTConfig.blockPlacerPlayersMayConfigure == AutoBoolean.AUTO && MineQTTConfig.blockPlacerConsumeItems,
+                "An enabled Block Placer stays enabled and gains the defaults of the new keys");
+
+        // Every key survives a round trip with a value other than its default.
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.telemetryEnabled = false;
+        MineQTTConfig.telemetryIntervalSeconds = 300;
+        MineQTTConfig.telemetryPlayers = TelemetryPlayers.FULL;
+        MineQTTConfig.telemetryPublishPlayerNames = false;
+        MineQTTConfig.telemetryAllowBroadcast = true;
+        MineQTTConfig.telemetryMaxPresenceDevices = 1;
+        MineQTTConfig.telemetryForgetAfterDays = 0;
+        MineQTTConfig.blockPlacerPlayersMayConfigure = AutoBoolean.FALSE;
+        MineQTTConfig.blockPlacerConsumeItems = false;
+        MineQTTConfig.blockObserverExportBlockEntityData = true;
+        MineQTTConfig.roomsMaxSize = 8;
+        MineQTTConfig.limitsMaxRoomsPerPlayer = 0;
+        JsonObject custom = JsonConfigFormat.write();
+        MineQTTConfig.resetToDefaults();
+        JsonConfigFormat.Result reread = JsonConfigFormat.read(custom);
+        check(reread.messages().isEmpty(), "Other values read back without messages: " + reread.messages());
+        check(!MineQTTConfig.telemetryEnabled && MineQTTConfig.telemetryIntervalSeconds == 300 && MineQTTConfig.telemetryPlayers == TelemetryPlayers.FULL
+                && !MineQTTConfig.telemetryPublishPlayerNames && MineQTTConfig.telemetryAllowBroadcast && MineQTTConfig.telemetryMaxPresenceDevices == 1
+                && MineQTTConfig.telemetryForgetAfterDays == 0, "The telemetry keys survive the round trip");
+        check(MineQTTConfig.blockPlacerPlayersMayConfigure == AutoBoolean.FALSE && !MineQTTConfig.blockPlacerConsumeItems
+                && MineQTTConfig.blockObserverExportBlockEntityData && MineQTTConfig.roomsMaxSize == 8 && MineQTTConfig.limitsMaxRoomsPerPlayer == 0,
+                "The Block Placer, Block Observer and room keys survive the round trip");
+        for (String players : List.of("off", "Presence", " FULL ")) {
+            check(read("{\"configVersion\": 2, \"telemetry\": {\"players\": \"" + players + "\"}}").messages().isEmpty()
+                    && MineQTTConfig.telemetryPlayers.name().equals(players.strip().toUpperCase(java.util.Locale.ROOT)), "telemetry.players in any case: " + players);
+        }
+        check(read("{\"configVersion\": 2, \"blockPlacer\": {\"playersMayConfigure\": true}}").messages().isEmpty()
+                && MineQTTConfig.blockPlacerPlayersMayConfigure == AutoBoolean.TRUE, "A JSON boolean is accepted for blockPlacer.playersMayConfigure");
+
+        // Bounds: the edges are accepted, one beyond falls back to the default with one message per key.
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.telemetryIntervalSeconds = 5;
+        MineQTTConfig.telemetryMaxPresenceDevices = 1000;
+        MineQTTConfig.telemetryForgetAfterDays = StaticDefaults.MAX_TELEMETRY_FORGET_AFTER_DAYS;
+        MineQTTConfig.roomsMaxSize = 512;
+        MineQTTConfig.limitsMaxRoomsPerPlayer = 512;
+        check(MineQTTConfig.sanitize().isEmpty(), "The upper and lower edges of every M4 range are allowed");
+        for (int[] values : new int[][]{{4, 0, -1, 7, -1}, {301, 1001, StaticDefaults.MAX_TELEMETRY_FORGET_AFTER_DAYS + 1, 513, 513},
+                {0, -5, Integer.MIN_VALUE, 0, Integer.MAX_VALUE}}) {
+            MineQTTConfig.resetToDefaults();
+            MineQTTConfig.telemetryIntervalSeconds = values[0];
+            MineQTTConfig.telemetryMaxPresenceDevices = values[1];
+            MineQTTConfig.telemetryForgetAfterDays = values[2];
+            MineQTTConfig.roomsMaxSize = values[3];
+            MineQTTConfig.limitsMaxRoomsPerPlayer = values[4];
+            List<String> problems = MineQTTConfig.sanitize();
+            checkWorldDefaults("Out-of-range M4 numbers " + java.util.Arrays.toString(values));
+            check(problems.size() == 5, "Each out-of-range M4 number is reported once: " + problems);
+            for (String key : List.of("telemetry.intervalSeconds", "telemetry.maxPresenceDevices", "telemetry.forgetAfterDays", "rooms.maxSize",
+                    "limits.maxRoomsPerPlayer")) {
+                check(problems.stream().anyMatch(problem -> problem.startsWith(key + ": ")), "A problem with " + key + " is reported: " + problems);
+            }
+        }
+        MineQTTConfig.resetToDefaults();
+        MineQTTConfig.telemetryPlayers = null;
+        MineQTTConfig.blockPlacerPlayersMayConfigure = null;
+        check(MineQTTConfig.sanitize().isEmpty() && MineQTTConfig.telemetryPlayers == TelemetryPlayers.PRESENCE
+                && MineQTTConfig.blockPlacerPlayersMayConfigure == AutoBoolean.AUTO, "A missing enum takes its default");
+
+        // Wrongly typed values fall back to their defaults, each with a message.
+        JsonConfigFormat.Result lenient = read("""
+                {"configVersion": 2, "telemetry": {"enabled": "no", "intervalSeconds": 7.5, "players": "everyone", "publishPlayerNames": 0,
+                 "allowBroadcast": "yes", "maxPresenceDevices": "many", "forgetAfterDays": [1]},
+                 "blockPlacer": {"playersMayConfigure": "sometimes", "consumeItems": "no"}, "blockObserver": {"exportBlockEntityData": 1},
+                 "rooms": {"maxSize": "big"}, "limits": {"maxRoomsPerPlayer": 1.5}}""");
+        // The two player keys only ever narrow: they fall back to the narrowest setting, every other key to its default.
+        check(MineQTTConfig.telemetryPlayers == TelemetryPlayers.OFF && !MineQTTConfig.telemetryPublishPlayerNames,
+                "Wrongly typed player keys fall back to OFF and false");
+        MineQTTConfig.telemetryPlayers = StaticDefaults.DEFAULT_TELEMETRY_PLAYERS;
+        MineQTTConfig.telemetryPublishPlayerNames = StaticDefaults.DEFAULT_TELEMETRY_PUBLISH_PLAYER_NAMES;
+        checkWorldDefaults("The other wrongly typed M4 keys");
+        for (String key : List.of("telemetry.enabled", "telemetry.intervalSeconds", "telemetry.players", "telemetry.publishPlayerNames",
+                "telemetry.allowBroadcast", "telemetry.maxPresenceDevices", "telemetry.forgetAfterDays", "blockPlacer.playersMayConfigure",
+                "blockPlacer.consumeItems", "blockObserver.exportBlockEntityData", "rooms.maxSize", "limits.maxRoomsPerPlayer")) {
+            check(lenient.messages().stream().anyMatch(message -> message.startsWith(key)), "A problem with " + key + " is reported: " + lenient.messages());
+        }
+        check(read("{\"configVersion\": 2, \"telemetry\": 3, \"rooms\": []}").messages().containsAll(List.of(
+                "telemetry: expected an object, using the defaults of its keys", "rooms: expected an object, using the defaults of its keys")),
+                "A new section that is no object is reported");
+        checkWorldDefaults("New sections that are no objects");
+    }
+
+    /**
+     * {@code telemetry.players} and {@code telemetry.publishPlayerNames} (M4 plan D9): absent, the default; present but no
+     * valid setting, the narrowest one (OFF, false) with a message, so a typo never publishes more about players. Both
+     * loaders use the same decision ({@link ConfigValidation}); NeoForge hands it the value as its file holds it.
+     */
+    private static void narrowingPlayerKeys() {
+        for (Object valid : List.of("off", "Presence", " FULL ", "presence", TelemetryPlayers.FULL)) {
+            List<String> messages = new ArrayList<>();
+            TelemetryPlayers players = ConfigValidation.telemetryPlayersOrNarrowest(valid, messages);
+            check(messages.isEmpty() && players.name().equals(valid.toString().strip().toUpperCase(java.util.Locale.ROOT)),
+                    "telemetry.players reads " + valid + " as " + players);
+        }
+        List<String> absent = new ArrayList<>();
+        check(ConfigValidation.telemetryPlayersOrNarrowest(null, absent) == TelemetryPlayers.PRESENCE && absent.isEmpty(),
+                "An absent telemetry.players takes the default without a message");
+        for (Object invalid : List.of("everyone", "", "OFFF", Boolean.TRUE, 2, 0.5, List.of("FULL"), new Object())) {
+            List<String> messages = new ArrayList<>();
+            check(ConfigValidation.telemetryPlayersOrNarrowest(invalid, messages) == TelemetryPlayers.OFF && messages.size() == 1
+                    && messages.getFirst().startsWith("telemetry.players: "), "An invalid telemetry.players (" + invalid + ") narrows to OFF: " + messages);
+        }
+        for (Object valid : List.of(true, false, "true", "FALSE", " True ")) {
+            List<String> messages = new ArrayList<>();
+            boolean names = ConfigValidation.publishPlayerNamesOrNarrowest(valid, messages);
+            check(messages.isEmpty() && names == valid.toString().strip().equalsIgnoreCase("true"), "telemetry.publishPlayerNames reads " + valid);
+        }
+        List<String> absentNames = new ArrayList<>();
+        check(ConfigValidation.publishPlayerNamesOrNarrowest(null, absentNames) && absentNames.isEmpty(),
+                "An absent telemetry.publishPlayerNames takes the default without a message");
+        for (Object invalid : List.of("yes", "", "no", 0, 1, List.of(true), new Object())) {
+            List<String> messages = new ArrayList<>();
+            check(!ConfigValidation.publishPlayerNamesOrNarrowest(invalid, messages) && messages.size() == 1
+                    && messages.getFirst().startsWith("telemetry.publishPlayerNames: "),
+                    "An invalid telemetry.publishPlayerNames (" + invalid + ") narrows to false: " + messages);
+        }
+
+        // The JSON form: an absent key is the default, an invalid one narrows, and the next save writes the narrow value.
+        check(read("{\"configVersion\": 2, \"telemetry\": {}}").messages().isEmpty() && MineQTTConfig.telemetryPlayers == TelemetryPlayers.PRESENCE
+                && MineQTTConfig.telemetryPublishPlayerNames, "Absent player keys take their defaults");
+        for (String players : List.of("\"everyone\"", "true", "2", "[\"FULL\"]", "{}", "\"\"")) {
+            JsonConfigFormat.Result result = read("{\"configVersion\": 2, \"telemetry\": {\"players\": " + players + ", \"publishPlayerNames\": true}}");
+            check(MineQTTConfig.telemetryPlayers == TelemetryPlayers.OFF && MineQTTConfig.telemetryPublishPlayerNames
+                    && result.messages().stream().anyMatch(message -> message.startsWith("telemetry.players: ")),
+                    "telemetry.players " + players + " reads as OFF with a message: " + result.messages());
+        }
+        for (String names : List.of("0", "1", "\"yes\"", "[true]", "{}")) {
+            JsonConfigFormat.Result result = read("{\"configVersion\": 2, \"telemetry\": {\"players\": \"FULL\", \"publishPlayerNames\": " + names + "}}");
+            check(!MineQTTConfig.telemetryPublishPlayerNames && MineQTTConfig.telemetryPlayers == TelemetryPlayers.FULL
+                    && result.messages().stream().anyMatch(message -> message.startsWith("telemetry.publishPlayerNames: ")),
+                    "telemetry.publishPlayerNames " + names + " reads as false with a message: " + result.messages());
+        }
+        check(read("{\"configVersion\": 2, \"telemetry\": {\"publishPlayerNames\": \"false\"}}").messages().isEmpty()
+                && !MineQTTConfig.telemetryPublishPlayerNames, "\"false\" as a string is false, as NeoForge reads it");
+        read("{\"configVersion\": 2, \"telemetry\": {\"players\": \"everyone\", \"publishPlayerNames\": \"yes\"}}");
+        JsonObject saved = JsonConfigFormat.write().getAsJsonObject("telemetry");
+        check(saved.get("players").getAsString().equals("OFF") && !saved.get("publishPlayerNames").getAsBoolean(),
+                "The next save writes the narrow values: " + saved);
+        MineQTTConfig.resetToDefaults();
+    }
+
+    private static void checkWorldDefaults(String what) {
+        check(MineQTTConfig.telemetryEnabled, what + ": telemetry is on");
+        check(MineQTTConfig.telemetryIntervalSeconds == 10, what + ": telemetry every 10 s at most: " + MineQTTConfig.telemetryIntervalSeconds);
+        check(MineQTTConfig.telemetryPlayers == TelemetryPlayers.PRESENCE, what + ": player data up to presence");
+        check(MineQTTConfig.telemetryPublishPlayerNames, what + ": no name veto");
+        check(!MineQTTConfig.telemetryAllowBroadcast, what + ": broadcast off");
+        check(MineQTTConfig.telemetryMaxPresenceDevices == 64, what + ": 64 presence devices: " + MineQTTConfig.telemetryMaxPresenceDevices);
+        check(MineQTTConfig.telemetryForgetAfterDays == 90, what + ": players forgotten after 90 days: " + MineQTTConfig.telemetryForgetAfterDays);
+        check(MineQTTConfig.blockPlacerPlayersMayConfigure == AutoBoolean.AUTO, what + ": who configures a Block Placer is AUTO");
+        check(MineQTTConfig.blockPlacerConsumeItems, what + ": the Block Placer uses items");
+        check(!MineQTTConfig.blockObserverExportBlockEntityData, what + ": no block-entity data from the Block Observer");
+        check(MineQTTConfig.roomsMaxSize == 128, what + ": rooms of 128 blocks at most: " + MineQTTConfig.roomsMaxSize);
+        check(MineQTTConfig.limitsMaxRoomsPerPlayer == 16, what + ": 16 rooms per player: " + MineQTTConfig.limitsMaxRoomsPerPlayer);
+    }
+
+    /**
+     * The NeoForge config ({@code NeoForgeConfigHandler}, which this source set cannot load) defines, loads and saves
+     * exactly the keys of the JSON form, at the same dotted paths: its source is read as text. A key added on one loader
+     * only fails here. The values themselves are shared: both read their defaults and bounds from {@link StaticDefaults}.
+     */
+    private static void neoForgeParity() {
+        String path = System.getProperty("mineqtt.neoForgeConfigSource");
+        check(path != null, "The task passes the NeoForge config source as mineqtt.neoForgeConfigSource");
+        String source;
+        try {
+            source = Files.readString(Path.of(path));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        int start = source.indexOf("static {");
+        int end = source.indexOf("SPEC = BUILDER.build();", start);
+        check(start >= 0 && end > start, "The NeoForge spec is built in a static block");
+        String spec = source.substring(start, end);
+        // In source order: a spec field assignment, a section push or pop, and the key its define names.
+        Matcher token = Pattern.compile("(\\w+)\\s*=\\s*BUILDER|\\.push\\(\"(\\w+)\"\\)|\\.pop\\(\\)|\\.define\\w*\\(\"(\\w+)\"").matcher(spec);
+        List<String> sections = new ArrayList<>();
+        Map<String, String> fieldsByKey = new LinkedHashMap<>();
+        String field = null;
+        while (token.find()) {
+            if (token.group(1) != null) {
+                field = token.group(1);
+            } else if (token.group(2) != null) {
+                sections.add(token.group(2));
+            } else if (token.group(3) != null) {
+                check(field != null, "Every NeoForge define is assigned to a spec field: " + token.group(3));
+                String key = sections.isEmpty() ? token.group(3) : String.join(".", sections) + "." + token.group(3);
+                check(fieldsByKey.put(key, field) == null, "NeoForge defines " + key + " once");
+                field = null;
+            } else {
+                check(!sections.isEmpty(), "Every NeoForge pop has its push");
+                sections.removeLast();
+            }
+        }
+        check(sections.isEmpty(), "Every NeoForge push is popped: " + sections);
+
+        MineQTTConfig.resetToDefaults();
+        Set<String> jsonKeys = new TreeSet<>();
+        flatten("", JsonConfigFormat.write(), jsonKeys);
+        check(new TreeSet<>(fieldsByKey.keySet()).equals(jsonKeys), "NeoForge defines exactly the keys of the JSON form; only NeoForge: "
+                + difference(fieldsByKey.keySet(), jsonKeys) + ", only JSON: " + difference(jsonKeys, fieldsByKey.keySet()));
+        String load = source.substring(source.indexOf("public void loadConfig()"), source.indexOf("public void saveConfig()"));
+        String write = source.substring(source.indexOf("private static void writeValues("));
+        // The two player keys only ever narrow (M4 plan D9): NeoForge keeps any present value (isPresent), so it never
+        // corrects one to the widest default, and loadConfig judges the raw value with the JSON form's rule.
+        Set<String> narrowing = Set.of("TELEMETRY_PLAYERS", "TELEMETRY_PUBLISH_PLAYER_NAMES");
+        check(Pattern.compile("\\.defineEnum\\(\"players\", StaticDefaults\\.DEFAULT_TELEMETRY_PLAYERS, EnumGetMethod\\.NAME_IGNORECASE,\\s*NeoForgeConfigHandler::isPresent\\)")
+                .matcher(spec).find(), "NeoForge keeps any present telemetry.players for loadConfig to judge");
+        check(Pattern.compile("\\.define\\(\"publishPlayerNames\", \\(\\) -> StaticDefaults\\.DEFAULT_TELEMETRY_PUBLISH_PLAYER_NAMES,\\s*NeoForgeConfigHandler::isPresent\\)")
+                .matcher(spec).find(), "NeoForge keeps any present telemetry.publishPlayerNames (no BooleanValue, which corrects to true)");
+        check(Pattern.compile("private static boolean isPresent\\(Object value\\) \\{\\s*return value != null;\\s*}").matcher(source).find(),
+                "isPresent accepts every present value and nothing else");
+        check(load.contains("MineQTTConfig.telemetryPlayers = ConfigValidation.telemetryPlayersOrNarrowest(rawTelemetryPlayers(), narrowed);")
+                        && Pattern.compile("private static Object rawTelemetryPlayers\\(\\) \\{\\s*try \\{\\s*return TELEMETRY_PLAYERS\\.get\\(\\);").matcher(source).find(),
+                "NeoForge narrows telemetry.players with the shared rule");
+        check(Pattern.compile("MineQTTConfig\\.telemetryPublishPlayerNames = ConfigValidation\\.publishPlayerNamesOrNarrowest\\(\\s*"
+                        + "\\(\\(ModConfigSpec\\.ConfigValue<\\?>\\) TELEMETRY_PUBLISH_PLAYER_NAMES\\)\\.get\\(\\), narrowed\\);").matcher(load).find(),
+                "NeoForge narrows telemetry.publishPlayerNames with the shared rule, from the raw value");
+        fieldsByKey.forEach((key, specField) -> {
+            if (!specField.equals("CONFIG_VERSION") && !narrowing.contains(specField)) {
+                check(Pattern.compile("MineQTTConfig\\.\\w+ = (?:List\\.copyOf\\(|ProtocolVersion\\.parse\\()?" + specField + "\\.get\\(\\)").matcher(load).find(),
+                        "NeoForge loads " + key + " (" + specField + ")");
+            }
+            check(write.contains("sink.put(" + specField + ","), "NeoForge saves " + key + " (" + specField + ")");
+        });
+        for (String key : List.of("telemetry.enabled", "telemetry.intervalSeconds", "telemetry.players", "telemetry.publishPlayerNames",
+                "telemetry.allowBroadcast", "telemetry.maxPresenceDevices", "telemetry.forgetAfterDays", "blockPlacer.enabled",
+                "blockPlacer.playersMayConfigure", "blockPlacer.consumeItems", "blockObserver.exportBlockEntityData", "rooms.maxSize",
+                "limits.maxRoomsPerPlayer")) {
+            check(fieldsByKey.containsKey(key), "NeoForge has the M4 key " + key);
+        }
+    }
+
+    private static void flatten(String prefix, JsonObject object, Set<String> keys) {
+        object.entrySet().forEach(entry -> {
+            String key = prefix + entry.getKey();
+            if (entry.getValue().isJsonObject()) {
+                flatten(key + ".", entry.getValue().getAsJsonObject(), keys);
+            } else {
+                keys.add(key);
+            }
+        });
+    }
+
+    private static Set<String> difference(Set<String> a, Set<String> b) {
+        Set<String> result = new TreeSet<>(a);
+        result.removeAll(b);
+        return result;
     }
 
     private static void credentialsNeverLogged() {

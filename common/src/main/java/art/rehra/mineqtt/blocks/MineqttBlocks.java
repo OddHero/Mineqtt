@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.blocks;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.device.timer.core.TimerKind;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
 import net.minecraft.core.registries.Registries;
@@ -46,12 +47,12 @@ public class MineqttBlocks {
         LIGHT_REMOTE_BLOCK = registerBlock("light_remote_block", () -> new LightRemoteBlock(baseProperties("light_remote_block").requiresCorrectToolForDrops().strength(3.5f).noOcclusion()));
         BLOCK_SENSOR_BLOCK = registerBlock("block_sensor_block", () -> new BlockSensorBlock(baseProperties("block_sensor_block").requiresCorrectToolForDrops().strength(3.5f)));
         BLOCK_EMITTER_BLOCK = registerBlock("block_emitter_block", () -> new BlockEmitterBlock(baseProperties("block_emitter_block").requiresCorrectToolForDrops().strength(3.5f)));
-        CRON_TIMER_BLOCK = registerBlock("cron_timer", () -> new CronTimerBlock(baseProperties("cron_timer").requiresCorrectToolForDrops().strength(3.5f)));
-        INTERVAL_TIMER_BLOCK = registerBlock("interval_timer", () -> new IntervalTimerBlock(baseProperties("interval_timer").requiresCorrectToolForDrops().strength(3.5f)));
+        CRON_TIMER_BLOCK = registerBlock("cron_timer", () -> new TimerBlock(TimerKind.CRON, baseProperties("cron_timer").requiresCorrectToolForDrops().strength(3.5f)));
+        INTERVAL_TIMER_BLOCK = registerBlock("interval_timer", () -> new TimerBlock(TimerKind.INTERVAL, baseProperties("interval_timer").requiresCorrectToolForDrops().strength(3.5f)));
         TEMPERATURE_SENSOR_BLOCK = registerBlock("temperature_sensor_block", () -> new TemperatureSensorBlock(baseProperties("temperature_sensor_block").requiresCorrectToolForDrops().strength(3.5f)));
         HUMIDITY_SENSOR_BLOCK = registerBlock("humidity_sensor_block", () -> new HumiditySensorBlock(baseProperties("humidity_sensor_block").requiresCorrectToolForDrops().strength(3.5f)));
-        ALARM_CLOCK_BLOCK = registerBlock("alarm_clock", () -> new AlarmClockBlock(baseProperties("alarm_clock").requiresCorrectToolForDrops().strength(3.5f)));
-        GAME_TIME_TIMER_BLOCK = registerBlock("game_time_timer", () -> new GameTimeTimerBlock(baseProperties("game_time_timer").requiresCorrectToolForDrops().strength(3.5f)));
+        ALARM_CLOCK_BLOCK = registerBlock("alarm_clock", () -> new TimerBlock(TimerKind.ALARM, baseProperties("alarm_clock").requiresCorrectToolForDrops().strength(3.5f)));
+        GAME_TIME_TIMER_BLOCK = registerBlock("game_time_timer", () -> new TimerBlock(TimerKind.GAME_TIME, baseProperties("game_time_timer").requiresCorrectToolForDrops().strength(3.5f)));
         STATIC_PUBLISHER_BLOCK = registerBlock("static_publisher", () -> new StaticPublisherBlock(baseProperties("static_publisher").requiresCorrectToolForDrops().strength(3.5f)));
         DYNAMIC_PUBLISHER_BLOCK = registerBlock("dynamic_publisher", () -> new DynamicPublisherBlock(baseProperties("dynamic_publisher").strength(3.5f)));
         TOPIC_RELAY_BLOCK = registerBlock("topic_relay", () -> new TopicRelayBlock(baseProperties("topic_relay").strength(3.5f)));

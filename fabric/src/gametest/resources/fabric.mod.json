@@ -34,7 +34,13 @@
       "art.rehra.mineqtt.fabric.gametest.LampMountGameTest",
       "art.rehra.mineqtt.fabric.gametest.DisplayPanelGameTest",
       "art.rehra.mineqtt.fabric.gametest.MirrorGameTest",
-      "art.rehra.mineqtt.fabric.gametest.BindGameTest"
+      "art.rehra.mineqtt.fabric.gametest.BindGameTest",
+      "art.rehra.mineqtt.fabric.gametest.TimersGameTest",
+      "art.rehra.mineqtt.fabric.gametest.WorldDevicesGameTest",
+      "art.rehra.mineqtt.fabric.gametest.TelemetryGameTest",
+      "art.rehra.mineqtt.fabric.gametest.PrivacyGameTest",
+      "art.rehra.mineqtt.fabric.gametest.RoomsGameTest",
+      "art.rehra.mineqtt.fabric.gametest.ExplorerGameTest"
     ]
   },
   "depends": {

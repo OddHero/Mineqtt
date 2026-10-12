@@ -65,11 +65,11 @@ public final class InteractionGameTest implements FabricClientGameTest {
     private static final BlockPos STAND = new BlockPos(0, GameTestSession.GROUND_Y + 1, 0);
     private static final BlockPos LAMP_GROUND = new BlockPos(2, GameTestSession.GROUND_Y, 0);
     private static final BlockPos OUTPUT_GROUND = new BlockPos(-2, GameTestSession.GROUND_Y, 0);
-    // Diagonally in front, clear of the line of sight to the far clock.
+    // Diagonally in front, clear of the line of sight to the far console.
     private static final BlockPos PLUG_GROUND = new BlockPos(2, GameTestSession.GROUND_Y, -2);
     // Ten blocks above the player's eyes, out of every hand's reach.
     private static final BlockPos CEILING_LAMP = new BlockPos(0, GameTestSession.GROUND_Y + 13, 0);
-    private static final BlockPos FAR_CLOCK = new BlockPos(0, GameTestSession.GROUND_Y + 1, 9);
+    private static final BlockPos FAR_CONSOLE = new BlockPos(0, GameTestSession.GROUND_Y + 1, 9);
     private static final BlockPos BEYOND_RANGE = new BlockPos(0, GameTestSession.GROUND_Y + 1, -24);
     private static final int ANSWER_TICKS = 40;
     // Ample for a screen to have opened if one were to.
@@ -316,7 +316,7 @@ public final class InteractionGameTest implements FabricClientGameTest {
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Configurator mode: Link"), ANSWER_TICKS).isPresent(),
                 "sneak + right-click into the air steps the mode to Link (messages: " + ChatLog.since(mark) + ")");
         session.check(session.onServer(s -> CyberdeckDataUtil.mode(session.player(s).getMainHandItem()) == ConfiguratorMode.LINK), "the Configurator is in Link mode");
-        for (String mode : List.of("Group", "Copy-Paste", "Bind")) {
+        for (String mode : List.of("Group", "Copy-Paste", "Bind", "Room")) {
             mark = ChatLog.mark();
             session.sneakUse();
             session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Configurator mode: " + mode), ANSWER_TICKS).isPresent(),
@@ -349,10 +349,10 @@ public final class InteractionGameTest implements FabricClientGameTest {
         session.check(session.awaitClient(mc -> mc.gui.screen() == null, ANSWER_TICKS), "and once the player is beyond its range");
         session.teleport(STAND);
 
-        session.consoleCommand("setblock " + FAR_CLOCK.getX() + " " + FAR_CLOCK.getY() + " " + FAR_CLOCK.getZ() + " mineqtt:alarm_clock");
-        session.context().waitFor(mc -> !mc.level.getBlockState(FAR_CLOCK).isAir());
+        session.consoleCommand("setblock " + FAR_CONSOLE.getX() + " " + FAR_CONSOLE.getY() + " " + FAR_CONSOLE.getZ() + " mineqtt:terminal_block");
+        session.context().waitFor(mc -> !mc.level.getBlockState(FAR_CONSOLE).isAir());
         mark = ChatLog.mark();
-        session.aimFar(FAR_CLOCK);
+        session.aimFar(FAR_CONSOLE);
         session.pressUse();
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().endsWith("opens only from close by"), ANSWER_TICKS).isPresent(),
                 "a block that is no device does not open from afar (messages: " + ChatLog.since(mark) + ")");
@@ -360,7 +360,7 @@ public final class InteractionGameTest implements FabricClientGameTest {
         session.check(noScreen(session), "and its screen stays closed");
 
         // The ceiling lamp would be what the Configurator points at straight up.
-        for (BlockPos pos : List.of(CEILING_LAMP, FAR_CLOCK)) {
+        for (BlockPos pos : List.of(CEILING_LAMP, FAR_CONSOLE)) {
             session.consoleCommand("setblock " + pos.getX() + " " + pos.getY() + " " + pos.getZ() + " air");
             session.context().waitFor(mc -> mc.level.getBlockState(pos).isAir());
         }

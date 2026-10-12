@@ -302,6 +302,19 @@ public final class DeviceConfig {
         return kind instanceof PortType.Text || kind instanceof PortType.Enum ? new JsonPrimitive(ValueCodecs.unquote(text.strip())) : ValueCodecs.plainValue(text);
     }
 
+    /**
+     * The configure gate of a device that changes the world (M4 plan D12, the Block Placer): besides CONFIGURE, only an
+     * operator (level 2) configures it, unless {@code blockPlacer.playersMayConfigure} lets players (AUTO: on an
+     * integrated server, not on a dedicated one). Its block and its Raw Link decide what it builds and who may make it
+     * build; Home Assistant and wires still command it as any device. Every other type passes.
+     *
+     * @param op                  whether the player is an operator
+     * @param playersMayConfigure {@code blockPlacer.playersMayConfigure} resolved for this server
+     */
+    public static boolean mayConfigure(DeviceType type, boolean op, boolean playersMayConfigure) {
+        return !type.editsWorld() || op || playersMayConfigure;
+    }
+
     /** Whether the grants hold what a link setting's gate asks for. */
     public static boolean permits(LinkSetting.Gate gate, DeviceView.Grants grants) {
         return switch (gate) {

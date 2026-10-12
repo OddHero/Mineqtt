@@ -34,7 +34,8 @@ public final class TopicAclCheck {
         explorerExposure(acl);
         mirroring(acl);
         topicSources(acl);
-        legacy(acl);
+        legacyGroups(acl);
+        migratedLinks(acl);
         rulesValidation();
         System.out.println("Topic ACL checks passed.");
     }
@@ -75,12 +76,21 @@ public final class TopicAclCheck {
             expect(acl.checkPublish(subject, "mineqtt/otherbridge/bridge/x"), Decision.DENY_FOREIGN_BRIDGE, "another bridge's namespace as " + who);
             expect(acl.checkPublish(subject, "mineqtt/otherbridge/bridge"), Decision.DENY_FOREIGN_BRIDGE, "another bridge's bare bridge level as " + who);
             expect(acl.checkPublish(subject, "mineqtt/world_7f3a/bridge/ha_request"), Decision.DENY_BRIDGE, "this bridge's request topic as " + who);
-            expect(acl.checkLegacy("mineqtt/shared/bridge/ha_sync", true), Decision.DENY_FOREIGN_BRIDGE, "a v1 publisher into a bridge namespace");
+            expect(acl.checkLegacy("mineqtt/shared/bridge/ha_sync", true), Decision.DENY_FOREIGN_BRIDGE, "a v1 group echoing into a bridge namespace");
         }
         TopicAcl everything = new TopicAcl(rules(withDefaults("mineqtt/#", "home/#"), true, false));
         for (Subject subject : List.of(PLAYER, OP, ADMIN, Subject.CONSOLE)) {
             expect(everything.checkPublish(subject, "mineqtt/otherbridge/bridge/ha_request"), Decision.DENY_FOREIGN_BRIDGE,
                     "an allowlisted mineqtt/# and the op bypass do not open other servers' twins");
+        }
+        // The broadcast text (M4 plan D8) reaches the chat from the broker only: no player, op or console publishes a request.
+        for (Subject subject : List.of(PLAYER, OP, ADMIN, Subject.CONSOLE)) {
+            String who = subject == Subject.CONSOLE ? "console" : subject.op() ? "op" : "player";
+            expect(acl.checkPublish(subject, "mineqtt/world_7f3a/bridge/request/broadcast"), Decision.DENY_BRIDGE, "this bridge's broadcast request as " + who);
+            expect(everything.checkPublish(subject, "mineqtt/world_7f3a/bridge/request/broadcast"), Decision.DENY_BRIDGE,
+                    "this bridge's broadcast request as " + who + ", whatever the allowlist and the op bypass");
+            expect(everything.checkPublish(subject, "mineqtt/otherbridge/bridge/request/broadcast"), Decision.DENY_FOREIGN_BRIDGE,
+                    "another bridge's broadcast request as " + who);
         }
         expect(everything.checkPublish(PLAYER, "mineqtt/otherbridge/raw/door"), Decision.ALLOWED, "another bridge's raw subtree follows the allowlist");
         expect(everything.checkPublish(PLAYER, "mineqtt/otherbridge/lamp/set"), Decision.ALLOWED, "only the bridge/ level is reserved");
@@ -247,6 +257,16 @@ public final class TopicAclCheck {
         check(acl.explorerExposure(PLAYER, "mineqtt/world_7f3a/group/lights/set").equals(new Exposure(Exposure.Kind.GROUP, "lights")),
                 "a group topic names the group's slug");
         check(acl.explorerExposure(PLAYER, "mineqtt/world_7f3a/group").equals(new Exposure(Exposure.Kind.GROUP, "")), "the bare group root");
+        // M4 plan D10: a presence device is no device slug "player"; the caller shows it to admins and its own player.
+        check(acl.explorerExposure(PLAYER, "mineqtt/world_7f3a/player/player_steve").equals(new Exposure(Exposure.Kind.PLAYER, "player_steve")),
+                "a presence device's topic names its slug under player/");
+        check(acl.explorerExposure(ADMIN, "mineqtt/world_7f3a/player/player_alex").equals(new Exposure(Exposure.Kind.PLAYER, "player_alex")),
+                "for admins too, who may read every one");
+        check(acl.explorerExposure(PLAYER, "mineqtt/world_7f3a/player").equals(new Exposure(Exposure.Kind.PLAYER, "")), "the bare player root");
+        for (Subject subject : List.of(PLAYER, OP, ADMIN)) {
+            check(acl.checkPublish(subject, "mineqtt/world_7f3a/player/player_steve") == TopicAcl.Decision.DENY_BRIDGE,
+                    "nobody publishes a presence state from Minecraft: " + subject);
+        }
         check(acl.explorerExposure(ADMIN, "homeassistant/light/x/config").equals(Exposure.REDACT), "discovery payloads are redacted");
         check(acl.explorerExposure(PLAYER, "mineqtt/shared/door").equals(Exposure.SHOW), "an allowlisted namespace is shown");
         check(acl.explorerExposure(ADMIN, "mineqtt/world_7f3b/raw/players/" + STEVE + "/door").equals(Exposure.SHOW),
@@ -321,7 +341,7 @@ public final class TopicAclCheck {
         expect(acl.checkTopicSource(PLAYER, "mineqtt/world_7f3a/raw/players/" + ALEX + "/door"), Decision.DENY_FOREIGN_PRIVATE,
                 "another player's private topic");
         expect(acl.checkTopicSource(PLAYER, "mineqtt/world_7f3a/raw/players/" + STEVE + "/door"), Decision.ALLOWED, "the owner's own private topic");
-        // Wave 6 review: a bound device's state names its entity (D13 #7), and the explorer shows a device's topics only
+        // A bound device's state names its entity (D13 #7), and the explorer shows a device's topics only
         // to players who may configure it, so no preset mirrors this server's device or group topics, for anyone.
         for (Subject subject : List.of(PLAYER, ADMIN, Subject.CONSOLE)) {
             expect(acl.checkTopicSource(subject, "mineqtt/world_7f3a/kitchen_lamp"), Decision.DENY_DEVICE_TOPICS, "another device's retained state");
@@ -336,45 +356,46 @@ public final class TopicAclCheck {
         expect(off.checkTopicSource(PLAYER, "ha_statestream/light/kitchen/state"), Decision.ALLOWED, "without a statestream base nothing is that namespace");
     }
 
-    private static void legacy(TopicAcl acl) {
-        expect(acl.checkLegacy("homeassistant/light/v1/config", true), Decision.DENY_DISCOVERY, "a v1 publisher into discovery");
-        expect(acl.checkLegacy("mineqtt/world_7f3a/lamp/set", true), Decision.DENY_BRIDGE, "a v1 publisher into the bridge namespace");
-        expect(acl.checkLegacy("garage/door", true), Decision.ALLOWED, "the allowlist does not apply to v1 blocks");
+    /** The v1 topic a legacy group follows ({@code DeviceRuntime.openGroupRaw}) and echoes its state to (design §6.6). */
+    private static void legacyGroups(TopicAcl acl) {
+        expect(acl.checkLegacy("homeassistant/light/v1/config", true), Decision.DENY_DISCOVERY, "a v1 group echoing into discovery");
+        expect(acl.checkLegacy("mineqtt/world_7f3a/lamp/set", true), Decision.DENY_BRIDGE, "a v1 group echoing into the bridge namespace");
+        expect(acl.checkLegacy("garage/door", true), Decision.ALLOWED, "the allowlist does not apply to v1 groups");
         expect(acl.checkLegacy("garage/" + "x".repeat(300), true), Decision.ALLOWED, "v1 topics have no 256-byte limit");
-        expect(acl.checkLegacy("garage/+", true), Decision.WILDCARD, "a v1 publish with a wildcard");
-        expect(acl.checkLegacy("#", false), Decision.DENY_BROKER_WIDE, "a v1 subscription to #");
-        expect(acl.checkLegacy("+/door", false), Decision.DENY_BROKER_WIDE, "a v1 subscription with a root +");
-        expect(acl.checkLegacy("garage/#", false), Decision.ALLOWED, "a v1 subscription below a root level");
-        expect(acl.checkLegacy("$SYS/#", false), Decision.DOLLAR, "a v1 subscription to $SYS");
+        expect(acl.checkLegacy("garage/+", true), Decision.WILDCARD, "a v1 echo with a wildcard");
+        expect(acl.checkLegacy("#", false), Decision.DENY_BROKER_WIDE, "a v1 group following #");
+        expect(acl.checkLegacy("+/door", false), Decision.DENY_BROKER_WIDE, "a v1 group following a root +");
+        expect(acl.checkLegacy("garage/#", false), Decision.ALLOWED, "a v1 group following a filter below a root level");
+        expect(acl.checkLegacy("$SYS/#", false), Decision.DOLLAR, "a v1 group following $SYS");
         expect(acl.checkLegacy("mineqtt/world_7f3a/raw/players/" + ALEX + "/#", false), Decision.DENY_FOREIGN_PRIVATE,
-                "a v1 subscription to a player's private subtree");
+                "a v1 group following a player's private subtree");
         expect(acl.checkLegacy("mineqtt/world_7f3a/+/players/#", false), Decision.DENY_FOREIGN_PRIVATE,
-                "a v1 subscription reaching every private subtree");
-        expect(acl.checkLegacy("mineqtt/#", false), Decision.DENY_FOREIGN_PRIVATE, "a v1 subscription to the whole base topic");
-        expect(acl.checkLegacy("mineqtt/world_7f3a/raw/+", false), Decision.ALLOWED, "a v1 subscription one level below raw");
-        expect(acl.checkLegacy("homeassistant/status", false), Decision.ALLOWED, "a v1 listener on HA's birth topic");
+                "a v1 group reaching every private subtree");
+        expect(acl.checkLegacy("mineqtt/#", false), Decision.DENY_FOREIGN_PRIVATE, "a v1 group following the whole base topic");
+        expect(acl.checkLegacy("mineqtt/world_7f3a/raw/+", false), Decision.ALLOWED, "a v1 group following one level below raw");
+        expect(acl.checkLegacy("homeassistant/status", false), Decision.ALLOWED, "a v1 group following HA's birth topic");
 
-        // A v1 block has no admin and shows what it receives to anyone near it (M3 plan D13): no statestream, no twin traffic.
-        expect(acl.checkLegacy("ha_statestream/person/owner/state", false), Decision.DENY_STATESTREAM_LEGACY, "a v1 listener on a statestream topic");
-        expect(acl.checkLegacy("ha_statestream/#", false), Decision.DENY_STATESTREAM_LEGACY, "a v1 listener on the statestream namespace");
-        expect(acl.checkLegacy("ha_statestream", false), Decision.DENY_STATESTREAM_LEGACY, "a v1 listener on the bare statestream base");
+        // A v1 group has no admin and shows what it receives to anyone near its lamps (M3 plan D13): no statestream, no twin traffic.
+        expect(acl.checkLegacy("ha_statestream/person/owner/state", false), Decision.DENY_STATESTREAM_LEGACY, "a v1 group on a statestream topic");
+        expect(acl.checkLegacy("ha_statestream/#", false), Decision.DENY_STATESTREAM_LEGACY, "a v1 group on the statestream namespace");
+        expect(acl.checkLegacy("ha_statestream", false), Decision.DENY_STATESTREAM_LEGACY, "a v1 group on the bare statestream base");
         expect(acl.checkLegacy("ha_statestreamx/door", false), Decision.ALLOWED, "a level match, not a prefix match");
-        expect(acl.checkLegacy("ha_statestream/lock/front_door/state", true), Decision.DENY_STATESTREAM, "a v1 publisher into statestream");
+        expect(acl.checkLegacy("ha_statestream/lock/front_door/state", true), Decision.DENY_STATESTREAM, "a v1 group echoing into statestream");
         TopicAcl multi = new TopicAcl(new Rules(BASE, BRIDGE, "homeassistant", "home/ha/statestream", withDefaults(), false, false));
         expect(multi.checkLegacy("home/#", false), Decision.DENY_STATESTREAM_LEGACY, "a v1 filter reaching into a multi-level base");
         expect(multi.checkLegacy("home/+/statestream/light/+/state", false), Decision.DENY_STATESTREAM_LEGACY, "a + into a multi-level base");
-        expect(multi.checkLegacy("home/garage/door", false), Decision.ALLOWED, "a v1 listener beside the base");
+        expect(multi.checkLegacy("home/garage/door", false), Decision.ALLOWED, "a v1 group beside the base");
         expect(new TopicAcl(new Rules(BASE, BRIDGE, "homeassistant", null, withDefaults(), false, false)).checkLegacy("ha_statestream/#", false),
-                Decision.ALLOWED, "without a statestream base nothing is reserved for v1 listeners");
+                Decision.ALLOWED, "without a statestream base nothing is reserved for v1 groups");
         for (String leaf : TopicAcl.TWIN_TRAFFIC_LEAVES) {
-            expect(acl.checkLegacy("mineqtt/world_7f3a/bridge/" + leaf, false), Decision.DENY_TWIN_TRAFFIC, "this server's " + leaf + " for a v1 listener");
-            expect(acl.checkLegacy("mineqtt/otherbridge/bridge/" + leaf, false), Decision.DENY_TWIN_TRAFFIC, "another bridge's " + leaf + " for a v1 listener");
-            expect(acl.checkLegacy("mineqtt/+/bridge/" + leaf, false), Decision.DENY_TWIN_TRAFFIC, "every bridge's " + leaf + " for a v1 listener");
+            expect(acl.checkLegacy("mineqtt/world_7f3a/bridge/" + leaf, false), Decision.DENY_TWIN_TRAFFIC, "this server's " + leaf + " for a v1 group");
+            expect(acl.checkLegacy("mineqtt/otherbridge/bridge/" + leaf, false), Decision.DENY_TWIN_TRAFFIC, "another bridge's " + leaf + " for a v1 group");
+            expect(acl.checkLegacy("mineqtt/+/bridge/" + leaf, false), Decision.DENY_TWIN_TRAFFIC, "every bridge's " + leaf + " for a v1 group");
         }
         expect(acl.checkLegacy("mineqtt/otherbridge/bridge/#", false), Decision.DENY_TWIN_TRAFFIC, "a bridge level's whole subtree");
         expect(acl.checkLegacy("mineqtt/otherbridge/+/ha_request", false), Decision.DENY_TWIN_TRAFFIC, "a + in place of the bridge level");
         expect(acl.checkLegacy("mineqtt/otherbridge/bridge/ha_request/x", false), Decision.DENY_TWIN_TRAFFIC, "a topic below a leaf");
-        expect(acl.checkLegacy("mineqtt/otherbridge/bridge/state", false), Decision.ALLOWED, "a bridge's state stays open to v1 listeners");
+        expect(acl.checkLegacy("mineqtt/otherbridge/bridge/state", false), Decision.ALLOWED, "a bridge's state stays open to v1 groups");
         expect(acl.checkLegacy("mineqtt/+/bridge/state", false), Decision.ALLOWED, "every bridge's state too");
         expect(acl.checkLegacy("mineqtt/shared/garage/door", false), Decision.ALLOWED, "the shared namespace beside the bridges");
         TopicAcl home = new TopicAcl(new Rules("home/mc", BRIDGE, "homeassistant", "ha_statestream", withDefaults(), false, false));
@@ -382,8 +403,8 @@ public final class TopicAclCheck {
         expect(home.checkLegacy("mineqtt/+/bridge/ha_request", false), Decision.DENY_TWIN_TRAFFIC, "and under the shared base beside it");
         expect(home.checkLegacy("home/mc/world_7f3a/bridge/state", false), Decision.ALLOWED, "its bridge state stays open");
 
-        // Wave 6 review: this server's device and group topics are no v1 listener's (a Block Emitter shows what it gets).
-        expect(acl.checkLegacy("mineqtt/world_7f3a/kitchen_lamp", false), Decision.DENY_DEVICE_TOPICS, "a v1 listener on a device's state");
+        // This server's device and group topics are no v1 group's (its lamps show what it gets).
+        expect(acl.checkLegacy("mineqtt/world_7f3a/kitchen_lamp", false), Decision.DENY_DEVICE_TOPICS, "a v1 group on a device's state");
         expect(acl.checkLegacy("mineqtt/+/kitchen_lamp", false), Decision.DENY_DEVICE_TOPICS, "a + in place of this bridge");
         expect(acl.checkLegacy("mineqtt/world_7f3a/+", false), Decision.DENY_DEVICE_TOPICS, "every device of this bridge");
         expect(acl.checkLegacy("mineqtt/world_7f3a/+/availability", false), Decision.DENY_DEVICE_TOPICS, "every device's availability");
@@ -392,6 +413,38 @@ public final class TopicAclCheck {
         expect(acl.checkLegacy("mineqtt/world_7f3a/bridge", false), Decision.ALLOWED, "nor is the bridge's telemetry");
         expect(home.checkLegacy("home/mc/world_7f3a/kitchen_lamp/availability", false), Decision.DENY_DEVICE_TOPICS, "under a multi-level base topic");
         expect(home.checkLegacy("home/+/world_7f3a/kitchen_lamp", false), Decision.DENY_DEVICE_TOPICS, "a + inside a multi-level base topic");
+    }
+
+    /**
+     * The topics of the former facade blocks, now devices (M4 plan D12, D19): a v1 Block Sensor's topic is the Block
+     * Observer's grandfathered Raw Link out, a v1 Block Emitter's the Block Placer's grandfathered Raw Link in, both judged
+     * by {@link TopicAcl#checkPublish(Subject, String, Grandfather)} for their owner. Where the legacy rules allowed a
+     * listener more, the device rules decide now.
+     */
+    private static void migratedLinks(TopicAcl acl) {
+        expect(acl.checkPublish(PLAYER, "garage/door", new Grandfather("garage/door", STEVE)), Decision.ALLOWED_GRANDFATHERED,
+                "a migrated placer keeps its v1 topic outside the allowlist");
+        expect(acl.checkPublish(OTHER, "garage/door", new Grandfather("garage/door", STEVE)), Decision.NOT_ALLOWLISTED,
+                "for its owner only");
+        expect(acl.checkPublish(PLAYER, "ha_statestream/person/owner/state", new Grandfather("ha_statestream/person/owner/state", STEVE)),
+                Decision.DENY_STATESTREAM, "a migrated v1 listener on the statestream namespace is refused by the hard deny");
+        expect(acl.checkPublish(PLAYER, "garage/+", new Grandfather("garage/+", STEVE)), Decision.WILDCARD,
+                "a v1 emitter's wildcard filter is no Raw Link topic");
+        expect(acl.checkPublish(PLAYER, "garage/#", new Grandfather("garage/#", STEVE)), Decision.WILDCARD, "nor is a #");
+        String longTopic = "garage/" + "x".repeat(300);
+        expect(acl.checkPublish(PLAYER, longTopic, new Grandfather(longTopic, STEVE)), Decision.INVALID, "a Raw Link topic has the 256-byte limit");
+        expect(acl.checkPublish(PLAYER, "homeassistant/status", new Grandfather("homeassistant/status", STEVE)), Decision.DENY_DISCOVERY,
+                "HA's birth topic is in the discovery prefix, closed to Raw Links in both directions");
+        expect(acl.checkPublish(PLAYER, "mineqtt/world_7f3a/kitchen_lamp", new Grandfather("mineqtt/world_7f3a/kitchen_lamp", STEVE)),
+                Decision.DENY_BRIDGE, "a device's state");
+        expect(acl.checkPublish(PLAYER, "mineqtt/otherbridge/bridge/ha_request", new Grandfather("mineqtt/otherbridge/bridge/ha_request", STEVE)),
+                Decision.DENY_FOREIGN_BRIDGE, "another bridge's twin traffic");
+        expect(acl.checkPublish(PLAYER, "mineqtt/otherbridge/bridge/state", new Grandfather("mineqtt/otherbridge/bridge/state", STEVE)),
+                Decision.DENY_FOREIGN_BRIDGE, "and its state, which v1 listeners could follow");
+        String foreign = "mineqtt/world_7f3a/raw/players/" + ALEX + "/door";
+        expect(acl.checkPublish(PLAYER, foreign, new Grandfather(foreign, STEVE)), Decision.DENY_FOREIGN_PRIVATE, "another player's private topic");
+        String own = "mineqtt/world_7f3a/raw/players/" + STEVE + "/door";
+        expect(acl.checkPublish(PLAYER, own, new Grandfather(own, STEVE)), Decision.ALLOWED_PRIVATE, "the owner's own private topic");
     }
 
     private static void rulesValidation() {

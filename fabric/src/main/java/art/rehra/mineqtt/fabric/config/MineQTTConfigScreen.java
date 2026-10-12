@@ -6,6 +6,7 @@ import art.rehra.mineqtt.config.ConfigValidation;
 import art.rehra.mineqtt.config.HaExpose;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.config.StaticDefaults;
+import art.rehra.mineqtt.config.TelemetryPlayers;
 import art.rehra.mineqtt.mqtt.core.ProtocolVersion;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
 import me.shedaniel.clothconfig2.api.ConfigBuilder;
@@ -215,6 +216,95 @@ public class MineQTTConfigScreen {
                 .setMin(1)
                 .setMax(StaticDefaults.MAX_TWIN_CATALOG_MAX)
                 .setSaveConsumer(value -> MineQTTConfig.twinCatalogMax = value)
+                .build());
+
+        // World Category (M4 plan D16): telemetry, players, the Block Placer and Observer, rooms
+        ConfigCategory worldCategory = builder.getOrCreateCategory(Component.translatable("config.mineqtt.category.world"));
+
+        worldCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.telemetry_enabled"), MineQTTConfig.telemetryEnabled)
+                .setDefaultValue(StaticDefaults.DEFAULT_TELEMETRY_ENABLED)
+                .setTooltip(Component.translatable("config.mineqtt.telemetry_enabled.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.telemetryEnabled = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.telemetry_interval_seconds"), MineQTTConfig.telemetryIntervalSeconds)
+                .setDefaultValue(StaticDefaults.DEFAULT_TELEMETRY_INTERVAL_SECONDS)
+                .setTooltip(Component.translatable("config.mineqtt.telemetry_interval_seconds.tooltip"))
+                .setMin(StaticDefaults.MIN_TELEMETRY_INTERVAL_SECONDS)
+                .setMax(StaticDefaults.MAX_TELEMETRY_INTERVAL_SECONDS)
+                .setSaveConsumer(value -> MineQTTConfig.telemetryIntervalSeconds = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startEnumSelector(Component.translatable("config.mineqtt.telemetry_players"), TelemetryPlayers.class, MineQTTConfig.telemetryPlayers)
+                .setDefaultValue(StaticDefaults.DEFAULT_TELEMETRY_PLAYERS)
+                .setTooltip(Component.translatable("config.mineqtt.telemetry_players.tooltip"))
+                .setEnumNameProvider(value -> Component.translatable("config.mineqtt.telemetry_players." + value.name().toLowerCase(Locale.ROOT)))
+                .setSaveConsumer(value -> MineQTTConfig.telemetryPlayers = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.telemetry_publish_player_names"), MineQTTConfig.telemetryPublishPlayerNames)
+                .setDefaultValue(StaticDefaults.DEFAULT_TELEMETRY_PUBLISH_PLAYER_NAMES)
+                .setTooltip(Component.translatable("config.mineqtt.telemetry_publish_player_names.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.telemetryPublishPlayerNames = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.telemetry_allow_broadcast"), MineQTTConfig.telemetryAllowBroadcast)
+                .setDefaultValue(StaticDefaults.DEFAULT_TELEMETRY_ALLOW_BROADCAST)
+                .setTooltip(Component.translatable("config.mineqtt.telemetry_allow_broadcast.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.telemetryAllowBroadcast = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.telemetry_max_presence_devices"), MineQTTConfig.telemetryMaxPresenceDevices)
+                .setDefaultValue(StaticDefaults.DEFAULT_TELEMETRY_MAX_PRESENCE_DEVICES)
+                .setTooltip(Component.translatable("config.mineqtt.telemetry_max_presence_devices.tooltip"))
+                .setMin(StaticDefaults.MIN_TELEMETRY_MAX_PRESENCE_DEVICES)
+                .setMax(StaticDefaults.MAX_TELEMETRY_MAX_PRESENCE_DEVICES)
+                .setSaveConsumer(value -> MineQTTConfig.telemetryMaxPresenceDevices = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.telemetry_forget_after_days"), MineQTTConfig.telemetryForgetAfterDays)
+                .setDefaultValue(StaticDefaults.DEFAULT_TELEMETRY_FORGET_AFTER_DAYS)
+                .setTooltip(Component.translatable("config.mineqtt.telemetry_forget_after_days.tooltip"))
+                .setMin(0)
+                .setMax(StaticDefaults.MAX_TELEMETRY_FORGET_AFTER_DAYS)
+                .setSaveConsumer(value -> MineQTTConfig.telemetryForgetAfterDays = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startEnumSelector(Component.translatable("config.mineqtt.block_placer_players_may_configure"), AutoBoolean.class,
+                        MineQTTConfig.blockPlacerPlayersMayConfigure)
+                .setDefaultValue(StaticDefaults.DEFAULT_BLOCK_PLACER_PLAYERS_MAY_CONFIGURE)
+                .setTooltip(Component.translatable("config.mineqtt.block_placer_players_may_configure.tooltip"))
+                .setEnumNameProvider(value -> Component.translatable("config.mineqtt.auto_boolean." + value.name().toLowerCase(Locale.ROOT)))
+                .setSaveConsumer(value -> MineQTTConfig.blockPlacerPlayersMayConfigure = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.block_placer_consume_items"), MineQTTConfig.blockPlacerConsumeItems)
+                .setDefaultValue(StaticDefaults.DEFAULT_BLOCK_PLACER_CONSUME_ITEMS)
+                .setTooltip(Component.translatable("config.mineqtt.block_placer_consume_items.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.blockPlacerConsumeItems = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.block_observer_export_block_entity_data"),
+                        MineQTTConfig.blockObserverExportBlockEntityData)
+                .setDefaultValue(StaticDefaults.DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA)
+                .setTooltip(Component.translatable("config.mineqtt.block_observer_export_block_entity_data.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.blockObserverExportBlockEntityData = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.rooms_max_size"), MineQTTConfig.roomsMaxSize)
+                .setDefaultValue(StaticDefaults.DEFAULT_ROOMS_MAX_SIZE)
+                .setTooltip(Component.translatable("config.mineqtt.rooms_max_size.tooltip"))
+                .setMin(StaticDefaults.MIN_ROOMS_MAX_SIZE)
+                .setMax(StaticDefaults.MAX_ROOMS_MAX_SIZE)
+                .setSaveConsumer(value -> MineQTTConfig.roomsMaxSize = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.limits_max_rooms_per_player"), MineQTTConfig.limitsMaxRoomsPerPlayer)
+                .setDefaultValue(StaticDefaults.DEFAULT_LIMITS_MAX_ROOMS_PER_PLAYER)
+                .setTooltip(Component.translatable("config.mineqtt.limits_max_rooms_per_player.tooltip"))
+                .setMin(0)
+                .setMax(StaticDefaults.MAX_ROOMS_PER_WORLD)
+                .setSaveConsumer(value -> MineQTTConfig.limitsMaxRoomsPerPlayer = value)
                 .build());
 
         // Dedicated Server Category

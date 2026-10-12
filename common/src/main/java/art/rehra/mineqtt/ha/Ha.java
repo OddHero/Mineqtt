@@ -5,6 +5,8 @@ import net.minecraft.util.StringRepresentable;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * Builders for the Home Assistant entities a device type declares (design §6.4). Each entity is named after its key
@@ -42,6 +44,15 @@ public final class Ha {
         List<String> options = Arrays.stream(field.defaultValue().getDeclaringClass().getEnumConstants())
                 .map(StringRepresentable::getSerializedName).toList();
         return new HaEntity.Select(HaEntity.Meta.of(key), field, options);
+    }
+
+    /**
+     * A select whose options come from {@code options} each time the device's discovery is built (M4 plan §3.2), over a
+     * TEXT or ENUM field; see {@link HaEntity.Select#currentOptions()}. A change of the options shows once discovery is
+     * refreshed ({@code DiscoveryPublisher#refreshDynamicOptions()}).
+     */
+    public static HaEntity.Select selectDynamic(String key, Field<?> field, Supplier<List<String>> options) {
+        return new HaEntity.Select(HaEntity.Meta.of(key), field, List.of(), Objects.requireNonNull(options, "options"), null);
     }
 
     public static HaEntity.Event event(String key, String... eventTypes) {

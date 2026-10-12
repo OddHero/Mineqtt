@@ -26,6 +26,9 @@ import art.rehra.mineqtt.mqtt.core.SubOptions;
 import art.rehra.mineqtt.mqtt.core.Subscription;
 import art.rehra.mineqtt.mqtt.core.TopicAcl;
 import art.rehra.mineqtt.network.MineqttNetworking;
+import art.rehra.mineqtt.rooms.Room;
+import art.rehra.mineqtt.rooms.RoomIndex;
+import art.rehra.mineqtt.rooms.RoomSwitch;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
 import art.rehra.mineqtt.runtime.TopicScheme;
 import art.rehra.mineqtt.security.AccessMode;
@@ -191,6 +194,9 @@ public final class DeviceRuntime {
     private final MineqttRuntime runtime;
     private final DeviceRegistry registry;
     private final Map<UUID, BlockEntity> attached = new HashMap<>();
+    // When each player last switched a room within the last second (RoomSwitch.admit drops older entries), on a
+    // monotonic clock in milliseconds.
+    private final Map<UUID, Long> roomSwitches = new HashMap<>();
     private final AttachQueue<BlockEntity> attachQueue = new AttachQueue<>();
     // Legacy blocks that become their successor on the next tick, before that tick's attaches (LegacyConverterBlock).
     private final AttachQueue<BlockEntity> conversions = new AttachQueue<>();
@@ -454,7 +460,7 @@ public final class DeviceRuntime {
 
             @Override
             public void twinHealthChanged(Collection<String> entityIds) {
-                // A target's entity leaving or rejoining the catalog changes its device's health too (wave 5 finding 3).
+                // A target's entity leaving or rejoining the catalog changes its device's health too.
                 entityIds.forEach(entity -> {
                     staleHealth.addAll(twinWiring.devices(entity));
                     staleHealth.addAll(twinWiring.targetDevices(entity));
@@ -491,7 +497,7 @@ public final class DeviceRuntime {
 
             @Override
             public void rateRefused(UUID device) {
-                // The Twin tab's health line counts the refused requests (wave 6 open finding 2).
+                // The Twin tab's health line counts the refused requests.
                 viewChanged(device);
             }
         });
@@ -668,6 +674,16 @@ public final class DeviceRuntime {
 
     public int attachedCount() {
         return attached.size();
+    }
+
+    /**
+     * Runs {@code action} for every attached device whose block entity is a {@code kind}, over a copy, so the action may
+     * change what is attached (the timers' next fire when the overworld clock stops or starts, M4 plan D2).
+     */
+    public <T> void forEachAttached(Class<T> kind, Consumer<? super T> action) {
+        for (BlockEntity blockEntity : List.copyOf(attached.values())) {
+            if (kind.isInstance(blockEntity)) action.accept(kind.cast(blockEntity));
+        }
     }
 
     /**
@@ -1477,7 +1493,7 @@ public final class DeviceRuntime {
         DeviceHost host = requireHost(blockEntity);
         Binding binding = host.deviceLink().twin();
         // A device with targets only reads nothing: it shows that its binding is refused, that a target's entity is no
-        // longer shared (wave 5 finding 3), or that its control is paused (M3-14).
+        // longer shared, or that its control is paused (M3-14).
         boolean switches = binding != null && (binding.bound() || !binding.targets().isEmpty());
         TwinHealth health = !switches ? null : binding.bound() ? runtime.twin().health(binding) : TwinRules.targetHealth(binding, runtime.twin()::readable);
         // The breaker paused its control (D10): reading goes on, and the device shows the pause until a player resumes it.
@@ -1617,7 +1633,7 @@ public final class DeviceRuntime {
     }
 
     /**
-     * The device's requests the rates refused since it was loaded or resumed (wave 5 finding 1), for its info and the
+     * The device's requests the rates refused since it was loaded or resumed, for its info and the
      * Twin tab's Diagnostics.
      */
     public Optional<TwinRequests.RateRefusals> twinRateRefusals(UUID id) {
@@ -1792,14 +1808,14 @@ public final class DeviceRuntime {
     }
 
     /**
-     * Clears the retained discovery messages of every device and group and of the bridge. With {@code oldBridge},
-     * also the retained bridge, device and group topics left under that bridge id.
+     * Clears the retained discovery messages of every device, group and presence device and of the bridge. With {@code oldBridge},
+     * also the retained bridge, device, group and presence topics left under that bridge id.
      *
      * @return the number of retained topics cleared
      */
     public int clearRetained(@Nullable String oldBridge) {
         if (stopping) return 0;
-        int cleared = runtime.discovery().clearAll();
+        int cleared = runtime.discovery().clearAll() + runtime.presence().clearDiscovery();
         List<String> topicsToClear = new ArrayList<>();
         if (oldBridge != null) {
             TopicScheme old = new TopicScheme(topics().base(), oldBridge);
@@ -1811,6 +1827,7 @@ public final class DeviceRuntime {
                 topicsToClear.add(old.availability(record.slug()));
             }
             registry.groups().forEach(group -> topicsToClear.add(old.group(group.slug())));
+            runtime.presence().devices().forEach(entry -> topicsToClear.add(old.player(entry.slug().orElseThrow())));
         }
         topicsToClear.forEach(topic -> mqtt().publish(Outbound.clear(topic)));
         return cleared + topicsToClear.size();
@@ -1926,6 +1943,30 @@ public final class DeviceRuntime {
             if (!stopping) runtime.discovery().refresh(record);
             viewChanged(member);
         }
+    }
+
+    /**
+     * A room was made, renamed, resized or removed (M4 plan D11; the registry holds it as it is now): every device inside
+     * its box before or after that it applies to ({@link RoomIndex#affected}), and the group of each, is checked by the
+     * discovery again, which publishes those whose {@code suggested_area} changed within its rate limit, and their open
+     * screens show the room anew.
+     *
+     * @param before the room before the edit, null for one just made
+     * @param after  the room after the edit, null for one just removed
+     * @return how many devices the edit may have moved into or out of the room
+     */
+    public int roomChanged(@Nullable Room before, @Nullable Room after) {
+        Set<UUID> affected = RoomIndex.affected(registry.records(), before, after);
+        Set<UUID> groups = new LinkedHashSet<>();
+        for (UUID id : affected) {
+            DeviceRecord record = registry.record(id);
+            if (record == null) continue;
+            if (record.group() != null) groups.add(record.group());
+            if (!stopping) runtime.discovery().refresh(record);
+            viewChanged(id);
+        }
+        if (!stopping) groups.stream().map(registry::group).filter(Objects::nonNull).forEach(runtime.discovery()::refresh);
+        return affected.size();
     }
 
     // Every open device screen gets its group page anew at the end of the tick.
@@ -2186,6 +2227,68 @@ public final class DeviceRuntime {
             DeviceRecord record = registry.record(id);
             return record != null && DeviceAccess.check(player, record, MineqttPermission.CONFIGURE);
         };
+    }
+
+    /** The block entity of a loaded device, for the explorer's actions; null while it is not attached. */
+    public @Nullable BlockEntity attachedBlockEntity(UUID id) {
+        return attached.get(id);
+    }
+
+    /**
+     * The Configurator explorer's Use (M4 plan D13): the type's declared use ({@link DeviceType#use()}) from anywhere, as
+     * a plain right-click would send it, through {@link #action}, so it reaches the device as the player's command
+     * ({@link CommandSource#PLAYER}) and an unloaded device that queues commands queues it. An unloaded device whose type
+     * is unavailable while unloaded is refused here with the reason, since nothing would take the command. The explorer
+     * has already judged whether the player finds the device and may interact where it stands.
+     */
+    public Configured explorerUse(DeviceRecord record, ServerPlayer player) {
+        DeviceType type = DeviceTypes.get(record.type());
+        Optional<Action> use = type == null ? Optional.empty() : type.use();
+        if (use.isEmpty() || use.get().handValue().isEmpty()) return Configured.refused(record.slug() + " has no use");
+        BlockEntity blockEntity = attached.get(record.id());
+        if (blockEntity == null && type.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE) {
+            return Configured.refused(record.slug() + " is not loaded, and a " + type.model() + " takes no commands until it is");
+        }
+        Editor editor = blockEntity != null ? Editor.of(player, blockEntity)
+                : new Editor(new DeviceView.Grants(DeviceAccess.check(player, record, MineqttPermission.USE),
+                DeviceAccess.check(player, record, MineqttPermission.CONFIGURE), false, false), AclContext.of(player), player);
+        return action(record, use.get().key(), use.get().handValue().orElseThrow(), editor);
+    }
+
+    /**
+     * A room's All on or All off (M4 plan D1, D13), from the explorer's room header or {@code /mineqtt rooms switch}: the
+     * switch state, as a player's command ({@link #set}), to every device of the room that {@code finds} lets the player
+     * reach and that switches on and off ({@link RoomSwitch#switches}: not a timer, whose state arms it;
+     * {@link RoomSwitch#targets}, at most {@value RoomSwitch#MAX_DEVICES}). A player
+     * switches a room at most once a second, whichever of the two they use; the console has no limit.
+     *
+     * @param player the player who switches, null for the console and command blocks
+     * @param finds  whether the switch may reach a device: the explorer's rule for a player, every device for the console
+     */
+    public RoomSwitch.Result roomSwitch(Room room, boolean on, @Nullable ServerPlayer player, Predicate<DeviceRecord> finds) {
+        if (player != null) {
+            if (!RoomSwitch.admit(roomSwitches, player.getUUID(), System.nanoTime() / 1_000_000L)) return RoomSwitch.Result.TOO_SOON;
+        }
+        RoomSwitch.Selection selection = RoomSwitch.targets(registry.records(), room, registry::roomOf, finds, record -> {
+            DeviceType type = DeviceTypes.get(record.type());
+            return type != null && RoomSwitch.switches(type);
+        });
+        JsonObject command = new JsonObject();
+        command.addProperty(Action.STATE, on ? "ON" : "OFF");
+        int applied = 0;
+        int unchanged = 0;
+        int queued = 0;
+        int refused = 0;
+        for (DeviceRecord record : selection.targets()) {
+            switch (set(record, command, player).result()) {
+                case APPLIED -> applied++;
+                case UNCHANGED -> unchanged++;
+                case QUEUED -> queued++;
+                case REFUSED -> refused++;
+            }
+            viewChanged(record.id());
+        }
+        return new RoomSwitch.Result(false, applied, unchanged, queued, refused, selection.skipped());
     }
 
     // These wires' devices list them: their open screens get the new list at the end of the tick. Asked before a removal.
@@ -2556,20 +2659,26 @@ public final class DeviceRuntime {
     }
 
     /**
-     * Publishes an event on the device's action topic and emits it on the event's out-port; a bus-only event (M3 plan
-     * D16) is only emitted.
+     * Publishes an event on the device's action topic, and {@code rawPayload} to its Raw Link output when one is given,
+     * and emits it on the event's out-port; a bus-only event (M3 plan D16) is only emitted. An event with a minimum
+     * interval (M4 plan D3) that comes sooner than that after the device's last one of its type is published on neither
+     * topic and counted ({@link DeviceTraffic#admitEvent}); the bus carries every one, its per-source buckets bound it.
      *
+     * @param rawPayload what the Raw Link output publishes with the event; null for nothing
      * @throws IllegalArgumentException for an event its type does not declare (M2 plan §3.8 #5): a bug in the device
      */
-    void publishEvent(DeviceHost host, JsonObject event) {
+    void publishEvent(DeviceHost host, JsonObject event, @Nullable String rawPayload) {
         host.deviceType().eventProblem(event).ifPresent(problem -> {
             throw new IllegalArgumentException("Device " + host.deviceLink().slug() + " may not publish " + event + ": " + problem);
         });
         DeviceRecord record = registry.record(host.deviceLink().id());
         if (stopping || record == null) return;
         String type = event.get(PortType.Event.TYPE_KEY).getAsString();
-        boolean busOnly = host.deviceType().event(type).map(EventSpec::busOnly).orElse(false);
-        if (!busOnly) publish(record.id(), Outbound.event(topics().action(record.slug()), event));
+        EventSpec spec = host.deviceType().event(type).orElseThrow();
+        if (!spec.busOnly() && traffic(record.id()).admitEvent(spec, Util.getMillis())) {
+            publish(record.id(), Outbound.event(topics().action(record.slug()), event));
+            if (rawPayload != null) publishRaw(host, rawPayload);
+        }
         emit(FlowMessage.Kind.EVENT, Endpoint.port(record.id(), type), type, event);
     }
 
@@ -2651,7 +2760,7 @@ public final class DeviceRuntime {
                 || !bound.equals(target)) {
             return MessageBus.Outcome.REFUSED;
         }
-        // An entity the catalog no longer shares is not switched (wave 5 finding 3): the press would be answered
+        // An entity the catalog no longer shares is not switched: the press would be answered
         // not_labelled. The device shows NOT_SHARED and switches it again once Home Assistant labels it again.
         if (!runtime.twin().readable(target.entityId())) {
             logOnce("twin-unshared:" + record.id() + ":" + target.entityId(), "Device {} does not switch {}: Home Assistant no longer shares it (label it "
@@ -3403,7 +3512,7 @@ public final class DeviceRuntime {
                 : Optional.ofNullable(twin).flatMap(known -> known.known(entityId)).map(known -> new TwinView.Entity(entityId, known.name(), known.area()))
                 .orElseGet(() -> new TwinView.Entity(entityId, "", ""));
         Optional<TwinView.Entity> source = binding == null ? Optional.empty() : binding.sourceEntity().map(entity);
-        // M3-17: an MQTT device source, named only for a viewer who may configure the device (wave 6 open finding 1).
+        // M3-17: an MQTT device source, named only for a viewer who may configure the device.
         Optional<TwinView.Device> device = binding == null ? Optional.empty() : binding.preset().map(preset -> !details ? TwinView.Device.HIDDEN
                 : new TwinView.Device(preset.id(), BindingPresets.get(preset.id()).map(BindingPreset::name).orElse(""), preset.device(),
                 binding.sourceTopic().orElse(""), preset.kind()));
@@ -3423,7 +3532,7 @@ public final class DeviceRuntime {
         String refused = details && binding != null && !binding.active() ? binding.refused() : "";
         Optional<String> answer = details && requests != null ? requests.answer(id).map(TwinRequests.Answer::status) : Optional.empty();
         TwinRules.Rights rights = TwinRules.Rights.of(viewer.permissions(), server.isDedicatedServer());
-        // Wave 6 open finding 2: the requests the rates refused; the count for everyone, the last one's target for CONFIGURE.
+        // The requests the rates refused; the count for everyone, the last one's target for CONFIGURE.
         Optional<TwinRequests.RateRefusals> rate = requests == null ? Optional.empty() : requests.rateRefusals(id);
         long rateRefused = rate.map(TwinRequests.RateRefusals::refused).orElse(0L);
         String rateLast = details ? rate.map(last -> last.target() + ": " + last.reason()).orElse("") : "";
@@ -3510,10 +3619,13 @@ public final class DeviceRuntime {
                 stats.droppedInbound(), stats.droppedOutbound());
     }
 
-    // What the bridge knows of a registered device for its screen: the root of its topics, its discovery and its group.
+    // What the bridge knows of a registered device for its screen: the root of its topics, its discovery, its group, its
+    // room and the area Home Assistant keeps when that is another (M4 plan D11).
     private DeviceView.Registration registration(DeviceRecord record) {
         DeviceGroup group = record.group() == null ? null : registry.group(record.group());
-        return new DeviceView.Registration(topics().root(), runtime.discovery().exposed(record), Optional.ofNullable(group).map(DeviceGroup::name));
+        return new DeviceView.Registration(topics().root(), runtime.discovery().exposed(record), Optional.ofNullable(group).map(DeviceGroup::name),
+                registry.roomOf(record).map(Room::name),
+                DeviceView.Registration.keptArea(record.discoveryHash() != null, record.discoveryArea(), runtime.discovery().area(record)));
     }
 
     /**
@@ -3979,16 +4091,6 @@ public final class DeviceRuntime {
         return root(source).map(own -> Root.nested(current, own)).orElse(current == null ? Root.WORLD : current);
     }
 
-    /**
-     * Runs {@code delivery}, a broker message that changes the world outside a device command, in a {@link Root#RAW}
-     * extent (M3 plan D10): the v1 Block Emitter's delivery, whose placed block can power a device in the same
-     * neighbour-update cascade. Anyone who may publish to that topic caused what follows, so none of it switches a real
-     * device.
-     */
-    public void fromBroker(Runnable delivery) {
-        bus.withRoot(Root.RAW, delivery);
-    }
-
     private Delivery routed(UUID target, JsonObject command, CommandSource source, @Nullable UUID origin, @Nullable Inbound message) {
         DeviceRecord record = registry.record(target);
         if (record != null) return deliver(record, DeviceTypes.get(record.type()), command, source, origin, message);
@@ -4214,8 +4316,9 @@ public final class DeviceRuntime {
                 || raw.direction() != RawLinkSpec.Direction.IN || !raw.active() || followedByGroup(registry.record(id), raw)) {
             return;
         }
-        // A mirrored device follows its source alone (M3 plan D6): its Raw Link input pauses until it is unbound.
-        if (rawPaused(link)) return;
+        // A mirrored device follows its source alone (M3 plan D6): its Raw Link input pauses until it is unbound. A device
+        // may close its input for a reason of its own (M4 plan D12: a Block Placer while blockPlacer.enabled is off).
+        if (rawPaused(link) || !host.rawInputOpen()) return;
         Optional<String> refusal = rawRefusal(link, raw);
         if (refusal.isPresent()) {
             // A device whose v1 owner is still being looked up tries again once the owner is known.
@@ -4239,6 +4342,15 @@ public final class DeviceRuntime {
                 ignored(id, message);
             }
         }));
+    }
+
+    /**
+     * From {@link DeviceLink#rawInputChanged}: the device's own answer to whether it follows its Raw Link input changed
+     * ({@link DeviceHost#rawInputOpen()}); its input is subscribed again or closed.
+     */
+    void rawInputChanged(DeviceHost host) {
+        openRaw(host, host.deviceType());
+        viewChanged(host.deviceLink().id());
     }
 
     private void closeRaw(UUID id) {

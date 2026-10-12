@@ -3,6 +3,8 @@ package art.rehra.mineqtt.fabric.gametest;
 import art.rehra.mineqtt.blocks.LightRemoteBlock;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.SmartPlugBlock;
+import art.rehra.mineqtt.blocks.TimerBlock;
+import art.rehra.mineqtt.blocks.entities.TimerBlockEntity;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceLink;
 import art.rehra.mineqtt.device.DeviceView;
@@ -14,6 +16,7 @@ import art.rehra.mineqtt.items.ConfiguratorMode;
 import art.rehra.mineqtt.items.CyberdeckDataUtil;
 import art.rehra.mineqtt.items.MineqttItems;
 import art.rehra.mineqtt.network.MineqttNetworking.BridgeActionPayload;
+import art.rehra.mineqtt.network.MineqttNetworking.DeviceActionPayload;
 import art.rehra.mineqtt.network.MineqttNetworking.DeviceConfigPayload;
 import art.rehra.mineqtt.security.AccessMode;
 import art.rehra.mineqtt.ui.console.BridgeAction;
@@ -51,10 +54,11 @@ import java.util.function.Predicate;
  * A player who may not build (P2, adventure mode) only uses MineQTT blocks, an operator too. A right-click still
  * switches the Smart Lamp and the Smart Plug and presses the Wall Switch. The lamp's screen shows its Controls tab alone,
  * whose switch works, with a view that names no topic, owner or traffic and neither links nor group page; a rename or an
- * access change sent anyway is dropped without a word. The Redstone Input, which has no controls, and the Alarm Clock,
- * whose screen only configures, open no screen and say why in the action bar; so do a name tag, a renamed paper and the
- * Configurator in its modes, within reach or from afar. The Bridge Console opens read-only for an operator, without its
- * actions, and drops one sent anyway. A game mode change while a screen is open rebuilds it as the new mode offers it, or
+ * access change sent anyway is dropped without a word. The Redstone Input, which has no controls, opens no screen and says
+ * why in the action bar; so do a name tag, a renamed paper and the Configurator in its modes, within reach or from afar. The
+ * Alarm Clock, a timer device, opens its Controls tab alone: its status line shows, Trigger now works, and its schedule is
+ * read-only, a time sent anyway changing nothing. The Bridge Console lists none of the player's own devices, which it
+ * lists in survival mode, and opens read-only for an operator, without its actions, and drops one sent anyway. A game mode change while a screen is open rebuilds it as the new mode offers it, or
  * closes it.
  */
 public final class AdventureGameTest implements FabricClientGameTest {
@@ -95,19 +99,22 @@ public final class AdventureGameTest implements FabricClientGameTest {
         session.aim(WALL, Direction.NORTH);
         session.pressUse();
         setblock(session, FAR_OUTPUT, "mineqtt:redstone_emitter_block");
-        for (BlockPos device : List.of(lamp, input, plug, SWITCH, FAR_OUTPUT)) {
+        for (BlockPos device : List.of(lamp, input, plug, SWITCH, FAR_OUTPUT, CLOCK)) {
             session.awaitServer(s -> s.overworld().getBlockEntity(device) instanceof DeviceHost host && host.deviceLink().attached());
         }
         session.hold(Items.AIR);
         GameType mode = session.onServer(s -> session.player(s).gameMode());
         session.check(mode == GameType.SURVIVAL, "the player starts in survival mode (" + mode + ")");
 
+        console(session, console, true);
         modeChangeWhileOpen(session, lamp, input);
         gameMode(session, GameType.ADVENTURE);
+        console(session, console, false);
         use(session, lamp, plug);
         wallSwitch(session);
         controlsOnly(session, lamp);
         noScreen(session, input);
+        timer(session);
         configureRefused(session, lamp, input);
         configurator(session, lamp);
         operator(session, lamp, console);
@@ -115,8 +122,8 @@ public final class AdventureGameTest implements FabricClientGameTest {
     }
 
     /**
-     * A screen open while the game mode changes is rebuilt as the new mode offers it: the lamp's six tabs become its
-     * Controls tab alone and back; the Alarm Clock's and the Redstone Input's screens close, with the reason in the
+     * A screen open while the game mode changes is rebuilt as the new mode offers it: the lamp's six tabs and the Alarm
+     * Clock's five become their Controls tab alone and back; the Redstone Input's screen closes, with the reason in the
      * action bar.
      */
     private static void modeChangeWhileOpen(GameTestSession session, BlockPos lamp, BlockPos input) {
@@ -134,19 +141,27 @@ public final class AdventureGameTest implements FabricClientGameTest {
                 && !menu.controlsOnly() && menu.tabs.size() == 6, ANSWER_TICKS), "back in survival mode it has all six tabs again (" + session.tabIds() + ")");
         session.closeScreen();
 
-        for (BlockPos block : List.of(CLOCK, input)) {
-            session.openBlock(block);
-            String name = session.onServer(s -> s.overworld().getBlockState(block).getBlock().getName().getString());
-            int mark = ChatLog.mark();
-            gameMode(session, GameType.ADVENTURE);
-            session.check(session.awaitClient(mc -> mc.gui.screen() == null, ANSWER_TICKS), "the " + name + "'s screen closes in adventure mode");
-            String reason = block.equals(CLOCK) ? name + " cannot be configured in this game mode"
-                    : name + " has no controls; devices can only be used in this game mode";
-            session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals(reason), ANSWER_TICKS).isPresent(),
-                    "and the action bar says why (messages: " + ChatLog.since(mark) + ")");
-            session.check(session.onServer(s -> session.player(s).containerMenu == session.player(s).inventoryMenu), "on the server too");
-            gameMode(session, GameType.SURVIVAL);
-        }
+        // The Alarm Clock is a timer device since M4: General, Controls, Advanced, Access and Diagnostics.
+        session.openBlock(CLOCK);
+        session.check(session.tabIds().size() == 5, "in survival the Alarm Clock's screen has its five tabs (" + session.tabIds() + ")");
+        int clockContainer = session.onClient(mc -> GameTestSession.openScreen(mc).getMenu().containerId);
+        gameMode(session, GameType.ADVENTURE);
+        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu().containerId != clockContainer
+                && screen.getMenu() instanceof DeviceMenu menu && menu.controlsOnly(), ANSWER_TICKS), "switched to adventure mode, the Alarm Clock's screen is rebuilt");
+        session.check(session.tabIds().equals(List.of(ControlsTab.ID)), "with its Controls tab alone (" + session.tabIds() + ")");
+        gameMode(session, GameType.SURVIVAL);
+        session.closeScreen();
+
+        session.openBlock(input);
+        String name = session.onServer(s -> s.overworld().getBlockState(input).getBlock().getName().getString());
+        int mark = ChatLog.mark();
+        gameMode(session, GameType.ADVENTURE);
+        session.check(session.awaitClient(mc -> mc.gui.screen() == null, ANSWER_TICKS), "the " + name + "'s screen closes in adventure mode");
+        String reason = name + " has no controls; devices can only be used in this game mode";
+        session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals(reason), ANSWER_TICKS).isPresent(),
+                "and the action bar says why (messages: " + ChatLog.since(mark) + ")");
+        session.check(session.onServer(s -> session.player(s).containerMenu == session.player(s).inventoryMenu), "on the server too");
+        gameMode(session, GameType.SURVIVAL);
     }
 
     /** In adventure mode a right-click still switches the lamp and the plug, and opens no screen. */
@@ -222,22 +237,49 @@ public final class AdventureGameTest implements FabricClientGameTest {
         session.closeScreen();
     }
 
-    /** The Redstone Input has no controls and the Alarm Clock's screen only configures: neither opens, and both say why. */
+    /** The Redstone Input has no controls: it opens no screen, and says why. */
     private static void noScreen(GameTestSession session, BlockPos input) {
         session.hold(Items.AIR);
-        for (BlockPos block : List.of(input, CLOCK)) {
-            String name = session.onServer(s -> s.overworld().getBlockState(block).getBlock().getName().getString());
-            String reason = block.equals(CLOCK) ? name + " cannot be configured in this game mode"
-                    : name + " has no controls; devices can only be used in this game mode";
-            int mark = ChatLog.mark();
-            session.aim(block);
-            session.pressUse();
-            session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals(reason), ANSWER_TICKS).isPresent(),
-                    "a right-click on the " + name + " says why in the action bar (messages: " + ChatLog.since(mark) + ")");
-            session.context().waitTicks(QUIET_TICKS);
-            session.check(noScreen(session), "and opens no screen");
-            if (block.equals(input)) session.screenshot("adventure_input_refused");
-        }
+        String name = session.onServer(s -> s.overworld().getBlockState(input).getBlock().getName().getString());
+        String reason = name + " has no controls; devices can only be used in this game mode";
+        int mark = ChatLog.mark();
+        session.aim(input);
+        session.pressUse();
+        session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals(reason), ANSWER_TICKS).isPresent(),
+                "a right-click on the " + name + " says why in the action bar (messages: " + ChatLog.since(mark) + ")");
+        session.context().waitTicks(QUIET_TICKS);
+        session.check(noScreen(session), "and opens no screen");
+        session.screenshot("adventure_input_refused");
+    }
+
+    /**
+     * M4-3: a right-click on the Alarm Clock, which has no use of its own, opens its Controls tab alone, with its status
+     * line; Trigger now works for a player who may use it, and its schedule is read-only: a time sent anyway changes
+     * nothing.
+     */
+    private static void timer(GameTestSession session) {
+        session.hold(Items.AIR);
+        session.aim(CLOCK);
+        session.pressUse();
+        session.context().waitForScreen(TabbedMqttScreen.class);
+        session.check(session.tabIds().equals(List.of(ControlsTab.ID)), "the Alarm Clock's screen has the Controls tab alone (" + session.tabIds() + ")");
+        DeviceView view = session.screenView().orElseThrow();
+        session.check(view.controlsOnly() && view.grants().equals(USE_ONLY) && !view.statusLine().isEmpty(),
+                "its view is controls-only, grants USE alone and carries the status line (" + view.statusLine() + ")");
+        session.screenshot("adventure_timer_controls");
+
+        session.send(new DeviceActionPayload(CLOCK, "trigger", "PRESS"));
+        session.check(session.await(() -> session.onServer(s -> s.overworld().getBlockState(CLOCK).getValue(TimerBlock.POWER)) == 15, ANSWER_TICKS),
+                "Trigger now pulses the Alarm Clock for a player who may use it");
+        String time = session.onServer(s -> ((TimerBlockEntity) s.overworld().getBlockEntity(CLOCK)).settings().time());
+        int mark = ChatLog.mark();
+        session.send(new DeviceConfigPayload(CLOCK, "time", StringTag.valueOf("07:15")));
+        session.context().waitTicks(QUIET_TICKS);
+        session.check(time.equals(session.onServer(s -> ((TimerBlockEntity) s.overworld().getBlockEntity(CLOCK)).settings().time())),
+                "a time sent anyway changes nothing (" + time + ")");
+        session.check(ChatLog.since(mark).stream().noneMatch(line -> line.text().startsWith("Not changed")),
+                "the guard drops it without a word (messages: " + ChatLog.since(mark) + ")");
+        session.closeScreen();
     }
 
     /** A named name tag on the lamp and a renamed paper on the Redstone Input are refused in the action bar. */
@@ -293,6 +335,23 @@ public final class AdventureGameTest implements FabricClientGameTest {
         session.context().waitTicks(QUIET_TICKS);
         session.check(noScreen(session), "no screen opened");
         session.hold(Items.AIR);
+    }
+
+    /**
+     * The Bridge Console of a player who is no operator lists the devices they may configure: their own in survival mode,
+     * none in adventure mode, where they may configure nothing.
+     */
+    private static void console(GameTestSession session, BlockPos console, boolean mayBuild) {
+        session.openBlock(console);
+        ConsoleView view = session.onClient(mc -> ((ConsoleMenu) GameTestSession.openScreen(mc).getMenu()).view());
+        List<String> slugs = view.devices().stream().map(ConsoleView.DeviceRow::slug).toList();
+        if (mayBuild) {
+            session.check(!view.operator() && slugs.size() >= 3, "in survival mode the Bridge Console lists the player's own devices (" + slugs + ")");
+        } else {
+            session.check(!view.operator() && slugs.isEmpty() && view.groups().isEmpty(),
+                    "in adventure mode it opens read-only and lists none of them, as the player may configure none (" + slugs + ")");
+        }
+        session.closeScreen();
     }
 
     /**

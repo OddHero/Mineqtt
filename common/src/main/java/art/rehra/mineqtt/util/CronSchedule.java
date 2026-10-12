@@ -1,7 +1,9 @@
 package art.rehra.mineqtt.util;
 
 import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,7 +22,8 @@ import java.util.List;
  *   <li>Weekday: 0-6 (0 = Sunday, 1 = Monday, ..., 6 = Saturday)</li>
  * </ul>
  *
- * <p>Each field supports wildcards, exact values, ranges, lists, and steps.</p>
+ * <p>Each field supports wildcards, exact values, ranges, lists, and steps: {@code *&#47;5} takes every fifth value from the
+ * field's first, {@code 10-30/5} every fifth within the range, {@code 5/15} every fifteenth from 5 to the field's last.</p>
  * <p>Example: {@code * * * 9 * * 1-5} fires every tick, every second, every minute at 9 AM on weekdays.</p>
  */
 public class CronSchedule {
@@ -149,7 +152,8 @@ public class CronSchedule {
             }
 
             if (seg.equals("*")) {
-                for (int i = min; i <= max; i++) {
+                // */n: every n-th value from the field's first.
+                for (int i = min; i <= max; i += step) {
                     values.add(i);
                 }
             } else {
@@ -184,7 +188,14 @@ public class CronSchedule {
                     if (val < min || val > max) {
                         throw new IllegalArgumentException(name + " value out of range (" + min + "-" + max + "): " + val);
                     }
-                    values.add(val);
+                    if (stepIdx == -1) {
+                        values.add(val);
+                    } else {
+                        // v/n: every n-th value from v to the field's last.
+                        for (int i = val; i <= max; i += step) {
+                            values.add(i);
+                        }
+                    }
                 }
             }
         }
@@ -237,44 +248,64 @@ public class CronSchedule {
     }
 
     /**
-     * Finds the next trigger time after the given instant.
-     * Searches at second granularity (tick field is ignored for next-trigger display).
+     * Finds the next trigger time after the given instant, at most 400 days ahead, or null when there is none.
+     * Searches at second granularity (tick field is ignored for next-trigger display). It goes a day at a time and looks
+     * at the time of day only on a day whose day of month, month and weekday match, so a search takes at most about 400
+     * steps whatever the expression. The result keeps the start's fraction of a second.
      */
     public static LocalDateTime findNextTrigger(CronSchedule schedule, LocalDateTime start, ZoneId zone) {
         LocalDateTime candidate = start.plusSeconds(1);
         LocalDateTime limit = start.plusDays(400); // Search up to ~1 year ahead
-
-        while (!candidate.isAfter(limit)) {
-            if (schedule.matchesTime(candidate)) {
-                return candidate;
+        LocalTime floor = candidate.toLocalTime().withNano(0);
+        for (LocalDate day = candidate.toLocalDate(); !day.isAfter(limit.toLocalDate()); day = day.plusDays(1)) {
+            if (schedule.matchesDate(day)) {
+                LocalTime time = schedule.firstTimeFrom(floor);
+                if (time != null) {
+                    LocalDateTime next = day.atTime(time).withNano(candidate.getNano());
+                    return next.isAfter(limit) ? null : next;
+                }
             }
-            // Skip ahead intelligently
-            if (!schedule.second.matches(candidate.getSecond())) {
-                candidate = candidate.plusSeconds(1);
-            } else if (!schedule.minute.matches(candidate.getMinute())) {
-                candidate = candidate.plusMinutes(1).withSecond(0);
-            } else if (!schedule.hour.matches(candidate.getHour())) {
-                candidate = candidate.plusHours(1).withMinute(0).withSecond(0);
-            } else if (!schedule.dayOfMonth.matches(candidate.getDayOfMonth()) ||
-                    !schedule.month.matches(candidate.getMonthValue()) ||
-                    !schedule.weekday.matches(toCronWeekday(candidate.getDayOfWeek()))) {
-                candidate = candidate.plusDays(1).withHour(0).withMinute(0).withSecond(0);
-            } else {
-                candidate = candidate.plusSeconds(1);
+            floor = LocalTime.MIDNIGHT;
+        }
+        return null;
+    }
+
+    // Whether the day of month, month and weekday all match.
+    private boolean matchesDate(LocalDate day) {
+        return dayOfMonth.matches(day.getDayOfMonth()) && month.matches(day.getMonthValue()) && weekday.matches(toCronWeekday(day.getDayOfWeek()));
+    }
+
+    // The first time of day at or after from (to the second) whose hour, minute and second match, or null for none.
+    private LocalTime firstTimeFrom(LocalTime from) {
+        for (int h = hour.ceiling(from.getHour()); h >= 0; h = hour.ceiling(h + 1)) {
+            boolean sameHour = h == from.getHour();
+            for (int m = minute.ceiling(sameHour ? from.getMinute() : 0); m >= 0; m = minute.ceiling(m + 1)) {
+                int s = second.ceiling(sameHour && m == from.getMinute() ? from.getSecond() : 0);
+                if (s >= 0) return LocalTime.of(h, m, s);
             }
         }
         return null;
     }
 
     private static class Field {
-        private final List<Integer> values;
+        // Bit v is set when the field takes the value v; every field's values lie within 0-59.
+        private final long values;
 
         Field(List<Integer> values) {
-            this.values = List.copyOf(values);
+            long bits = 0;
+            for (int value : values) bits |= 1L << value;
+            this.values = bits;
         }
 
         boolean matches(int value) {
-            return values.contains(value);
+            return value >= 0 && value < Long.SIZE && (values >>> value & 1) != 0;
+        }
+
+        // The smallest value the field takes at or above from, or -1 for none.
+        int ceiling(int from) {
+            if (from >= Long.SIZE) return -1;
+            long above = values & (-1L << Math.max(from, 0));
+            return above == 0 ? -1 : Long.numberOfTrailingZeros(above);
         }
     }
 }

@@ -1,0 +1,106 @@
+{
+  "dev": {
+    "ids": [
+      "mineqtt_7173e000000040008000000000000002"
+    ],
+    "name": "Porch Daylight Timer",
+    "mf": "MineQTT",
+    "mdl": "Daylight Timer",
+    "mdl_id": "mineqtt:game_time_timer",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/porch_game_time_timer/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "qos": 1,
+  "cmps": {
+    "enabled": {
+      "p": "switch",
+      "unique_id": "mineqtt_7173e000000040008000000000000002_enabled",
+      "name": null,
+      "state_topic": "mineqtt/world_7f3a/porch_game_time_timer",
+      "command_topic": "mineqtt/world_7f3a/porch_game_time_timer/set",
+      "value_template": "{{ 'OFF' if value_json.enabled == false else 'ON' }}",
+      "payload_on": "{\"state\":\"ON\"}",
+      "payload_off": "{\"state\":\"OFF\"}",
+      "state_on": "ON",
+      "state_off": "OFF",
+      "retain": false
+    },
+    "fired": {
+      "p": "event",
+      "unique_id": "mineqtt_7173e000000040008000000000000002_fired",
+      "name": "Fired",
+      "state_topic": "mineqtt/world_7f3a/porch_game_time_timer/action",
+      "event_types": [
+        "fired"
+      ]
+    },
+    "trigger": {
+      "p": "button",
+      "unique_id": "mineqtt_7173e000000040008000000000000002_trigger",
+      "name": "Trigger now",
+      "command_topic": "mineqtt/world_7f3a/porch_game_time_timer/set/trigger",
+      "payload_press": "PRESS",
+      "retain": false
+    },
+    "next_fire": {
+      "p": "sensor",
+      "unique_id": "mineqtt_7173e000000040008000000000000002_next_fire",
+      "name": "Next fire",
+      "state_topic": "mineqtt/world_7f3a/porch_game_time_timer",
+      "value_template": "{{ value_json.next_fire if value_json.next_fire else None }}",
+      "device_class": "timestamp"
+    },
+    "trigger_at": {
+      "p": "select",
+      "unique_id": "mineqtt_7173e000000040008000000000000002_trigger_at",
+      "name": "Trigger at",
+      "state_topic": "mineqtt/world_7f3a/porch_game_time_timer",
+      "value_template": "{{ value_json.trigger_at }}",
+      "command_topic": "mineqtt/world_7f3a/porch_game_time_timer/set/trigger_at",
+      "options": [
+        "sunrise",
+        "noon",
+        "sunset",
+        "midnight",
+        "custom"
+      ],
+      "retain": false,
+      "entity_category": "config"
+    },
+    "time": {
+      "p": "text",
+      "unique_id": "mineqtt_7173e000000040008000000000000002_time",
+      "name": "Time",
+      "state_topic": "mineqtt/world_7f3a/porch_game_time_timer",
+      "value_template": "{{ value_json.time }}",
+      "command_topic": "mineqtt/world_7f3a/porch_game_time_timer/set/time",
+      "max": 5,
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+      "retain": false,
+      "entity_category": "config"
+    },
+    "location": {
+      "p": "sensor",
+      "unique_id": "mineqtt_7173e000000040008000000000000002_location",
+      "name": "Location",
+      "state_topic": "mineqtt/world_7f3a/porch_game_time_timer",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  }
+}

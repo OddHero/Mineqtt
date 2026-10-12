@@ -7,6 +7,7 @@ import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.WallSwitch;
 import art.rehra.mineqtt.flow.core.Endpoint;
 import art.rehra.mineqtt.flow.core.FlowMessage;
@@ -86,6 +87,7 @@ public final class LifecycleGuardTest {
         attachHandBack();
         removalTable();
         placementSanitiser();
+        timers();
         unseenRevalidation();
         claim();
         exposeMerge();
@@ -111,6 +113,28 @@ public final class LifecycleGuardTest {
         check(DeviceLink.removal(true, false) == DeviceLink.Removal.DETACH, "Loaded chunk, same block: the chunk is unloading");
         check(DeviceLink.removal(false, false) == DeviceLink.Removal.DETACH, "Chunk gone: unload");
         check(DeviceLink.removal(false, true) == DeviceLink.Removal.DETACH, "Without the chunk nothing proves a replacement");
+    }
+
+    /**
+     * M4-3 (plan D2, D4): a timer is unavailable while unloaded, so a command to an unloaded one is dropped, never queued;
+     * a timer item placed with v1 data is adopted as a placement: the placer owns it, no Raw Link, no legacy items.
+     */
+    private static void timers() {
+        for (DeviceType timer : Timers.all()) {
+            check(plain(false, timer, false) == DeviceRuntime.Route.DROP && plain(false, timer, true) == DeviceRuntime.Route.APPLY,
+                    timer + ": a loaded timer takes a command, an unloaded one drops it (a queued trigger would be a stale world edit)");
+        }
+        CompoundTag v1 = new CompoundTag();
+        v1.putString("ownerName", "Steve");
+        v1.putBoolean("privateMode", true);
+        v1.putString("lastTabId", "alarm_clock");
+        v1.putInt("alarmTime", 6000);
+        DeviceLink placed = new DeviceLink(Timers.ALARM_CLOCK);
+        placed.load(TagValueInput.create(ProblemReporter.DISCARDING, RegistryAccess.EMPTY, v1), true);
+        check(placed.awaitingAdoption(), "A timer item's v1 data waits as v1 data");
+        placed.sanitizePlaced(PLACER, "Alex", raw -> Optional.empty());
+        check(!placed.awaitingAdoption() && placed.raw() == null && placed.legacyItems().isEmpty() && PLACER.equals(placed.owner()) && placed.id() != null
+                && !placed.privateMode(), "Placed, it is adopted at once: the placer owns it, without a Raw Link, legacy items or v1's private mode");
     }
 
     private static void placementSanitiser() {
@@ -466,8 +490,10 @@ public final class LifecycleGuardTest {
 
         for (DeviceType type : Arrays.asList(lamp, output, noRawLink, null)) {
             for (Interaction.Held held : Interaction.Held.values()) {
-                // Sneaking configures; only a block in hand is placed against the block, as vanilla lets one place against a chest.
-                Interaction.Outcome expected = held == Interaction.Held.PLACEABLE ? Interaction.Outcome.PASS : Interaction.Outcome.SCREEN;
+                // Sneaking configures; only a block in hand is placed against the block, as vanilla lets one place against a chest,
+                // and Room mode picks a room that holds the block (M4 plan D11).
+                Interaction.Outcome expected = held == Interaction.Held.PLACEABLE ? Interaction.Outcome.PASS
+                        : held == Interaction.Held.CONFIGURATOR_ROOM ? Interaction.Outcome.ROOM : Interaction.Outcome.SCREEN;
                 Interaction.Outcome sneaking = Interaction.decide(true, held, type);
                 check(sneaking == expected, "Sneak + right-click with " + held + " on " + type + ": " + sneaking + ", expected " + expected);
             }
@@ -480,6 +506,8 @@ public final class LifecycleGuardTest {
             // M3-13 (D19): in Bind mode a plain click opens the Twin tab with the picker; a device without a twin, or a block
             // that is no device, is told so where the click is carried out.
             check(Interaction.decide(false, Interaction.Held.CONFIGURATOR_BIND, type) == Interaction.Outcome.BIND, "The Configurator in Bind mode binds " + type);
+            // M4 plan D11: in Room mode the block is a corner, whatever it is; the device is not used.
+            check(Interaction.decide(false, Interaction.Held.CONFIGURATOR_ROOM, type) == Interaction.Outcome.ROOM, "The Configurator in Room mode takes " + type + " as a corner");
         }
         check(Interaction.decide(false, Interaction.Held.CONFIGURATOR_BIND, SmartLamp.TYPE) == Interaction.Outcome.BIND
                         && Interaction.decide(true, Interaction.Held.CONFIGURATOR_BIND, SmartLamp.TYPE) == Interaction.Outcome.SCREEN,
@@ -546,10 +574,20 @@ public final class LifecycleGuardTest {
             modes.add(mode);
             mode = mode.next();
         } while (mode != ConfiguratorMode.CONFIGURE);
-        check(modes.equals(List.of(ConfiguratorMode.CONFIGURE, ConfiguratorMode.LINK, ConfiguratorMode.GROUP, ConfiguratorMode.COPY_PASTE, ConfiguratorMode.BIND)),
-                "The Configurator steps Configure, Link, Group, Copy-Paste, Bind and back to Configure: " + modes);
+        check(modes.equals(List.of(ConfiguratorMode.CONFIGURE, ConfiguratorMode.LINK, ConfiguratorMode.GROUP, ConfiguratorMode.COPY_PASTE, ConfiguratorMode.BIND,
+                        ConfiguratorMode.ROOM)),
+                "The Configurator steps Configure, Link, Group, Copy-Paste, Bind, Room and back to Configure: " + modes);
         check(modes.stream().map(Interaction.Held::of).toList().equals(List.of(Interaction.Held.CONFIGURATOR, Interaction.Held.CONFIGURATOR_LINK,
-                Interaction.Held.CONFIGURATOR_GROUP, Interaction.Held.CONFIGURATOR_COPY, Interaction.Held.CONFIGURATOR_BIND)), "Each mode is its own kind of Configurator in hand");
+                Interaction.Held.CONFIGURATOR_GROUP, Interaction.Held.CONFIGURATOR_COPY, Interaction.Held.CONFIGURATOR_BIND, Interaction.Held.CONFIGURATOR_ROOM)),
+                "Each mode is its own kind of Configurator in hand");
+        // M4 plan D11, R15: Room is appended, so every stored name and every ordinal sent before keeps its mode.
+        check(ConfiguratorMode.ROOM.ordinal() == 5 && ConfiguratorMode.BIND.ordinal() == 4 && ConfiguratorMode.CONFIGURE.ordinal() == 0,
+                "Room mode comes last; the modes before it keep their ordinals");
+        check(ConfiguratorMode.CODEC.parse(com.mojang.serialization.JsonOps.INSTANCE, new com.google.gson.JsonPrimitive("room")).result()
+                .equals(Optional.of(ConfiguratorMode.ROOM)), "Room mode is stored as room");
+        io.netty.buffer.ByteBuf modeBuf = io.netty.buffer.Unpooled.buffer();
+        ConfiguratorMode.STREAM_CODEC.encode(modeBuf, ConfiguratorMode.ROOM);
+        check(ConfiguratorMode.STREAM_CODEC.decode(modeBuf) == ConfiguratorMode.ROOM, "Room mode goes through the stream codec");
         check(ConfiguratorMode.BIND.getSerializedName().equals("bind") && ConfiguratorMode.CODEC.parse(com.mojang.serialization.JsonOps.INSTANCE,
                 new com.google.gson.JsonPrimitive("bind")).result().equals(Optional.of(ConfiguratorMode.BIND)), "Bind mode is stored as bind");
     }

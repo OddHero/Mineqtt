@@ -229,7 +229,7 @@ public final class HaDomains {
     }
 
     /**
-     * The domains whose entities change only when they are triggered (wave 5 finding 2): a scene's state is the time it
+     * The domains whose entities change only when they are triggered: a scene's state is the time it
      * was last activated, a script's runs, a button's last press. Home Assistant gives such an entity a new
      * {@code last_updated} at every start without statestream publishing it, so missing live values say nothing about
      * the {@code mqtt_statestream} include, and no drift is inferred for them ({@link #infersDrift}).

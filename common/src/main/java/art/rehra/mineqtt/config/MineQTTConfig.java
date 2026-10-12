@@ -44,6 +44,20 @@ public class MineQTTConfig {
     public static int limitsMaxDevicesPerPlayer;
     public static int limitsMaxWiresPerPlayer;
 
+    // World telemetry, players, the Block Placer and Observer, rooms (M4 plan D16)
+    public static boolean telemetryEnabled;
+    public static int telemetryIntervalSeconds;
+    public static TelemetryPlayers telemetryPlayers;
+    public static boolean telemetryPublishPlayerNames;
+    public static boolean telemetryAllowBroadcast;
+    public static int telemetryMaxPresenceDevices;
+    public static int telemetryForgetAfterDays;
+    public static AutoBoolean blockPlacerPlayersMayConfigure;
+    public static boolean blockPlacerConsumeItems;
+    public static boolean blockObserverExportBlockEntityData;
+    public static int roomsMaxSize;
+    public static int limitsMaxRoomsPerPlayer;
+
     // Home Assistant twin (M3 plan D13)
     /** Normalized by {@link #sanitize()} (no trailing {@code /}); empty means no statestream base. */
     public static String twinStatestreamBase;
@@ -85,6 +99,18 @@ public class MineQTTConfig {
         blockPlacerEnabled = StaticDefaults.DEFAULT_BLOCK_PLACER_ENABLED;
         limitsMaxDevicesPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER;
         limitsMaxWiresPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER;
+        telemetryEnabled = StaticDefaults.DEFAULT_TELEMETRY_ENABLED;
+        telemetryIntervalSeconds = StaticDefaults.DEFAULT_TELEMETRY_INTERVAL_SECONDS;
+        telemetryPlayers = StaticDefaults.DEFAULT_TELEMETRY_PLAYERS;
+        telemetryPublishPlayerNames = StaticDefaults.DEFAULT_TELEMETRY_PUBLISH_PLAYER_NAMES;
+        telemetryAllowBroadcast = StaticDefaults.DEFAULT_TELEMETRY_ALLOW_BROADCAST;
+        telemetryMaxPresenceDevices = StaticDefaults.DEFAULT_TELEMETRY_MAX_PRESENCE_DEVICES;
+        telemetryForgetAfterDays = StaticDefaults.DEFAULT_TELEMETRY_FORGET_AFTER_DAYS;
+        blockPlacerPlayersMayConfigure = StaticDefaults.DEFAULT_BLOCK_PLACER_PLAYERS_MAY_CONFIGURE;
+        blockPlacerConsumeItems = StaticDefaults.DEFAULT_BLOCK_PLACER_CONSUME_ITEMS;
+        blockObserverExportBlockEntityData = StaticDefaults.DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA;
+        roomsMaxSize = StaticDefaults.DEFAULT_ROOMS_MAX_SIZE;
+        limitsMaxRoomsPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_ROOMS_PER_PLAYER;
         twinStatestreamBase = StaticDefaults.DEFAULT_TWIN_STATESTREAM_BASE;
         twinAllowedEntities = StaticDefaults.DEFAULT_TWIN_ALLOWED_ENTITIES;
         twinHaActionAllowlist = StaticDefaults.DEFAULT_TWIN_HA_ACTION_ALLOWLIST;
@@ -158,6 +184,7 @@ public class MineQTTConfig {
             limitsMaxWiresPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER;
         }
         sanitizeTwin(problems);
+        sanitizeWorld(problems);
         if (legacyV1StatusTopic == null) legacyV1StatusTopic = StaticDefaults.DEFAULT_LEGACY_V1_STATUS_TOPIC;
         return problems;
     }
@@ -224,6 +251,48 @@ public class MineQTTConfig {
                     + ", using " + StaticDefaults.DEFAULT_TWIN_CATALOG_MAX);
             twinCatalogMax = StaticDefaults.DEFAULT_TWIN_CATALOG_MAX;
         }
+    }
+
+    /**
+     * The {@code telemetry.*}, {@code blockPlacer.*}, {@code blockObserver.*} and {@code rooms.*} keys and
+     * {@code limits.maxRoomsPerPlayer} (M4 plan D16). A number out of its range falls back to its default.
+     */
+    private static void sanitizeWorld(List<String> problems) {
+        if (!ConfigValidation.isValidTelemetryIntervalSeconds(telemetryIntervalSeconds)) {
+            problems.add("telemetry.intervalSeconds: " + telemetryIntervalSeconds + " is outside " + StaticDefaults.MIN_TELEMETRY_INTERVAL_SECONDS
+                    + "-" + StaticDefaults.MAX_TELEMETRY_INTERVAL_SECONDS + ", using " + StaticDefaults.DEFAULT_TELEMETRY_INTERVAL_SECONDS);
+            telemetryIntervalSeconds = StaticDefaults.DEFAULT_TELEMETRY_INTERVAL_SECONDS;
+        }
+        if (telemetryPlayers == null) telemetryPlayers = StaticDefaults.DEFAULT_TELEMETRY_PLAYERS;
+        if (!ConfigValidation.isValidTelemetryMaxPresenceDevices(telemetryMaxPresenceDevices)) {
+            problems.add("telemetry.maxPresenceDevices: " + telemetryMaxPresenceDevices + " is outside " + StaticDefaults.MIN_TELEMETRY_MAX_PRESENCE_DEVICES
+                    + "-" + StaticDefaults.MAX_TELEMETRY_MAX_PRESENCE_DEVICES + ", using " + StaticDefaults.DEFAULT_TELEMETRY_MAX_PRESENCE_DEVICES);
+            telemetryMaxPresenceDevices = StaticDefaults.DEFAULT_TELEMETRY_MAX_PRESENCE_DEVICES;
+        }
+        if (!ConfigValidation.isValidTelemetryForgetAfterDays(telemetryForgetAfterDays)) {
+            problems.add("telemetry.forgetAfterDays: " + telemetryForgetAfterDays + " is outside 0-" + StaticDefaults.MAX_TELEMETRY_FORGET_AFTER_DAYS
+                    + " (0 = never), using " + StaticDefaults.DEFAULT_TELEMETRY_FORGET_AFTER_DAYS);
+            telemetryForgetAfterDays = StaticDefaults.DEFAULT_TELEMETRY_FORGET_AFTER_DAYS;
+        }
+        if (blockPlacerPlayersMayConfigure == null) blockPlacerPlayersMayConfigure = StaticDefaults.DEFAULT_BLOCK_PLACER_PLAYERS_MAY_CONFIGURE;
+        if (!ConfigValidation.isValidRoomsMaxSize(roomsMaxSize)) {
+            problems.add("rooms.maxSize: " + roomsMaxSize + " is outside " + StaticDefaults.MIN_ROOMS_MAX_SIZE + "-" + StaticDefaults.MAX_ROOMS_MAX_SIZE
+                    + ", using " + StaticDefaults.DEFAULT_ROOMS_MAX_SIZE);
+            roomsMaxSize = StaticDefaults.DEFAULT_ROOMS_MAX_SIZE;
+        }
+        if (!ConfigValidation.isValidLimitsMaxRoomsPerPlayer(limitsMaxRoomsPerPlayer)) {
+            problems.add("limits.maxRoomsPerPlayer: " + limitsMaxRoomsPerPlayer + " is outside 0-" + StaticDefaults.MAX_ROOMS_PER_WORLD
+                    + " (0 = unlimited), using " + StaticDefaults.DEFAULT_LIMITS_MAX_ROOMS_PER_PLAYER);
+            limitsMaxRoomsPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_ROOMS_PER_PLAYER;
+        }
+    }
+
+    /**
+     * The effective {@code blockPlacer.playersMayConfigure} (M4 plan D12): AUTO means every player who may configure
+     * the block on integrated servers, operators only on dedicated servers.
+     */
+    public static boolean blockPlacerPlayersMayConfigure(boolean dedicatedServer) {
+        return blockPlacerPlayersMayConfigure.resolve(!dedicatedServer);
     }
 
     /**

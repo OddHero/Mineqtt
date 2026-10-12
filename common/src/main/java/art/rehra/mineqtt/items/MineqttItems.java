@@ -54,16 +54,16 @@ public class MineqttItems {
 
         LightRemoteBlock = registerItem("light_remote_block", () -> new DeviceBlockItem(MineqttBlocks.LIGHT_REMOTE_BLOCK.get(), baseProperties("light_remote_block")));
 
-        BlockSensorBlock = registerItem("block_sensor_block", () -> new BlockItem(MineqttBlocks.BLOCK_SENSOR_BLOCK.get(), baseProperties("block_sensor_block")));
-        BlockEmitterBlock = registerItem("block_emitter_block", () -> new BlockItem(MineqttBlocks.BLOCK_EMITTER_BLOCK.get(), baseProperties("block_emitter_block")));
-        CronTimerBlock = registerItem("cron_timer", () -> new BlockItem(MineqttBlocks.CRON_TIMER_BLOCK.get(), baseProperties("cron_timer")));
-        IntervalTimerBlock = registerItem("interval_timer", () -> new BlockItem(MineqttBlocks.INTERVAL_TIMER_BLOCK.get(), baseProperties("interval_timer")));
+        BlockSensorBlock = registerItem("block_sensor_block", () -> new DeviceBlockItem(MineqttBlocks.BLOCK_SENSOR_BLOCK.get(), baseProperties("block_sensor_block")));
+        BlockEmitterBlock = registerItem("block_emitter_block", () -> new DeviceBlockItem(MineqttBlocks.BLOCK_EMITTER_BLOCK.get(), baseProperties("block_emitter_block")));
+        CronTimerBlock = registerItem("cron_timer", () -> new DeviceBlockItem(MineqttBlocks.CRON_TIMER_BLOCK.get(), baseProperties("cron_timer")));
+        IntervalTimerBlock = registerItem("interval_timer", () -> new DeviceBlockItem(MineqttBlocks.INTERVAL_TIMER_BLOCK.get(), baseProperties("interval_timer")));
         TemperatureSensorBlock = registerItem("temperature_sensor_block", () -> new DeviceBlockItem(MineqttBlocks.TEMPERATURE_SENSOR_BLOCK.get(), baseProperties("temperature_sensor_block")));
         // Converts into the Climate Sensor in any inventory that ticks it (M2-19).
         HumiditySensorBlock = registerItem("humidity_sensor_block", () -> new LegacyConverterBlock.ConverterItem((LegacyConverterBlock) MineqttBlocks.HUMIDITY_SENSOR_BLOCK.get(),
                 baseProperties("humidity_sensor_block")));
-        AlarmClockBlock = registerItem("alarm_clock", () -> new BlockItem(MineqttBlocks.ALARM_CLOCK_BLOCK.get(), baseProperties("alarm_clock")));
-        GameTimeTimerBlock = registerItem("game_time_timer", () -> new BlockItem(MineqttBlocks.GAME_TIME_TIMER_BLOCK.get(), baseProperties("game_time_timer")));
+        AlarmClockBlock = registerItem("alarm_clock", () -> new DeviceBlockItem(MineqttBlocks.ALARM_CLOCK_BLOCK.get(), baseProperties("alarm_clock")));
+        GameTimeTimerBlock = registerItem("game_time_timer", () -> new DeviceBlockItem(MineqttBlocks.GAME_TIME_TIMER_BLOCK.get(), baseProperties("game_time_timer")));
         // Converts into the Redstone Input in any inventory that ticks it (M2-20).
         StaticPublisherBlock = registerItem("static_publisher", () -> new LegacyConverterBlock.ConverterItem((LegacyConverterBlock) MineqttBlocks.STATIC_PUBLISHER_BLOCK.get(),
                 baseProperties("static_publisher")));

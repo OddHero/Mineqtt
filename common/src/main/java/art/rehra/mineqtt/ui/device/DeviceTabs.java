@@ -22,6 +22,7 @@ import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.IntTag;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 import java.math.BigDecimal;
@@ -50,10 +51,22 @@ public final class DeviceTabs {
         TOGGLE,
         /** A slider over the kind's whole numbers. */
         SLIDER,
+        /**
+         * A typed whole number within the kind's bounds (M4 plan D5), for a range a slider cannot pick from: more than
+         * {@value #NUMBER_FIELD_STEPS} steps, such as a timer's interval of 1 to 1 000 000. The server validates it.
+         */
+        NUMBER_FIELD,
         /** Brightness, hue, saturation and colour temperature of a JSON-schema light. */
         LIGHT,
         /** A button that fires an event action. */
         PRESS;
+
+        /**
+         * The most steps a whole number's slider covers; a wider range gets a {@link #NUMBER_FIELD}. The M4 plan says
+         * 1 000, but the Climate Sensor's interval (1 to 3 600 s) and the Presence Sensor's clear delay (0 to 3 600 s)
+         * would then lose their sliders in a task meant to change no shipped type, so the bound stays above them.
+         */
+        public static final long NUMBER_FIELD_STEPS = 10_000;
 
         /** How many rows of a tab the widget takes: the light picker four, any other one. */
         public int rows() {
@@ -70,7 +83,8 @@ public final class DeviceTabs {
                 case PortType.Enum _ -> Optional.of(CYCLE);
                 case PortType.Bool _ -> Optional.of(TOGGLE);
                 case PortType.Level _ -> Optional.of(SLIDER);
-                case PortType.Number number -> number.integral() ? Optional.of(SLIDER) : Optional.empty();
+                case PortType.Number number -> !number.integral() ? Optional.empty()
+                        : number.max() - number.min() > NUMBER_FIELD_STEPS ? Optional.of(NUMBER_FIELD) : Optional.of(SLIDER);
                 case PortType.Light _ -> Optional.of(LIGHT);
                 case PortType.Event _ -> Optional.of(PRESS);
                 case PortType.Color _, PortType.Json _ -> Optional.empty();
@@ -143,14 +157,25 @@ public final class DeviceTabs {
             return values.get((indexOf(current) + 1) % values.size());
         }
 
-        /** The lowest value of a {@link Widget#SLIDER}. */
+        /** The lowest value of a {@link Widget#SLIDER} or a {@link Widget#NUMBER_FIELD}. */
         public int min() {
-            return kind instanceof PortType.Number number ? (int) number.min() : 0;
+            return kind instanceof PortType.Number number ? (int) Math.max(number.min(), Integer.MIN_VALUE) : 0;
         }
 
-        /** The highest value of a {@link Widget#SLIDER}. */
+        /** The highest value of a {@link Widget#SLIDER} or a {@link Widget#NUMBER_FIELD}. */
         public int max() {
-            return kind instanceof PortType.Number number ? (int) number.max() : PortType.MAX_LEVEL;
+            return kind instanceof PortType.Number number ? (int) Math.min(number.max(), Integer.MAX_VALUE) : PortType.MAX_LEVEL;
+        }
+
+        /**
+         * The number a {@link Widget#NUMBER_FIELD} sends for the typed text: a whole number within the bounds; empty for
+         * anything else, which the field does not send (the server refuses rather than clamps).
+         */
+        public Optional<JsonElement> typedNumber(String typed) {
+            String text = typed.strip();
+            if (!text.matches("-?\\d{1,10}")) return Optional.empty();
+            long number = Long.parseLong(text);
+            return number < min() || number > max() ? Optional.empty() : Optional.of(new JsonPrimitive((int) number));
         }
 
         /** What a {@link Widget#SLIDER}'s number counts, e.g. {@code s} or {@code blocks}; empty for a level or a bare number. */
@@ -218,13 +243,15 @@ public final class DeviceTabs {
     }
 
     /**
-     * The generated tabs of a device of {@code type}, in tab-bar order: General, Controls when it has any, Twin when its
-     * type takes part in the Home Assistant twin (M3 plan D19), then Advanced, which every device has for its links,
-     * Access and Diagnostics.
+     * The generated tabs of a device of {@code type}, in tab-bar order: General, Controls when it has any, Schedule for the
+     * Cron Timer (M4 plan D5), Twin when its type takes part in the Home Assistant twin (M3 plan D19), then Advanced, which
+     * every device has for its links, Access and Diagnostics.
      */
     public static List<MqttTab> forType(DeviceType type) {
         List<MqttTab> tabs = new ArrayList<>(List.of(new GeneralTab(type)));
         if (!ControlsTab.controls(type).isEmpty()) tabs.add(new ControlsTab(type));
+        // The one custom tab (M4 plan D5): the Cron Timer's per-field editor of its expression.
+        if (CronScheduleTab.appliesTo(type)) tabs.add(new CronScheduleTab(type));
         if (type.twin().isPresent()) tabs.add(new TwinTab(type));
         tabs.add(new AdvancedTab(type));
         tabs.add(new AccessTab(type));
@@ -260,6 +287,22 @@ public final class DeviceTabs {
         if (name.isEmpty() || name.equals(view.name())) return Optional.of(view.slug());
         if (Slugs.fromName(name).isEmpty()) return Optional.empty();
         return Optional.of(Slugs.unique(name, slug -> false));
+    }
+
+    /** The General tab's room line (M4 plan D11): the name of the device's room, or none. */
+    public static Component roomValue(DeviceView view) {
+        return view.registration().room().<Component>map(Component::literal).orElse(Component.translatable("mineqtt.device.general.room.none"));
+    }
+
+    /**
+     * What the General tab says under its room line when the device was first created in Home Assistant with another area
+     * than its room suggests now, so Home Assistant may show another area: the one it was given then, or that it was given
+     * none, which some versions keep and others replace with the room's area. Worded so it never claims what Home
+     * Assistant did. Empty while they agree, and for a device Home Assistant does not hold.
+     */
+    public static Optional<Component> roomHint(DeviceView view) {
+        return view.registration().keptArea().map(area -> area.isEmpty() ? Component.translatable("mineqtt.device.general.room.kept_none")
+                : Component.translatable("mineqtt.device.general.room.kept", area));
     }
 
     /** The exposure value a view shows: {@code on}, {@code off} or {@code default} ({@link LinkSetting#EXPOSE_VALUES}). */

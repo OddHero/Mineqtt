@@ -152,7 +152,7 @@ final class TwinWiring {
     }
 
     /**
-     * The devices whose targets switch {@code entityId} now (wave 5 finding 3): their health follows the entity's share
+     * The devices whose targets switch {@code entityId} now: their health follows the entity's share
      * as a mirroring device's does.
      */
     List<UUID> targetDevices(String entityId) {

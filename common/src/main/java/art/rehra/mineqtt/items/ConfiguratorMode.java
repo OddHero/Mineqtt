@@ -15,14 +15,17 @@ import java.util.function.IntFunction;
  * steps to the next mode. Configure opens a device's screen, also from afar; Link wires one device to another
  * ({@link ConfiguratorLink}); Group puts devices into one group ({@link ConfiguratorGroup}); Copy-Paste copies one
  * device's settings onto others of its type ({@link ConfiguratorCopy}); Bind opens a device's Twin tab with the entity
- * picker, to bind it to Home Assistant ({@link ConfiguratorBind}, M3 plan D19). Room follows in a later milestone.
+ * picker, to bind it to Home Assistant ({@link ConfiguratorBind}, M3 plan D19); Room makes a room from two opposite
+ * corners and renames or removes one ({@link ConfiguratorRoom}, M4 plan D11). New modes are appended, as the mode is
+ * stored by name and sent by ordinal.
  */
 public enum ConfiguratorMode implements StringRepresentable {
     CONFIGURE("configure"),
     LINK("link"),
     GROUP("group"),
     COPY_PASTE("copy_paste"),
-    BIND("bind");
+    BIND("bind"),
+    ROOM("room");
 
     public static final Codec<ConfiguratorMode> CODEC = StringRepresentable.fromEnum(ConfiguratorMode::values);
     private static final IntFunction<ConfiguratorMode> BY_ID = ByIdMap.continuous(Enum::ordinal, values(), ByIdMap.OutOfBoundsStrategy.ZERO);

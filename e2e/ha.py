@@ -24,6 +24,22 @@
   python ha.py [--url URL] trace AUTOMATION [RUN_ID|last]
                                                     an automation's stored runs, or one run's full trace as JSON
                                                     (AUTOMATION: its config id or its automation.* entity id)
+World twin (M4):
+  python ha.py [--url URL] attrs ENTITY_ID          one entity's attributes as JSON
+  python ha.py [--url URL] press ENTITY_ID          press a button (button.* or input_button.*)
+  python ha.py [--url URL] set-text ENTITY_ID VALUE set a text entity (text.* or input_text.*); Home Assistant refuses
+                                                    a value outside the entity's pattern or length
+  python ha.py [--url URL] select ENTITY_ID OPTION  choose an option of a select (select.* or input_select.*)
+  python ha.py [--url URL] event-last ENTITY_ID [SECONDS]
+                                                    an event entity's last event: its time, event_type and attributes;
+                                                    with SECONDS, waits that long for a newer one and fails without it
+  python ha.py [--url URL] areas [create NAME|delete NAME]
+                                                    every area with its id and devices; create or delete one (an
+                                                    existing name, a missing one: nothing to do)
+  python ha.py [--url URL] area-of DEVICE           the area of the device with that name, and each of its entities
+                                                    that sits in another area
+  python ha.py [--url URL] dashboard-check FILE     every entity id a dashboard YAML names exists, belongs to a MineQTT
+                                                    device and is enabled
 
 URL defaults to $HA_URL or http://localhost:8123. The token is kept in e2e/.state/ (ignored by git). The test owner
 is "mineqtt" with the password "mineqtt-e2e": this is a throwaway instance, never use this against a real one.
@@ -32,6 +48,7 @@ import base64
 import datetime
 import json
 import os
+import re
 import socket
 import struct
 import sys
@@ -497,9 +514,201 @@ def trace(ha, args):
                                      "run_id": run_id})[0], indent=2))
 
 
+def attrs(ha, args):
+    if len(args) != 1:
+        sys.exit("usage: attrs ENTITY_ID")
+    print(json.dumps(ha.request("GET", "/api/states/" + args[0])["attributes"], indent=2, ensure_ascii=False))
+
+
+def entity_service(entity_id, services):
+    """The service of the entity's domain from {domain: service}; any other domain is refused."""
+    domain = entity_id.split(".", 1)[0]
+    if domain not in services:
+        sys.exit(f"{entity_id} is no {' or '.join(d + '.*' for d in services)} entity")
+    return domain, services[domain]
+
+
+def press(ha, args):
+    if len(args) != 1:
+        sys.exit("usage: press ENTITY_ID")
+    domain, service = entity_service(args[0], {"button": "press", "input_button": "press"})
+    ha.request("POST", f"/api/services/{domain}/{service}", {"entity_id": args[0]})
+    print(f"pressed {args[0]}")
+
+
+def set_text(ha, args):
+    if len(args) != 2:
+        sys.exit("usage: set-text ENTITY_ID VALUE")
+    domain, service = entity_service(args[0], {"text": "set_value", "input_text": "set_value"})
+    ha.request("POST", f"/api/services/{domain}/{service}", {"entity_id": args[0], "value": args[1]})
+    print(f"{args[0]}: set to {args[1]!r}")
+
+
+def select(ha, args):
+    if len(args) != 2:
+        sys.exit("usage: select ENTITY_ID OPTION")
+    domain, service = entity_service(args[0], {"select": "select_option", "input_select": "select_option"})
+    options = ha.request("GET", "/api/states/" + args[0])["attributes"].get("options") or []
+    if args[1] not in options:
+        sys.exit(f"{args[0]} has no option {args[1]!r}; its options: {options}")
+    ha.request("POST", f"/api/services/{domain}/{service}", {"entity_id": args[0], "option": args[1]})
+    print(f"{args[0]}: selected {args[1]!r}")
+
+
+# Attributes every event entity carries; event-last prints the others, the event's own data.
+EVENT_ENTITY_ATTRIBUTES = {"event_type", "event_types", "friendly_name", "device_class", "icon"}
+
+
+def event_line(item):
+    attributes = item["attributes"]
+    data = {k: v for k, v in attributes.items() if k not in EVENT_ENTITY_ATTRIBUTES}
+    return f"{item['state']} event_type={attributes.get('event_type')!r} data={json.dumps(data, ensure_ascii=False)}"
+
+
+def event_last(ha, args):
+    """An event entity's state is the time of its last event; its attributes hold the event's type and data."""
+    if not args or len(args) > 2 or not args[0].startswith("event."):
+        sys.exit("usage: event-last event.ENTITY [SECONDS]")
+    item = ha.request("GET", "/api/states/" + args[0])
+    if len(args) == 1:
+        print(event_line(item))
+        return
+    before = item["state"]
+    deadline = time.time() + float(args[1])
+    while time.time() < deadline:
+        time.sleep(1)
+        item = ha.request("GET", "/api/states/" + args[0])
+        if item["state"] not in (before, "unknown", "unavailable"):
+            print(event_line(item))
+            return
+    sys.exit(f"no new event of {args[0]} within {float(args[1]):g} s (last: {before})")
+
+
+def find_area(area_list, text):
+    """The area whose id is TEXT or whose name equals TEXT ignoring case."""
+    for entry in area_list:
+        if text == entry["area_id"] or text.casefold() == entry["name"].casefold():
+            return entry
+    return None
+
+
+def areas(ha, args):
+    """Home Assistant's areas: the ones onboarding made and the ones suggested_area created (M4 rooms)."""
+    action = args[0] if args else ""
+    # Both are idempotent, so a fixture set-up can run them on any instance.
+    if action == "create" and len(args) == 2:
+        entry = find_area(ha.ws_commands({"type": "config/area_registry/list"})[0], args[1])
+        if entry is not None:
+            print(f"area {entry['name']!r} exists already with the id {entry['area_id']}")
+            return
+        created = ha.ws_commands({"type": "config/area_registry/create", "name": args[1]})[0]
+        print(f"created area {created['name']!r} with the id {created['area_id']}")
+    elif action == "delete" and len(args) == 2:
+        entry = find_area(ha.ws_commands({"type": "config/area_registry/list"})[0], args[1])
+        if entry is None:
+            print(f"no area {args[1]!r}, nothing deleted")
+            return
+        ha.ws_commands({"type": "config/area_registry/delete", "area_id": entry["area_id"]})
+        print(f"deleted area {entry['name']!r}")
+    elif not args:
+        area_list, device_list = ha.ws_commands({"type": "config/area_registry/list"}, {"type": "config/device_registry/list"})
+        for entry in sorted(area_list, key=lambda e: e["name"].casefold()):
+            names = sorted(d.get("name_by_user") or d.get("name") or d["id"] for d in device_list if d.get("area_id") == entry["area_id"])
+            print(f"{entry['area_id']:24} name={entry['name']!r} devices={names}")
+        if not area_list:
+            print("no areas")
+    else:
+        sys.exit("usage: areas | areas create NAME | areas delete NAME")
+
+
+def area_of(ha, args):
+    """The area Home Assistant put a device in (suggested_area applies only when it creates the device)."""
+    if len(args) != 1:
+        sys.exit("usage: area-of DEVICE")
+    device = device_named(ha, args[0])
+    area_list, entity_list = ha.ws_commands({"type": "config/area_registry/list"}, {"type": "config/entity_registry/list"})
+    names = {a["area_id"]: a["name"] for a in area_list}
+    area_id = device.get("area_id")
+    print(f"{args[0]!r}: area={names.get(area_id, area_id)!r}" if area_id else f"{args[0]!r}: no area")
+    for e in sorted(entity_list, key=lambda e: e["entity_id"]):
+        if e.get("device_id") == device["id"] and e.get("area_id") and e["area_id"] != area_id:
+            print(f"  {e['entity_id']}: area={names.get(e['area_id'], e['area_id'])!r}")
+
+
+# Entity domains a dashboard can name; a word.word in the YAML whose first part is one of them is an entity id.
+ENTITY_DOMAINS = (
+    "alarm_control_panel automation binary_sensor button calendar camera climate counter cover date datetime "
+    "device_tracker event fan humidifier image input_boolean input_button input_datetime input_number input_select "
+    "input_text lawn_mower light lock media_player notify number person remote scene script select sensor siren sun "
+    "switch text time todo update vacuum valve water_heater weather zone").split()
+ENTITY_ID = re.compile(r"(?<![\w.:/-])(" + "|".join(ENTITY_DOMAINS) + r")\.([a-z0-9_]+)(?![\w.(])")
+
+
+def yaml_without_comments(text):
+    """The YAML text with its comments blanked: a # at the start of a line or after a blank, outside quotes."""
+    lines = []
+    for line in text.splitlines():
+        quote, kept = None, []
+        for index, char in enumerate(line):
+            if quote:
+                if char == quote:
+                    quote = None
+            elif char in "'\"":
+                quote = char
+            elif char == "#" and (index == 0 or line[index - 1] in " \t"):
+                break
+            kept.append(char)
+        lines.append("".join(kept))
+    return "\n".join(lines)
+
+
+def dashboard_entities(text):
+    """Every distinct entity id a dashboard YAML names, in order of appearance: entity: values, entities: list items
+    and ids inside templates alike. Standard library only, so the YAML is scanned, not parsed."""
+    found = []
+    for match in ENTITY_ID.finditer(yaml_without_comments(text)):
+        if match.group(0) not in found:
+            found.append(match.group(0))
+    return found
+
+
+def dashboard_check(ha, args):
+    """The example dashboard may only use what MineQTT creates: each entity id it names must be a registered entity of
+    a MineQTT device that is not disabled. It shows each id with its state; unavailable is reported but passes
+    (the game server may be stopped)."""
+    if len(args) != 1:
+        sys.exit("usage: dashboard-check FILE")
+    with open(args[0], encoding="utf-8") as f:
+        wanted = dashboard_entities(f.read())
+    if not wanted:
+        sys.exit(f"{args[0]} names no entity")
+    device_list, entity_list = registries(ha)
+    makers = {d["id"]: d.get("manufacturer") for d in device_list}
+    registry = {e["entity_id"]: e for e in entity_list}
+    states = {s["entity_id"]: s["state"] for s in ha.request("GET", "/api/states")}
+    failed = 0
+    for entity_id in wanted:
+        entry = registry.get(entity_id)
+        if entry is None:
+            verdict = "MISSING"
+        elif makers.get(entry.get("device_id")) != "MineQTT":
+            verdict = "NOT MINEQTT"
+        elif entry.get("disabled_by"):
+            verdict = f"DISABLED ({entry['disabled_by']})"
+        else:
+            verdict = "OK"
+        failed += verdict != "OK"
+        print(f"{verdict:16} {entity_id:52} state={states.get(entity_id)!r}")
+    print(f"dashboard-check: {len(wanted) - failed} of {len(wanted)} entities OK" + ("" if not failed else ", FAIL"))
+    if failed:
+        sys.exit(1)
+
+
 COMMANDS = {"onboard": onboard, "login": login, "mqtt": mqtt, "devices": devices, "entities": entities, "state": state,
             "call": call, "restart": restart, "dump": dump, "triggers": triggers, "watch": watch,
-            "label": label, "automation": automation, "logbook": logbook, "trace": trace}
+            "label": label, "automation": automation, "logbook": logbook, "trace": trace,
+            "attrs": attrs, "press": press, "set-text": set_text, "select": select, "event-last": event_last,
+            "areas": areas, "area-of": area_of, "dashboard-check": dashboard_check}
 
 
 def main(argv):

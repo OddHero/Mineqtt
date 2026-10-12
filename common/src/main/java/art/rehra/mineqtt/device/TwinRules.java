@@ -411,7 +411,7 @@ public final class TwinRules {
      * What of a device's queued command lands at its attach (D14, the old {@code :2088} guard): all of it for an unbound
      * device. A bound device's mirrored ports follow its source only, so their queued values never land, as Home
      * Assistant's or anyone's; the keys its source does not own (a lamp's effect), which the route table queues for an
-     * unloaded bound device as for any device, land as usual (wave 4 review).
+     * unloaded bound device as for any device, land as usual.
      *
      * @param adapter the device type's adapter; null drops everything a bound device queued
      * @return the command that lands, or null when nothing is left
@@ -438,7 +438,7 @@ public final class TwinRules {
     }
 
     /**
-     * The health a device with targets only shows (M3-14, wave 5 finding 3): {@link TwinHealth#REFUSED} while the rules
+     * The health a device with targets only shows (M3-14): {@link TwinHealth#REFUSED} while the rules
      * refuse its binding, {@link TwinHealth#NOT_SHARED} while Home Assistant no longer shares an entity a target switches
      * (it left the catalog, D3), healing when it is labelled again; else none (a device that switches reads nothing).
      *

@@ -1,0 +1,83 @@
+{
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/wall_builder/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "cmps": {
+    "block": {
+      "command_topic": "mineqtt/world_7f3a/wall_builder/set/block",
+      "name": "Block",
+      "options": [
+        "minecraft:glass",
+        "minecraft:white_wool"
+      ],
+      "p": "select",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/wall_builder",
+      "unique_id": "mineqtt_7a1c0e556b2d4c3e9f80a1b2c3d4e5f6_block",
+      "value_template": "{{ value_json.block.split('[')[0] if value_json.block else None }}"
+    },
+    "clear": {
+      "command_topic": "mineqtt/world_7f3a/wall_builder/set/clear",
+      "name": "Clear",
+      "p": "button",
+      "payload_press": "PRESS",
+      "retain": false,
+      "unique_id": "mineqtt_7a1c0e556b2d4c3e9f80a1b2c3d4e5f6_clear"
+    },
+    "last_result": {
+      "entity_category": "diagnostic",
+      "name": "Last result",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/wall_builder",
+      "unique_id": "mineqtt_7a1c0e556b2d4c3e9f80a1b2c3d4e5f6_last_result",
+      "value_template": "{{ value_json.last_result }}"
+    },
+    "location": {
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Location",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/wall_builder",
+      "unique_id": "mineqtt_7a1c0e556b2d4c3e9f80a1b2c3d4e5f6_location",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}"
+    },
+    "place": {
+      "command_topic": "mineqtt/world_7f3a/wall_builder/set/place",
+      "name": "Place",
+      "p": "button",
+      "payload_press": "PRESS",
+      "retain": false,
+      "unique_id": "mineqtt_7a1c0e556b2d4c3e9f80a1b2c3d4e5f6_place"
+    },
+    "placed": {
+      "name": "Placed",
+      "p": "binary_sensor",
+      "state_topic": "mineqtt/world_7f3a/wall_builder",
+      "unique_id": "mineqtt_7a1c0e556b2d4c3e9f80a1b2c3d4e5f6_placed",
+      "value_template": "{{ 'ON' if value_json.placed else 'OFF' }}"
+    }
+  },
+  "dev": {
+    "ids": [
+      "mineqtt_7a1c0e556b2d4c3e9f80a1b2c3d4e5f6"
+    ],
+    "mdl": "Block Placer",
+    "mdl_id": "mineqtt:block_placer",
+    "mf": "MineQTT",
+    "name": "Wall Builder",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "qos": 1
+}

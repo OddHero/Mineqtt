@@ -7,17 +7,19 @@ import art.rehra.mineqtt.config.ConfigHandler;
 import art.rehra.mineqtt.device.DeviceTypes;
 import art.rehra.mineqtt.integrations.IModLoaderUtils;
 import art.rehra.mineqtt.integrations.PermissionManager;
+import art.rehra.mineqtt.items.ConfiguratorRoom;
 import art.rehra.mineqtt.items.ConfiguratorSessions;
 import art.rehra.mineqtt.items.MineqttItems;
-import art.rehra.mineqtt.legacy.LegacySubscriptionFacade;
 import art.rehra.mineqtt.mqtt.CyberdeckSessionManager;
 import art.rehra.mineqtt.network.MineqttNetworking;
 import art.rehra.mineqtt.registry.MineqttDataComponents;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
 import art.rehra.mineqtt.runtime.ServerHooks;
 import art.rehra.mineqtt.security.C2SGuard;
+import art.rehra.mineqtt.telemetry.PlayerEvents;
 import art.rehra.mineqtt.tabs.MineQTTTabs;
 import art.rehra.mineqtt.ui.MineqttMenuTypes;
+import art.rehra.mineqtt.ui.explorer.ExplorerActions;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import dev.architectury.event.events.common.CommandRegistrationEvent;
 import art.rehra.mineqtt.twin.BindingPresets;
@@ -65,13 +67,17 @@ public class MineQTT {
         DeviceTypes.registerBuiltIn();
         // MQTT device presets come from datapacks, reloaded with them (M3-17).
         BindingPresets.register();
+        // Joins, leaves, deaths and advancements for the bridge's player events (M4 plan D7).
+        PlayerEvents.register();
 
         // First, so the runtime exists for the listeners below and delivers each tick's messages before they run.
         ServerHooks.register();
 
-        LifecycleEvent.SERVER_STARTED.register(server -> LegacySubscriptionFacade.attach(MineqttRuntime.of(server)));
-
         TickEvent.SERVER_PRE.register(CyberdeckSessionManager::tick);
+        // The Configurator's Room mode outlines rooms for the players who hold it (M4 plan D11).
+        TickEvent.SERVER_POST.register(ConfiguratorRoom::tick);
+        // The explorer's Locate marks a device with particles for a few seconds (M4 plan D13).
+        TickEvent.SERVER_POST.register(ExplorerActions::tick);
 
         // Not the runtime's: block screens open without MQTT too.
         TickEvent.PLAYER_POST.register(player -> {
@@ -94,6 +100,7 @@ public class MineQTT {
                 CyberdeckSessionManager.onPlayerLoggedOut(serverPlayer);
                 ConfiguratorSessions.forget(serverPlayer.getUUID());
                 C2SGuard.forget(serverPlayer.getUUID());
+                ExplorerActions.forget(serverPlayer.getUUID());
                 MineqttRuntime.current().filter(runtime -> runtime.server() == serverPlayer.level().getServer())
                         .ifPresent(runtime -> runtime.devices().playerLeft(serverPlayer.getUUID()));
             }
@@ -104,11 +111,10 @@ public class MineQTT {
         });
 
         LifecycleEvent.SERVER_STOPPING.register(server -> {
-            // Close the legacy subscriptions; the next session's blocks register anew
-            LegacySubscriptionFacade.detach();
             CyberdeckSessionManager.onServerStopping();
             ConfiguratorSessions.clear();
             C2SGuard.clear();
+            ExplorerActions.clear();
         });
     }
 

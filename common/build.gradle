@@ -57,23 +57,50 @@ tasks.register('verifyBlockEmitter', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.blocks.entities.BlockEmitterPayloadTest'
 }
+// The v1 timers' HH:MM conversions, presets and pulses, as the timer devices keep them (M4 plan D2).
 tasks.register('verifyAlarmClock', JavaExec) {
     dependsOn sensorChecksClasses
     classpath = sourceSets.sensorChecks.runtimeClasspath
-    mainClass = 'art.rehra.mineqtt.blocks.entities.AlarmClockBlockEntityTest'
+    mainClass = 'art.rehra.mineqtt.device.timer.AlarmClockCheck'
 }
 tasks.register('verifyGameTimeTimer', JavaExec) {
     dependsOn sensorChecksClasses
     classpath = sourceSets.sensorChecks.runtimeClasspath
-    mainClass = 'art.rehra.mineqtt.blocks.entities.GameTimeTimerBlockEntityTest'
+    mainClass = 'art.rehra.mineqtt.device.timer.GameTimeTimerCheck'
+}
+// The timers (M4 plan D2, bootstrapped): the schedules tick by tick, pulses and manual triggers, next fires, status lines
+// and the four device types.
+tasks.register('verifyTimers', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.timer.TimersCheck'
+}
+// Consent and presence (M4 plan D9, D10, bootstrapped): the consent matrix, the first-join prompt once, the privacy choices and
+// the prompt's buttons, what /mineqtt privacy reports, the player entries the registry keeps.
+tasks.register('verifyPrivacy', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.presence.PrivacyCheck'
+}
+// Rooms (M4 plan D11, bootstrapped for the codecs): corners, names, sizes and counts, which room a device is in, the
+// devices an edit touches, a group's common room and how commands name a room.
+tasks.register('verifyRooms', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.rooms.RoomsCheck'
 }
 // Config v2 defaults, v1 migration, the JSON form and credential masking; plain Java, no game bootstrap needed.
 tasks.register('verifyConfigMigration', JavaExec) {
     dependsOn sensorChecksClasses
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.config.ConfigMigrationCheck'
+    // NeoForge parity (M4 plan D16): the check reads the NeoForge config source as text, since it cannot load it.
+    def neoForgeConfigSource = rootProject.file('neoforge/src/main/java/art/rehra/mineqtt/neoforge/config/NeoForgeConfigHandler.java')
+    inputs.file(neoForgeConfigSource).withPropertyName('neoForgeConfigSource')
+    systemProperty 'mineqtt.neoForgeConfigSource', neoForgeConfigSource.absolutePath
 }
-// Bridge id generation, bridge topics and how the runtime's MQTT service survives a reconnect; no game bootstrap needed.
+// Bridge id generation, bridge topics, how the runtime's MQTT service survives a reconnect, the default wiring's order over the
+// device types (bootstrapped, M4 plan D15) and the day clock.
 tasks.register('verifyRuntimeWiring', JavaExec) {
     dependsOn sensorChecksClasses
     classpath = sourceSets.sensorChecks.runtimeClasspath
@@ -224,6 +251,17 @@ tasks.register('verifyStatestreamParse', JavaExec) {
     timeout = java.time.Duration.ofMinutes(2)
 }
 
+// The bridge's world telemetry (M4 plan D6), Minecraft-free on the same isolated classpath: the payload, the time of day in
+// 15-minute steps, the day, is_day at 05:59/06:00/17:59/18:00, the weather, tps under /tick rate and /tick freeze, mspt,
+// the deadbands, the significant keys and their 2 s floor, the interval clamp, the name policy and telemetry.enabled=false;
+// the player events (D7): shapes, anonymous join and leave, death and advancement only with consent, the caps.
+tasks.register('verifyTelemetry', JavaExec) {
+    dependsOn brokerChecksClasses
+    classpath = sourceSets.brokerChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.telemetry.core.TelemetryCheck'
+    timeout = java.time.Duration.ofMinutes(2)
+}
+
 // HiveMqttService scenarios behind a TCP proxy: MQTT 3.1.1 against Moquette by default, both protocols against
 // -PexternalBroker=tcp://host:port (the Docker Mosquitto, E2E item 13), since Moquette refuses MQTT 5.
 tasks.register('verifyBrokerIntegration', JavaExec) {
@@ -275,13 +313,20 @@ tasks.register('verifyPresetLoad', JavaExec) {
 //   mqtt.core, and none of the other classes of its package
 tasks.register('verifyCoreIsolation') {
     group = 'verification'
-    description = 'Fails if a source of mqtt.core, flow.core, twin.core, TokenBucket, RateLimit or GhostCleanup references a package or class outside its allowlist.'
+    description = 'Fails if a source of mqtt.core, flow.core, twin.core, device.timer.core, telemetry.core, TokenBucket, RateLimit, GhostCleanup, GameClock or CronSchedule references a package or class outside its allowlist.'
     def jdk = ['java', 'javax']
     def mqttAllowed = jdk + ['com.google.gson', 'com.hivemq.client', 'art.rehra.mineqtt.mqtt.core']
     def flowAllowed = jdk + ['com.google.gson', 'art.rehra.mineqtt.flow.core', 'art.rehra.mineqtt.security.TokenBucket']
     def twinAllowed = jdk + ['com.google.gson', 'art.rehra.mineqtt.flow.core', 'art.rehra.mineqtt.twin.core']
+    // The M4 cores (M4 plan D2, D6): the timers' schedules and the world telemetry, on the JDK, Gson, the day clock, the
+    // cron grammar and the rate limits only.
+    def m4CoreAllowed = jdk + ['com.google.gson', 'art.rehra.mineqtt.util.GameClock', 'art.rehra.mineqtt.util.CronSchedule',
+                               'art.rehra.mineqtt.security.TokenBucket', 'art.rehra.mineqtt.security.RateLimit']
+    def timerAllowed = m4CoreAllowed + ['art.rehra.mineqtt.device.timer.core']
+    def telemetryAllowed = m4CoreAllowed + ['art.rehra.mineqtt.telemetry.core']
     def securityDir = file('src/main/java/art/rehra/mineqtt/security')
     def haDir = file('src/main/java/art/rehra/mineqtt/ha')
+    def utilDir = file('src/main/java/art/rehra/mineqtt/util')
     // A scope of single classes names the folder of their package third: its files must exist, and the other classes there are off limits.
     def scopes = [
             'mqtt.core'        : [fileTree('src/main/java/art/rehra/mineqtt/mqtt/core') { include '**/*.java' }, mqttAllowed],
@@ -293,7 +338,22 @@ tasks.register('verifyCoreIsolation') {
             'twin.core checks' : [fileTree('src/brokerChecks/java/art/rehra/mineqtt/twin/core') { include '**/*.java' }, twinAllowed],
             'rate limits'      : [files(new File(securityDir, 'TokenBucket.java'), new File(securityDir, 'RateLimit.java')), jdk, securityDir],
             'ghost cleanup'    : [files(new File(haDir, 'GhostCleanup.java')), mqttAllowed, haDir],
+            // The timers' schedules (M4-2) and the world telemetry (M4-7); the self-test below proves the rule bites on every run.
+            'device.timer.core': [fileTree('src/main/java/art/rehra/mineqtt/device/timer/core') { include '**/*.java' }, timerAllowed],
+            'telemetry.core'   : [fileTree('src/main/java/art/rehra/mineqtt/telemetry/core') { include '**/*.java' }, telemetryAllowed],
+            'telemetry.core checks': [fileTree('src/brokerChecks/java/art/rehra/mineqtt/telemetry/core') { include '**/*.java' }, telemetryAllowed],
+            'clocks'          : [files(new File(utilDir, 'GameClock.java'), new File(utilDir, 'CronSchedule.java')), jdk, utilDir],
     ]
+    // Synthetic sources each M4 core must refuse, and one it must accept: a scope that matches no file yet checks nothing,
+    // so the rule itself is tested on every run.
+    def selfTests = [
+            'device.timer.core': timerAllowed,
+            'telemetry.core'   : telemetryAllowed,
+    ]
+    def forbiddenSource = 'import net.minecraft.world.level.Level;\nclass Probe { net.minecraft.core.BlockPos pos; art.rehra.mineqtt.device.DeviceType type; }\n'
+    def forbiddenNames = ['net.minecraft.world.level.Level', 'net.minecraft.core.BlockPos', 'art.rehra.mineqtt.device.DeviceType']
+    def allowedSource = 'import com.google.gson.JsonObject;\nimport java.time.Instant;\nimport art.rehra.mineqtt.util.GameClock;\n' +
+            'import art.rehra.mineqtt.util.CronSchedule;\nimport art.rehra.mineqtt.security.TokenBucket;\nclass Probe { /* net.minecraft.Ignored in a comment */ String s = "net.minecraft.Ignored"; }\n'
     def baseDir = projectDir
     scopes.each { name, scope -> inputs.files(scope[0]).withPropertyName(name.replaceAll(/\W/, '_')) }
     inputs.files(fileTree(securityDir) { include '*.java' }).withPropertyName('securityPackage')
@@ -334,6 +394,22 @@ tasks.register('verifyCoreIsolation') {
                 }
             }
         }
+        selfTests.each { name, allowed ->
+            def offending = { String source ->
+                def code = source.replaceAll(nonCode) { String literal -> literal.replaceAll(/[^\n]/, ' ') }
+                def found = []
+                def matcher = qualifiedName.matcher(code)
+                while (matcher.find()) {
+                    def qualified = matcher.group(1) + '.' + matcher.group(2)
+                    if (!allowed.any { qualified == it || qualified.startsWith(it + '.') }) found << qualified
+                }
+                found
+            }
+            def refused = offending(forbiddenSource)
+            if (refused != forbiddenNames) violations << "self-test: ${name} must refuse ${forbiddenNames}, refused ${refused}"
+            def accepted = offending(allowedSource)
+            if (!accepted.isEmpty()) violations << "self-test: ${name} must accept the JDK, Gson, GameClock, CronSchedule and TokenBucket, refused ${accepted}"
+        }
         if (!violations.isEmpty()) {
             throw new GradleException("A Minecraft-free core references something outside its allowlist:\n" + violations.join('\n'))
         }
@@ -345,6 +421,7 @@ tasks.named('check') {
     dependsOn tasks.named('verifyBlockEmitter')
     dependsOn tasks.named('verifyAlarmClock')
     dependsOn tasks.named('verifyGameTimeTimer')
+    dependsOn tasks.named('verifyTimers')
     dependsOn tasks.named('verifyConfigMigration')
     dependsOn tasks.named('verifyRuntimeWiring')
     dependsOn tasks.named('verifyRegistryRoundTrip')
@@ -374,4 +451,7 @@ tasks.named('check') {
     dependsOn tasks.named('verifyCoreIsolation')
     dependsOn tasks.named('verifyValuePath')
     dependsOn tasks.named('verifyValueMap')
+    dependsOn tasks.named('verifyTelemetry')
+    dependsOn tasks.named('verifyPrivacy')
+    dependsOn tasks.named('verifyRooms')
 }

@@ -1,4 +1,4 @@
-# One isolated MineQTT test lane: broker, Fabric dedicated server and (profile "ha") Home Assistant.
+# One isolated MineQTT test lane: broker, Fabric dedicated server and (profile "ha") Home Assistant with its config init.
 # Drive it with lane.sh, which sets the project name (<prefix>-<id>), the Docker host (this workstation or a remote of
 # docker/hosts.sh) and the variables below; on a host with a cpuset and cpu shares it adds docker-compose.limits.yml:
 #
@@ -65,6 +65,21 @@ services:
     cpus: ${MC_CPUS:-2}
     mem_limit: ${MC_MEMORY:-1536m}
 
+  # Prepares the Home Assistant volume and exits, as e2e's ha-config-init does: configuration.yaml includes
+  # automations.yaml, and an !include of a missing file fails the MQTT setup until the file exists and Home Assistant
+  # restarts. An existing file is kept. lane.sh lists its image (HA_INIT_IMAGE).
+  ha-config-init:
+    profiles: ["ha"]
+    image: alpine:3
+    labels: *labels
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - test -s /config/automations.yaml || echo '[]' > /config/automations.yaml
+    volumes:
+      - ha-config:/config
+    cpus: 0.5
+    mem_limit: 32m
+
   homeassistant:
     profiles: ["ha"]
     image: ghcr.io/home-assistant/home-assistant:${HA_VERSION:-2026.10.0}
@@ -72,6 +87,8 @@ services:
     depends_on:
       mosquitto:
         condition: service_healthy
+      ha-config-init:
+        condition: service_completed_successfully
     volumes:
       - ha-config:/config
     configs:

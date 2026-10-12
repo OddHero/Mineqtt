@@ -26,6 +26,12 @@ public final class ServerHooks {
         ChunkEvent.LOAD.register((chunk, level, newChunk) -> {
             if (level instanceof ServerLevel serverLevel) ifRunning(serverLevel.getServer(), runtime -> runtime.devices().chunkLoaded(serverLevel, chunk.getPos()));
         });
+        // A datapack reload may change a tag behind a runtime select's options (M4 plan D12: #mineqtt:placeable, the Block
+        // Placer's blocks): discovery republishes the devices whose options changed. A client's copy of the tags is no
+        // concern of the runtime.
+        LifecycleEvent.TAGS_UPDATED.register((registries, client) -> {
+            if (!client) MineqttRuntime.current().ifPresent(runtime -> runtime.discovery().refreshDynamicOptions());
+        });
         LifecycleEvent.SERVER_STOPPING.register(server -> ifRunning(server, MineqttRuntime::stop));
         LifecycleEvent.SERVER_STOPPED.register(server -> {
             ifRunning(server, MineqttRuntime::stopped);

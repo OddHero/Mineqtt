@@ -220,13 +220,15 @@ final class GameTestSession implements AutoCloseable {
         return Optional.ofNullable(System.getenv(name)).map(String::strip).filter(value -> !value.isEmpty());
     }
 
-    /** Every discovery topic this world may have published: the bridge's and one per device and group. */
+    /** Every discovery topic this world may have published: the bridge's, one per device and group, one per stored player. */
     private static List<String> discoveryTopics(MineqttRuntime runtime) {
         DeviceRegistry registry = runtime.registry();
         List<String> objectIds = new ArrayList<>();
         objectIds.add(BridgeDevice.objectId(registry.worldUuid()));
         registry.records().forEach(record -> objectIds.add(record.objectId()));
         registry.groups().forEach(group -> objectIds.add(group.objectId()));
+        // The presence devices of players who consented in the suite (M4 plan D10).
+        registry.players().forEach(player -> objectIds.add(runtime.presence().objectId(player.uuid())));
         return objectIds.stream().map(objectId -> TopicScheme.discoveryConfig(MineQTTConfig.discoveryPrefix, objectId)).toList();
     }
 
@@ -281,6 +283,14 @@ final class GameTestSession implements AutoCloseable {
     /** Runs on the client thread and hands the result to the test thread. */
     <T> T onClient(Function<Minecraft, T> function) {
         return context.computeOnClient(function::apply);
+    }
+
+    /** Leaves the server and joins it again as the same player: the quit and join of a real player. */
+    void reconnect() {
+        if (server == null || connection == null) throw new IllegalStateException("No server to reconnect to");
+        connection.close();
+        connection = server.connect();
+        connection.waitForChunksRender();
     }
 
     /** The joined player on the server side; call it on the server thread. */

@@ -15,9 +15,12 @@ import art.rehra.mineqtt.device.Port;
 import art.rehra.mineqtt.device.RawLink;
 import art.rehra.mineqtt.device.RawLinkSpec;
 import art.rehra.mineqtt.device.Setting;
+import art.rehra.mineqtt.device.UnloadedPolicy;
 import art.rehra.mineqtt.device.ValueCodecs;
 import art.rehra.mineqtt.device.ValueCodecs.LightState;
 import art.rehra.mineqtt.device.ValueCodecs.Rgb;
+import art.rehra.mineqtt.device.types.BlockObserver;
+import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
@@ -25,6 +28,7 @@ import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.WallSwitch;
 import art.rehra.mineqtt.flow.core.Coerce;
 import art.rehra.mineqtt.flow.core.PortType;
@@ -34,6 +38,8 @@ import art.rehra.mineqtt.network.MineqttNetworking.DeviceActionPayload;
 import art.rehra.mineqtt.network.MineqttNetworking.DeviceConfigPayload;
 import art.rehra.mineqtt.security.AccessMode;
 import art.rehra.mineqtt.ui.device.LightControl.HueSaturation;
+import art.rehra.mineqtt.ui.explorer.DevicesTab;
+import art.rehra.mineqtt.ui.framework.tabs.CyberdeckExplorerTab;
 import art.rehra.mineqtt.ui.framework.MqttTab;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
@@ -60,6 +66,7 @@ import net.minecraft.world.level.Level;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -88,7 +95,7 @@ public final class DeviceTabsCheck {
         Bootstrap.bootStrap();
         DeviceTypes.registerBuiltIn();
         // The controls of each registered type as the tab shows them: key, widget, gate, payload.
-        Map<DeviceType, List<String>> expected = Map.of(
+        Map<DeviceType, List<String>> expected = new HashMap<>(Map.of(
                 RedstoneOutput.TYPE, List.of("state TOGGLE USE ACTION", "power SLIDER USE CONFIG", "mode CYCLE CONFIGURE CONFIG",
                         "power_on_behaviour CYCLE CONFIGURE CONFIG"),
                 SmartLamp.TYPE, List.of("state TOGGLE USE ACTION", "light LIGHT USE CONFIG"),
@@ -103,7 +110,22 @@ public final class DeviceTabsCheck {
                 WallSwitch.TYPE, List.of("press_left PRESS USE ACTION", "press_right PRESS USE ACTION"),
                 // Its message as a command, its look as settings: 4 of the 5 rows (M3-15); its twin keys go to the Twin tab (D19).
                 DisplayPanel.TYPE, List.of("message TEXT_FIELD USE CONFIG", "color CYCLE CONFIGURE CONFIG", "glow TOGGLE CONFIGURE CONFIG",
-                        "size CYCLE CONFIGURE CONFIG"));
+                        "size CYCLE CONFIGURE CONFIG"),
+                // What counts as a change and what the Raw Link sends; its readings are out-ports only (M4-9).
+                BlockObserver.TYPE, List.of("change_on CYCLE CONFIGURE CONFIG", "payload CYCLE CONFIGURE CONFIG"),
+                // Place and clear by hand, the block as a setting (M4-10).
+                BlockPlacer.TYPE, List.of("place PRESS USE ACTION", "clear PRESS USE ACTION", "block TEXT_FIELD CONFIGURE CONFIG")));
+        // M4-2 (plan D5): Trigger now, the Enabled toggle with the state row folded into it, then the schedule; at most four
+        // rows, the status line takes the fifth.
+        List<String> timerRows = List.of("trigger PRESS USE ACTION", "enabled TOGGLE USE CONFIG");
+        expected.put(Timers.INTERVAL_TIMER, rows(timerRows, "interval NUMBER_FIELD CONFIGURE CONFIG", "unit CYCLE CONFIGURE CONFIG"));
+        expected.put(Timers.DAYLIGHT_TIMER, rows(timerRows, "trigger_at CYCLE CONFIGURE CONFIG", "time TEXT_FIELD CONFIGURE CONFIG"));
+        expected.put(Timers.ALARM_CLOCK, rows(timerRows, "time TEXT_FIELD CONFIGURE CONFIG"));
+        expected.put(Timers.CRON_TIMER, rows(timerRows, "cron TEXT_FIELD CONFIGURE CONFIG"));
+        for (DeviceType timer : Timers.all()) {
+            check(new ControlsTab(timer).statusLine() && ControlsTab.controls(timer).size() <= ControlsTab.MAX_ROWS - 1,
+                    timer + ": at most four rows of controls beside its status line");
+        }
         check(ControlsTab.controls(DisplayPanel.TYPE).stream().mapToInt(control -> control.widget().rows()).sum() == 4 && ControlsTab.MAX_ROWS == 5,
                 "The panel's Controls tab takes 4 of its 5 rows");
         check(expected.keySet().containsAll(DeviceTypes.all()), "Every registered type has its expected controls listed here");
@@ -112,7 +134,7 @@ public final class DeviceTabsCheck {
                 "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.retain TOGGLE CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG");
         List<String> inputLink = List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
                 "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.on TEXT_FIELD CONFIGURE CONFIG", "raw.off TEXT_FIELD CONFIGURE CONFIG");
-        Map<DeviceType, List<String>> advanced = Map.of(
+        Map<DeviceType, List<String>> advanced = new HashMap<>(Map.of(
                 RedstoneOutput.TYPE, inputLink,
                 SmartLamp.TYPE, inputLink,
                 SmartPlug.TYPE, inputLink,
@@ -121,12 +143,19 @@ public final class DeviceTabsCheck {
                         "raw.on TEXT_FIELD CONFIGURE CONFIG", "raw.off TEXT_FIELD CONFIGURE CONFIG"),
                 PresenceSensor.TYPE, valueLink,
                 ClimateSensor.TYPE, valueLink,
+                BlockObserver.TYPE, valueLink,
+                // A block in: no retain, QoS or custom payloads (M4-10).
+                BlockPlacer.TYPE, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
+                        "raw.topic TEXT_FIELD CONFIGURE CONFIG"),
                 // Events are never retained: QoS only (M2-22).
                 WallSwitch.TYPE, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
                         "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG"),
                 // Text in: no retain, QoS or custom payloads (M3-15).
                 DisplayPanel.TYPE, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
-                        "raw.topic TEXT_FIELD CONFIGURE CONFIG"));
+                        "raw.topic TEXT_FIELD CONFIGURE CONFIG")));
+        // The timers' links carry their fires: events, never retained, QoS only (M4-4).
+        Timers.all().forEach(timer -> advanced.put(timer, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
+                "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG")));
         check(advanced.keySet().containsAll(DeviceTypes.all()), "Every registered type has its expected Advanced controls listed here");
         // The Twin tab of each type with a twin adapter (M3 plan D19): its rows top to bottom, each cell as kind:key; the
         // health line is always the fifth row.
@@ -163,9 +192,13 @@ public final class DeviceTabsCheck {
         paperChannels();
         widgets();
         controlsTabLimits();
+        m4Controls();
+        cronSchedule();
+        explorerLayout();
         lightPicker();
         slugPreview();
         exposeValue();
+        roomLine();
         System.out.println("Device tab checks passed: " + DeviceTypes.all().size() + " types, " + controls + " controls.");
     }
 
@@ -175,11 +208,13 @@ public final class DeviceTabsCheck {
         boolean inPorts = type.ports().stream().anyMatch(port -> port.direction() == Port.Direction.IN);
         List<String> ids = new ArrayList<>(List.of(GeneralTab.ID));
         if (inPorts) ids.add(ControlsTab.ID);
+        // M4-5 (D5): the Cron Timer's Schedule tab after Controls, the one custom tab.
+        if (CronScheduleTab.appliesTo(type)) ids.add(CronScheduleTab.ID);
         // M3-13 (D19): the Twin tab after Controls, for a type that takes part in the twin.
         if (type.twin().isPresent()) ids.add(TwinTab.ID);
         ids.addAll(List.of(AdvancedTab.ID, AccessTab.ID, DiagnosticsTab.ID));
         check(tabs.stream().map(MqttTab::id).toList().equals(ids), type.id() + ": the generated tabs are " + ids
-                + ", Controls exactly when it has in-ports, Twin exactly when it has a twin adapter, Advanced, Access and Diagnostics always: " + tabs);
+                + ", Controls exactly when it has in-ports, Schedule for the Cron Timer, Twin exactly when it has a twin adapter, Advanced, Access and Diagnostics always: " + tabs);
         check(TabbedMqttScreen.tabWidth(tabs.size()) * tabs.size() <= TabbedMqttMenu.GUI_WIDTH && TabbedMqttScreen.tabWidth(tabs.size()) >= 18,
                 type.id() + ": its " + tabs.size() + " tab buttons fit the panel's width");
         check(DeviceTabs.forViewer(type, false).stream().map(MqttTab::id).toList().equals(ids),type.id() + ": a player who may build gets every generated tab");
@@ -481,6 +516,10 @@ public final class DeviceTabsCheck {
                 && AdvancedTab.paperChannel(spaced).equals(Optional.of("garage")), "A blank paper name fills in no channel (an empty one removes the link), and the spaces around a name go");
         StringTag channel = StringTag.valueOf(AdvancedTab.paperChannel(paper).orElseThrow());
         for (DeviceType type : DeviceTypes.all()) {
+            if (type.rawLink().isEmpty()) {
+                check(DeviceConfig.parse(type, LinkSetting.RAW_CHANNEL.key(), channel, CONFIGURE_ONLY).isError(), type.id() + ": a type without a Raw Link takes no channel");
+                continue;
+            }
             check(DeviceConfig.parse(type, LinkSetting.RAW_CHANNEL.key(), channel, CONFIGURE_ONLY).result().equals(Optional.of(new DeviceConfig.RawChannel("garage/door", false)))
                             && DeviceConfig.parse(type, LinkSetting.RAW_PRIVATE.key(), channel, CONFIGURE_ONLY).result()
                             .equals(Optional.of(new DeviceConfig.RawChannel("garage/door", true)))
@@ -535,6 +574,20 @@ public final class DeviceTabsCheck {
                 check(control.send(POS, control.leveled(control.max())) instanceof DeviceConfigPayload config && config.value() instanceof IntTag,
                         what + " sends a whole number as an NBT int");
             }
+            case NUMBER_FIELD -> {
+                // M4 plan D5: a typed whole number within the bounds, taken whole; the field sends nothing else.
+                for (int number : new int[]{control.min(), control.max()}) {
+                    JsonElement typed = control.typedNumber(String.valueOf(number)).orElseThrow(() -> new AssertionError(what + " takes " + number));
+                    check(taken(type, control.send(POS, typed), USE_AND_CONFIGURE), what + " takes " + number);
+                }
+                check(control.typedNumber(String.valueOf((long) control.min() - 1)).isEmpty() && control.typedNumber(String.valueOf((long) control.max() + 1)).isEmpty()
+                        && control.typedNumber("").isEmpty() && control.typedNumber("12a").isEmpty() && control.typedNumber("1.5").isEmpty()
+                        && control.typedNumber("99999999999").isEmpty(), what + " sends nothing beyond its bounds and nothing that is no whole number");
+                check(!taken(type, control.send(POS, new JsonPrimitive((long) control.max() + 1)), USE_AND_CONFIGURE), what + ": the server refuses what is beyond them");
+                check(control.level(state(control.key(), new JsonPrimitive(control.max()))) == control.max(), what + " shows the state's number");
+                check(control.send(POS, control.typedNumber(String.valueOf(control.max())).orElseThrow()) instanceof DeviceConfigPayload config
+                        && config.value() instanceof IntTag, what + " sends a whole number as an NBT int");
+            }
             case CYCLE -> {
                 for (String value : control.values()) {
                     check(taken(type, control.send(POS, new JsonPrimitive(value)), USE_AND_CONFIGURE), what + " takes its value " + value);
@@ -561,6 +614,35 @@ public final class DeviceTabsCheck {
                     // The Display Panel's message (M3-15): any text up to its length, the empty text clears it.
                     check(taken(type, control.send(POS, new JsonPrimitive("Washer done!")), USE_ONLY) && taken(type, control.send(POS, new JsonPrimitive("")), USE_ONLY)
                             && taken(type, control.send(POS, new JsonPrimitive("€".repeat(control.maxLength()))), USE_ONLY), what + " takes text up to its length");
+                    check(!taken(type, control.send(POS, new JsonPrimitive("x".repeat(control.maxLength() + 1))), USE_AND_CONFIGURE),
+                            what + " refuses a text over " + control.maxLength() + " characters");
+                    break;
+                }
+                if (control.key().equals("time")) {
+                    // A timer's time of day (M4 plan D2): HH:MM only, as Home Assistant's pattern has it.
+                    check(taken(type, control.send(POS, new JsonPrimitive("07:15")), USE_AND_CONFIGURE) && taken(type, control.send(POS, new JsonPrimitive("00:00")), USE_AND_CONFIGURE)
+                            && taken(type, control.send(POS, new JsonPrimitive("23:59")), USE_AND_CONFIGURE), what + " takes a time as HH:MM");
+                    for (String refused : List.of("25:00", "6:00", "12:60", "", "noon", "x".repeat(control.maxLength() + 1))) {
+                        check(!taken(type, control.send(POS, new JsonPrimitive(refused)), USE_AND_CONFIGURE), what + " refuses '" + refused + "'");
+                    }
+                    check(control.text(state(control.key(), new JsonPrimitive("18:30"))).equals("18:30"), what + " shows the state's time");
+                    break;
+                }
+                if (control.key().equals("cron")) {
+                    // The Cron Timer's expression (D2): one that parses, or nothing for no schedule; at most 64 characters.
+                    check(taken(type, control.send(POS, new JsonPrimitive("0 */5 * * * * *")), USE_AND_CONFIGURE)
+                            && taken(type, control.send(POS, new JsonPrimitive("")), USE_AND_CONFIGURE), what + " takes an expression and the empty text");
+                    for (String refused : List.of("* * * *", "0 0 0 25 * * *", "every minute", "0 " + "1,".repeat(32) + "1 * * * * *")) {
+                        check(!taken(type, control.send(POS, new JsonPrimitive(refused)), USE_AND_CONFIGURE), what + " refuses '" + refused + "'");
+                    }
+                    check(control.text(state(control.key(), new JsonPrimitive("0 0 0 12 * * *"))).equals("0 0 0 12 * * *"), what + " shows the state's expression");
+                    break;
+                }
+                if (control.key().equals("block")) {
+                    // The Block Placer's block (M4-10): the screen sends text up to its length; the placer itself judges the block
+                    // (PlacerRules) and says why in its last result, as it does for Home Assistant and its Raw Link.
+                    check(taken(type, control.send(POS, new JsonPrimitive("minecraft:redstone_lamp[lit=true]")), USE_AND_CONFIGURE)
+                            && !taken(type, control.send(POS, new JsonPrimitive("minecraft:white_wool")), USE_ONLY), what + " takes a block behind CONFIGURE");
                     check(!taken(type, control.send(POS, new JsonPrimitive("x".repeat(control.maxLength() + 1))), USE_AND_CONFIGURE),
                             what + " refuses a text over " + control.maxLength() + " characters");
                     break;
@@ -663,6 +745,167 @@ public final class DeviceTabsCheck {
         check(lamp == ControlsTab.MAX_ROWS, "The Smart Lamp's switch and light picker fill the tab's " + ControlsTab.MAX_ROWS + " rows (" + lamp + ")");
     }
 
+    /**
+     * M4-1 (plan D5) on a synthetic timer-like type: a number field for a range a slider cannot pick from, the
+     * {@code state} row folded into the toggle of the BOOL field the switch reads, and the status line on the last row.
+     * No shipped type changes: their controls are the expected ones in {@code main}.
+     */
+    private static void m4Controls() {
+        // The widget follows the range: a slider up to NUMBER_FIELD_STEPS steps, a number field beyond.
+        check(DeviceTabs.Widget.of(PortType.integer(1, 1_000_000)).equals(Optional.of(DeviceTabs.Widget.NUMBER_FIELD)), "1 to 1 000 000 is a number field");
+        check(DeviceTabs.Widget.of(PortType.integer(0, DeviceTabs.Widget.NUMBER_FIELD_STEPS)).equals(Optional.of(DeviceTabs.Widget.SLIDER))
+                && DeviceTabs.Widget.of(PortType.integer(0, DeviceTabs.Widget.NUMBER_FIELD_STEPS + 1)).equals(Optional.of(DeviceTabs.Widget.NUMBER_FIELD)),
+                "The bound is " + DeviceTabs.Widget.NUMBER_FIELD_STEPS + " steps");
+        check(DeviceTabs.Widget.of(PortType.integer(1, 3600)).equals(Optional.of(DeviceTabs.Widget.SLIDER))
+                && DeviceTabs.Widget.of(PortType.number(0, 3600, true, "s")).equals(Optional.of(DeviceTabs.Widget.SLIDER)),
+                "The Climate Sensor's interval and the Presence Sensor's clear delay keep their sliders");
+        check(DeviceTabs.Widget.NUMBER_FIELD.rows() == 1, "A number field takes one row");
+
+        Field<Boolean> enabled = Field.bool("enabled", true, Access.READ_WRITE);
+        Field<Integer> interval = Field.intRange("interval", 1, 1_000_000, 20, "ticks", Access.READ_WRITE);
+        Field<TestUnit> unit = Field.enumOf("unit", TestUnit.class, Access.READ_WRITE);
+        Field<String> nextFire = Field.text("next_fire", Access.READ);
+        DeviceType.Builder timer = DeviceType.builder(id("timer")).model("Timer").unloaded(UnloadedPolicy.UNAVAILABLE)
+                .field(enabled).field(interval).field(unit).field(nextFire)
+                .entity(Ha.switchOf("enabled", enabled).on(true).off(false).name(null))
+                .entity(Ha.button("trigger").name("Trigger now"))
+                .entity(Ha.sensor("next_fire", nextFire).deviceClass("timestamp"))
+                .action(Action.state()).action(Action.press("trigger"))
+                .setting(new Setting<>(interval)).setting(new Setting<>(unit))
+                .preview((state, command) -> state);
+        DeviceType withStatus = timer.status((state, now) -> state.has("next_fire") && !state.get("next_fire").getAsString().isEmpty() ? "Next soon" : "Disabled").build();
+        check(ControlsTab.collapsesState(withStatus), "A switch over a writable BOOL field folds the state action into the field's toggle");
+        List<String> shown = ControlsTab.controls(withStatus).stream().map(control -> control.key() + " " + control.widget() + " " + control.gate() + " " + control.payload()).toList();
+        check(shown.equals(List.of("trigger PRESS USE ACTION", "enabled TOGGLE USE CONFIG", "interval NUMBER_FIELD CONFIGURE CONFIG", "unit CYCLE CONFIGURE CONFIG")),
+                "The timer's tab: Trigger now, Enabled, the interval as a number field and the unit, no state row: " + shown);
+        check(new ControlsTab(withStatus).statusLine() && !new ControlsTab(SmartLamp.TYPE).statusLine(), "Only a type with a status line draws one");
+        DeviceTabs.Control toggle = ControlsTab.controls(withStatus).get(1);
+        check(taken(withStatus, toggle.send(POS, toggle.toggled(true)), USE_ONLY) && taken(withStatus, toggle.send(POS, toggle.toggled(false)), USE_ONLY),
+                "The Enabled toggle switches the field with USE, as the state action did");
+        check(DeviceConfig.action(withStatus, Action.STATE, "ON", USE_ONLY).isSuccess(), "The state action itself still works for commands and wires");
+        DeviceTabs.Control number = ControlsTab.controls(withStatus).get(2);
+        controlBounds(withStatus, number);
+        permissions(withStatus, number);
+        check(number.min() == 1 && number.max() == 1_000_000 && number.unit().equals(Optional.of("ticks")) && number.typedNumber(" 42 ").equals(Optional.of(new JsonPrimitive(42))),
+                "The number field takes 1 to 1 000 000 ticks, spaces around it ignored");
+        for (DeviceType type : DeviceTypes.all()) {
+            check(ControlsTab.collapsesState(type) == Timers.all().contains(type),
+                    type.id() + ": only the timers fold their state row (the Output's and the Plug's switches read a level)");
+        }
+
+        // The status line takes the last row: four rows of controls fit beside it, five do not.
+        Field<Boolean> extra = Field.bool("extra", Access.READ_WRITE);
+        refused(() -> ControlsTab.controls(DeviceType.builder(id("timer2")).model("Timer").unloaded(UnloadedPolicy.UNAVAILABLE)
+                .field(enabled).field(interval).field(unit).field(nextFire).field(extra)
+                .entity(Ha.switchOf("enabled", enabled).on(true).off(false)).entity(Ha.button("trigger"))
+                .action(Action.state()).action(Action.press("trigger"))
+                .setting(new Setting<>(interval)).setting(new Setting<>(unit)).setting(new Setting<>(extra))
+                .status((state, now) -> "x").build()), "Five rows of controls beside a status line");
+        check(ControlsTab.controls(DeviceType.builder(id("timer3")).model("Timer").unloaded(UnloadedPolicy.UNAVAILABLE)
+                .field(enabled).field(interval).field(unit).field(nextFire).field(extra)
+                .entity(Ha.switchOf("enabled", enabled).on(true).off(false)).entity(Ha.button("trigger"))
+                .action(Action.state()).action(Action.press("trigger"))
+                .setting(new Setting<>(interval)).setting(new Setting<>(unit)).setting(new Setting<>(extra)).build()).size() == 5,
+                "Without a status line the same five rows fit");
+    }
+
+    /**
+     * M4-16 (plan D13): the Configurator explorer's Devices tab fits above the explorer's inventory: the search field and
+     * its two page buttons fill the content's width, the header comes below them, and its rows of two lines end by the
+     * inventory's label (P1). A search waits for the typing to rest, one without an answer goes out again a few times,
+     * and the page shown is asked for again only once its answer came.
+     */
+    private static void explorerLayout() {
+        int fieldW = DevicesTab.SEARCH_W;
+        check(fieldW >= 70 && fieldW + DevicesTab.ROOM_BUTTON_W + 2 * DevicesTab.PAGE_BUTTON_W + 3 * DevicesTab.SEARCH_GAP == DevicesTab.CONTENT_W,
+                "The search field (" + fieldW + " px), the room filter and the page buttons fill the content's width");
+        check(DevicesTab.ACTION_H <= DevicesTab.ROW_PITCH && DevicesTab.ACTION_H >= 14,
+                "An entry's buttons fit its height and show their label");
+        check(DevicesTab.SEARCH_Y + DevicesTab.SEARCH_H < DevicesTab.HEADER_Y && DevicesTab.HEADER_Y + 9 <= DevicesTab.LIST_Y,
+                "The header sits between the search row and the rows");
+        check(DevicesTab.ROW_PITCH >= 2 * 9 && DevicesTab.VISIBLE_ROWS >= 3, "Three rows of two lines show at once");
+        int inventoryLabelY = TabbedMqttMenu.GUI_HEIGHT - 94;
+        check(DevicesTab.CONTENT_BOTTOM <= inventoryLabelY && DevicesTab.CONTENT_BOTTOM == DevicesTab.LIST_Y + DevicesTab.VISIBLE_ROWS * DevicesTab.ROW_PITCH,
+                "The rows end by y " + DevicesTab.CONTENT_BOTTOM + ", where the inventory's label starts at " + inventoryLabelY + " (P1)");
+        check(new DevicesTab().id().equals(DevicesTab.ID) && !DevicesTab.ID.equals(CyberdeckExplorerTab.ID), "The Devices tab is not the Traffic tab");
+        check(!DevicesTab.resendDue(false, 0, DevicesTab.RESEND_MILLIS - 1) && DevicesTab.resendDue(false, 0, DevicesTab.RESEND_MILLIS)
+                        && !DevicesTab.resendDue(true, 0, DevicesTab.RESEND_MILLIS * 10) && !DevicesTab.resendDue(false, DevicesTab.MAX_RESENDS, DevicesTab.RESEND_MILLIS * 10),
+                "A search without an answer goes out again after a second, at most three times, an answered one never");
+        check(!DevicesTab.refreshDue(false, DevicesTab.REFRESH_MILLIS * 10) && !DevicesTab.refreshDue(true, DevicesTab.REFRESH_MILLIS - 1)
+                        && DevicesTab.refreshDue(true, DevicesTab.REFRESH_MILLIS) && DevicesTab.DEBOUNCE_MILLIS < DevicesTab.RESEND_MILLIS,
+                "The page shown is asked for again every two seconds once answered");
+    }
+
+    /**
+     * M4-5 (plan D5): only the Cron Timer has the Schedule tab; it sends its expression as the cron setting through the
+     * device config payload, which the server takes from a player who may configure the timer and only from one; its
+     * boxes split and join an expression, each box is checked alone, the presets parse, and the preview gives the next
+     * three fire times in the server's zone.
+     */
+    private static void cronSchedule() {
+        for (DeviceType type : DeviceTypes.all()) {
+            check(CronScheduleTab.appliesTo(type) == (type == Timers.CRON_TIMER), type.id() + ": the Schedule tab is the Cron Timer's alone");
+        }
+        CronScheduleTab tab = new CronScheduleTab(Timers.CRON_TIMER);
+        check(tab.control().key().equals("cron") && tab.control().gate() == LinkSetting.Gate.CONFIGURE && tab.control().payload() == DeviceTabs.Control.Payload.CONFIG,
+                "it sets the cron setting, behind CONFIGURE, as a config payload");
+        CustomPacketPayload sent = tab.control().send(POS, new JsonPrimitive("0 */5 * * * * *"));
+        check(sent instanceof DeviceConfigPayload config && config.key().equals("cron") && config.value().equals(StringTag.valueOf("0 */5 * * * * *")),
+                "Set sends the joined expression through the device config payload, the Controls tab's text row's: " + sent);
+        check(taken(Timers.CRON_TIMER, sent, CONFIGURE_ONLY) && !taken(Timers.CRON_TIMER, sent, USE_ONLY), "the server takes it from a player who may configure the timer, and only from one");
+        check(taken(Timers.CRON_TIMER, tab.control().send(POS, new JsonPrimitive("")), CONFIGURE_ONLY), "Clear sends the empty expression, no schedule");
+        check(!taken(Timers.CRON_TIMER, tab.control().send(POS, new JsonPrimitive("0 0 0 25 * * *")), CONFIGURE_ONLY), "an expression that does not parse is refused all the same");
+        check(DeviceTabs.forViewer(Timers.CRON_TIMER, true).stream().map(MqttTab::id).toList().equals(List.of(ControlsTab.ID)),
+                "a player who may only use the timer does not get it");
+        refused(() -> new CronScheduleTab(Timers.ALARM_CLOCK), "A Schedule tab of a timer without a cron expression");
+
+        check(CronScheduleTab.split("0 */5 * * * * *").equals(List.of("0", "*/5", "*", "*", "*", "*", "*")) && CronScheduleTab.split("").equals(List.of("", "", "", "", "", "", ""))
+                && CronScheduleTab.split(" 1  2 ").equals(List.of("1", "2", "", "", "", "", "")), "An expression splits into its seven boxes");
+        check(CronScheduleTab.join(List.of("0", "*/5", "*", "*", "*", "*", "*")).equals("0 */5 * * * * *") && CronScheduleTab.join(List.of("", " ", "", "", "", "", "")).isEmpty(),
+                "The boxes join into the expression, empty boxes into none");
+        check(CronScheduleTab.fieldProblem(0, "19").isEmpty() && CronScheduleTab.fieldProblem(0, "20").isPresent() && CronScheduleTab.fieldProblem(3, "23").isEmpty()
+                && CronScheduleTab.fieldProblem(3, "24").isPresent() && CronScheduleTab.fieldProblem(6, "1-5").isEmpty() && CronScheduleTab.fieldProblem(1, "*/5").isEmpty()
+                && CronScheduleTab.fieldProblem(4, "0").isPresent() && CronScheduleTab.fieldProblem(2, "").isPresent() && CronScheduleTab.fieldProblem(2, "1 2").isPresent()
+                && CronScheduleTab.fieldProblem(5, "x").isPresent(), "Each box is checked alone, by its field's range");
+        java.util.Set<String> expressions = new java.util.HashSet<>();
+        for (CronScheduleTab.Preset preset : CronScheduleTab.PRESETS) {
+            check(art.rehra.mineqtt.device.timer.core.CronTimerSchedule.problem(preset.expression()).isEmpty() && expressions.add(preset.expression()),
+                    "Preset " + preset.key() + " parses and is no other's: " + preset.expression());
+            for (int i = 0; i < CronScheduleTab.FIELDS.size(); i++) {
+                check(CronScheduleTab.fieldProblem(i, CronScheduleTab.split(preset.expression()).get(i)).isEmpty(), "and so does each of its boxes");
+            }
+        }
+        java.time.ZoneId berlin = java.time.ZoneId.of("Europe/Berlin");
+        java.time.Instant noon = java.time.ZonedDateTime.of(2026, 10, 11, 12, 0, 0, 0, berlin).toInstant();
+        check(CronScheduleTab.nextFires("0 */5 * * * * *", berlin, noon, CronScheduleTab.PREVIEW).equals(List.of(
+                        java.time.ZonedDateTime.of(2026, 10, 11, 12, 0, 5, 0, berlin), java.time.ZonedDateTime.of(2026, 10, 11, 12, 0, 10, 0, berlin),
+                        java.time.ZonedDateTime.of(2026, 10, 11, 12, 0, 15, 0, berlin))),
+                "The preview gives the next three fire times");
+        check(CronScheduleTab.nextFires("0 0 30 7 * * 1-5", berlin, noon, 3).getFirst().equals(java.time.ZonedDateTime.of(2026, 10, 12, 7, 30, 0, 0, berlin)),
+                "On a Sunday the weekday preset fires next on Monday");
+        check(CronScheduleTab.nextFires("0 0 0 0 31 2 *", berlin, noon, 3).isEmpty() && CronScheduleTab.nextFires("bad", berlin, noon, 3).isEmpty()
+                && CronScheduleTab.nextFires("", berlin, noon, 3).isEmpty(), "No preview for a never matching, a broken or an empty expression");
+        check(CronScheduleTab.zoneOf("2026-10-11T18:00:00+02:00").equals(java.time.ZoneOffset.ofHours(2)) && CronScheduleTab.zoneOf("").equals(java.time.ZoneId.systemDefault()),
+                "The preview reads the server's zone from the timer's next fire, else the client's");
+    }
+
+    // A timer's rows: the shared ones, then its schedule's.
+    private static List<String> rows(List<String> shared, String... schedule) {
+        List<String> rows = new ArrayList<>(shared);
+        rows.addAll(List.of(schedule));
+        return rows;
+    }
+
+    /** A unit enum for {@link #m4Controls}, as a timer's would be. */
+    private enum TestUnit implements net.minecraft.util.StringRepresentable {
+        TICKS, SECONDS;
+
+        @Override
+        public String getSerializedName() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+    }
+
     /** The light picker: hue and saturation round-trip through the lamp's 8-bit colour, and every command merges as meant. */
     private static void lightPicker() {
         check(new HueSaturation(0, 100).rgb().equals(new Rgb(255, 0, 0)) && new HueSaturation(120, 100).rgb().equals(new Rgb(0, 255, 0))
@@ -745,12 +988,16 @@ public final class DeviceTabsCheck {
         if (control.key().equals(LinkSetting.TWIN_DEVICE.key())) return new JsonPrimitive("mineqtt:zigbee2mqtt_light Porch");
         if (control.key().equals(LinkSetting.TWIN_PRESET.key())) return new JsonPrimitive("mineqtt:tasmota_power");
         if (control.key().equals(LinkSetting.TWIN_MIN.key()) || control.key().equals(LinkSetting.TWIN_MAX.key())) return new JsonPrimitive("12.5");
+        // M4-2: a timer's time of day and its cron expression.
+        if (control.key().equals("time")) return new JsonPrimitive("07:15");
+        if (control.key().equals("cron")) return new JsonPrimitive("0 */5 * * * * *");
         return switch (control.widget()) {
             // A name, a channel, a topic, a payload and a mob filter alike.
             case TEXT_FIELD -> new JsonPrimitive("zombie");
             case CYCLE -> new JsonPrimitive(control.values().getFirst());
             case TOGGLE -> control.toggled(true);
             case SLIDER -> control.leveled(control.max());
+            case NUMBER_FIELD -> control.typedNumber(String.valueOf(control.max())).orElseThrow();
             case LIGHT -> LightControl.color(new HueSaturation(30, 80));
             case PRESS -> control.pressed();
         };
@@ -808,7 +1055,7 @@ public final class DeviceTabsCheck {
             }
         }
         tab.resume().ifPresent(resume -> placed.add(resume.key()));
-        // Wave 7: the MQTT device's preset and name have their places too (TwinTab.NOT_ON_TAB is gone); every twin key has one.
+        // The MQTT device's preset and name have their places too (TwinTab.NOT_ON_TAB is gone); every twin key has one.
         check(placed.stream().sorted().toList().equals(keys.stream().sorted().toList()), type.id() + ": each twin key has exactly one place: " + placed);
         check(type.twin().orElseThrow().hasSource() == (placed.contains(LinkSetting.TWIN_DEVICE.key()) && placed.contains(LinkSetting.TWIN_PRESET.key())),
                 type.id() + ": a type with a source places the MQTT device's name and preset (M3-17), a type with targets only neither");
@@ -932,6 +1179,69 @@ public final class DeviceTabsCheck {
 
     private static JsonObject json(String text) {
         return JsonParser.parseString(text).getAsJsonObject();
+    }
+
+    /**
+     * M4 plan D11: the General tab's room line names the device's room, and says which area Home Assistant may show when
+     * the device was first created there with another area than its discovery suggests now (Home Assistant keeps the area
+     * a device has); a device Home Assistant does not hold says nothing. The view carries both, capped, through its codec; a controls-only view
+     * neither.
+     */
+    private static void roomLine() {
+        check(DeviceView.Registration.keptArea(false, "Hall", "Kitchen").isEmpty(), "Nothing kept for a device Home Assistant does not hold");
+        check(DeviceView.Registration.keptArea(true, "Kitchen", "Kitchen").isEmpty() && DeviceView.Registration.keptArea(true, "", null).isEmpty(),
+                "Nothing to say while the kept area is the suggested one");
+        check(DeviceView.Registration.keptArea(true, "Hall", "Kitchen").equals(Optional.of("Hall")), "A device created in the hall keeps the hall");
+        check(DeviceView.Registration.keptArea(true, "Hall", null).equals(Optional.of("Hall")), "and keeps it when its room is gone");
+        check(DeviceView.Registration.keptArea(true, "", "Kitchen").equals(Optional.of("")), "A device created in no room keeps none");
+        check(DeviceView.Registration.keptArea(true, null, "Kitchen").equals(Optional.of("")), "A device discovered before rooms reads as created in none");
+        check(DeviceView.Registration.keptArea(true, null, null).isEmpty(), "and says nothing while it is in no room");
+        check(DeviceView.Registration.keptArea(true, "Kitchen", "kitchen").isEmpty() && DeviceView.Registration.keptArea(true, "Living Room", "livingroom").isEmpty(),
+                "Areas compare as Home Assistant compares them, case and spaces ignored");
+        check(DeviceView.Registration.keptArea(true, "Kitchen", "Cookhouse").equals(Optional.of("Kitchen")),
+                "Hidden, renamed and exposed again: the first area stays, as 2026.10 restores it (2025.2 takes the new one, so the hint says may)");
+
+        DeviceView plain = viewOf(SmartLamp.TYPE, Optional.empty());
+        check(plain.registration().room().isEmpty() && plain.registration().keptArea().isEmpty(), "A registration of three parts has no room");
+        check(DeviceTabs.roomValue(plain).getContents() instanceof TranslatableContents none && none.getKey().equals("mineqtt.device.general.room.none")
+                && DeviceTabs.roomHint(plain).isEmpty(), "No room: none, and no hint");
+        DeviceView kitchen = withRegistration(plain, new DeviceView.Registration("mineqtt/world_7f3a", true, Optional.empty(), Optional.of("Kitchen"), Optional.empty()));
+        check(DeviceTabs.roomValue(kitchen).getString().equals("Kitchen") && DeviceTabs.roomHint(kitchen).isEmpty(), "The room by name, no hint while Home Assistant agrees");
+        DeviceView hall = withRegistration(plain, new DeviceView.Registration("mineqtt/world_7f3a", true, Optional.empty(), Optional.of("Kitchen"), Optional.of("Hall")));
+        check(DeviceTabs.roomHint(hall).map(Component::getContents).filter(TranslatableContents.class::isInstance).map(TranslatableContents.class::cast)
+                .filter(hint -> hint.getKey().equals("mineqtt.device.general.room.kept") && List.of(hint.getArgs()).equals(List.of("Hall"))).isPresent(),
+                "Home Assistant keeps Hall: the hint names it");
+        DeviceView noArea = withRegistration(plain, new DeviceView.Registration("mineqtt/world_7f3a", true, Optional.empty(), Optional.of("Kitchen"), Optional.of("")));
+        check(DeviceTabs.roomHint(noArea).map(Component::getContents).filter(TranslatableContents.class::isInstance)
+                .map(contents -> ((TranslatableContents) contents).getKey()).equals(Optional.of("mineqtt.device.general.room.kept_none")), "Home Assistant keeps no area");
+        DeviceView roomless = withRegistration(plain, new DeviceView.Registration("mineqtt/world_7f3a", true, Optional.empty(), Optional.empty(), Optional.of("Hall")));
+        check(DeviceTabs.roomValue(roomless).getContents() instanceof TranslatableContents && DeviceTabs.roomHint(roomless).isPresent(),
+                "A removed room: none, and the hall Home Assistant keeps");
+        JsonObject lang = englishLang();
+        for (String key : List.of("room", "room.none", "room.differs", "room.tooltip", "room.kept", "room.kept_none")) {
+            check(lang.has("mineqtt.device.general." + key), "The room line's text mineqtt.device.general." + key + " is translated");
+        }
+
+        io.netty.buffer.ByteBuf buf = io.netty.buffer.Unpooled.buffer();
+        DeviceView.STREAM_CODEC.encode(buf, hall);
+        check(DeviceView.STREAM_CODEC.decode(buf).equals(hall), "The room and the kept area go through the view's codec");
+        DeviceView user = withOwnership(hall, new DeviceView.Grants(true, false, false, false), DeviceView.Owner.NOBODY).redacted();
+        check(user.registration().room().isEmpty() && user.registration().keptArea().isEmpty(), "A controls-only view shows no room");
+    }
+
+    private static JsonObject englishLang() {
+        try (java.io.InputStream in = DeviceTabsCheck.class.getResourceAsStream("/assets/mineqtt/lang/en_us.json")) {
+            check(in != null, "The English lang file is on the classpath");
+            return JsonParser.parseString(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+        } catch (java.io.IOException e) {
+            throw new AssertionError("The English lang file could not be read", e);
+        }
+    }
+
+    private static DeviceView withRegistration(DeviceView view, DeviceView.Registration registration) {
+        return new DeviceView(view.pos(), view.type(), view.name(), view.slug(), view.ownerName(), view.access(), view.expose(), registration, view.grants(),
+                view.state(), view.raw(), view.privateMode(), view.status(), view.problem(), view.ownership(), view.diagnostics(), view.legacyItems(),
+                view.controlsOnly());
     }
 
     private static DeviceView viewOf(DeviceType type, Optional<Boolean> expose) {

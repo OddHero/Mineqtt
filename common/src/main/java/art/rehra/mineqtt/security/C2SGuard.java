@@ -12,6 +12,7 @@ import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -32,8 +33,8 @@ import java.util.function.Predicate;
  * accepted only from a player who has that block's screen open, {@link #reaches reaches} a loaded block entity of the
  * expected type (from afar with a Configurator in hand, if they may build) and holds the permission it needs; a Cyberdeck payload only from
  * a player with the Cyberdeck screen open; a Configurator's Link mode pick or Group mode name only while it answers the
- * player's open offer ({@link #requireOffer}). A spectator only looks, as vanilla lets them look into a chest: none of their
- * payloads is accepted. Every player may send {@value #PACKETS_PER_SECOND} payloads per second; a rejected payload
+ * player's open offer ({@link #requireOffer}), and a Room mode answer likewise. A spectator only looks, as vanilla lets
+ * them look into a chest: none of their payloads is accepted. Every player may send {@value #PACKETS_PER_SECOND} payloads per second; a rejected payload
  * counts too, so a flood is cut off before any lookup. Rejections are dropped silently, like vanilla does, and logged at
  * debug. Server thread only.
  */
@@ -184,6 +185,50 @@ public final class C2SGuard {
             return Optional.empty();
         }
         return Optional.of(player.level().getBlockEntity(target.pos()));
+    }
+
+    /**
+     * Whether the player may give an answer to a Configurator offer about a box of blocks rather than a device: the Room
+     * mode's name prompt ({@code RoomNameC2S}, M4 plan D11). The answer must be to the offer the server made them, they
+     * hold a Configurator in that mode, are in the box's dimension within the Configurator's reach of the box, may build
+     * ({@link DeviceAccess#mayBuild}: not in adventure mode) and may act on what the offer names, which the room rules
+     * judge again when the answer is applied.
+     *
+     * @param mode      the Configurator mode the offer belongs to
+     * @param offerOpen whether the payload answers the player's open offer
+     * @param dimension the box's dimension, or null without an offer
+     * @param box       the box, or null without an offer
+     * @param permitted whether the player may act on what the offer names (their own room, or an operator)
+     */
+    public static boolean requireOffer(ServerPlayer player, CustomPacketPayload payload, ConfiguratorMode mode, boolean offerOpen,
+                                       @Nullable ResourceKey<Level> dimension, @Nullable AABB box, BooleanSupplier permitted) {
+        double range = CONFIGURATOR_RANGE + REACH_SLACK;
+        Optional<Rejection> rejection = decide(boxOfferFacts(
+                () -> PACKETS.tryTake(player.getUUID()),
+                () -> !player.isSpectator(),
+                offerOpen,
+                () -> holdsConfigurator(player) && CyberdeckDataUtil.mode(CyberdeckMenu.heldConfigurator(player)) == mode,
+                () -> player.level().dimension().equals(dimension),
+                () -> box.distanceToSqr(player.getEyePosition()) < range * range,
+                () -> DeviceAccess.mayBuild(player),
+                permitted));
+        if (rejection.isPresent()) {
+            log(player, payload, rejection.get());
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * What {@link #requireOffer(ServerPlayer, CustomPacketPayload, ConfiguratorMode, boolean, ResourceKey, AABB, BooleanSupplier)}
+     * asks, in the guard's order: the open offer stands for the open screen, the Configurator in the offer's mode for the
+     * screen being valid, the box's dimension for a loaded block, and building plus the right to act on the offer for the
+     * permission; there is no block entity to match.
+     */
+    static Facts boxOfferFacts(BooleanSupplier tokenTaken, BooleanSupplier acting, boolean offerOpen, BooleanSupplier inMode, BooleanSupplier sameDimension,
+                               BooleanSupplier inReach, BooleanSupplier mayBuild, BooleanSupplier permitted) {
+        return new Facts(tokenTaken, acting, () -> offerOpen, inMode, sameDimension, inReach, () -> true,
+                () -> mayBuild.getAsBoolean() && permitted.getAsBoolean());
     }
 
     /**

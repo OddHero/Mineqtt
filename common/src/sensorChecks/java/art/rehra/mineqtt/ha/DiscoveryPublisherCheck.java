@@ -2,11 +2,13 @@ package art.rehra.mineqtt.ha;
 
 import art.rehra.mineqtt.config.HaExpose;
 import art.rehra.mineqtt.config.MineQTTConfig;
+import art.rehra.mineqtt.config.StaticDefaults;
 import art.rehra.mineqtt.device.DeviceGroup;
 import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.device.DeviceRegistry;
 import art.rehra.mineqtt.device.DeviceType;
 import art.rehra.mineqtt.device.DeviceTypes;
+import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.mqtt.core.BrokerSettings;
 import art.rehra.mineqtt.mqtt.core.ConnectionState;
@@ -19,6 +21,12 @@ import art.rehra.mineqtt.mqtt.core.Outbound;
 import art.rehra.mineqtt.mqtt.core.SubOptions;
 import art.rehra.mineqtt.mqtt.core.Subscription;
 import art.rehra.mineqtt.mqtt.core.TopicFilters;
+import art.rehra.mineqtt.rooms.Room;
+import art.rehra.mineqtt.rooms.RoomIndex;
+import art.rehra.mineqtt.telemetry.core.NamePolicy;
+import art.rehra.mineqtt.telemetry.core.PlayerEventMessage;
+import art.rehra.mineqtt.telemetry.core.TelemetryThrottle;
+import art.rehra.mineqtt.telemetry.core.WorldReading;
 import art.rehra.mineqtt.twin.HaEntityCatalog;
 import art.rehra.mineqtt.twin.core.Binding;
 import art.rehra.mineqtt.twin.core.CatalogParser;
@@ -29,6 +37,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.util.Util;
 import net.minecraft.world.level.Level;
 
 import java.nio.charset.StandardCharsets;
@@ -53,6 +62,8 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class DiscoveryPublisherCheck {
     private static final String PREFIX = "homeassistant";
+    // Where the ghost checks' bridge keeps its presence states, TopicScheme.playerRoot.
+    private static final String PLAYER_ROOT = "mineqtt/world_7f3a/player";
     private static int nextX;
 
     static void main(String[] args) {
@@ -75,9 +86,18 @@ public final class DiscoveryPublisherCheck {
         cleanupProvenByClear();
         unbindCleanup();
         cleanupEdges();
+        objectRemovals();
+        objectRemovalAfterBirth();
+        objectReAdded();
+        bridgeRemoval();
+        broadcastEntity();
+        dynamicOptions();
+        rooms();
         bridgeRequestsAndTelemetry();
         ghostVerdicts();
         ghostScan();
+        playerGhosts();
+        presenceStateGhosts();
         System.out.println("Discovery publisher checks passed.");
     }
 
@@ -828,6 +848,334 @@ public final class DiscoveryPublisherCheck {
     }
 
     // A lamp the publisher discovered in full.
+    // A presence-like object (M4 plan D10): a message this publisher does not build from a record, and its full sensors.
+    private static final String PLAYER = "mineqtt_player_0123456789abcdef0123456789abcdef";
+
+    private static JsonObject playerConfig(boolean full) {
+        JsonObject components = new JsonObject();
+        components.add("presence", JsonParser.parseString("{\"p\":\"binary_sensor\",\"unique_id\":\"" + PLAYER + "_presence\",\"name\":null}"));
+        if (full) components.add("health", healthSensor());
+        JsonObject config = JsonParser.parseString("{\"dev\":{\"ids\":[\"" + PLAYER + "\"],\"name\":\"Player Steve\"},\"o\":{\"name\":\"MineQTT\"}}").getAsJsonObject();
+        config.add("cmps", components);
+        return config;
+    }
+
+    private static JsonObject healthSensor() {
+        return JsonParser.parseString("{\"p\":\"sensor\",\"unique_id\":\"" + PLAYER + "_health\",\"name\":\"Health\"}").getAsJsonObject();
+    }
+
+    /**
+     * M4 plan §3.4 (M4-1 seam): cleanups are kept by object id, so an object whose message this publisher does not build
+     * drops components as a device drops its binding: with Home Assistant online the message with the components as stubs,
+     * watched, then the message alone; Home Assistant's clear brings it sooner; an object that is not discovered any more
+     * ends its removal without a message; nothing waits once the watch is over.
+     */
+    private static void objectRemovals() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        fixture.haOnline.set(true);
+        AtomicReference<java.util.Optional<JsonObject>> current = new AtomicReference<>(java.util.Optional.of(playerConfig(false)));
+        fixture.publisher.componentsRemoved(PLAYER, Map.of("health", healthSensor()), current::get);
+        check(fixture.publisher.hasPendingWork(), "A removal is work for the next tick");
+        fixture.publisher.tick();
+        Outbound removal = fixture.mqtt.single();
+        JsonObject expected = playerConfig(false);
+        expected.getAsJsonObject("cmps").add("health", JsonParser.parseString("{\"p\":\"sensor\"}"));
+        check(removal.topic().equals(config(PLAYER)) && removal.retain() && removal.refresh() && json(removal).equals(expected),
+                "The message with the dropped sensor as a stub, retained: " + removal.text());
+        check(fixture.mqtt.handlers.containsKey(config(PLAYER)) && fixture.mqtt.options.get(config(PLAYER)).equals(new SubOptions(1, false, true, 64 * 1024, null)),
+                "...its config topic watched, as a device's is");
+        check(fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS - 1).isEmpty(), "The steady message waits");
+        List<Outbound> steady = fixture.after(1);
+        check(steady.size() == 1 && json(steady.getFirst()).equals(playerConfig(false)) && steady.getFirst().refresh(), "...then the message alone");
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+        check(!fixture.mqtt.handlers.containsKey(config(PLAYER)) && !fixture.publisher.hasPendingWork(), "The watch closes and nothing waits");
+
+        // Home Assistant's clear after it removed the sensor brings the message back sooner.
+        fixture.publisher.componentsRemoved(PLAYER, Map.of("health", healthSensor()), current::get);
+        fixture.publisher.tick();
+        fixture.mqtt.take();
+        fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS);
+        fixture.mqtt.take();
+        fixture.mqtt.deliver(config(PLAYER), "");
+        List<Outbound> restored = fixture.after(DiscoveryPublisher.RESTORE_DELAY_MILLIS);
+        check(restored.size() == 1 && json(restored.getFirst()).equals(playerConfig(false)), "Home Assistant's clear republishes the message");
+        fixture.mqtt.deliver(config(PLAYER), "", true);
+        check(fixture.after(DiscoveryPublisher.RESTORE_DELAY_MILLIS).isEmpty(), "A retained empty message is no clear from Home Assistant");
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+
+        // Not discovered any more: no message, the removal ends (the owner clears the object).
+        fixture.publisher.componentsRemoved(PLAYER, Map.of("health", healthSensor()), current::get);
+        current.set(java.util.Optional.empty());
+        check(fixture.after(1).isEmpty() && !fixture.publisher.hasPendingWork(), "An object that is not discovered any more ends its removal silently");
+        boolean refused = false;
+        try {
+            fixture.publisher.componentsRemoved(PLAYER, Map.of("health", JsonParser.parseString("{\"name\":\"Health\"}").getAsJsonObject()), current::get);
+        } catch (IllegalArgumentException expectedRefusal) {
+            refused = true;
+        }
+        check(refused, "A removed component names its platform, or its stub could not");
+
+        // A device drops components through its binding only, and a group never: their object ids are refused, with or
+        // without a binding cleanup running, so no removal races the device's own steps or takes over a later cleanup.
+        DeviceRecord lamp = discovered(fixture, "hall_lamp");
+        refused = false;
+        try {
+            fixture.publisher.componentsRemoved(lamp.objectId(), Map.of("x", healthSensor()), () -> java.util.Optional.of(playerConfig(false)));
+        } catch (IllegalArgumentException expectedRefusal) {
+            refused = true;
+        }
+        check(refused && !fixture.publisher.hasPendingWork() && fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).isEmpty(),
+                "A device's object id is refused without a binding cleanup too, and nothing runs for it");
+        DeviceGroup group = fixture.registry.createGroup(UUID.randomUUID(), "Removal Group");
+        refused = false;
+        try {
+            fixture.publisher.componentsRemoved(group.objectId(), Map.of("x", healthSensor()), () -> java.util.Optional.of(playerConfig(false)));
+        } catch (IllegalArgumentException expectedRefusal) {
+            refused = true;
+        }
+        check(refused && !fixture.publisher.hasPendingWork(), "A group's object id is refused");
+        bind(lamp);
+        fixture.publisher.bindingChanged(lamp);
+        refused = false;
+        try {
+            fixture.publisher.componentsRemoved(lamp.objectId(), Map.of("x", healthSensor()), () -> java.util.Optional.of(playerConfig(false)));
+        } catch (IllegalArgumentException expectedRefusal) {
+            refused = true;
+        }
+        check(refused, "A device's object id is refused while its binding cleanup runs");
+        fixture.publisher.tick();
+        check(fixture.mqtt.single().topic().equals(config(lamp.objectId())), "...and the device's own cleanup runs as before, keyed by its object id");
+    }
+
+    /**
+     * A removal while Home Assistant is not known to be online is marked: the stubs go out at once (they cost nothing),
+     * and Home Assistant's birth runs the full message, the removal and the steady message, which ends the mark. The mark
+     * keeps no work pending while it waits.
+     */
+    private static void objectRemovalAfterBirth() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        AtomicReference<java.util.Optional<JsonObject>> current = new AtomicReference<>(java.util.Optional.of(playerConfig(false)));
+        fixture.publisher.componentsRemoved(PLAYER, Map.of("health", healthSensor()), current::get);
+        fixture.publisher.tick();
+        JsonObject stubbed = json(fixture.mqtt.single());
+        check(stubbed.getAsJsonObject("cmps").getAsJsonObject("health").keySet().equals(Set.of("p")), "Offline, the stub goes out at once");
+        fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS);
+        fixture.mqtt.take();
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+        check(!fixture.publisher.hasPendingWork(), "The mark waiting for the birth is no pending work");
+
+        fixture.haOnline.set(true);
+        fixture.publisher.republishAll();
+        List<Outbound> birth = fixture.after(0);
+        List<Outbound> player = birth.stream().filter(message -> message.topic().equals(config(PLAYER))).toList();
+        check(player.size() == 1 && json(player.getFirst()).equals(playerConfig(true)), "The birth publishes the message with the sensor in full first: " + topics(birth));
+        List<Outbound> removal = fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS);
+        check(removal.size() == 1 && json(removal.getFirst()).equals(stubbed), "...then the removal");
+        List<Outbound> steady = fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS);
+        check(steady.size() == 1 && json(steady.getFirst()).equals(playerConfig(false)), "...then the message alone");
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+        fixture.publisher.republishAll();
+        check(fixture.after(0).stream().noneMatch(message -> message.topic().equals(config(PLAYER))), "The next birth leaves the object to its owner: the mark is done");
+    }
+
+    private static JsonObject positionSensor() {
+        return JsonParser.parseString("{\"p\":\"sensor\",\"unique_id\":\"" + PLAYER + "_position\",\"name\":\"Position\"}").getAsJsonObject();
+    }
+
+    /**
+     * A component the owner adds back before a step (full -> presence -> full while Home Assistant was offline) leaves the
+     * removal: Home Assistant's birth neither stubs the live component nor replaces it by how it was; with nothing left to
+     * remove, the message as it is now ends the removal and its mark. A component still dropped is removed as before.
+     */
+    private static void objectReAdded() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        AtomicReference<java.util.Optional<JsonObject>> current = new AtomicReference<>(java.util.Optional.of(playerConfig(false)));
+        fixture.publisher.componentsRemoved(PLAYER, Map.of("health", healthSensor()), current::get);
+        fixture.publisher.tick();
+        fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS);
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+        fixture.mqtt.take();
+        // The owner adds the sensor back, renamed, and publishes its message itself.
+        JsonObject renamed = playerConfig(true);
+        renamed.getAsJsonObject("cmps").getAsJsonObject("health").addProperty("name", "Health Now");
+        current.set(java.util.Optional.of(renamed));
+
+        fixture.haOnline.set(true);
+        fixture.publisher.republishAll();
+        List<Outbound> player = fixture.after(0).stream().filter(message -> message.topic().equals(config(PLAYER))).toList();
+        check(player.size() == 1 && json(player.getFirst()).equals(renamed), "The birth publishes the message as it is now, the sensor live as the owner has it: "
+                + player.stream().map(Outbound::text).toList());
+        check(fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).isEmpty() && fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).isEmpty(),
+                "...and no stub follows");
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+        check(!fixture.publisher.hasPendingWork(), "Nothing waits");
+        fixture.publisher.republishAll();
+        check(fixture.after(0).stream().noneMatch(message -> message.topic().equals(config(PLAYER))), "The mark is done");
+
+        // Two dropped online, one added back before the removal's step: only the other is stubbed.
+        current.set(java.util.Optional.of(playerConfig(false)));
+        fixture.publisher.componentsRemoved(PLAYER, Map.of("health", healthSensor(), "position", positionSensor()), current::get);
+        current.set(java.util.Optional.of(playerConfig(true)));
+        List<Outbound> removal = fixture.after(0);
+        JsonObject expected = playerConfig(true);
+        expected.getAsJsonObject("cmps").add("position", JsonParser.parseString("{\"p\":\"sensor\"}"));
+        check(removal.size() == 1 && json(removal.getFirst()).equals(expected), "Only the component still dropped is stubbed: "
+                + removal.stream().map(Outbound::text).toList());
+        List<Outbound> steady = fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS);
+        check(steady.size() == 1 && json(steady.getFirst()).equals(playerConfig(true)), "...then the message as it is now");
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+        check(!fixture.publisher.hasPendingWork(), "...and the removal is done");
+    }
+
+    /**
+     * The bridge's components (M4 plan D6: the broadcast text, turned off): the bridge's message with the component as a
+     * stub, then the bridge's message alone, whose hash is then the bridge's, so a refresh sends nothing; a bridge refresh
+     * while a step is due waits for the steps.
+     */
+    private static void bridgeRemoval() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        fixture.haOnline.set(true);
+        fixture.publisher.republishAll();
+        fixture.after(0);
+        JsonObject bridge = BridgeDevice.discovery(DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY);
+        String topic = config(DiscoveryGoldenTest.IDENTITY.bridgeObjectId());
+        JsonObject broadcast = JsonParser.parseString("{\"p\":\"text\",\"unique_id\":\"mineqtt_bridge_x_broadcast\",\"name\":\"Broadcast\"}").getAsJsonObject();
+        fixture.publisher.bridgeComponentsRemoved(Map.of("broadcast", broadcast));
+        fixture.publisher.configChanged();
+        List<Outbound> first = fixture.after(0);
+        JsonObject stubbed = bridge.deepCopy();
+        stubbed.getAsJsonObject("cmps").add("broadcast", JsonParser.parseString("{\"p\":\"text\"}"));
+        check(first.size() == 1 && first.getFirst().topic().equals(topic) && json(first.getFirst()).equals(stubbed),
+                "The bridge's message with the broadcast stub, and no plain bridge message beside it: " + topics(first));
+        List<Outbound> steady = fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS);
+        check(steady.size() == 1 && json(steady.getFirst()).equals(bridge), "...then the bridge's message alone");
+        fixture.publisher.configChanged();
+        check(fixture.after(0).isEmpty(), "Its hash is the bridge's now: a refresh sends nothing");
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+    }
+
+    /**
+     * M4 plan D8: the bridge has its broadcast text entity only while {@code telemetry.allowBroadcast} is on. Turned off,
+     * Home Assistant removes it; the registry remembers that it may hold the entity until the removal went out while it
+     * was online, also over a restart, and a world that never turned it on never stubs it.
+     */
+    private static void broadcastEntity() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        String topic = config(DiscoveryGoldenTest.IDENTITY.bridgeObjectId());
+        JsonObject plain = BridgeDevice.discovery(DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY);
+        JsonObject withText = BridgeDevice.discovery(DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY, true);
+        JsonObject stubbed = plain.deepCopy();
+        stubbed.getAsJsonObject("cmps").add(BridgeDevice.BROADCAST, JsonParser.parseString("{\"p\":\"text\"}"));
+        fixture.haOnline.set(true);
+        fixture.publisher.republishAll();
+        List<Outbound> start = fixture.after(0);
+        check(start.size() == 1 && json(start.getFirst()).equals(plain) && !fixture.registry.bridgeBroadcastDiscovered(),
+                "Off by default: no broadcast entity, and no stub of one a world never had");
+
+        MineQTTConfig.telemetryAllowBroadcast = true;
+        fixture.publisher.configChanged();
+        List<Outbound> on = fixture.after(0);
+        check(on.size() == 1 && on.getFirst().topic().equals(topic) && json(on.getFirst()).equals(withText),
+                "Turned on, the bridge's message gains the broadcast entity: " + topics(on));
+        JsonObject text = withText.getAsJsonObject("cmps").getAsJsonObject(BridgeDevice.BROADCAST);
+        check(text.get("p").getAsString().equals("text") && text.get("command_topic").getAsString().equals("mineqtt/world_7f3a/bridge/request/broadcast")
+                        && !text.get("retain").getAsBoolean() && text.get("max").getAsInt() == 255 && !text.has("state_topic")
+                        && text.get("entity_category").getAsString().equals("config"),
+                "A config text entity sending to bridge/request/broadcast, never retained, at most 255 characters, optimistic: " + text);
+        check(fixture.registry.bridgeBroadcastDiscovered(),
+                "The registry remembers at once that Home Assistant may hold it");
+
+        // Turned off while Home Assistant is not known to be online: the stub goes out now, the mark stays.
+        MineQTTConfig.telemetryAllowBroadcast = false;
+        fixture.haOnline.set(false);
+        fixture.publisher.configChanged();
+        List<Outbound> off = fixture.after(0);
+        check(off.size() == 1 && json(off.getFirst()).equals(stubbed), "Turned off, the bridge's message with the entity as a stub: " + topics(off));
+        check(json(fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS).getFirst()).equals(plain), "then the bridge's message alone");
+        check(fixture.registry.bridgeBroadcastDiscovered(), "Home Assistant was not known to be online: the registry keeps the mark");
+        fixture.after(DiscoveryPublisher.WATCH_MILLIS);
+
+        // A restart forgets the removal in memory; the registry's mark brings it back at Home Assistant's birth.
+        DiscoveryPublisher restarted = new DiscoveryPublisher(fixture.registry, fixture.mqtt, () -> DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY,
+                true, fixture.clock::get, fixture.haOnline::get);
+        fixture.haOnline.set(true);
+        restarted.republishAll();
+        restarted.tick();
+        List<Outbound> birth = fixture.mqtt.take();
+        check(birth.size() == 1 && json(birth.getFirst()).equals(stubbed), "After a restart the birth's republish removes the entity again: " + topics(birth));
+        check(!fixture.registry.bridgeBroadcastDiscovered(), "issued while Home Assistant is online, which ends the mark");
+        fixture.clock.addAndGet(DiscoveryPublisher.CLEANUP_STEP_MILLIS);
+        restarted.tick();
+        check(json(fixture.mqtt.single()).equals(plain), "then the bridge's message alone");
+        fixture.clock.addAndGet(DiscoveryPublisher.WATCH_MILLIS);
+        restarted.tick();
+        restarted.republishAll();
+        restarted.tick();
+        check(json(fixture.mqtt.single()).equals(plain), "The next republish stubs nothing");
+        // /mineqtt discovery clear removes the bridge device in Home Assistant, its broadcast entity with it.
+        fixture.registry.setBridgeBroadcastDiscovered(true);
+        restarted.clearAll();
+        fixture.mqtt.take();
+        check(!fixture.registry.bridgeBroadcastDiscovered(), "A discovery clear leaves no mark of the broadcast entity");
+
+        // Turned off while Home Assistant is online: the mark stays until the stub went out, not only until it was
+        // scheduled, so a stop (or a crash, or a lost connection) before the next tick removes the entity at the next start.
+        MineQTTConfig.telemetryAllowBroadcast = true;
+        restarted.configChanged();
+        fixture.clock.addAndGet(1_000);
+        restarted.tick();
+        check(json(fixture.mqtt.single()).equals(withText) && fixture.registry.bridgeBroadcastDiscovered(), "On again: the entity and its mark are back");
+        MineQTTConfig.telemetryAllowBroadcast = false;
+        restarted.configChanged();
+        check(fixture.mqtt.take().isEmpty() && fixture.registry.bridgeBroadcastDiscovered(),
+                "Turned off while Home Assistant is online, the stub waits for the next tick and the mark stays until then");
+        restarted.stop();
+        check(fixture.registry.bridgeBroadcastDiscovered(), "A stop before the stub went out keeps the mark");
+        DiscoveryPublisher next = new DiscoveryPublisher(fixture.registry, fixture.mqtt, () -> DiscoveryGoldenTest.TOPICS, DiscoveryGoldenTest.IDENTITY,
+                true, fixture.clock::get, fixture.haOnline::get);
+        next.republishAll();
+        check(fixture.registry.bridgeBroadcastDiscovered(), "The next start schedules the stub again and keeps the mark");
+        next.tick();
+        List<Outbound> again = fixture.mqtt.take();
+        check(again.size() == 1 && json(again.getFirst()).equals(stubbed), "The next start's birth removes the entity: " + topics(again));
+        check(!fixture.registry.bridgeBroadcastDiscovered(), "The stub went out while Home Assistant was online: the mark is done");
+        next.stop();
+    }
+
+    /**
+     * Runtime select options (M4 plan §3.2): the message has the options of the moment, so a refresh after they changed
+     * publishes it, and an unchanged refresh sends nothing; only types with such a select are checked again.
+     */
+    private static void dynamicOptions() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        List<String> options = new ArrayList<>(List.of("minecraft:glass"));
+        art.rehra.mineqtt.device.Field<String> block = art.rehra.mineqtt.device.Field.text("block", art.rehra.mineqtt.device.Access.READ_WRITE);
+        DeviceType placer = DeviceType.builder(Identifier.fromNamespaceAndPath("mineqtt_check", "options_placer")).model("Options Placer")
+                .unloaded(art.rehra.mineqtt.device.UnloadedPolicy.UNAVAILABLE).field(block).entity(Ha.selectDynamic("block", block, () -> options).config()).build();
+        DeviceTypes.register(placer);
+        DeviceRecord record = new DeviceRecord(UUID.randomUUID(), placer.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(500, 64, 0)), "Placer", "placer");
+        fixture.registry.add(record);
+        DeviceRecord lamp = discovered(fixture, "porch_lamp");
+        fixture.publisher.refresh(record);
+        fixture.publisher.tick();
+        check(json(fixture.mqtt.single()).getAsJsonObject("cmps").getAsJsonObject("block").getAsJsonArray("options").size() == 1, "Discovered with one option");
+        String hash = record.discoveryHash();
+        fixture.publisher.refreshDynamicOptions();
+        check(fixture.after(0).isEmpty(), "Unchanged options publish nothing, and the lamp is not checked at all");
+        options.add("minecraft:white_wool");
+        fixture.publisher.refreshDynamicOptions();
+        List<Outbound> published = fixture.after(0);
+        check(published.size() == 1 && published.getFirst().topic().equals(config(record.objectId()))
+                && json(published.getFirst()).getAsJsonObject("cmps").getAsJsonObject("block").getAsJsonArray("options").size() == 2
+                && !hash.equals(record.discoveryHash()), "A new option republishes the placer alone, with a new hash: " + topics(published));
+        check(lamp.discoveryHash() != null, "The lamp stays discovered");
+        options.clear();
+        fixture.publisher.refreshDynamicOptions();
+        List<Outbound> emptied = fixture.after(0);
+        check(emptied.size() == 1 && json(emptied.getFirst()).getAsJsonObject("cmps").get("block").equals(JsonParser.parseString("{\"p\":\"select\"}")),
+                "Options that ran out republish the placer with the select as a stub, so Home Assistant removes it: " + topics(emptied));
+    }
+
     private static DeviceRecord discovered(Fixture fixture, String slug) {
         DeviceRecord lamp = fixture.lamp(slug);
         fixture.publisher.refresh(lamp);
@@ -835,6 +1183,127 @@ public final class DiscoveryPublisherCheck {
         fixture.mqtt.take();
         check(lamp.discoveryHash() != null, "Discovered: " + slug);
         return lamp;
+    }
+
+    /**
+     * M4 plan D11: a room edit checks the devices it touches again ({@link RoomIndex#affected}, as
+     * {@code DeviceRuntime#roomChanged} does) and only those whose area changed are published; the area of the message
+     * that creates a device in Home Assistant is kept, and only a message that creates it again replaces it. A group names
+     * an area while its members agree.
+     */
+    private static void rooms() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        UUID steve = UUID.fromString("8667ba71-b85a-4004-af54-457a9734eed7");
+        UUID alex = UUID.fromString("ec561538-f3fd-461d-aff5-086b22154bce");
+        DeviceRecord kitchenLamp = fixture.lamp("kitchen_lamp");
+        kitchenLamp.setOwner(steve);
+        DeviceRecord pantryLamp = fixture.lamp("pantry_lamp");
+        pantryLamp.setOwner(steve);
+        DeviceRecord alexLamp = fixture.lamp("alex_lamp");
+        alexLamp.setOwner(alex);
+        DeviceRecord outside = fixture.lamp("garden_lamp");
+        outside.setOwner(steve);
+        List<DeviceRecord> all = List.of(kitchenLamp, pantryLamp, alexLamp, outside);
+        all.forEach(fixture.publisher::refresh);
+        fixture.publisher.tick();
+        check(fixture.mqtt.take().size() == 4, "Four lamps are discovered");
+        check(all.stream().allMatch(record -> "".equals(record.discoveryArea())), "A device created in no room is kept with the area none");
+
+        // Steve's kitchen holds his two lamps and Alex's; the garden lamp is outside it.
+        BlockPos from = kitchenLamp.pos().pos().offset(0, -1, -2);
+        BlockPos to = alexLamp.pos().pos().offset(0, 2, 2);
+        Room kitchen = Room.between(UUID.randomUUID(), "Kitchen", Level.OVERWORLD, to, from, steve, false, 1_000);
+        fixture.registry.addRoom(kitchen);
+        Set<UUID> affected = RoomIndex.affected(fixture.registry.records(), null, kitchen);
+        check(affected.equals(Set.of(kitchenLamp.id(), pantryLamp.id())), "A room touches its owner's devices inside it, not Alex's nor the garden's: " + affected);
+        String kitchenHash = kitchenLamp.discoveryHash();
+        affected.stream().map(fixture.registry::record).forEach(fixture.publisher::refresh);
+        fixture.publisher.refresh(alexLamp);
+        fixture.publisher.tick();
+        List<Outbound> moved = fixture.mqtt.take();
+        check(moved.size() == 2 && moved.stream().allMatch(message -> json(message).getAsJsonObject("dev").get("sa").getAsString().equals("Kitchen")),
+                "Steve's two lamps are published with the area, Alex's lamp in the box is not touched: " + topics(moved));
+        check(!kitchenLamp.discoveryHash().equals(kitchenHash), "The hash follows the area");
+        check("".equals(kitchenLamp.discoveryArea()), "Home Assistant created the lamp in no area and keeps that: the record says so still");
+        check(fixture.publisher.area(alexLamp) == null && fixture.publisher.area(outside) == null, "Alex's lamp and the garden lamp are in no room");
+
+        // A pantry inside the kitchen wins for the lamp in it; its removal gives the lamp back to the kitchen.
+        Room pantry = Room.between(UUID.randomUUID(), "Pantry", Level.OVERWORLD, pantryLamp.pos().pos(), pantryLamp.pos().pos(), steve, false, 2_000);
+        fixture.registry.addRoom(pantry);
+        RoomIndex.affected(fixture.registry.records(), null, pantry).stream().map(fixture.registry::record).forEach(fixture.publisher::refresh);
+        fixture.publisher.tick();
+        Outbound pantryMessage = fixture.mqtt.single();
+        check(pantryMessage.topic().equals(config(pantryLamp.objectId())) && json(pantryMessage).getAsJsonObject("dev").get("sa").getAsString().equals("Pantry"),
+                "The smaller room wins for the lamp in it");
+        fixture.registry.removeRoom(pantry.id());
+        RoomIndex.affected(fixture.registry.records(), pantry, null).stream().map(fixture.registry::record).forEach(fixture.publisher::refresh);
+        fixture.publisher.tick();
+        check(json(fixture.mqtt.single()).getAsJsonObject("dev").get("sa").getAsString().equals("Kitchen"), "Without the pantry the lamp is in the kitchen again");
+
+        // A rename publishes the new name; a room for everyone, made by the server, takes Alex's lamp too.
+        Room renamed = kitchen.renamed("Cookhouse");
+        fixture.registry.replaceRoom(renamed);
+        RoomIndex.affected(fixture.registry.records(), kitchen, renamed).stream().map(fixture.registry::record).forEach(fixture.publisher::refresh);
+        fixture.publisher.tick();
+        check(fixture.mqtt.take().stream().allMatch(message -> json(message).getAsJsonObject("dev").get("sa").getAsString().equals("Cookhouse")),
+                "A rename republishes the lamps with the new name");
+        Room shared = Room.between(UUID.randomUUID(), "Shared", Level.OVERWORLD, alexLamp.pos().pos(), alexLamp.pos().pos(), Util.NIL_UUID, true, 3_000);
+        fixture.registry.addRoom(shared);
+        check(RoomIndex.affected(fixture.registry.records(), null, shared).equals(Set.of(alexLamp.id())), "A room for everyone touches Alex's lamp");
+        check("Shared".equals(fixture.publisher.area(alexLamp)), "and names it");
+
+        // Hidden, the device is gone from Home Assistant: one clear, never a second (Home Assistant's own clears after it
+        // removed the entities are what it warns about). Exposed again, 2026.10 restores the area it had and 2025.2 applies
+        // the room's: the first creation's area stays, and the hint says what Home Assistant may show.
+        kitchenLamp.setExpose(false);
+        fixture.publisher.refresh(kitchenLamp);
+        fixture.publisher.tick();
+        Outbound cleared = fixture.mqtt.single();
+        check(cleared.topic().equals(config(kitchenLamp.objectId())) && cleared.payload().length == 0 && cleared.retain() && "".equals(kitchenLamp.discoveryArea()),
+                "One retained clear; the area of the first creation (none) is kept: " + kitchenLamp.discoveryArea());
+        fixture.publisher.refresh(kitchenLamp);
+        fixture.publisher.republishAll();
+        List<Outbound> later = fixture.after(DiscoveryPublisher.CLEANUP_STEP_MILLIS);
+        check(later.stream().noneMatch(message -> message.topic().equals(config(kitchenLamp.objectId()))),
+                "Neither a refresh nor a republish clears the hidden device again: " + topics(later));
+        kitchenLamp.setExpose(null);
+        fixture.publisher.refresh(kitchenLamp);
+        fixture.publisher.tick();
+        check(fixture.mqtt.single().payload().length > 0 && "".equals(kitchenLamp.discoveryArea()),
+                "Created again in the Cookhouse, the first creation's area stays: " + kitchenLamp.discoveryArea());
+        check(DeviceView.Registration.keptArea(kitchenLamp.discoveryHash() != null, kitchenLamp.discoveryArea(), fixture.publisher.area(kitchenLamp))
+                .equals(java.util.Optional.of("")), "so its screen says Home Assistant may have kept it without an area");
+
+        // M4-23: with the catalog's areas, a room names Home Assistant's spelling of a matching area; without, its own name.
+        List<String> catalogAreas = new ArrayList<>(List.of("Garden", "COOK HOUSE"));
+        fixture.publisher.setAreaNames(() -> catalogAreas);
+        check("COOK HOUSE".equals(fixture.publisher.area(pantryLamp)), "The room Cookhouse names the catalog's area COOK HOUSE");
+        fixture.publisher.refresh(pantryLamp);
+        fixture.publisher.tick();
+        check(json(fixture.mqtt.single()).getAsJsonObject("dev").get("sa").getAsString().equals("COOK HOUSE"),
+                "A refresh publishes the device with Home Assistant's spelling");
+        catalogAreas.clear();
+        check("Cookhouse".equals(fixture.publisher.area(pantryLamp)), "Without the catalog the room's own name");
+        fixture.publisher.refresh(pantryLamp);
+        fixture.publisher.tick();
+        fixture.mqtt.take();
+
+        // A group names the area while its members agree.
+        DeviceGroup group = fixture.registry.createGroup(UUID.randomUUID(), "Kitchen Lights");
+        fixture.registry.joinGroup(group, kitchenLamp);
+        fixture.registry.joinGroup(group, pantryLamp);
+        check("Cookhouse".equals(fixture.publisher.area(group)), "Both members are in the room: the group names it");
+        fixture.registry.joinGroup(group, outside);
+        check(fixture.publisher.area(group) == null, "A member outside it: the group names no area");
+        check(fixture.publisher.area(fixture.registry.createGroup(UUID.randomUUID(), "Empty")) == null, "An empty group names none");
+
+        // A migrated v1 lamp joins the device Home Assistant kept from v1, which keeps its area: nothing is recorded.
+        DeviceRecord legacy = fixture.lamp("legacy_lamp");
+        legacy.setLegacyUniqueId("home_legacy");
+        fixture.registry.markLegacyDiscoveryMigrated("home_legacy");
+        fixture.publisher.refresh(legacy);
+        fixture.publisher.tick();
+        check(fixture.mqtt.single().payload().length > 0 && legacy.discoveryArea() == null, "A migrated v1 lamp keeps no area of its own");
     }
 
     private static void bind(DeviceRecord lamp) {
@@ -849,8 +1318,16 @@ public final class DiscoveryPublisherCheck {
         FakeMqtt mqtt = new FakeMqtt();
         AtomicLong clock = new AtomicLong(1_000);
         AtomicInteger republished = new AtomicInteger();
-        AtomicInteger players = new AtomicInteger(2);
-        BridgeDevice bridge = new BridgeDevice(mqtt, () -> DiscoveryGoldenTest.TOPICS, players::get, clock::get, republished::incrementAndGet);
+        // Two players online, nobody named, 20 tps at 5 ms a tick, 06:00 on day 0, clear.
+        AtomicReference<WorldReading> world = new AtomicReference<>(new WorldReading(2, List.of(), 20, false, 5_000_000, 0, false, false));
+        AtomicReference<BridgeDevice.Settings> settings = new AtomicReference<>(new BridgeDevice.Settings(true, 10));
+        List<String> shown = new ArrayList<>();
+        List<String> logged = new ArrayList<>();
+        BridgeDevice bridge = new BridgeDevice(mqtt, () -> DiscoveryGoldenTest.TOPICS, world::get, settings::get, clock::get, republished::incrementAndGet,
+                shown::add, recording(logged));
+        check(TelemetryThrottle.MIN_INTERVAL_SECONDS == StaticDefaults.MIN_TELEMETRY_INTERVAL_SECONDS
+                && TelemetryThrottle.MAX_INTERVAL_SECONDS == StaticDefaults.MAX_TELEMETRY_INTERVAL_SECONDS,
+                "The throttle clamps telemetry.intervalSeconds to the config's bounds");
         check(mqtt.handlers.containsKey("mineqtt/world_7f3a/bridge/request/+"), "The bridge takes requests");
 
         mqtt.deliver("mineqtt/world_7f3a/bridge/request/republish", "");
@@ -861,26 +1338,151 @@ public final class DiscoveryPublisherCheck {
                 && ok.text().equals("{\"status\":\"ok\"}"), "republish runs and is answered");
         mqtt.deliver("mineqtt/world_7f3a/bridge/request/explode", "now");
         check(mqtt.single().text().contains("\"status\":\"error\""), "An unknown request is answered with an error");
+        mqtt.deliver("mineqtt/world_7f3a/bridge/request/republish", "republish", true);
+        check(republished.get() == 1 && mqtt.take().isEmpty(), "A retained request is a stale one: ignored, unanswered");
+        broadcastRequests(mqtt, clock, settings, shown, logged);
 
         // Connected, but the connect listeners have not run yet.
         bridge.tick();
         check(mqtt.take().isEmpty(), "No telemetry before the connect publishes it");
         bridge.publishTelemetry();
         Outbound telemetry = mqtt.single();
-        check(telemetry.topic().equals("mineqtt/world_7f3a/bridge") && telemetry.retain()
-                && telemetry.text().equals("{\"players_online\":2,\"dropped_inbound\":0,\"dropped_outbound\":0}"), "Telemetry: " + telemetry.text());
-        players.set(3);
+        check(telemetry.topic().equals("mineqtt/world_7f3a/bridge") && telemetry.retain() && telemetry.text().equals(
+                        "{\"players_online\":2,\"players\":[],\"tps\":20.0,\"mspt\":5.0,\"time_of_day\":\"06:00\",\"day\":0,\"is_day\":true,"
+                                + "\"weather\":\"clear\",\"dropped_inbound\":0,\"dropped_outbound\":0}"), "Telemetry: " + telemetry.text());
+        check(bridge.lastTelemetry().orElseThrow().playersOnline() == 2, "The bridge keeps what it published");
+
+        // A player joins: published at the next sample, but not sooner than 2 s after the last publish.
+        world.set(new WorldReading(3, List.of(), 20, false, 5_000_000, 0, false, false));
+        clock.addAndGet(1_000);
+        bridge.tick();
+        check(mqtt.take().isEmpty(), "A change of the players waits for the 2 s floor");
+        clock.addAndGet(1_000);
+        bridge.tick();
+        check(mqtt.single().text().contains("\"players_online\":3"), "then it is published, long before the 10 s interval");
+
+        // Load within the deadbands is not published at all; beyond them only after the interval.
+        world.set(new WorldReading(3, List.of(), 20, false, 5_900_000, 0, false, false));
+        clock.addAndGet(30_000);
+        bridge.tick();
+        check(mqtt.take().isEmpty(), "0.9 ms more per tick stays within the MSPT deadband");
+        world.set(new WorldReading(3, List.of(), 20, false, 6_000_000, 0, false, false));
+        bridge.tick();
+        check(mqtt.take().isEmpty(), "The next sample waits a second");
+        clock.addAndGet(1_000);
+        bridge.tick();
+        check(mqtt.single().text().contains("\"mspt\":6.0"), "1 ms more is published once the interval is over");
+        world.set(new WorldReading(3, List.of(), 20, false, 7_500_000, 0, false, false));
+        clock.addAndGet(9_000);
+        bridge.tick();
+        check(mqtt.take().isEmpty(), "Another load change waits for the 10 s interval");
+        clock.addAndGet(1_000);
+        bridge.tick();
+        check(mqtt.single().text().contains("\"mspt\":7.5"), "then it is published");
+
+        // telemetry.intervalSeconds is read at every sample and clamped to 5 s.
+        settings.set(new BridgeDevice.Settings(true, 1));
+        world.set(new WorldReading(3, List.of(), 20, false, 9_000_000, 0, false, false));
+        clock.addAndGet(4_000);
+        bridge.tick();
+        check(mqtt.take().isEmpty(), "An interval of 1 s is clamped to 5 s");
+        clock.addAndGet(1_000);
+        bridge.tick();
+        check(mqtt.single().text().contains("\"mspt\":9.0"), "and publishes after 5 s");
+
+        // Sunset at the next sample's 2 s floor; the time steps on with it.
+        world.set(new WorldReading(3, List.of(), 20, false, 9_000_000, 12_000, false, false));
+        clock.addAndGet(2_000);
+        bridge.tick();
+        check(mqtt.single().text().contains("\"time_of_day\":\"18:00\",\"day\":0,\"is_day\":false"), "Night is published within 2 s");
+
+        // telemetry.enabled=false: only the player count and the drop counters, at once.
+        settings.set(new BridgeDevice.Settings(false, 10));
+        clock.addAndGet(2_000);
+        bridge.tick();
+        check(mqtt.single().text().equals("{\"players_online\":3,\"dropped_inbound\":0,\"dropped_outbound\":0}"),
+                "With telemetry.enabled off only the earlier keys remain");
+        world.set(new WorldReading(3, List.of(), 20, true, 50_000_000, 30_000, true, true));
+        clock.addAndGet(60_000);
+        bridge.tick();
+        check(mqtt.take().isEmpty(), "and the world no longer changes it");
+
+        mqtt.state = new ConnectionState(ConnectionState.Status.RECONNECTING, "test");
+        world.set(new WorldReading(4, List.of(), 20, false, 5_000_000, 0, false, false));
+        clock.addAndGet(60_000);
+        bridge.tick();
+        check(mqtt.take().isEmpty(), "Nothing is published while the broker is unreachable");
+        mqtt.state = ConnectionState.CONNECTED;
+
+        // M4 plan D7: player events on bridge/event, never retained, dropped while offline, within their caps.
+        UUID steve = UUID.randomUUID();
+        bridge.publishPlayerEvent(PlayerEventMessage.join(steve, "Steve", NamePolicy.NOBODY));
+        Outbound join = mqtt.single();
+        check(join.topic().equals("mineqtt/world_7f3a/bridge/event") && !join.retain() && join.offline() == OfflinePolicy.DROP
+                && join.text().equals("{\"event_type\":\"join\"}"), "A join is an anonymous event on bridge/event: " + join.text());
+        bridge.publishPlayerEvent(PlayerEventMessage.leave(steve, "Steve", NamePolicy.NOBODY));
+        check(mqtt.single().text().equals("{\"event_type\":\"leave\"}"), "and so is the leave right after it");
+        bridge.publishPlayerEvent(PlayerEventMessage.join(steve, "Steve", NamePolicy.NOBODY));
+        check(mqtt.take().isEmpty(), "A rejoin within 5 s is not published");
         clock.addAndGet(5_000);
+        bridge.publishPlayerEvent(PlayerEventMessage.join(steve, "Steve", NamePolicy.NOBODY));
+        check(mqtt.single().text().equals("{\"event_type\":\"join\"}"), "5 s later it is");
+        clock.addAndGet(2_000);
+        for (int i = 0; i < 12; i++) bridge.publishPlayerEvent(PlayerEventMessage.join(UUID.randomUUID(), "P" + i, NamePolicy.NOBODY));
+        check(mqtt.take().size() == 10, "The bridge publishes at most 10 events in a second");
+        settings.set(new BridgeDevice.Settings(true, 10));
+        clock.addAndGet(60_000);
         bridge.tick();
-        check(mqtt.take().isEmpty(), "A change waits for the 10 s interval");
-        clock.addAndGet(BridgeDevice.TELEMETRY_INTERVAL_MILLIS - 5_000);
-        bridge.tick();
-        check(mqtt.single().text().contains("\"players_online\":3"), "then it is published");
-        clock.addAndGet(BridgeDevice.TELEMETRY_INTERVAL_MILLIS);
-        bridge.tick();
-        check(mqtt.take().isEmpty(), "Nothing unchanged is published");
+        check(mqtt.single().text().contains("\"dropped_outbound\":2"), "The 2 events over the cap count in dropped_outbound");
         bridge.stop();
+        bridge.publishPlayerEvent(PlayerEventMessage.leave(UUID.randomUUID(), "Late", NamePolicy.NOBODY));
+        check(mqtt.take().isEmpty(), "A stopped bridge publishes no event");
         check(mqtt.handlers.isEmpty(), "Stopping unsubscribes");
+    }
+
+    /**
+     * M4 plan D8: {@code bridge/request/broadcast} answers that it is disabled while {@code telemetry.allowBroadcast} is
+     * off; on, it shows the cleaned text once, logs it with its topic, keeps JSON-looking text literal, ignores retained
+     * requests and refuses an oversize or empty one and the ones over the rate.
+     */
+    private static void broadcastRequests(FakeMqtt mqtt, AtomicLong clock, AtomicReference<BridgeDevice.Settings> settings, List<String> shown,
+                                          List<String> logged) {
+        String request = "mineqtt/world_7f3a/bridge/request/broadcast";
+        mqtt.deliver(request, "Hi");
+        Outbound disabled = mqtt.single();
+        check(disabled.topic().equals("mineqtt/world_7f3a/bridge/response/broadcast") && !disabled.retain()
+                && disabled.text().equals("{\"status\":\"error\",\"error\":\"broadcast disabled\"}") && shown.isEmpty(),
+                "Off by default: a broadcast request is answered that it is disabled, and nothing is shown: " + disabled.text());
+
+        settings.set(new BridgeDevice.Settings(true, 10, true));
+        mqtt.deliver(request, "\u00a74Hi\u202e");
+        check(mqtt.single().text().equals("{\"status\":\"ok\"}") && shown.equals(List.of("Hi")),
+                "On, the text is shown once without its formatting code and the bidi override: " + shown);
+        check(logged.contains("Broadcast text from " + request + ": Hi"), "and logged with its topic: " + logged);
+        mqtt.deliver(request, "Again", true);
+        check(mqtt.take().isEmpty() && shown.size() == 1, "A retained broadcast request is ignored");
+
+        clock.addAndGet(10_000);
+        String json = "{\"text\":\"x\",\"clickEvent\":{\"action\":\"run_command\",\"value\":\"/op me\"}}";
+        mqtt.deliver(request, json);
+        check(mqtt.single().text().equals("{\"status\":\"ok\"}") && shown.getLast().equals(json), "JSON-looking text is shown as the text it is");
+        mqtt.deliver(request, "a".repeat(1025));
+        check(mqtt.single().text().equals("{\"status\":\"error\",\"error\":\"message over 1024 bytes\"}") && shown.size() == 2,
+                "A request over 1 KiB is refused before it is decoded");
+        mqtt.deliver(request, "\u00a7\u00a7 \t\u202e ");
+        check(mqtt.single().text().equals("{\"status\":\"error\",\"error\":\"empty message\"}") && shown.size() == 2, "Nothing left shows nothing");
+
+        clock.addAndGet(10_000);
+        for (int i = 0; i < 5; i++) mqtt.deliver(request, "Burst " + i);
+        List<Outbound> answers = mqtt.take();
+        check(answers.size() == 5 && answers.stream().filter(answer -> answer.text().equals("{\"status\":\"ok\"}")).count() == 3
+                        && answers.stream().filter(answer -> answer.text().contains("rate limited")).count() == 2
+                        && shown.subList(2, shown.size()).equals(List.of("Burst 0", "Burst 1", "Burst 2")),
+                "Five in a second show three, the burst; the others are refused: " + shown);
+        clock.addAndGet(1_000);
+        mqtt.deliver(request, "Later");
+        check(mqtt.single().text().equals("{\"status\":\"ok\"}") && shown.getLast().equals("Later"), "A second later one more is shown");
+        settings.set(new BridgeDevice.Settings(true, 10));
     }
 
     /** Design §4.5: which configs the ghost cleanup clears, as the pure decision. */
@@ -929,13 +1531,17 @@ public final class DiscoveryPublisherCheck {
         AtomicReference<String> prefix = new AtomicReference<>(PREFIX);
         AtomicBoolean tokens = new AtomicBoolean(true);
         List<String> logged = new ArrayList<>();
-        GhostCleanup cleanup = new GhostCleanup(mqtt, prefix::get, bridge, fixture.registry::contains, tokens::get, fixture.clock::get, recording(logged));
+        GhostCleanup cleanup = new GhostCleanup(mqtt, prefix::get, bridge, fixture.registry::contains, player -> false, () -> PLAYER_ROOT, slug -> false,
+                tokens::get, fixture.clock::get, recording(logged));
         check(!cleanup.pending() && mqtt.handlers.isEmpty(), "Nothing is scanned before a connect");
 
         cleanup.connected();
         String filter = PREFIX + "/device/+/config";
         SubOptions scan = mqtt.options.get(filter);
-        check(mqtt.handlers.keySet().equals(Set.of(filter)) && cleanup.pending(), "A connect subscribes to every device config");
+        String states = PLAYER_ROOT + "/+";
+        check(mqtt.handlers.keySet().equals(Set.of(filter, states)) && cleanup.pending(),
+                "A connect subscribes to every device config and to this bridge's presence states");
+        check(scan.equals(mqtt.options.get(states)), "Both with the same options");
         check(scan.acceptRetained() && !scan.noLocal() && scan.qos() == 0 && scan.maxPayloadBytes() > GhostCleanup.MAX_CONFIG_BYTES,
                 "The scan takes retained messages at QoS 0, also its own client id's, and caps the size itself: " + scan);
         String ghost = config(DeviceRecord.objectId(UUID.randomUUID()));
@@ -970,14 +1576,15 @@ public final class DiscoveryPublisherCheck {
         fixture.clock.incrementAndGet();
         cleanup.tick();
         check(!cleanup.pending() && mqtt.handlers.isEmpty(), "then it unsubscribes");
-        check(logged.getLast().equals("Home Assistant ghost cleanup: 6 discovery configs looked at, 2 ghosts found"), "The scan is summed up: " + logged.getLast());
+        check(logged.getLast().equals("Home Assistant ghost cleanup: 6 discovery configs and 0 presence states looked at, 2 ghosts found"),
+                "The scan is summed up: " + logged.getLast());
 
         cleanup.connected();
         fixture.clock.addAndGet(4_000);
         cleanup.connected();
         fixture.clock.addAndGet(4_000);
         cleanup.tick();
-        check(cleanup.pending() && mqtt.handlers.size() == 1, "A connect during a scan restarts its window on the same subscription");
+        check(cleanup.pending() && mqtt.handlers.size() == 2, "A connect during a scan restarts its window on the same subscriptions");
         mqtt.deliver(config(DeviceRecord.objectId(UUID.randomUUID())), ours, true);
         mqtt.state = ConnectionState.reconnecting("connection lost");
         cleanup.tick();
@@ -989,14 +1596,14 @@ public final class DiscoveryPublisherCheck {
         prefix.set("ha2");
         cleanup.connected();
         cleanup.connected();
-        check(mqtt.handlers.keySet().equals(Set.of("ha2/device/+/config")), "A connect scans under the prefix of that moment");
+        check(mqtt.handlers.keySet().equals(Set.of("ha2/device/+/config", states)), "A connect scans under the prefix of that moment");
         String moved = "ha2/device/" + DeviceRecord.objectId(UUID.randomUUID()) + "/config";
         mqtt.deliver(moved, ours, true);
         cleanup.tick();
         check(mqtt.single().topic().equals(moved), "and judges the topics under it");
         prefix.set(PREFIX);
         cleanup.connected();
-        check(mqtt.handlers.keySet().equals(Set.of(filter)), "A changed prefix moves a running scan");
+        check(mqtt.handlers.keySet().equals(Set.of(filter, states)), "A changed prefix moves a running scan");
 
         mqtt.deliver(config(DeviceRecord.objectId(UUID.randomUUID())), ours, true);
         cleanup.stop();
@@ -1008,7 +1615,114 @@ public final class DiscoveryPublisherCheck {
 
     private static GhostCleanup.Verdict verdict(Fixture fixture, String topic, String payload, boolean retained) {
         Inbound message = new Inbound(topic, payload.getBytes(StandardCharsets.UTF_8), retained, false, null, 0);
-        return GhostCleanup.judge(PREFIX, message, DiscoveryGoldenTest.IDENTITY.bridgeObjectId(), fixture.registry::contains);
+        return GhostCleanup.judge(PREFIX, message, DiscoveryGoldenTest.IDENTITY.bridgeObjectId(), fixture.registry::contains, KNOWN_PLAYERS::contains);
+    }
+
+    // The presence devices players have in the ghost checks.
+    private static final Set<String> KNOWN_PLAYERS = new java.util.HashSet<>();
+
+    /**
+     * M4 plan D10: a presence device's config ({@code mineqtt_player_<32hex>}) is judged against the players who have one
+     * now, so a consent withdrawn while the broker was away, or a lost registry, leaves no player device behind.
+     */
+    private static void playerGhosts() {
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        String bridge = DiscoveryGoldenTest.IDENTITY.bridgeObjectId();
+        String ours = ghostConfig("dev", "\"" + bridge + "\"", 0);
+        String steve = PresenceDevice.objectId(DiscoveryGoldenTest.WORLD, UUID.randomUUID());
+        String alex = PresenceDevice.objectId(DiscoveryGoldenTest.WORLD, UUID.randomUUID());
+        KNOWN_PLAYERS.clear();
+        KNOWN_PLAYERS.add(steve);
+        check(GhostCleanup.playerId(PREFIX, config(steve)).equals(steve) && GhostCleanup.deviceId(PREFIX, config(steve)) == null,
+                "A presence config is read as a player's object id, not a device id");
+        check(verdict(fixture, config(steve), ours, true) == GhostCleanup.Verdict.KNOWN, "The device of a player who has one is kept");
+        check(verdict(fixture, config(alex), ours, true) == GhostCleanup.Verdict.GHOST, "A player device nobody has now is a ghost");
+        check(verdict(fixture, config(alex), ours, false) == GhostCleanup.Verdict.LIVE, "A live presence config is no ghost");
+        check(verdict(fixture, config(alex), ghostConfig("dev", "\"" + BridgeDevice.objectId(UUID.randomUUID()) + "\"", 0), true)
+                == GhostCleanup.Verdict.OTHER_BRIDGE, "Another bridge's player device is kept");
+        String hex = alex.substring(PresenceDevice.OBJECT_ID_PREFIX.length());
+        for (String foreign : List.of(config("mineqtt_player_" + hex.toUpperCase()), config("mineqtt_player_" + hex.substring(1)),
+                config("mineqtt_player_" + hex + "0"), config("mineqtt_players_" + hex))) {
+            check(verdict(fixture, foreign, ours, true) == GhostCleanup.Verdict.FOREIGN, "Not a presence config: " + foreign);
+        }
+
+        AtomicBoolean tokens = new AtomicBoolean(true);
+        List<String> logged = new ArrayList<>();
+        GhostCleanup cleanup = new GhostCleanup(fixture.mqtt, () -> PREFIX, bridge, fixture.registry::contains, KNOWN_PLAYERS::contains,
+                () -> PLAYER_ROOT, slug -> false, tokens::get, fixture.clock::get, recording(logged));
+        cleanup.connected();
+        fixture.mqtt.deliver(config(steve), ours, true);
+        fixture.mqtt.deliver(config(alex), ours, true);
+        String later = PresenceDevice.objectId(DiscoveryGoldenTest.WORLD, UUID.randomUUID());
+        fixture.mqtt.deliver(config(later), ours, true);
+        KNOWN_PLAYERS.add(later);
+        cleanup.tick();
+        Outbound clear = fixture.mqtt.single();
+        check(clear.topic().equals(config(alex)) && clear.payload().length == 0 && clear.retain(),
+                "Only the device nobody has is cleared; one a player got before its clear is left alone: " + clear.topic());
+        check(logged.stream().anyMatch(line -> line.contains(config(alex)) && line.contains("no player")), "The clear says why: " + logged);
+        cleanup.stop();
+        KNOWN_PLAYERS.clear();
+    }
+
+    /**
+     * A presence device's retained state ({@code <base>/<bridge>/player/<slug>}) holds the player's name in its topic and,
+     * under full sharing, their health and position. One whose slug no player holds now (a lost or restored registry, a
+     * clear that never reached the broker) is cleared by the same scan, under the player root of the connect.
+     */
+    private static void presenceStateGhosts() {
+        Set<String> slugs = new java.util.HashSet<>(Set.of("player_steve"));
+        String steve = PLAYER_ROOT + "/player_steve";
+        String alex = PLAYER_ROOT + "/player_alex";
+        String full = "{\"presence\":\"ON\",\"health\":20.0,\"x\":1,\"y\":64,\"z\":2}";
+        check(GhostCleanup.playerSlug(PLAYER_ROOT, alex).equals("player_alex") && GhostCleanup.playerSlug(PLAYER_ROOT, PLAYER_ROOT + "/") == null
+                && GhostCleanup.playerSlug(PLAYER_ROOT, alex + "/set") == null && GhostCleanup.playerSlug(PLAYER_ROOT, "mineqtt/other/player/player_alex") == null,
+                "The slug is the one level under this bridge's player root");
+        check(stateVerdict(steve, full, true, slugs) == GhostCleanup.Verdict.KNOWN, "The state of a player who has a device is kept");
+        check(stateVerdict(alex, full, true, slugs) == GhostCleanup.Verdict.GHOST, "A retained state nobody has now is a ghost");
+        check(stateVerdict(alex, "{\"presence\":\"OFF\"}", true, slugs) == GhostCleanup.Verdict.GHOST, "also an OFF one: its topic names the player");
+        check(stateVerdict(alex, full, false, slugs) == GhostCleanup.Verdict.LIVE && stateVerdict(alex, "", true, slugs) == GhostCleanup.Verdict.LIVE,
+                "A live state and a clear are no ghosts");
+        check(stateVerdict("mineqtt/world_7f3a/player_alex", full, true, slugs) == GhostCleanup.Verdict.FOREIGN, "A device topic is not a presence state");
+
+        Fixture fixture = new Fixture(HaExpose.ALL);
+        AtomicReference<String> root = new AtomicReference<>(PLAYER_ROOT);
+        List<String> logged = new ArrayList<>();
+        GhostCleanup cleanup = new GhostCleanup(fixture.mqtt, () -> PREFIX, DiscoveryGoldenTest.IDENTITY.bridgeObjectId(), fixture.registry::contains,
+                player -> false, root::get, slugs::contains, () -> true, fixture.clock::get, recording(logged));
+        cleanup.connected();
+        fixture.mqtt.deliver(steve, full, true);
+        fixture.mqtt.deliver(alex, full, true);
+        fixture.mqtt.deliver(alex, full, true);
+        fixture.mqtt.deliver(PLAYER_ROOT + "/player_bob", full, false);
+        String later = PLAYER_ROOT + "/player_carl";
+        fixture.mqtt.deliver(later, full, true);
+        slugs.add("player_carl");
+        cleanup.tick();
+        Outbound clear = fixture.mqtt.single();
+        check(clear.topic().equals(alex) && clear.payload().length == 0 && clear.retain() && clear.offline() == OfflinePolicy.KEEP,
+                "Only the state nobody has is cleared, once; one a player got before its clear is left alone: " + clear.topic());
+        check(logged.stream().anyMatch(line -> line.contains(alex) && line.contains("no player")), "The clear says why: " + logged);
+        fixture.clock.addAndGet(GhostCleanup.WINDOW_MILLIS);
+        cleanup.tick();
+        check(logged.getLast().equals("Home Assistant ghost cleanup: 0 discovery configs and 5 presence states looked at, 2 ghosts found"),
+                "The scan counts the states, and the ghost that became known before its clear: " + logged.getLast());
+
+        root.set("mineqtt/moved/player");
+        cleanup.connected();
+        check(fixture.mqtt.handlers.containsKey("mineqtt/moved/player/+") && !fixture.mqtt.handlers.containsKey(PLAYER_ROOT + "/+"),
+                "A connect after the topics moved scans the new player root");
+        cleanup.connected();
+        root.set(PLAYER_ROOT);
+        cleanup.connected();
+        check(fixture.mqtt.handlers.containsKey(PLAYER_ROOT + "/+") && fixture.mqtt.handlers.size() == 2, "and a moved root moves a running scan");
+        cleanup.stop();
+        check(fixture.mqtt.handlers.isEmpty(), "Stopping closes both subscriptions");
+    }
+
+    private static GhostCleanup.Verdict stateVerdict(String topic, String payload, boolean retained, Set<String> slugs) {
+        Inbound message = new Inbound(topic, payload.getBytes(StandardCharsets.UTF_8), retained, false, null, 0);
+        return GhostCleanup.judgeState(PLAYER_ROOT, message, slugs::contains);
     }
 
     /** A device config whose via_device is the JSON {@code via}, padded to {@code size} characters when not 0. */

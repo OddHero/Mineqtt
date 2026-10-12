@@ -51,7 +51,7 @@ public final class TwinPicker {
     public static final int MAX_AREA_LENGTH = 32;
     public static final int MAX_VALUE_LENGTH = 32;
     /**
-     * How long the picker waits for the answer to a search before it sends it again (wave 6 review low): the server drops a
+     * How long the picker waits for the answer to a search before it sends it again: the server drops a
      * search over the player's rate without an answer.
      */
     public static final long RESEND_MILLIS = 1000;
@@ -162,7 +162,7 @@ public final class TwinPicker {
 
     /**
      * Whether an answer ({@code answerKey}, {@code answerQuery}, {@code answerDomain}) is the one to the search the picker
-     * sent last: an answer to an older query or to a chip the player has left is dropped (wave 6 review low).
+     * sent last: an answer to an older query or to a chip the player has left is dropped.
      */
     public static boolean answers(String key, String query, String domain, String answerKey, String answerQuery, String answerDomain) {
         return answerKey.equals(key) && answerQuery.equals(query) && answerDomain.equals(domain);

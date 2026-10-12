@@ -2,17 +2,16 @@ package art.rehra.mineqtt.fabric.gametest;
 
 import art.rehra.mineqtt.blocks.RedstoneEmitterBlock;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
-import art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.CommandSource;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.device.DeviceRuntime;
+import art.rehra.mineqtt.device.StateWriter;
 import art.rehra.mineqtt.flow.core.Mapping;
 import art.rehra.mineqtt.flow.core.MessageBus;
 import art.rehra.mineqtt.flow.core.Root;
 import art.rehra.mineqtt.flow.core.Wire;
-import art.rehra.mineqtt.legacy.LegacySubscriptionFacade;
 import art.rehra.mineqtt.mqtt.core.OfflinePolicy;
 import art.rehra.mineqtt.mqtt.core.Outbound;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
@@ -20,7 +19,9 @@ import com.google.gson.JsonObject;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LeverBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -33,8 +34,9 @@ import java.util.UUID;
  * self-wire are refused. Two outputs wired into each other, one way inverted, make a loop without a delay: the inverted
  * wire tells its target the opposite of its source's off as it is made (M2-16), which starts the loop, and the bus cuts
  * it after 16 wires. The roots the runtime opens (M3 plan D10) are read off the bus's counters: the lever and the
- * console are the world's, a Home Assistant command on a chain of outputs is HA through every hop, and a broker message
- * that a v1 Block Emitter turns into a redstone block powers the input as RAW, and a Home Assistant command queued for an
+ * console are the world's, a Home Assistant command on a chain of outputs is HA through every hop, a broker message that
+ * makes a Block Placer place a redstone lamp is RAW on the placer's out-port wired to a Display Panel (M4-10), and a Home
+ * Assistant command queued for an
  * output in an unloaded chunk lands as STARTUP when the chunk loads again (M3-9). Breaking the input takes its wires along.
  */
 public final class WiresGameTest implements FabricClientGameTest {
@@ -52,6 +54,8 @@ public final class WiresGameTest implements FabricClientGameTest {
     // Far beyond any view distance, so its chunk unloads without its forceload ticket.
     private static final BlockPos FAR_OUTPUT = new BlockPos(4096, Y, 4096);
     private static final BlockPos NEAR_OUTPUT = new BlockPos(-3, Y, 9);
+    private static final BlockPos PLACER = new BlockPos(6, Y, 3);
+    private static final BlockPos PANEL = new BlockPos(6, Y, 6);
     private static final int ANSWER_TICKS = 40;
 
     @Override
@@ -117,7 +121,7 @@ public final class WiresGameTest implements FabricClientGameTest {
                 "a hand on a lever and the console's wires are the world's (M3 plan D10): " + flows.summary());
 
         haRoot(session);
-        legacyRoot(session, input);
+        placerRoot(session);
         attachRoot(session);
 
         // Breaking the input takes its wires along; the loop's stay.
@@ -156,46 +160,60 @@ public final class WiresGameTest implements FabricClientGameTest {
     }
 
     /**
-     * A broker message to a v1 Block Emitter places a redstone block next to the Redstone Input, which emits in the same
-     * tick's neighbour update: RAW, not the world's (M3 plan D10), so nobody on the broker switches a real device through
-     * it. The block placer is on for this check only.
+     * A broker message to a Block Placer's Raw Link input places a redstone lamp, and what the placer then emits on its
+     * {@code last_result} out-port, wired to a Display Panel, is RAW, not the world's (M3 plan D10): nobody on the broker
+     * switches a real device through it. The block placer is on for this check only, without consuming items.
      */
-    private static void legacyRoot(GameTestSession session, String input) {
-        BlockPos target = INPUT.east();
-        BlockPos emitter = target.east();
-        String topic = "mineqtt/shared/gametest/" + UUID.randomUUID() + "/emitter";
-        boolean placer = session.onServer(s -> MineQTTConfig.blockPlacerEnabled);
-        session.onServer(s -> MineQTTConfig.blockPlacerEnabled = true);
+    private static void placerRoot(GameTestSession session) {
+        BlockPos placerPos = PLACER;
+        BlockPos target = placerPos.west();
+        String channel = "wires_" + GameTestSession.BRIDGE_ID + "_" + UUID.randomUUID().toString().substring(0, 8) + "_placer";
+        String topic = "mineqtt/shared/" + channel;
+        boolean enabled = session.onServer(s -> MineQTTConfig.blockPlacerEnabled);
+        boolean consume = session.onServer(s -> MineQTTConfig.blockPlacerConsumeItems);
+        session.onServer(s -> {
+            MineQTTConfig.blockPlacerEnabled = true;
+            MineQTTConfig.blockPlacerConsumeItems = false;
+            return null;
+        });
         try {
-            setblock(session, emitter, "mineqtt:block_emitter_block[facing=west]");
+            setblock(session, placerPos, "mineqtt:block_emitter_block[facing=west]");
+            setblock(session, PANEL, "mineqtt:display_panel[facing=north]");
+            for (BlockPos pos : List.of(placerPos, PANEL)) {
+                session.awaitServer(s -> s.overworld().getBlockEntity(pos) instanceof DeviceHost host && host.deviceLink().attached());
+            }
             session.check(session.onServer(s -> {
-                if (!(s.overworld().getBlockEntity(emitter) instanceof BlockEmitterBlockEntity block)) return false;
-                LegacySubscriptionFacade.subscribe(topic, block);
-                return true;
-            }), "a Block Emitter listens on " + topic);
+                BlockEntity blockEntity = s.overworld().getBlockEntity(placerPos);
+                return ((DeviceHost) blockEntity).deviceLink().claim(blockEntity, session.playerId(), session.playerName());
+            }), "the player claims the Block Placer");
+            String placer = slug(session, placerPos);
+            String panel = slug(session, PANEL);
+            session.consoleCommand("mineqtt devices raw " + placer + " channel " + channel);
+            session.check(session.await(() -> topic.equals(session.onServer(s -> s.overworld().getBlockEntity(placerPos) instanceof DeviceHost host
+                    && host.deviceLink().raw() != null ? host.deviceLink().raw().topic() : null)), ANSWER_TICKS), "the placer listens on " + topic);
+            session.consoleCommand("mineqtt wires add " + placer + ".last_result " + panel + ".message");
             DeviceRuntime.FlowCounters before = counters(session);
             session.onRuntime(runtime -> {
-                runtime.mqtt().publish(new Outbound(topic, "minecraft:redstone_block".getBytes(StandardCharsets.UTF_8), 0, false,
+                runtime.mqtt().publish(new Outbound(topic, "minecraft:redstone_lamp".getBytes(StandardCharsets.UTF_8), 0, false,
                         OfflinePolicy.DROP, Outbound.Delivery.EDGE, UUID.randomUUID()));
                 return null;
             });
-            session.check(session.await(() -> power(session, OUTPUT) == 15 && lampLevel(session) > 0, ANSWER_TICKS),
-                    "the message places a redstone block, which powers " + input + " and so the output and the lamp (output "
-                            + power(session, OUTPUT) + ")");
+            session.check(session.await(() -> session.onServer(s -> s.overworld().getBlockState(target).is(Blocks.REDSTONE_LAMP)), ANSWER_TICKS),
+                    "the message places a redstone lamp in front of the placer");
+            session.check(session.await(() -> panelMessage(session).startsWith("placed minecraft:redstone_lamp"), ANSWER_TICKS),
+                    "its last result reaches the panel over the wire (" + panelMessage(session) + ")");
             DeviceRuntime.FlowCounters after = counters(session);
             session.check(after.emitted(Root.RAW) - before.emitted(Root.RAW) == after.emitted() - before.emitted()
                             && after.emitted(Root.RAW) > before.emitted(Root.RAW),
-                    "what the broker message powered is RAW, not the world's: " + after.summary());
+                    "what the broker message caused on the placer's out-port is RAW, not the world's: " + after.summary());
         } finally {
             session.onServer(s -> {
-                if (s.overworld().getBlockEntity(emitter) instanceof BlockEmitterBlockEntity block) LegacySubscriptionFacade.unsubscribe(topic, block);
-                MineQTTConfig.blockPlacerEnabled = placer;
+                MineQTTConfig.blockPlacerEnabled = enabled;
+                MineQTTConfig.blockPlacerConsumeItems = consume;
                 return null;
             });
         }
-        setblock(session, emitter, "minecraft:air");
-        setblock(session, target, "minecraft:air");
-        session.check(session.await(() -> power(session, OUTPUT) == 0, ANSWER_TICKS), "removing the redstone block switches the output off");
+        for (BlockPos pos : List.of(target, placerPos, PANEL)) setblock(session, pos, "minecraft:air");
     }
 
     /**
@@ -269,6 +287,15 @@ public final class WiresGameTest implements FabricClientGameTest {
 
     private static int lampLevel(GameTestSession session) {
         return session.onServer(s -> s.overworld().getBlockState(LAMP).getValue(RgbLedBlock.LIGHT_LEVEL));
+    }
+
+    private static String panelMessage(GameTestSession session) {
+        return session.onServer(s -> {
+            StateWriter state = new StateWriter();
+            if (s.overworld().getBlockEntity(PANEL) instanceof DeviceHost host) host.writeState(state);
+            JsonObject json = state.json();
+            return json.has("message") ? json.get("message").getAsString() : "";
+        });
     }
 
     private static DeviceRuntime.FlowCounters counters(GameTestSession session) {

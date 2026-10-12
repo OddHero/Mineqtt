@@ -20,6 +20,8 @@ import art.rehra.mineqtt.device.TwinTestTypes;
 import art.rehra.mineqtt.device.UnloadedPolicy;
 import art.rehra.mineqtt.device.ValueCodecs;
 import art.rehra.mineqtt.device.ValueCodecs.LightState;
+import art.rehra.mineqtt.device.types.BlockObserver;
+import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
@@ -31,6 +33,9 @@ import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.WallSwitch;
 import art.rehra.mineqtt.device.types.SmartPlug.Plug;
+import art.rehra.mineqtt.device.types.Timers;
+import art.rehra.mineqtt.device.timer.core.TimerKind;
+import art.rehra.mineqtt.device.timer.core.TimerState;
 import art.rehra.mineqtt.mqtt.BlockStatePersistence;
 import art.rehra.mineqtt.twin.BindingCodecs;
 import art.rehra.mineqtt.twin.TwinAdapter;
@@ -144,6 +149,8 @@ public final class LegacyNbtV1Test {
         DeviceTypes.register(WallSwitch.TYPE);
         // M3-15: every 0.6.0 world check below runs with the Display Panel registered, which no 0.6.0 world holds.
         DeviceTypes.register(DisplayPanel.TYPE);
+        DeviceTypes.register(BlockObserver.TYPE);
+        DeviceTypes.register(BlockPlacer.TYPE);
         combinedTopics();
         lampKeys();
         smartLampState();
@@ -160,6 +167,7 @@ public final class LegacyNbtV1Test {
         topicStates();
         renderTags();
         panelTags();
+        timerKeys();
         System.out.println("Legacy NBT migration checks passed.");
     }
 
@@ -285,6 +293,21 @@ public final class LegacyNbtV1Test {
                 new ValueCodecs.CustomPayloads("minecraft/zombie_spawn_egg", "minecraft/pig_spawn_egg"),
                 List.of(Identifier.withDefaultNamespace("zombie"), Identifier.withDefaultNamespace("pig")));
         LinkAdoptionCheck.motionPlacedFromItem(REGISTRIES, motion);
+        // M4-9: a v1 Block Sensor becomes a Block Observer whose v1 topic is its unretained Raw Link output.
+        CompoundTag sensor = v1Device(paper("garden"), paper("gate"), ItemStack.EMPTY, ItemStack.EMPTY, "Steve", false);
+        sensor.putString("BlockSensorDataMode", "properties");
+        LinkAdoptionCheck.sensorAdopted(REGISTRIES, sensor, "garden/gate", BlockObserver.Payload.PROPERTIES);
+        CompoundTag fullSensor = v1Device(paper("garden"), ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY, "Steve", false);
+        fullSensor.putString("BlockSensorDataMode", "full_data");
+        LinkAdoptionCheck.sensorAdopted(REGISTRIES, fullSensor, "garden", BlockObserver.Payload.FULL);
+        // M4-10: a v1 Block Emitter becomes a Block Placer whose listen topic is its Raw Link input, which never applies a
+        // retained message; its third slot was never a payload.
+        CompoundTag blockEmitter = v1Emitter(v1Device(paper("builds"), paper("wall"), paper("OPEN"), ItemStack.EMPTY, "Steve", false));
+        LinkAdoptionCheck.placerAdopted(REGISTRIES, blockEmitter, "builds/wall");
+        // M4-1: a timer-like noV1Topic type keeps no Raw Link from its v1 slots (M4 plan D2), the anvil name it gets.
+        CompoundTag timer = v1Device(paper("kitchen"), paper("alarm"), ItemStack.EMPTY, ItemStack.EMPTY, "Steve", false);
+        timer.putString("CustomName", "Kitchen Alarm");
+        LinkAdoptionCheck.noV1TopicAdopted(REGISTRIES, timer, "kitchen/alarm");
         climateSensors();
         staticPublishers();
         decommissioned();
@@ -984,6 +1007,42 @@ public final class LegacyNbtV1Test {
      * glow. A client bounds what it reads as the server bounds what it sends. A saved panel is v2 data, its update tag a
      * render update; its link and state compound round-trip.
      */
+    /**
+     * M4-3 (plan D4): each v1 timer is told by its first own key, another block's v1 data is no timer's, and a timer's
+     * keys written back while it waits for adoption read as the same settings and counters.
+     */
+    private static void timerKeys() {
+        for (String key : List.of("intervalValue", "triggerModeIndex", "alarmTime", "cronExpression")) {
+            CompoundTag tag = new CompoundTag();
+            if (key.equals("intervalValue")) tag.putLong(key, 5L);
+            else if (key.equals("cronExpression")) tag.putString(key, "");
+            else tag.putInt(key, 0);
+            check(LegacyNbtV1.hasTimerKeys(input(tag)), "A v1 timer is told by " + key);
+        }
+        check(!LegacyNbtV1.hasTimerKeys(input(v1Lamp(paper("home/kitchen"), 15, 0, 0, 15, 0, 0, 255, true)))
+                && !LegacyNbtV1.hasTimerKeys(input(new CompoundTag())), "A lamp's v1 data and an empty compound are no timer's");
+        Map<TimerKind, Timers.Settings> settings = Map.of(
+                TimerKind.INTERVAL, Timers.Settings.DEFAULT.withInterval(90, Timers.Unit.MINUTES),
+                TimerKind.GAME_TIME, Timers.Settings.DEFAULT.withTriggerAt(Timers.TriggerAt.SUNSET).withTimeTicks(4321),
+                TimerKind.ALARM, Timers.Settings.DEFAULT.withTimeTicks(18000),
+                TimerKind.CRON, Timers.Settings.DEFAULT.withCron("0 0 30 7 * * 1-5"));
+        Map<TimerKind, TimerState> counters = Map.of(TimerKind.INTERVAL, new TimerState(41, -1, -1, 9), TimerKind.GAME_TIME, new TimerState(0, 8, -1, 9),
+                TimerKind.ALARM, new TimerState(0, 8, -1, 9), TimerKind.CRON, new TimerState(0, -1, 77, 0));
+        for (TimerKind kind : TimerKind.values()) {
+            TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
+            LegacyNbtV1.writeTimer(output, kind, settings.get(kind), counters.get(kind));
+            LegacyNbtV1.Timer read = LegacyNbtV1.timerState(input(output.buildResult()), kind);
+            check(read.settings().equals(settings.get(kind)) && read.counters().equals(counters.get(kind)), kind + ": its v1 keys read back as written: " + read);
+        }
+        TagValueOutput disabled = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
+        LegacyNbtV1.writeTimer(disabled, TimerKind.ALARM, Timers.Settings.DEFAULT.withEnabled(false), TimerState.NEW);
+        check(disabled.buildResult().getIntOr("alarmTime", 0) == -1, "A disabled alarm clock is one without an alarm, as v1 knew it");
+        CompoundTag noon = new CompoundTag();
+        noon.putInt("triggerModeIndex", 1);
+        check(LegacyNbtV1.timerState(input(noon), TimerKind.GAME_TIME).settings().equals(Timers.Settings.DEFAULT.withTriggerAt(Timers.TriggerAt.NOON).withTimeTicks(6000)),
+                "A v1 Daylight Timer without a custom time had noon's, as v1 read it");
+    }
+
     private static void panelTags() {
         DisplayPanel.Panel washer = new DisplayPanel.Panel("Washer done!", DyeColor.LIME, true, DisplayPanel.Size.AUTO, 15);
         CompoundTag plain = RenderTag.updateTag(RenderTag.panel(DisplayPanel.Render.of(washer, null, false)));

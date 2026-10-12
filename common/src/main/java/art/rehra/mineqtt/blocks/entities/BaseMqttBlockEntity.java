@@ -43,9 +43,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * The block entity of every MineQTT block with configuration slots: the blocks that are no devices yet (the Block
- * Sensor and the Block Emitter on the {@code LegacySubscriptionFacade}, and the timers) and the v1 data of the converters
- * until they convert. Devices have no container since M2-12
+ * The block entity of the MineQTT blocks with configuration slots: since the timers, the Block Sensor and the Block
+ * Emitter became devices (M4-3, M4-9, M4-10) only the v1 humidity sensor and Static Publisher, whose v1 data it holds
+ * until they convert into their device on their server's next tick ({@link HumiditySensorBlockEntity},
+ * {@link StaticPublisherBlockEntity}). Neither publishes nor subscribes. Devices have no container since M2-12
  * ({@link DeviceBlockEntity}). The slots are a {@link WorldlyContainer} with no automation faces (M2 plan D7): hoppers,
  * hopper minecarts, droppers and sided item wrappers (Fabric's {@code InventoryStorage}, NeoForge's
  * {@code WorldlyContainerWrapper}) see no slot on any side, so only a player in the screen moves items into or out of
@@ -55,8 +56,6 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
 
     public static final int INVENTORY_SIZE = 4;
     private static final int[] NO_SLOTS = new int[0];
-    /** How long after an edit its player counts as the one who made a change: 30 seconds. */
-    public static final int EDITOR_NOTICE_TICKS = DeviceBlockEntity.EDITOR_NOTICE_TICKS;
     protected String topic = "";
     protected NonNullList<ItemStack> items;
     /**
@@ -79,9 +78,6 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
      * If no base item is set, the topic becomes just the owner's username.
      */
     protected boolean privateMode = false;
-    // The player who last changed the slots or a setting, and the game time of that edit; never saved.
-    private @Nullable UUID lastEditor;
-    private long lastEditTime;
 
     public BaseMqttBlockEntity(BlockEntityType<?> blockEntityType, BlockPos pos, BlockState blockState) {
         super(blockEntityType, pos, blockState);
@@ -158,24 +154,6 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
         }
     }
 
-    /**
-     * A player changed the slots or a setting through the screen; they hear what came of it (a refused topic) for
-     * {@link #EDITOR_NOTICE_TICKS}.
-     */
-    public void setLastEditor(ServerPlayer player) {
-        lastEditor = player.getUUID();
-        lastEditTime = player.level().getGameTime();
-    }
-
-    /**
-     * The player who changed the block within the last {@link #EDITOR_NOTICE_TICKS}, or null: notices about its topics go
-     * to them first, notices about later changes (a config reload) to the owner.
-     */
-    public @Nullable UUID recentEditor() {
-        if (lastEditor == null || level == null || level.getGameTime() - lastEditTime > EDITOR_NOTICE_TICKS) return null;
-        return lastEditor;
-    }
-
     @Override
     public void setLevel(Level level) {
         super.setLevel(level);
@@ -250,15 +228,13 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
 
     /**
      * Opens the block's screen for a player who may use it; the slots only move if they may also configure it. The player
-     * gets the notices about their devices that waited. A player who may not build (P2) gets no screen: it only
-     * configures the block. The action bar tells them why.
+     * gets the notices about their devices that waited. No shipped block opens it: the converters' blocks are no
+     * {@code BaseMqttBlock}, the Configurator opens no screen of a block that is no device, and the converters change into
+     * devices on their first tick. Whatever opens it again must first refuse a player who may not build (P2,
+     * {@link DeviceAccess#mayBuild}), since this screen only configures.
      */
     @Override
     public void openScreen(ServerPlayer player) {
-        if (!DeviceAccess.mayBuild(player)) {
-            player.sendSystemMessage(Component.translatable("mineqtt.game_mode.no_screen", getBlockState().getBlock().getName()), true);
-            return;
-        }
         MineqttRuntime.current().filter(running -> running.server() == player.level().getServer())
                 .ifPresent(running -> running.devices().deliverNotices(player));
         boolean configurable = mayConfigure(player);

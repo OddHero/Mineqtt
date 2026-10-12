@@ -386,7 +386,7 @@ public class TwinPickerScreen extends Screen {
         };
     }
 
-    // The warning before a bind: an MQTT device source it replaces (wave 6 open finding 1), or before a first bind (D6) that
+    // The warning before a bind: an MQTT device source it replaces, or before a first bind (D6) that
     // the block's Home Assistant entities go while it mirrors.
     private Optional<Component> warning() {
         if (!key.equals(LinkSetting.TWIN_ENTITY.key())) return Optional.empty();

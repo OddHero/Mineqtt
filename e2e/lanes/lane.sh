@@ -14,6 +14,8 @@
 #   lane.sh rcon <id> <command...>      RCON command (no leading slash), prints the reply
 #   lane.sh pub <id> <mosquitto_pub args...>   e.g. pub 1 -t mineqtt/x -m on
 #   lane.sh sub <id> <mosquitto_sub args...>   e.g. sub 1 -v -t 'mineqtt/#' -W 5
+#   lane.sh exec <id> <command...>      run a command in the server container (in /server, stdin passed through),
+#                                       e.g. exec 1 cat config/mineqtt.json
 #   lane.sh smoke <id>                  place a Smart Lamp, print /mineqtt status and the bridge state topic
 #   lane.sh ports <id>                  host endpoints (RCON, MQTT, game, Home Assistant); a remote lane has none
 #   lane.sh status <id>                 host, containers, health and endpoints
@@ -28,13 +30,14 @@
 # build=manual host only once it has the server image: lane.sh build --host <it>) and runs fewer lanes than its row
 # allows (MINEQTT_LANES_<NAME> overrides it), else this workstation. Every later command finds the lane's host by
 # itself (recorded on up in MINEQTT_LANE_STATE_DIR, default ~/.mineqtt-lanes). A remote lane publishes no host ports:
-# rcon, pub, sub, smoke and ha go through "docker compose exec" on its host, and the jar (~6.5 MB) crosses the link on
-# up and reload. On a host with a cpuset and cpu shares, every lane container gets them (docker-compose.limits.yml).
+# rcon, pub, sub, exec, smoke and ha go through "docker compose exec" on its host, and the jar (~6.5 MB) crosses the
+# link on up and reload. On a host with a cpuset and cpu shares, every lane container gets them (docker-compose.limits.yml).
 #
 # Environment: MINEQTT_LANE_PREFIX (project name prefix, default mineqtt-lane; must start with mineqtt-lane, so lane
 # commands never touch other projects on a shared host and remote-gc.sh sees every lane), LANE_SERVER_IMAGE (default
 # mineqtt-lane-server:<mc>-<loader>-<recipe hash>), MC_CPUS / MC_MEMORY / MC_JAVA_OPTS (server limits),
-# MINEQTT_KEEP_TICKING (true: never pause when empty), HA_VERSION, PYTHON, and the host variables of docker/hosts.sh.
+# MINEQTT_KEEP_TICKING (true: never pause when empty), MINEQTT_LANE_JAR (ship this jar on up and reload instead of the
+# checkout's, e.g. the 0.7.0 jar of e2e/tools/build07.sh), HA_VERSION, PYTHON, and the host variables of docker/hosts.sh.
 set -euo pipefail
 shopt -s inherit_errexit
 # Git Bash would rewrite arguments that look like paths (/server/..., $SYS/#); every host path is converted below.
@@ -114,7 +117,9 @@ lane_count() { # lanes of any prefix (server containers, running or not) on the 
 # does, at a quiet hour; until then auto skips it and an explicit --host fails.
 MOSQUITTO_IMAGE=eclipse-mosquitto:2
 HA_IMAGE=ghcr.io/home-assistant/home-assistant:${HA_VERSION:-2026.10.0}
-lane_images() { echo "$LANE_SERVER_IMAGE $MOSQUITTO_IMAGE"; [ "${ha:-0}" != 1 ] || echo "$HA_IMAGE"; }
+# The image of docker-compose.yml's ha-config-init, which writes automations.yaml before Home Assistant starts.
+HA_INIT_IMAGE=alpine:3
+lane_images() { echo "$LANE_SERVER_IMAGE $MOSQUITTO_IMAGE"; [ "${ha:-0}" != 1 ] || echo "$HA_IMAGE $HA_INIT_IMAGE"; }
 images_present() { local i; for i in $(lane_images); do dk image inspect "$i" >/dev/null 2>&1 || return 1; done; }
 
 # Placing a lane (count, then create) holds this lock, so runs starting lanes at the same time cannot overshoot a
@@ -251,10 +256,16 @@ build_image() {
 ensure_image() { dk image inspect "$LANE_SERVER_IMAGE" >/dev/null 2>&1 || build_image; }
 
 assemble() { (cd "$REPO" && ./gradlew :fabric:assemble -q); }
-# The bundled MineQTT jar of fabric/build/libs (never the -raw jar, which lacks HiveMQ, or -sources). The jar of
-# the checkout's mod_version wins, so jars of older versions left in build/libs do not get in the way.
+# The bundled MineQTT jar of fabric/build/libs (never the -raw jar, which lacks HiveMQ, or -sources), or MINEQTT_LANE_JAR.
+# The jar of the checkout's mod_version wins, so jars of older versions left in build/libs do not get in the way.
 host_jar() {
     local jar found="" current
+    if [ -n "${MINEQTT_LANE_JAR:-}" ]; then
+        [ -f "$MINEQTT_LANE_JAR" ] || die "MINEQTT_LANE_JAR is no file: $MINEQTT_LANE_JAR"
+        printf '%s
+' "$MINEQTT_LANE_JAR"
+        return
+    fi
     current="$REPO/fabric/build/libs/$(prop archives_name)-fabric-$(prop mod_version).jar"
     if [ -f "$current" ]; then
         printf '%s\n' "$current"
@@ -285,7 +296,7 @@ ship_jar() {
 endpoints() {
     if mq_is_remote; then
         echo "lane $ID ($PREFIX-$ID) on $MQ_HOST, bridge topic mineqtt/lane-$ID"
-        echo "  remote lane: no host ports; use lane.sh rcon|pub|sub|smoke|ha $ID (they run inside the lane)"
+        echo "  remote lane: no host ports; use lane.sh rcon|pub|sub|exec|smoke|ha $ID (they run inside the lane)"
         return 0
     fi
     local rcon mqtt game ha
@@ -356,7 +367,9 @@ case "$cmd" in
             remote)
                 mq_require "$MQ_PICK" || exit 1; mq_use_host "$MQ_PICK"; build_image
                 # A build=manual host gets everything a lane may need now, so later lanes pull nothing on the side.
-                if mq_build_manual "$MQ_PICK"; then dk pull -q "$MOSQUITTO_IMAGE" >/dev/null; dk pull -q "$HA_IMAGE" >/dev/null; fi ;;
+                if mq_build_manual "$MQ_PICK"; then
+                    dk pull -q "$MOSQUITTO_IMAGE" >/dev/null; dk pull -q "$HA_IMAGE" >/dev/null; dk pull -q "$HA_INIT_IMAGE" >/dev/null
+                fi ;;
             auto)
                 mq_use_host local; build_image
                 for r in $(mq_remotes); do
@@ -429,6 +442,11 @@ case "$cmd" in
             port=$(need_port server 25575)
             "$PYTHON" "$(winpath "$REPO/e2e/tools/rcon.py")" "$port" "$RCON_PASSWORD" "$@"
         fi ;;
+    exec)
+        lane_id "$@"; shift
+        [ $# -gt 0 ] || die "exec needs a command"
+        locate_lane
+        dc exec -T server "$@" ;;
     pub)
         lane_id "$@"; shift; locate_lane
         dc exec -T mosquitto mosquitto_pub "$@" ;;

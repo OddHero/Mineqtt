@@ -5,6 +5,7 @@ import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
+import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.legacy.LegacyNbtV1;
 import art.rehra.mineqtt.mqtt.core.OfflinePolicy;
 import art.rehra.mineqtt.mqtt.core.Outbound;
@@ -81,6 +82,19 @@ public final class RawLinkRetainCheck {
             check(in.off() == null && !in.retainByDefault(), "An input publishes nothing");
         }
         expectFailure(() -> RawLinkSpec.in(ValueCodecs.REDSTONE).retainByDefault(true), "An input has no retain default");
+        // M4-4: a timer's link carries events, one per fire: never retained, not even when a player asked for it.
+        for (DeviceType timer : Timers.all()) {
+            RawLinkSpec spec = timer.rawLink().orElseThrow();
+            check(spec.direction() == RawLinkSpec.Direction.OUT && !spec.level() && !spec.retainByDefault() && !spec.customPayloads(),
+                    timer + ": an output of events without custom payloads");
+            for (Boolean retain : new Boolean[]{null, true, false}) {
+                RawLink link = new RawLink("mineqtt/shared/porch", RawLinkSpec.Direction.OUT, null, null, 0, retain, null, false, null, RawTopics.VERSION, "porch",
+                        RawLink.Edges.BOTH);
+                check(!link.effectiveRetain(spec) && !RawRetain.retains(link, spec), timer + ": never retained, with retain " + retain);
+            }
+            check(spec.offPayload(ValueCodecs.CustomPayloads.NONE).isEmpty(), timer + ": it leaves nothing behind on a topic it leaves");
+        }
+        check(Timers.RAW_PAYLOAD.equals("ON"), "A fire publishes ON");
     }
 
     private static void codec() {

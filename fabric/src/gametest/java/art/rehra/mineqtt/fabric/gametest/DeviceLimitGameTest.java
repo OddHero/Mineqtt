@@ -35,7 +35,7 @@ import java.util.Optional;
 
 /**
  * {@code limits.maxDevicesPerPlayer} (M2-26): with a limit of 1, a non-op survival player places one Smart Lamp; the
- * second is not placed on either side, the lamp stays in their hand and the action bar says why. A Block Sensor, which
+ * second is not placed on either side, the lamp stays in their hand and the action bar says why. A Bridge Console, which
  * is no device, is still placed, a Static Publisher placed before it converted (it would become a Redstone Input) is
  * refused, and an ownerless lamp set by the console is not theirs to claim from its screen. An operator places another
  * lamp and claims the ownerless one, and a player whose lamps are broken may place again. Two placements in one tick
@@ -100,10 +100,10 @@ public final class DeviceLimitGameTest implements FabricClientGameTest {
         session.check(owned(session) == 1, "the player still owns one device");
 
         // place waits until both sides have the block, so a refusal would fail the suite here.
-        BlockPos sensor = session.place(MineqttBlocks.BLOCK_SENSOR_BLOCK.get(), SECOND_GROUND);
-        session.check(session.onServer(s -> s.overworld().getBlockState(sensor).is(MineqttBlocks.BLOCK_SENSOR_BLOCK.get())),
-                "a Block Sensor, which is no device, is placed at the limit");
-        session.consoleCommand("setblock " + sensor.getX() + " " + sensor.getY() + " " + sensor.getZ() + " minecraft:air");
+        BlockPos console = session.place(MineqttBlocks.TERMINAL_BLOCK.get(), SECOND_GROUND);
+        session.check(session.onServer(s -> s.overworld().getBlockState(console).is(MineqttBlocks.TERMINAL_BLOCK.get())),
+                "a Bridge Console, which is no device, is placed at the limit");
+        session.consoleCommand("setblock " + console.getX() + " " + console.getY() + " " + console.getZ() + " minecraft:air");
 
         mark = ChatLog.mark();
         Use converter = session.onServer(s -> useOn(session.player(s), new ItemStack(MineqttItems.StaticPublisherBlock.get()), THIRD_GROUND));

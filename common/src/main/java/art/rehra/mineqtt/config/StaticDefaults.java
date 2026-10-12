@@ -68,6 +68,47 @@ public final class StaticDefaults {
     public static final int DEFAULT_TWIN_CATALOG_MAX = EntityDocuments.Limits.DEFAULT.maxEntities();
     public static final int MAX_TWIN_CATALOG_MAX = 10_000;
 
+    // World telemetry and players (M4 plan D6 to D10, D16). Nothing about a player is published without their consent.
+    /** false keeps only the Milestone 1 telemetry keys (players_online and the drop counters). */
+    public static final boolean DEFAULT_TELEMETRY_ENABLED = true;
+    /** At most this often a change other than players, day or weather is published, within the two bounds below. */
+    public static final int DEFAULT_TELEMETRY_INTERVAL_SECONDS = 10;
+    public static final int MIN_TELEMETRY_INTERVAL_SECONDS = 5;
+    public static final int MAX_TELEMETRY_INTERVAL_SECONDS = 300;
+    /** The server's upper bound on what is published about a player; each player's consent still applies. */
+    public static final TelemetryPlayers DEFAULT_TELEMETRY_PLAYERS = TelemetryPlayers.PRESENCE;
+    /** An admin veto only: false means counts only, no names anywhere. It never widens naming beyond consent (D9). */
+    public static final boolean DEFAULT_TELEMETRY_PUBLISH_PLAYER_NAMES = true;
+    /** Home Assistant's Broadcast text, shown as system chat (D8). */
+    public static final boolean DEFAULT_TELEMETRY_ALLOW_BROADCAST = false;
+    /** Presence devices at most; beyond it nobody new gets one (D10). */
+    public static final int DEFAULT_TELEMETRY_MAX_PRESENCE_DEVICES = 64;
+    public static final int MIN_TELEMETRY_MAX_PRESENCE_DEVICES = 1;
+    public static final int MAX_TELEMETRY_MAX_PRESENCE_DEVICES = 1000;
+    /** Days a player may stay unseen before their presence device and name are forgotten; 0 means never. */
+    public static final int DEFAULT_TELEMETRY_FORGET_AFTER_DAYS = 90;
+    public static final int MAX_TELEMETRY_FORGET_AFTER_DAYS = 3650;
+
+    // Block Placer (D12): blockPlacer.enabled above stays the master switch.
+    /** Who may configure a Block Placer besides operators: AUTO means everyone on integrated, nobody on dedicated servers. */
+    public static final AutoBoolean DEFAULT_BLOCK_PLACER_PLAYERS_MAY_CONFIGURE = AutoBoolean.AUTO;
+    /** A placed block costs its item from the container behind the placer. */
+    public static final boolean DEFAULT_BLOCK_PLACER_CONSUME_ITEMS = true;
+
+    // Block Observer (D12)
+    /** Block-entity data in the observer's full payload; the observer and its target must also share one claim. */
+    public static final boolean DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA = false;
+
+    // Rooms (D11)
+    /** The longest side of a room, in blocks, within the two bounds below. */
+    public static final int DEFAULT_ROOMS_MAX_SIZE = 128;
+    public static final int MIN_ROOMS_MAX_SIZE = 8;
+    public static final int MAX_ROOMS_MAX_SIZE = 512;
+    /** Rooms in one world, whoever made them. */
+    public static final int MAX_ROOMS_PER_WORLD = 512;
+    /** The rooms one player may own; 0 means unlimited (the world's cap still applies). Operators are not limited. */
+    public static final int DEFAULT_LIMITS_MAX_ROOMS_PER_PLAYER = 16;
+
     /** Off: an empty dedicated server pauses as {@code pause-when-empty-seconds} says, and MQTT is pumped between ticks. */
     public static final boolean DEFAULT_SERVER_KEEP_TICKING_WHEN_EMPTY = false;
 

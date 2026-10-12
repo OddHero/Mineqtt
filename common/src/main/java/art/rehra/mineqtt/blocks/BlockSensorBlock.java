@@ -4,11 +4,8 @@ import art.rehra.mineqtt.blocks.entities.BlockSensorBlockEntity;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.LevelReader;
-import net.minecraft.world.level.ScheduledTickAccess;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
@@ -21,6 +18,10 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * The Block Observer ({@link BlockSensorBlockEntity}): its face, which points away from the player who placed it, watches
+ * the block in front.
+ */
 public class BlockSensorBlock extends BaseMqttBlock {
     public static final MapCodec<BlockSensorBlock> CODEC = simpleCodec(BlockSensorBlock::new);
     public static final EnumProperty<Direction> FACING = BlockStateProperties.FACING;
@@ -52,22 +53,13 @@ public class BlockSensorBlock extends BaseMqttBlock {
     }
 
     @Override
-    protected BlockState updateShape(BlockState state, LevelReader level, ScheduledTickAccess ticks,
-                                     BlockPos pos, Direction direction, BlockPos neighborPos,
-                                     BlockState neighborState, RandomSource random) {
-        if (direction == state.getValue(FACING) && level.getBlockEntity(pos) instanceof BlockSensorBlockEntity sensor) {
-            sensor.requestObservation();
-        }
-        return super.updateShape(state, level, ticks, pos, direction, neighborPos, neighborState, random);
-    }
-
-    @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new BlockSensorBlockEntity(pos, state);
     }
 
     @Override
+    /** The server looks at the block in front every tick; the client has nothing to tick. */
     public <T extends BlockEntity> @Nullable BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
-        return level.isClientSide() ? null : createTickerHelper(type, art.rehra.mineqtt.blocks.entities.MineqttBlockEntityTypes.BLOCK_SENSOR_BLOCK.get(), BlockSensorBlockEntity::tick);
+        return level.isClientSide() ? null : new BlockSensorBlockEntity.ServerTicker<>();
     }
 }

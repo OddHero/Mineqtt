@@ -520,6 +520,19 @@ public final class TwinRuntime {
     }
 
     /**
+     * The catalog's area names (M4 plan D11, {@code AreaNames}): the rooms send Home Assistant's own spelling of a
+     * matching area. Empty while no catalog is received.
+     */
+    public List<String> areas() {
+        return documents.areas();
+    }
+
+    /** The area names of the catalog entries the read gate lets through now: what a player's room prompt may suggest. */
+    public List<String> readableAreas() {
+        return documents.areas(allowed());
+    }
+
+    /**
      * Whether the read gate lets {@code entityId} through now (D3): {@code twin.allowedEntities}, and the catalog while
      * one is received.
      */

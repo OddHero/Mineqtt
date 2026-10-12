@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity;
+import art.rehra.mineqtt.blocks.entities.BlockSensorBlockEntity;
 import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
 import art.rehra.mineqtt.blocks.entities.LightRemoteBlockEntity;
 import art.rehra.mineqtt.blocks.entities.MotionSensorBlockEntity;
@@ -9,6 +11,8 @@ import art.rehra.mineqtt.blocks.entities.RgbLedBlockEntity;
 import art.rehra.mineqtt.blocks.entities.SmartPlugBlockEntity;
 import art.rehra.mineqtt.blocks.entities.TemperatureSensorBlockEntity;
 import art.rehra.mineqtt.device.ValueCodecs.LightState;
+import art.rehra.mineqtt.device.types.BlockObserver;
+import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.ClimateSensor.Climate;
 import art.rehra.mineqtt.device.types.PresenceSensor;
@@ -20,6 +24,7 @@ import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.SmartPlug.Plug;
 import art.rehra.mineqtt.device.types.WallSwitch;
+import art.rehra.mineqtt.ha.Ha;
 import art.rehra.mineqtt.legacy.LegacyNbtV1;
 import art.rehra.mineqtt.mqtt.core.TopicAcl;
 import art.rehra.mineqtt.security.AclContext;
@@ -378,6 +383,86 @@ public final class LinkAdoptionCheck {
     }
 
     /**
+     * A v1 Block Sensor, adopted on chunk load (M4 plan D12): its topic is a grandfathered Raw Link output, not retained
+     * as v1 sent it, without custom payloads (slots 2 and 3 never were payloads), and its data mode is the Block
+     * Observer's {@code payload}. Saved before its adoption it is still the same v1 data; adopted, it writes no v1 key.
+     */
+    public static void sensorAdopted(HolderLookup.Provider registries, CompoundTag v1Sensor, String topic, BlockObserver.Payload payload) {
+        DeviceLink link = new DeviceLink(BlockObserver.TYPE);
+        BlockObserver.Observation observation = BlockSensorBlockEntity.loadObserver(link, input(registries, v1Sensor));
+        check(link.awaitingAdoption() && link.loadedVersion() == DeviceLink.VERSION_V1 && observation.equals(BlockObserver.Observation.ofV1(payload)),
+                "v1 sensor data: its mode is the payload: " + observation);
+        check(sameItems(link.legacyItems(), v1Sensor, registries), "v1 data keeps its slots as legacy items: " + link.legacyItems());
+        TagValueOutput early = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
+        BlockSensorBlockEntity.saveObserver(link, observation, early);
+        check(early.buildResult().equals(v1Sensor), "Saved before its adoption, a sensor writes its v1 data back as it was read: " + early.buildResult());
+        DeviceLink again = new DeviceLink(BlockObserver.TYPE);
+        check(BlockSensorBlockEntity.loadObserver(again, input(registries, early.buildResult())).equals(observation) && again.awaitingAdoption(),
+                "and reads back as the same v1 data");
+
+        link.adopt(link.takePendingV1(), true);
+        RawLink raw = link.raw();
+        RawLinkSpec spec = BlockObserver.TYPE.rawLink().orElseThrow();
+        check(raw != null && raw.topic().equals(topic) && raw.direction() == RawLinkSpec.Direction.OUT && raw.active() && raw.on() == null && raw.off() == null,
+                "The v1 topic is the Raw Link output, without custom payloads: " + raw);
+        check(new TopicAcl.Grandfather(topic, null).equals(raw.grandfathered()) && !raw.effectiveRetain(spec) && !spec.retainByDefault() && raw.qos() == 0,
+                "Grandfathered, not retained and QoS 0, as v1 sent it: " + raw);
+        check("Steve".equals(link.ownerName()), "The v1 owner name is kept until it is resolved");
+
+        link.assign(UUID.randomUUID(), "Gate Observer", "gate_observer");
+        TagValueOutput saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
+        BlockSensorBlockEntity.saveObserver(link, observation, saved);
+        CompoundTag savedTag = saved.buildResult();
+        check(!LegacyNbtV1.hasSensorKeys(input(registries, savedTag)) && savedTag.keySet().equals(Set.of(DeviceLink.KEY))
+                        && savedTag.getCompound(DeviceLink.KEY).orElseThrow().getCompound("state").orElseThrow().getStringOr("payload", BlockObserver.Payload.FULL.getSerializedName())
+                        .equals(payload.getSerializedName()),
+                "Adopted, it is v2 data with its payload and no v1 key is left: " + savedTag);
+        DeviceLink reloaded = new DeviceLink(BlockObserver.TYPE);
+        BlockObserver.Observation reread = BlockSensorBlockEntity.loadObserver(reloaded, input(registries, savedTag));
+        check(!reloaded.awaitingAdoption() && raw.equals(reloaded.raw()) && reread.equals(observation), "The adopted observer round-trips: " + reread);
+    }
+
+    /**
+     * A v1 Block Emitter, adopted on chunk load (M4 plan D12): its listen topic is a grandfathered Raw Link input with the
+     * Block Placer's grammar that never applies a retained message, without custom payloads, and it is set to no block:
+     * v1 took its blocks from each message. Saved before its adoption it keeps v1's key; adopted, it writes none.
+     */
+    public static void placerAdopted(HolderLookup.Provider registries, CompoundTag v1Emitter, String topic) {
+        DeviceLink link = new DeviceLink(BlockPlacer.TYPE);
+        BlockEmitterBlockEntity.Loaded loaded = BlockEmitterBlockEntity.loadPlacer(link, input(registries, v1Emitter));
+        check(link.awaitingAdoption() && link.loadedVersion() == DeviceLink.VERSION_V1 && loaded.settings().equals(BlockPlacer.Settings.DEFAULT)
+                && loaded.placed() == null, "v1 emitter data: no block set, nothing placed");
+        check(sameItems(link.legacyItems(), v1Emitter, registries), "v1 data keeps its slots as legacy items: " + link.legacyItems());
+        TagValueOutput early = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
+        BlockEmitterBlockEntity.savePlacer(link, loaded.settings(), loaded.placed(), early);
+        check(LegacyNbtV1.hasSubscribedKeys(input(registries, early.buildResult())), "Saved before its adoption, it keeps v1's key: " + early.buildResult());
+        DeviceLink again = new DeviceLink(BlockPlacer.TYPE);
+        BlockEmitterBlockEntity.loadPlacer(again, input(registries, early.buildResult()));
+        check(again.awaitingAdoption() && again.pendingV1().equals(link.pendingV1()), "and reads back as the same v1 data");
+
+        link.adopt(link.takePendingV1(), true);
+        RawLink raw = link.raw();
+        RawLinkSpec spec = BlockPlacer.TYPE.rawLink().orElseThrow();
+        check(raw != null && raw.topic().equals(topic) && raw.direction() == RawLinkSpec.Direction.IN && raw.active() && raw.on() == null && raw.off() == null,
+                "The v1 topic is the Raw Link input, without custom payloads: " + raw);
+        check(new TopicAcl.Grandfather(topic, null).equals(raw.grandfathered()) && !spec.acceptRetained() && spec.grammar() == ValueCodecs.PLACER && !raw.stateEcho(),
+                "Grandfathered, the placer's grammar, no retained message applied (acceptRetained=false), no state echo: " + raw);
+
+        link.assign(UUID.randomUUID(), "Door Placer", "door_placer");
+        BlockPlacer.Placed placed = new BlockPlacer.Placed(new BlockPos(3, 64, 1), Blocks.WOOL.white().defaultBlockState());
+        BlockPlacer.Settings settings = new BlockPlacer.Settings("minecraft:white_wool", "placed minecraft:white_wool");
+        TagValueOutput saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
+        BlockEmitterBlockEntity.savePlacer(link, settings, placed, saved);
+        CompoundTag savedTag = saved.buildResult();
+        check(!LegacyNbtV1.hasSubscribedKeys(input(registries, savedTag)) && savedTag.keySet().equals(Set.of(DeviceLink.KEY)),
+                "Adopted, it writes no v1 key: " + savedTag);
+        DeviceLink reloaded = new DeviceLink(BlockPlacer.TYPE);
+        BlockEmitterBlockEntity.Loaded reread = BlockEmitterBlockEntity.loadPlacer(reloaded, input(registries, savedTag));
+        check(!reloaded.awaitingAdoption() && raw.equals(reloaded.raw()) && reread.settings().equals(settings) && placed.equals(reread.placed()),
+                "The adopted placer round-trips with its block and what it placed: " + reread);
+    }
+
+    /**
      * A v1 publisher in private mode, adopted on chunk load: its owner-prefixed v1 topic is a grandfathered Raw Link
      * output with v1's QoS and retain, and slots 2 and 3 are the payloads of its edges. v1 publishers kept no signal.
      */
@@ -729,6 +814,52 @@ public final class LinkAdoptionCheck {
             if (items.get(i).slot() != legacy.get(i).slot() || !ItemStack.matches(items.get(i).stack(), legacy.get(i).stack())) return false;
         }
         return true;
+    }
+
+    /**
+     * M4 plan D2 (M4-1 seam): a type marked {@code noV1Topic} adopts no Raw Link from its v1 slots' literal, trusted or
+     * not, although it has a Raw Link: the v1 timers never published, their slots held hopper-inserted items. The owner
+     * and an anvil name are adopted as ever, the slot items become legacy items. The same data for a type without the mark
+     * keeps the M2 rule, the literal as a Raw Link.
+     *
+     * @param v1Timer v1 data whose slots spell {@code topic} (base and sub paper), owned by Steve
+     */
+    public static void noV1TopicAdopted(HolderLookup.Provider registries, CompoundTag v1Timer, String topic) {
+        DeviceType quiet = timerLike("check_quiet_timer").noV1Topic().build();
+        DeviceType plain = timerLike("check_plain_timer").build();
+        check(quiet.noV1Topic() && !plain.noV1Topic() && quiet.rawLink().isPresent(), "Both types have a Raw Link, one is marked");
+
+        DeviceLink control = new DeviceLink(plain);
+        control.load(input(registries, v1Timer), true);
+        control.adopt(control.takePendingV1(), true);
+        check(control.raw() != null && control.raw().topic().equals(topic) && control.raw().grandfathered() != null,
+                "Without the mark the slots' literal becomes a grandfathered Raw Link, as in M2: " + control.raw());
+
+        for (boolean trusted : new boolean[]{true, false}) {
+            DeviceLink link = new DeviceLink(quiet);
+            link.load(input(registries, v1Timer), true);
+            check(link.awaitingAdoption() && link.legacyItems().size() == 2, "The timer's v1 data waits for its attach, its slot items kept: " + link.legacyItems());
+            link.adopt(link.takePendingV1(), trusted);
+            check(link.raw() == null, "A noV1Topic type adopts no Raw Link from the slots' literal (trusted " + trusted + "): " + link.raw());
+            check("Steve".equals(link.ownerName()) && link.name().equals("Kitchen Alarm") && link.legacyItems().size() == 2,
+                    "Its owner name, anvil name and legacy items are adopted as for any type (trusted " + trusted + ")");
+        }
+    }
+
+    /**
+     * M4-3: the attach adopts a timer's v1 data as it adopts any device's ({@link DeviceLink#adopt}), for the timer checks
+     * outside this package.
+     */
+    public static void adopt(DeviceLink link, boolean trusted) {
+        link.adopt(link.takePendingV1(), trusted);
+    }
+
+    // A timer-like type with an events Raw Link (M4 plan D2), not registered.
+    private static DeviceType.Builder timerLike(String path) {
+        Field<Boolean> enabled = Field.bool("enabled", true, Access.READ_WRITE);
+        return DeviceType.builder(Identifier.fromNamespaceAndPath("mineqtt", path)).model("Check Timer").unloaded(UnloadedPolicy.UNAVAILABLE)
+                .field(enabled).entity(Ha.switchOf("enabled", enabled).on(true).off(false).name(null)).action(Action.state())
+                .event(EventSpec.of("fired")).entity(Ha.event("fired", "fired")).rawLink(RawLinkSpec.events()).preview((state, command) -> state);
     }
 
     private static ValueInput input(HolderLookup.Provider registries, CompoundTag tag) {

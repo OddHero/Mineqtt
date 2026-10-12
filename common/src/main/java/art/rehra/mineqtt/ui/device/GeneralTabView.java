@@ -28,7 +28,8 @@ import java.util.stream.Stream;
 
 /**
  * Draws the {@link GeneralTab} from the device's {@link DeviceView}: a name field with a live preview of the slug and the
- * state topic the name gives, the topic with a copy button, the group, and a button that steps the Home Assistant
+ * state topic the name gives, the topic with a copy button, the room (M4 plan D11) with what Home Assistant keeps when it
+ * differs, the group, and a button that steps the Home Assistant
  * exposure through on, off and default next to whether Home Assistant discovers the device now. The name is sent with
  * Enter or Save, never on its own; the server answers with a new view, which a name the player is still typing survives.
  * A control the view's grants do not allow is read-only, and says why on hover. For a type that can be grouped the group
@@ -39,19 +40,23 @@ public class GeneralTabView implements MqttTabView {
     private static final int CONTENT_W = TabbedMqttMenu.GUI_WIDTH - 16;
     private static final int ROW_H = 14;
     private static final int NAME_Y = 17;
-    private static final int SLUG_Y = 36;
-    private static final int TOPIC_Y = 47;
+    private static final int SLUG_Y = 34;
+    private static final int TOPIC_Y = 44;
     // The topic wraps onto a second line rather than shrinking out of legibility.
     private static final int TOPIC_H = 18;
-    // The group row also holds the topic's copy button, right under the topic, which takes the full width above it.
-    private static final int GROUP_Y = 67;
-    private static final int EXPOSE_Y = 84;
+    // The device's room (M4 plan D11), the area Home Assistant is told for it.
+    private static final int ROOM_Y = 63;
+    // The group row also holds the topic's copy button, right under the room line.
+    private static final int GROUP_Y = 73;
+    private static final int EXPOSE_Y = 88;
     private static final int GAP = 4;
     private static final int LABEL_COLOR = 0xFF555555;
     private static final int VALUE_COLOR = 0xFF303030;
     private static final int PREVIEW_COLOR = 0xFF0066CC;
     private static final int MUTED_COLOR = 0xFF777777;
     private static final int DISCOVERED_COLOR = 0xFF2E7D32;
+    // A room whose area Home Assistant does not take for the device, which it created before.
+    private static final int KEPT_AREA_COLOR = 0xFFB26A00;
     private static final long COPIED_MILLIS = 1500;
 
     private final TabbedMqttScreen screen;
@@ -78,7 +83,7 @@ public class GeneralTabView implements MqttTabView {
     @Override
     public void init(TabbedMqttScreen screen, int guiLeft, int guiTop) {
         Font font = GuiText.font();
-        int labelW = Stream.of("name", "slug", "topic", "group")
+        int labelW = Stream.of("name", "slug", "topic", "room", "group")
                 .mapToInt(label -> font.width(Component.translatable("mineqtt.device.general." + label))).max().orElse(0);
         valueX = guiLeft + 8 + labelW + GAP + 2;
         int right = guiLeft + 8 + CONTENT_W;
@@ -274,6 +279,18 @@ public class GeneralTabView implements MqttTabView {
         }
         copyButton.active = view.registration().topic(view.slug()).isPresent();
         copyButton.setMessage(Component.translatable(Util.getMillis() < copiedUntil ? "mineqtt.device.general.copied" : "mineqtt.device.general.copy"));
+
+        // The room, and when Home Assistant keeps another area for the device (it applies one only when it creates a
+        // device), a mark and what to change there on hover.
+        label(g, "room", x, guiTop + ROOM_Y);
+        Optional<Component> roomHint = DeviceTabs.roomHint(view);
+        Component room = DeviceTabs.roomValue(view);
+        int roomColor = roomHint.isPresent() ? KEPT_AREA_COLOR : view.registration().room().isPresent() ? VALUE_COLOR : MUTED_COLOR;
+        GuiText.drawTruncated(g, roomHint.isPresent() ? Component.translatable("mineqtt.device.general.room.differs", room) : room,
+                valueX, guiTop + ROOM_Y, valueW, roomColor);
+        if (hovered(mouseX, mouseY, valueX, guiTop + ROOM_Y, valueW)) {
+            g.setTooltipForNextFrame(GuiText.font(), roomHint.orElse(Component.translatable("mineqtt.device.general.room.tooltip")), mouseX, mouseY);
+        }
 
         label(g, "group", x, guiTop + GROUP_Y + 3);
         int groupW = copyButton.getX() - GAP - valueX;

@@ -1,0 +1,52 @@
+# MineQTT world dashboard for Home Assistant (MineQTT 0.8.0 or newer, Home Assistant 2025.2 or newer).
+#
+# Every entity below belongs to the MineQTT Bridge device of a world named "world". The bridge device is named after
+# the world, so its entity ids start with the world's name: replace "world_" with yours (a world "Survival" has
+# sensor.survival_tps) before you paste this into a dashboard's raw configuration editor
+# (Settings > Dashboards > Add dashboard > New dashboard from scratch, then the three-dot menu > Raw configuration editor).
+#
+# MSPT is disabled by default; enable sensor.<world>_mspt in Home Assistant before you add it to a card.
+# Player names appear only for players who share their presence (/mineqtt privacy share on).
+title: Minecraft
+views:
+  - title: World
+    path: minecraft-world
+    icon: mdi:minecraft
+    cards:
+      - type: entities
+        title: Server
+        entities:
+          - entity: binary_sensor.world_connectivity
+            name: Online
+          - entity: sensor.world_tps
+          - entity: sensor.world_players_online
+          - entity: sensor.world_version
+      - type: glance
+        title: World
+        columns: 4
+        entities:
+          - entity: sensor.world_time_of_day
+            name: Time
+          - entity: sensor.world_day
+          - entity: binary_sensor.world_is_day
+            name: Daylight
+          - entity: sensor.world_weather
+      - type: markdown
+        title: Players
+        content: >-
+          {% set names = state_attr('sensor.world_players_online', 'players') %}
+          {% set online = states('sensor.world_players_online') %}
+          {% if online in ['unknown', 'unavailable'] %}The server is offline.
+          {% elif names %}{{ online }} online. Sharing their presence: {{ names | join(', ') }}.
+          {% else %}{{ online }} online. Nobody online shares their presence.{% endif %}
+      - type: history-graph
+        title: Load
+        hours_to_show: 6
+        entities:
+          - entity: sensor.world_tps
+          - entity: sensor.world_players_online
+      - type: logbook
+        title: Player events
+        hours_to_show: 24
+        entities:
+          - event.world_player_event

@@ -3,8 +3,10 @@ package art.rehra.mineqtt.security;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.commands.MineQTTCommands;
+import art.rehra.mineqtt.config.AutoBoolean;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.DeviceClipboard;
+import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.DeviceConfig;
 import art.rehra.mineqtt.device.DeviceGroup;
 import art.rehra.mineqtt.device.DeviceGroups;
@@ -68,17 +70,35 @@ import art.rehra.mineqtt.network.MineqttNetworking.GroupNamePayload;
 import art.rehra.mineqtt.network.MineqttNetworking.GroupPromptPayload;
 import art.rehra.mineqtt.network.MineqttNetworking.LinkChoicePayload;
 import art.rehra.mineqtt.network.MineqttNetworking.LinkPickerPayload;
+import art.rehra.mineqtt.network.MineqttNetworking.RoomNamePayload;
+import art.rehra.mineqtt.network.MineqttNetworking.RoomPromptPayload;
+import art.rehra.mineqtt.rooms.Room;
+import art.rehra.mineqtt.rooms.RoomOffer;
 import art.rehra.mineqtt.network.MineqttNetworking.BridgeActionPayload;
 import art.rehra.mineqtt.network.MineqttNetworking.ConsoleViewPayload;
+import art.rehra.mineqtt.network.MineqttNetworking.ExplorerActionPayload;
+import art.rehra.mineqtt.network.MineqttNetworking.ExplorerPagePayload;
+import art.rehra.mineqtt.network.MineqttNetworking.PrivacyChoicePayload;
+import art.rehra.mineqtt.presence.Consent;
+import art.rehra.mineqtt.presence.PrivacyCommands;
+import art.rehra.mineqtt.presence.PrivacyPolicy;
+import art.rehra.mineqtt.network.MineqttNetworking.ExplorerQueryPayload;
 import art.rehra.mineqtt.network.MineqttNetworking.TwinResultsPayload;
 import art.rehra.mineqtt.network.MineqttNetworking.TwinSearchPayload;
 import art.rehra.mineqtt.network.MineqttNetworking.TwinViewPayload;
 import art.rehra.mineqtt.device.TwinView;
+import art.rehra.mineqtt.device.UnloadedPolicy;
 import art.rehra.mineqtt.twin.core.TwinHealth;
 import art.rehra.mineqtt.ui.device.TwinPicker;
 import art.rehra.mineqtt.mqtt.core.ConnectionState;
 import art.rehra.mineqtt.ui.console.BridgeAction;
 import art.rehra.mineqtt.ui.console.ConsoleView;
+import art.rehra.mineqtt.telemetry.TelemetrySampler;
+import art.rehra.mineqtt.telemetry.core.Weather;
+import art.rehra.mineqtt.config.TelemetryPlayers;
+import art.rehra.mineqtt.ui.explorer.ExplorerActions;
+import art.rehra.mineqtt.ui.explorer.ExplorerDirectory;
+import art.rehra.mineqtt.ui.explorer.ExplorerPage;
 import art.rehra.mineqtt.security.C2SGuard.Facts;
 import art.rehra.mineqtt.security.C2SGuard.Rejection;
 import art.rehra.mineqtt.twin.core.EntityGlobs;
@@ -106,11 +126,13 @@ import net.minecraft.nbt.IntTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.VarInt;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.server.permissions.LevelBasedPermissionSet;
+import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.PermissionSet;
 import net.minecraft.server.players.NameAndId;
 import net.minecraft.util.ProblemReporter;
@@ -127,6 +149,7 @@ import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -140,9 +163,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * The pure parts of the security layer, run by Gradle's verifySecurityGuards task: the token bucket and per-player
@@ -151,7 +176,7 @@ import java.util.function.Function;
  * owner match by UUID and the {@code ownerUuid} key of blocks that are no devices, who may expose devices and reach which {@code /mineqtt} subcommand,
  * what the device config and action payloads and their command twins accept ({@link DeviceConfig}), typed Raw Link topics
  * and the wire bounds of the device payloads, the inventory of payloads (the retired blocks' are gone), who may make which wire with the Configurator's Link mode and how many,
- * who may open the Bridge Console and run its actions and what it lists to whom, the {@link NoticeGate} that tells a refusal once, the length cap of the device status the server sends to clients,
+ * who may open the Bridge Console and run its actions and what it lists to whom, whose devices the Configurator explorer finds and how it pages them, the {@link NoticeGate} that tells a refusal once, the length cap of the device status the server sends to clients,
  * and that automation reaches no configuration slot. The game is bootstrapped for the vanilla permission, command, item
  * and block entity classes; no server is started.
  */
@@ -173,13 +198,18 @@ public final class SecurityGuardsCheck {
         legacyOwner();
         legacyOwnerKey();
         exposeRights();
+        openCommandRoot();
+        roomsAdmin();
+        roomsCommand();
         twinPermissions();
         deviceConfig();
+        placerConfigureGate();
         typedTopic();
         devicePayloads();
         payloadInventory();
         linkMode();
         groupMode();
+        roomMode();
         pasteRechecks();
         twinBindings();
         presetBindings();
@@ -189,6 +219,8 @@ public final class SecurityGuardsCheck {
         pickerAnswersAndRates();
         catalogTopics();
         bridgeConsole();
+        explorer();
+        explorerActions();
         noticeGate();
         statusCap();
         automationFaces();
@@ -382,7 +414,7 @@ public final class SecurityGuardsCheck {
     }
 
     /**
-     * Wave 7 (M3-17's Twin tab source): the preset search reuses the picker's payloads with a kind field, so the payload
+     * M3-17's Twin tab source: the preset search reuses the picker's payloads with a kind field, so the payload
      * count stays 32. It crosses the wire and an unknown kind is not read; the answer repeats its kind. Only a binder gets
      * presets, and the Home Assistant twin being off does not hide them (M3-17 decision 2); only presets of a kind the type
      * mirrors are listed, a kind chip never widens the list, a query narrows it, and an entity key is no preset search. A
@@ -461,7 +493,7 @@ public final class SecurityGuardsCheck {
     }
 
     /**
-     * Wave 7 (the wave 6 findings): the picker's answer repeats the domain chip it answers, bounded on the wire, so the
+     * The picker's answer repeats the domain chip it answers, bounded on the wire, so the
      * picker drops an answer to a chip or a query it has left; an unanswered search is sent again a few times, within the
      * rate. The Twin tab's view counts the requests the rates refused for every viewer, and names the last one's target
      * only for a viewer who may configure the device.
@@ -1007,14 +1039,142 @@ public final class SecurityGuardsCheck {
         }
         check(!parses(dispatcher, "mineqtt publish t x", op) && parses(dispatcher, "mineqtt publish t x",
                 Commands.createCompilationContext(LevelBasedPermissionSet.ADMIN)), "publish needs op level 3");
-        // A subcommand added later without its own op requirement would open to every holder of mineqtt:ha.expose.
+        // A subcommand added later without its own op requirement would open to every holder of mineqtt:ha.expose; the
+        // literals open to every player (M4 plan D14) are reached by everyone anyway.
         CommandNode<CommandSourceStack> root = dispatcher.getRoot().getChild("mineqtt");
         for (CommandNode<CommandSourceStack> child : root.getChildren()) {
-            check(child.canUse(holder) == child.getName().equals("devices"), "mineqtt:ha.expose reaches /mineqtt " + child.getName() + ": " + child.canUse(holder));
+            check(child.canUse(holder) == (child.getName().equals("devices") || OPEN_LITERALS.contains(child.getName())),
+                    "mineqtt:ha.expose reaches /mineqtt " + child.getName() + ": " + child.canUse(holder));
         }
         for (CommandNode<CommandSourceStack> child : root.getChild("devices").getChildren()) {
             check(child.canUse(holder) == child.getName().equals("expose"), "mineqtt:ha.expose reaches devices " + child.getName() + ": " + child.canUse(holder));
         }
+    }
+
+    /** The literals under {@code /mineqtt} every player reaches (M4 plan D14); their leaves check ownership themselves. */
+    private static final Set<String> OPEN_LITERALS = Set.of("privacy", "rooms");
+
+    /**
+     * M4 plan D14: the {@code /mineqtt} root has no requirement, so each child carries its own. A level-0 source reaches
+     * the root but no child except {@link #OPEN_LITERALS} (privacy since M4-11), tab-completes only those, and runs
+     * nothing; level 2 reaches every child but publish (level 3); {@code mineqtt:ha.expose} reaches only devices expose.
+     */
+    private static void openCommandRoot() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        MineQTTCommands.register(dispatcher);
+        check(dispatcher.getRoot().getChildren().size() == 1, "MineQTT registers exactly one root literal: " + dispatcher.getRoot().getChildren().size());
+        CommandSourceStack nobody = Commands.createCompilationContext(PermissionSet.NO_PERMISSIONS);
+        CommandSourceStack moderator = Commands.createCompilationContext(LevelBasedPermissionSet.MODERATOR);
+        CommandSourceStack op = Commands.createCompilationContext(LevelBasedPermissionSet.GAMEMASTER);
+        CommandSourceStack admin = Commands.createCompilationContext(LevelBasedPermissionSet.ADMIN);
+        CommandSourceStack exposer = Commands.createCompilationContext(permission -> permission.equals(AclContext.HA_EXPOSE));
+        CommandNode<CommandSourceStack> root = dispatcher.getRoot().getChild("mineqtt");
+        check(root != null && root.canUse(nobody) && root.getCommand() == null, "Every source reaches the /mineqtt root, which runs nothing itself");
+        check(!parses(dispatcher, "mineqtt", nobody) && !parses(dispatcher, "mineqtt", op), "/mineqtt alone is an incomplete command");
+
+        Set<String> openPresent = new TreeSet<>();
+        for (CommandNode<CommandSourceStack> child : root.getChildren()) {
+            String name = child.getName();
+            boolean open = OPEN_LITERALS.contains(name);
+            if (open) openPresent.add(name);
+            for (CommandSourceStack outsider : List.of(nobody, moderator)) {
+                check(child.canUse(outsider) == open, "A source without op reaches /mineqtt " + name + " only if it is open: " + child.canUse(outsider));
+            }
+            check(open || child.canUse(op) == !name.equals("publish"), "Level 2 reaches /mineqtt " + name + " (publish needs level 3): " + child.canUse(op));
+            check(child.canUse(admin), "Level 3 reaches /mineqtt " + name);
+            check(child.canUse(exposer) == (open || name.equals("devices")), "mineqtt:ha.expose reaches /mineqtt " + name + ": " + child.canUse(exposer));
+        }
+        // Every subcommand of devices carries its own requirement too, so the devices literal is not the only gate.
+        for (CommandNode<CommandSourceStack> child : root.getChild("devices").getChildren()) {
+            check(!child.canUse(nobody) && !child.canUse(moderator), "devices " + child.getName() + " refuses a source without op by itself");
+        }
+
+        check(completions(dispatcher, "mineqtt ", nobody).equals(openPresent), "A level-0 source tab-completes only the open literals: "
+                + completions(dispatcher, "mineqtt ", nobody));
+        check(completions(dispatcher, "mineqtt ", moderator).equals(openPresent), "So does level 1");
+        Set<String> opCompletions = completions(dispatcher, "mineqtt ", op);
+        check(opCompletions.containsAll(List.of("status", "reconnect", "devices", "group", "wires", "discovery", "twin")) && !opCompletions.contains("publish"),
+                "An op tab-completes every level-2 child: " + opCompletions);
+        Set<String> exposerCompletions = new TreeSet<>(openPresent);
+        exposerCompletions.add("devices");
+        check(completions(dispatcher, "mineqtt ", exposer).equals(exposerCompletions), "mineqtt:ha.expose tab-completes devices: "
+                + completions(dispatcher, "mineqtt ", exposer));
+        check(completions(dispatcher, "mineqtt devices ", exposer).equals(Set.of("expose")), "and under it only expose");
+        check(!root.getChild("devices").canUse(nobody), "A level-0 source does not even reach devices");
+        for (String command : List.of("mineqtt status", "mineqtt reconnect", "mineqtt devices list", "mineqtt devices expose lamp on", "mineqtt group list",
+                "mineqtt wires list", "mineqtt discovery republish", "mineqtt twin status", "mineqtt publish t x")) {
+            check(!parses(dispatcher, command, nobody) && !parses(dispatcher, command, moderator), "A source without op runs no " + command);
+        }
+        check(parses(dispatcher, "mineqtt status", op) && parses(dispatcher, "mineqtt twin status", op), "Ops still run their commands");
+
+        // M4 plan D9: every player reaches privacy and its leaves; players stays with the ops.
+        check(openPresent.contains("privacy") && root.getChild("privacy").canUse(nobody), "A level-0 source reaches /mineqtt privacy");
+        for (String command : List.of("mineqtt privacy", "mineqtt privacy share on", "mineqtt privacy share full", "mineqtt privacy share off")) {
+            check(parses(dispatcher, command, nobody), "A level-0 source runs " + command);
+        }
+        check(completions(dispatcher, "mineqtt privacy share ", nobody).equals(Set.of("on", "full", "off")), "and tab-completes the three choices");
+        check(!root.getChild("players").canUse(nobody) && !root.getChild("players").canUse(moderator) && !root.getChild("players").canUse(exposer),
+                "Only ops reach /mineqtt players");
+        for (String command : List.of("mineqtt players list", "mineqtt players forget Steve")) {
+            check(!parses(dispatcher, command, nobody) && parses(dispatcher, command, op), "A source without op runs no " + command + ", an op does");
+        }
+    }
+
+    /** M4 plan D11, D16: {@code mineqtt:rooms.admin} (rooms for every device inside them) is held by ops and its holders only. */
+    private static void roomsAdmin() {
+        PermissionSet holder = permission -> permission.equals(AclContext.ROOMS_ADMIN);
+        check(AclContext.ROOMS_ADMIN instanceof Permission.Atom atom && atom.id().toString().equals("mineqtt:rooms.admin"),
+                "The permission atom is mineqtt:rooms.admin");
+        for (PermissionSet allowed : List.of(LevelBasedPermissionSet.GAMEMASTER, LevelBasedPermissionSet.ADMIN, LevelBasedPermissionSet.OWNER, holder)) {
+            check(AclContext.mayAdminRooms(allowed), "An op or a holder may make rooms for everyone: " + allowed);
+        }
+        List<PermissionSet> others = List.of(PermissionSet.NO_PERMISSIONS, LevelBasedPermissionSet.MODERATOR,
+                permission -> permission.equals(AclContext.ADMIN), permission -> permission.equals(AclContext.HA_EXPOSE),
+                permission -> permission.equals(AclContext.TWIN_BIND));
+        for (PermissionSet other : others) {
+            check(!AclContext.mayAdminRooms(other), "Nobody else may: " + other);
+        }
+    }
+
+    /**
+     * M4 plan D11, D14: every source reaches {@code /mineqtt rooms} and each of its subcommands, whose leaves judge the
+     * room's owner and the build rights at its corners when they run ({@code RoomEdits}); the corners parse without being
+     * loaded, so RCON makes rooms anywhere. {@code switch} (M4-19) reaches only the devices the source finds when it runs.
+     */
+    private static void roomsCommand() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        MineQTTCommands.register(dispatcher);
+        CommandSourceStack nobody = Commands.createCompilationContext(PermissionSet.NO_PERMISSIONS);
+        CommandNode<CommandSourceStack> rooms = dispatcher.getRoot().getChild("mineqtt").getChild("rooms");
+        check(rooms != null && rooms.canUse(nobody), "Every source reaches /mineqtt rooms");
+        check(completions(dispatcher, "mineqtt rooms ", nobody).equals(Set.of("list", "info", "create", "rename", "resize", "remove", "switch")),
+                "and tab-completes its subcommands: " + completions(dispatcher, "mineqtt rooms ", nobody));
+        for (String command : List.of("mineqtt rooms list", "mineqtt rooms info Kitchen", "mineqtt rooms create Kitchen 0 64 0 5 67 5",
+                "mineqtt rooms create \"Living Room\" 0 64 0 5 67 5 for-all", "mineqtt rooms rename Kitchen Cook House",
+                "mineqtt rooms resize \"#1a2b3c4d\" 0 64 0 9 67 9", "mineqtt rooms remove \"Living Room\"", "mineqtt rooms switch Kitchen on",
+                "mineqtt rooms switch \"Living Room\" off")) {
+            check(parses(dispatcher, command, nobody), "A source without op parses " + command + "; the leaf judges it");
+        }
+        check(!parses(dispatcher, "mineqtt rooms create Living Room 0 64 0 5 67 5", nobody), "A name with a space needs quotes before the corners");
+        // M4-19: the switch takes on or off and nothing else; its leaf switches only the devices the source finds.
+        check(!parses(dispatcher, "mineqtt rooms switch Kitchen toggle", nobody) && !parses(dispatcher, "mineqtt rooms switch Kitchen", nobody),
+                "rooms switch takes on or off");
+    }
+
+    /**
+     * What a source may tab-complete after the given words: the children of that node it may use. Vanilla sends each
+     * player only the command tree they may use ({@code Commands.sendCommands}), and the client completes from that tree;
+     * Brigadier's own suggestion walk does not check requirements, so it would not show what a player sees.
+     */
+    private static Set<String> completions(CommandDispatcher<CommandSourceStack> dispatcher, String input, CommandSourceStack source) {
+        CommandNode<CommandSourceStack> node = dispatcher.getRoot();
+        for (String word : input.strip().split(" ")) {
+            node = node.getChild(word);
+            check(node != null && node.canUse(source), "The source reaches " + input.strip());
+        }
+        Set<String> names = new TreeSet<>();
+        node.getChildren().stream().filter(child -> child.canUse(source)).forEach(child -> names.add(child.getName()));
+        return names;
     }
 
     // Whether the whole command parses to something the source may run; nothing is executed.
@@ -1220,12 +1380,51 @@ public final class SecurityGuardsCheck {
             throw new AssertionError("The payloads of MineqttNetworking could not be read", e);
         }
         check(payloads.equals(declared), "Every declared id has its payload and every payload a declared id: " + declared + " / " + payloads);
-        // M3-13: TwinViewS2C, TwinSearchC2S and TwinResultsS2C; M3-17's preset search reuses the last two with a kind (wave 7).
+        // M3-13: TwinViewS2C, TwinSearchC2S and TwinResultsS2C; M3-17's preset search reuses the last two with a kind.
+        // M4-3: the four timer payloads are gone; the timers' generated screens send device config and action payloads.
+        // M4-9: the Block Observer's settings are device settings, so the Block Sensor's mode payload is gone; M4-10: the Block
+        // Emitter's test, which placed any block with any data, went with its tab.
+        // M4-15: the Room mode's prompt (S2C) and its answer (C2S, which answers only the player's open offer).
+        // M4-16: the Devices tab's search and its page.
+        // M4-18: the Devices tab's actions on a device and the You row's privacy choice.
         check(payloads.size() == 32, "32 payloads, " + payloads.size() + " found: a new or retired one updates this count");
         for (String retired : List.of("set_static_message", "test_static_publish", "set_topic_relay_source", "set_topic_relay_target", "test_topic_relay",
-                "set_dynamic_data_type", "test_dynamic_publish", "light_remote_command")) {
+                "set_dynamic_data_type", "test_dynamic_publish", "light_remote_command", "set_cron_expression", "set_interval_timer", "set_single_alarm",
+                "set_game_time_timer", "set_block_sensor_mode", "trigger_block_emitter_test")) {
             check(!payloads.contains(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, retired)), "The retired payload " + retired + " is gone");
         }
+    }
+
+    /**
+     * M4 plan D12: the Block Placer's configure gate. Besides CONFIGURE only an operator configures it, unless
+     * {@code blockPlacer.playersMayConfigure} lets players: AUTO lets them on an integrated server and not on a dedicated
+     * one, true and false decide alone. Every other type is configured as before; Home Assistant and wires are no players.
+     */
+    private static void placerConfigureGate() {
+        check(!DeviceConfig.mayConfigure(BlockPlacer.TYPE, false, false) && DeviceConfig.mayConfigure(BlockPlacer.TYPE, true, false)
+                && DeviceConfig.mayConfigure(BlockPlacer.TYPE, false, true), "A placer: an operator, or anyone the setting lets");
+        for (DeviceType type : DeviceTypes.all()) {
+            if (type != BlockPlacer.TYPE) check(DeviceConfig.mayConfigure(type, false, false), type + " is configured as before");
+        }
+        AutoBoolean saved = MineQTTConfig.blockPlacerPlayersMayConfigure;
+        try {
+            MineQTTConfig.blockPlacerPlayersMayConfigure = AutoBoolean.AUTO;
+            check(MineQTTConfig.blockPlacerPlayersMayConfigure(false) && !MineQTTConfig.blockPlacerPlayersMayConfigure(true),
+                    "AUTO: players configure a placer on an integrated server, only operators on a dedicated one");
+            check(!DeviceConfig.mayConfigure(BlockPlacer.TYPE, false, MineQTTConfig.blockPlacerPlayersMayConfigure(true))
+                    && DeviceConfig.mayConfigure(BlockPlacer.TYPE, false, MineQTTConfig.blockPlacerPlayersMayConfigure(false)), "so a dedicated server's player may not");
+            MineQTTConfig.blockPlacerPlayersMayConfigure = AutoBoolean.TRUE;
+            check(MineQTTConfig.blockPlacerPlayersMayConfigure(true), "true lets players on a dedicated server too");
+            MineQTTConfig.blockPlacerPlayersMayConfigure = AutoBoolean.FALSE;
+            check(!MineQTTConfig.blockPlacerPlayersMayConfigure(false), "false keeps it to operators on an integrated server too");
+        } finally {
+            MineQTTConfig.blockPlacerPlayersMayConfigure = saved;
+        }
+        check(BlockPlacer.TYPE.setting("block").isPresent() && DeviceConfig.permission(BlockPlacer.TYPE, "block") == MineqttPermission.CONFIGURE
+                        && DeviceConfig.permission(BlockPlacer.TYPE, LinkSetting.RAW_TOPIC.key()) == MineqttPermission.CONFIGURE,
+                "Its block and its Raw Link are behind CONFIGURE, which the gate narrows");
+        check(DeviceConfig.action(BlockPlacer.TYPE, "place", "PRESS", new DeviceView.Grants(true, false, false, false)).result().isPresent(),
+                "place is a use (USE), as a button: what it places is decided by those who configure it");
     }
 
     /** M2-6: the device payloads are bounded on the wire; the setting value by an NBT quota. */
@@ -1410,6 +1609,73 @@ public final class SecurityGuardsCheck {
      * only when its owner may use that topic, a group holds one groupable type, its name is bounded like a device's, an
      * emptied group goes unless it replaces a v1 topic, and the group payloads cross the wire within their caps.
      */
+    /**
+     * M4-15 (plan D11): the Room mode's answer passes only while it answers the player's open offer, in Room mode, in the
+     * box's dimension within the Configurator's reach, from a player who may build and may act on the offer; the payloads
+     * carry bounded names, and the offer itself refuses an answer that does not fit it or lapsed.
+     */
+    private static void roomMode() {
+        BooleanSupplier yes = () -> true;
+        BooleanSupplier no = () -> false;
+        check(C2SGuard.decide(C2SGuard.boxOfferFacts(yes, yes, true, yes, yes, yes, yes, yes)).isEmpty(),
+                "An answer to the open offer, in Room mode, near the box, from a builder who may act on it passes");
+        check(C2SGuard.decide(C2SGuard.boxOfferFacts(yes, yes, false, yes, yes, yes, yes, yes)).equals(Optional.of(Rejection.NO_MENU)),
+                "An answer to no open offer (a replay, a lapsed or used one) is dropped");
+        check(C2SGuard.decide(C2SGuard.boxOfferFacts(yes, yes, true, no, yes, yes, yes, yes)).equals(Optional.of(Rejection.MENU_INVALID)),
+                "An answer without a Configurator in Room mode is dropped");
+        check(C2SGuard.decide(C2SGuard.boxOfferFacts(yes, yes, true, yes, no, yes, yes, yes)).equals(Optional.of(Rejection.NOT_LOADED)),
+                "An answer from another dimension is dropped");
+        check(C2SGuard.decide(C2SGuard.boxOfferFacts(yes, yes, true, yes, yes, no, yes, yes)).equals(Optional.of(Rejection.OUT_OF_REACH)),
+                "An answer from beyond the Configurator's reach of the box is dropped");
+        check(C2SGuard.decide(C2SGuard.boxOfferFacts(yes, yes, true, yes, yes, yes, no, yes)).equals(Optional.of(Rejection.DENIED)),
+                "An answer from a player who may not build (adventure mode) is dropped");
+        check(C2SGuard.decide(C2SGuard.boxOfferFacts(yes, yes, true, yes, yes, yes, yes, no)).equals(Optional.of(Rejection.DENIED)),
+                "An answer about a room the player may not change is dropped");
+        check(C2SGuard.decide(C2SGuard.boxOfferFacts(yes, no, true, yes, yes, yes, yes, yes)).equals(Optional.of(Rejection.SPECTATOR)),
+                "A spectator's answer is dropped");
+        check(C2SGuard.decide(C2SGuard.boxOfferFacts(no, yes, true, yes, yes, yes, yes, yes)).equals(Optional.of(Rejection.RATE_LIMITED)),
+                "A flood is cut off first");
+
+        RoomOffer box = RoomOffer.create(7, Level.OVERWORLD, new BlockPos(5, 67, 5), BlockPos.ZERO, 1_000);
+        Room kitchen = Room.between(UUID.randomUUID(), "Kitchen", Level.OVERWORLD, BlockPos.ZERO, new BlockPos(5, 67, 5), UUID.randomUUID(), false, 1);
+        RoomOffer picked = RoomOffer.edit(8, kitchen, 1_000);
+        check(box.answers(7, 1_000 + RoomOffer.LIFETIME_MILLIS) && !box.answers(7, 1_001 + RoomOffer.LIFETIME_MILLIS) && !box.answers(6, 1_000),
+                "An offer is answered by its own id until it lapses");
+        check(box.answerProblem(RoomOffer.Op.CREATE, false, false).isEmpty() && box.answerProblem(RoomOffer.Op.RENAME, false, false).isPresent()
+                && box.answerProblem(RoomOffer.Op.REMOVE, false, true).isPresent(), "A box is made into a room, never renamed or removed");
+        check(picked.answerProblem(RoomOffer.Op.RENAME, false, false).isEmpty() && picked.answerProblem(RoomOffer.Op.REMOVE, false, false).isEmpty()
+                && picked.answerProblem(RoomOffer.Op.CREATE, false, true).isPresent(), "A picked room is renamed or removed, never made again");
+        check(box.answerProblem(RoomOffer.Op.CREATE, true, false).orElse("").contains("mineqtt:rooms.admin") && box.answerProblem(RoomOffer.Op.CREATE, true, true).isEmpty(),
+                "for-all needs the right");
+        check(picked.answerProblem(RoomOffer.Op.RENAME, true, true).isPresent(), "A rename never makes a room for everyone");
+
+        RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        RoomNamePayload.CODEC.encode(buf, new RoomNamePayload(7, RoomOffer.Op.REMOVE, "Kitchen", false));
+        check(RoomNamePayload.CODEC.decode(buf).equals(new RoomNamePayload(7, RoomOffer.Op.REMOVE, "Kitchen", false)), "A room answer round-trips");
+        RegistryFriendlyByteBuf tooLong = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        VarInt.write(tooLong, 7);
+        VarInt.write(tooLong, 0);
+        net.minecraft.network.FriendlyByteBuf.writeByteArray(tooLong, "x".repeat(RoomNamePayload.MAX_NAME_BYTES + 1).getBytes(StandardCharsets.UTF_8));
+        tooLong.writeBoolean(false);
+        check(failsToDecode(() -> RoomNamePayload.CODEC.decode(tooLong)), "A name over " + RoomNamePayload.MAX_NAME_BYTES + " bytes does not decode");
+        RegistryFriendlyByteBuf badOp = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        VarInt.write(badOp, 7);
+        VarInt.write(badOp, 9);
+        check(failsToDecode(() -> RoomNamePayload.CODEC.decode(badOp)), "An unknown answer does not decode");
+        RoomPromptPayload prompt = new RoomPromptPayload(7, 6, 4, 6, "", java.util.Collections.nCopies(40, "Hall"), true);
+        check(prompt.suggestions().size() == RoomPromptPayload.MAX_SUGGESTIONS && !prompt.edits(), "A prompt carries at most " + RoomPromptPayload.MAX_SUGGESTIONS + " suggestions");
+        check(failsToDecode(() -> new RoomPromptPayload(7, 0, 4, 6, "", List.of(), false)), "A prompt for a box without size is refused");
+    }
+
+    private static boolean failsToDecode(Runnable decode) {
+        try {
+            decode.run();
+            return false;
+        } catch (RuntimeException expected) {
+            return true;
+        }
+    }
+
     private static void groupMode() {
         DeviceRegistry registry = new DeviceRegistry("groups_0001", UUID.randomUUID());
         DeviceRecord input = linkDevice(registry, RedstoneInput.TYPE, "input", 0);
@@ -1781,7 +2047,7 @@ public final class SecurityGuardsCheck {
         refused(type, "twin.decimals", new JsonPrimitive("2"), DeviceView.Grants.ALL, "a row the type does not use");
         // A stored binding comes from block entity data (an item any creative player can make, /data, a structure), not
         // through the parser above: its range numbers are bounded as well, so a huge exponent fails to decode, which drops
-        // the binding, instead of being written out in full at the next save (wave 4 review).
+        // the binding, instead of being written out in full at the next save.
         for (String huge : List.of("1e2000000000", "1e-2000000000", "1e70000", "1234567890123456", "-1E+15", "0.0000001", "9".repeat(40))) {
             check(BindingCodecs.CODEC.parse(NbtOps.INSTANCE, storedBinding(huge)).isError(),
                     "A stored twin.min of " + (huge.length() > 20 ? huge.substring(0, 20) + "…" : huge) + " fails to decode");
@@ -2029,7 +2295,8 @@ public final class SecurityGuardsCheck {
     /**
      * The Bridge Console (M2 plan §4.2 M2-23): anyone the claim trusts opens it, only an operator runs its actions, whatever
      * the claim says; it lists a player only the devices they may configure and the groups whose every member they may,
-     * an operator everything, and builds no row of a device it does not list; what needs attention comes first; its view
+     * an operator everything, and builds no row of a device it does not list; what needs attention comes first; it shows
+     * the world's telemetry with the telemetry line and names players only to an operator, at most 16 (M4-17); its view
      * and its action payload cross the wire within their caps, and an unknown action is not read as another.
      */
     private static void bridgeConsole() {
@@ -2086,14 +2353,36 @@ public final class SecurityGuardsCheck {
         ConsoleView.Bridge bridge = ConsoleView.Bridge.of("mineqtt/console_0001", ConnectionState.reconnecting("broker gone"), "tcp://localhost:1883 (MQTT 5, user ***)",
                 "5", ConsoleView.HomeAssistant.ONLINE, 12_000, "OPT_IN", 3, ConsoleView.ServerState.PAUSED, 60, 2, 5, 1, 4, 7, 120, 3);
         BlockPos pos = new BlockPos(1, -60, 2);
-        ConsoleView view = ConsoleView.of(pos, bridge, own, ownGroups, false);
+        // M4-17: the world's telemetry, whose player names only an operator's view carries.
+        String line = TelemetrySampler.statusLine(true, 10, TelemetryPlayers.PRESENCE, true, 2, false);
+        check(line.equals("Telemetry: every 10 s · players: presence by consent (2 sharing) · broadcast off"), "The telemetry line: " + line);
+        check(TelemetrySampler.statusLine(false, 30, TelemetryPlayers.FULL, true, 0, true)
+                        .equals("Telemetry: player count only · players: full by consent (0 sharing) · broadcast on")
+                        && TelemetrySampler.statusLine(true, 5, TelemetryPlayers.PRESENCE, false, 3, false).contains("players: counts only")
+                        && TelemetrySampler.statusLine(true, 5, TelemetryPlayers.OFF, true, 3, false).contains("players: not shared"),
+                "It says when only the count goes out, when names are vetoed and when players are not shared at all");
+        List<String> named = List.of("Alex", "Steve");
+        ConsoleView.World world = ConsoleView.World.of(19.6, 12.3, "07:15", 312, true, Weather.RAIN, 3, named, false, line);
+        check(world.players().isEmpty() && world.named() == 0 && world.playersOnline() == 3 && world.telemetry().equals(line),
+                "A player who is no operator sees how many are online, but no name (" + world + ")");
+        ConsoleView.World operatorWorld = ConsoleView.World.of(19.6, 12.3, "07:15", 312, true, Weather.RAIN, 3, named, true, line);
+        check(operatorWorld.players().equals(named) && operatorWorld.named() == 2, "An operator sees the names the name policy allows");
+        List<String> crowd = new ArrayList<>();
+        for (int i = 0; i < 20; i++) crowd.add("Player" + i);
+        ConsoleView.World crowded = ConsoleView.World.of(20, 1, "12:00", 0, true, Weather.CLEAR, 20, crowd, true, line);
+        check(crowded.players().size() == ConsoleView.MAX_PLAYER_NAMES && crowded.named() == 20, "and at most 16 names, counting the rest");
+        rejects(() -> new ConsoleView.World(20, 1, "12:00", 0, true, Weather.CLEAR, 20, crowd, 20, line), "a console naming more than 16 players");
+        ConsoleView view = ConsoleView.of(pos, bridge, world, own, ownGroups, false);
         check(roundTrip(view).equals(view), "A player's console view crosses the wire unchanged");
+        ConsoleView operatorView = ConsoleView.of(pos, bridge, operatorWorld, own, ownGroups, true);
+        check(roundTrip(operatorView).equals(operatorView), "So does an operator's, with the names");
+        ConsoleView.World quiet = ConsoleView.World.of(0, 0, "06:00", 0, true, Weather.CLEAR, 0, List.of(), true, "");
         ConsoleView none = ConsoleView.of(pos, ConsoleView.Bridge.of("", ConnectionState.DISABLED, "none", "5", ConsoleView.HomeAssistant.NOT_SEEN, -1,
-                "NONE", 0, ConsoleView.ServerState.INTEGRATED, 0, 0, 0, 0, 0, 0, 0, 0), List.of(), List.of(), true);
+                "NONE", 0, ConsoleView.ServerState.INTEGRATED, 0, 0, 0, 0, 0, 0, 0, 0), quiet, List.of(), List.of(), true);
         check(roundTrip(none).equals(none) && none.bridge().homeAssistantAgeMillis() == -1, "So does an empty one, with no birth heard");
         // Vanilla takes a negative pause-when-empty-seconds as never pausing; the view still has to cross the wire.
         ConsoleView neverPauses = ConsoleView.of(pos, ConsoleView.Bridge.of("", ConnectionState.DISABLED, "none", "5", ConsoleView.HomeAssistant.NOT_SEEN, -1,
-                "NONE", 0, ConsoleView.ServerState.NEVER_PAUSES, -1, 0, 0, 0, 0, 0, 0, 0), List.of(), List.of(), true);
+                "NONE", 0, ConsoleView.ServerState.NEVER_PAUSES, -1, 0, 0, 0, 0, 0, 0, 0), quiet, List.of(), List.of(), true);
         check(neverPauses.bridge().pauseSeconds() == 0 && roundTrip(neverPauses).equals(neverPauses),
                 "A server that never pauses because pause-when-empty-seconds is negative shows 0 s, and its view crosses the wire");
 
@@ -2106,7 +2395,11 @@ public final class SecurityGuardsCheck {
         ConsoleView.Bridge longest = ConsoleView.Bridge.of(text, ConnectionState.failed(text), text, text, ConsoleView.HomeAssistant.OFFLINE, Long.MAX_VALUE / 2,
                 text, Long.MAX_VALUE / 2, ConsoleView.ServerState.KEPT_TICKING, Integer.MAX_VALUE, Long.MAX_VALUE / 2, Long.MAX_VALUE / 2,
                 Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Long.MAX_VALUE / 2, Long.MAX_VALUE / 2);
-        ConsoleView largest = ConsoleView.of(pos, longest, many, groups, true);
+        List<String> longNames = new ArrayList<>();
+        for (int i = 0; i < ConsoleView.MAX_PLAYER_NAMES + 4; i++) longNames.add(text);
+        ConsoleView.World busiest = ConsoleView.World.of(Double.MAX_VALUE, Double.MAX_VALUE, text, Long.MAX_VALUE / 2, false, Weather.THUNDER, Integer.MAX_VALUE,
+                longNames, true, text);
+        ConsoleView largest = ConsoleView.of(pos, longest, busiest, many, groups, true);
         check(largest.devices().size() == ConsoleView.MAX_DEVICE_ROWS && largest.deviceTotal() == 100
                         && largest.groups().size() == ConsoleView.MAX_GROUP_ROWS && largest.groupTotal() == 50,
                 "A console keeps the first rows and counts them all");
@@ -2114,7 +2407,7 @@ public final class SecurityGuardsCheck {
         ConsoleViewPayload.CODEC.encode(largeBuf, new ConsoleViewPayload(largest));
         check(largeBuf.readableBytes() <= ConsoleView.MAX_BYTES, "The largest console view fits its cap: " + largeBuf.readableBytes() + " bytes");
         check(ConsoleViewPayload.CODEC.decode(largeBuf).view().equals(largest), "and crosses the wire unchanged");
-        rejects(() -> new ConsoleView(pos, bridge, many, 100, List.of(), 0, false), "a console view of more rows than it may carry");
+        rejects(() -> new ConsoleView(pos, bridge, world, many, 100, List.of(), 0, false), "a console view of more rows than it may carry");
 
         for (BridgeAction action : BridgeAction.values()) {
             BridgeActionPayload payload = new BridgeActionPayload(pos, action);
@@ -2126,6 +2419,287 @@ public final class SecurityGuardsCheck {
         unknown.writeBlockPos(pos);
         unknown.writeVarInt(BridgeAction.values().length);
         check(fails(() -> BridgeActionPayload.CODEC.decode(unknown)), "An action the console does not declare is not read");
+    }
+
+    /**
+     * M4-16 (plan D13): the Configurator explorer's Devices tab finds, for a player who may build, only the devices they
+     * own and may configure, never another player's device, not even a public one or one whose claim trusts them; an
+     * operator who may build finds every device, a player who may not build (P2) none, an operator in adventure mode
+     * neither. A search matches name, slug, model or type id ignoring case and formatting codes, in name order, and pages
+     * of 50 rows end at the last page; a row's values leave out settings and the location and are cleaned and cut; the
+     * page and the query cross the wire within their bounds, and the searches of one screen are paced.
+     */
+    private static void explorer() {
+        check(ExplorerDirectory.scope(true, true) == ExplorerPage.Scope.ALL && ExplorerDirectory.scope(false, true) == ExplorerPage.Scope.OWN
+                        && ExplorerDirectory.scope(true, false) == ExplorerPage.Scope.NONE && ExplorerDirectory.scope(false, false) == ExplorerPage.Scope.NONE,
+                "An operator who may build finds all, a player their own, nobody who may not build anything");
+        check(ExplorerDirectory.lists(ExplorerPage.Scope.ALL, false, never()) && !ExplorerDirectory.lists(ExplorerPage.Scope.NONE, true, never()),
+                "All and none decide without asking whether the player may configure");
+        check(ExplorerDirectory.lists(ExplorerPage.Scope.OWN, true, () -> true), "A player finds a device they own and may configure");
+        check(!ExplorerDirectory.lists(ExplorerPage.Scope.OWN, true, () -> false), "not one of theirs they may not configure (a placer's gate)");
+        check(!ExplorerDirectory.lists(ExplorerPage.Scope.OWN, false, never()), "and never another player's, without asking");
+        // What the access modes give a stranger who may build: public and claim-trusted devices are configurable, yet not listed.
+        for (AccessMode mode : AccessMode.values()) {
+            boolean configures = DeviceAccess.permits(MineqttPermission.CONFIGURE, mode, false, false, true, () -> true);
+            check(!ExplorerDirectory.lists(ExplorerPage.Scope.OWN, false, () -> configures),
+                    "A stranger the claim trusts does not find a " + mode.getSerializedName() + " device (configures: " + configures + ")");
+        }
+
+        DeviceRegistry registry = new DeviceRegistry("explorer_0001", UUID.randomUUID());
+        Function<DeviceRecord, Optional<Room>> noRoom = record -> Optional.empty();
+        UUID viewer = UUID.randomUUID();
+        UUID stranger = UUID.randomUUID();
+        DeviceRecord porch = explorerDevice(registry, SmartLamp.TYPE, "porch", "Porch Light", viewer, AccessMode.PRIVATE);
+        DeviceRecord garage = explorerDevice(registry, RedstoneOutput.TYPE, "garage", "garage door", viewer, AccessMode.CLAIM);
+        DeviceRecord attic = explorerDevice(registry, SmartLamp.TYPE, "attic", "Attic Lamp", viewer, AccessMode.PUBLIC);
+        DeviceRecord shared = explorerDevice(registry, SmartLamp.TYPE, "shared", "Shared Lamp", stranger, AccessMode.PUBLIC);
+        DeviceRecord trusted = explorerDevice(registry, RedstoneOutput.TYPE, "trusted", "Trusted Output", stranger, AccessMode.CLAIM);
+        DeviceRecord nobody = explorerDevice(registry, RedstoneInput.TYPE, "nobody", "Nobody's Input", null, AccessMode.PUBLIC);
+        // The player may configure everything here but the attic lamp (a gate), as on a server without a claim mod.
+        Predicate<UUID> configures = id -> !id.equals(attic.id());
+        Predicate<DeviceRecord> owns = record -> viewer.equals(record.owner());
+        List<DeviceRecord> own = ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.OWN, owns, configures, "", "", noRoom);
+        check(own.equals(List.of(garage, porch)), "A player finds their own devices they may configure, by name ignoring case: "
+                + own.stream().map(DeviceRecord::slug).toList());
+        List<DeviceRecord> all = ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.ALL, owns, device -> false, "", "", noRoom);
+        check(all.equals(List.of(attic, garage, nobody, porch, shared, trusted)), "An operator finds every device: " + all.stream().map(DeviceRecord::slug).toList());
+        check(ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.NONE, owns, configures, "", "", noRoom).isEmpty(),
+                "A player who may not build finds none");
+        check(ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.ALL, owns, configures, "LIGHT", "", noRoom).equals(List.of(porch)),
+                "A search matches the name ignoring case");
+        check(ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.ALL, owns, configures, "§cRedstone Output", "", noRoom).equals(List.of(garage, trusted)),
+                "and the model, without formatting codes");
+        check(ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.ALL, owns, configures, "mineqtt:smart_lamp", "", noRoom).equals(List.of(attic, porch, shared)),
+                "and the type id");
+        check(ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.OWN, owns, configures, "share", "", noRoom).isEmpty(),
+                "A player's search never finds another player's device");
+        check(ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.ALL, owns, configures, "", "Kitchen", noRoom).isEmpty(),
+                "A room filter finds no device that is in no room");
+        // M4-18: grouped by room (rooms by name, then what is in no room), filtered by a room's name ignoring case.
+        Room kitchen = new Room(UUID.randomUUID(), "Kitchen", Level.OVERWORLD, BlockPos.ZERO, new BlockPos(1, 0, 0), viewer, false, 1);
+        Room hall = new Room(UUID.randomUUID(), "Hall", Level.OVERWORLD, BlockPos.ZERO, new BlockPos(2, 0, 0), viewer, false, 2);
+        Map<UUID, Room> placed = Map.of(porch.id(), kitchen, garage.id(), kitchen, attic.id(), hall);
+        Function<DeviceRecord, Optional<Room>> roomOf = record -> Optional.ofNullable(placed.get(record.id()));
+        check(ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.ALL, owns, configures, "", "", roomOf)
+                        .equals(List.of(attic, garage, porch, nobody, shared, trusted)),
+                "The rooms come first by name, each by device name, then the devices in no room");
+        check(ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.ALL, owns, configures, "", "kITCHEN", roomOf).equals(List.of(garage, porch))
+                        && ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.ALL, owns, configures, "", "Pantry", roomOf).isEmpty()
+                        && ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.ALL, owns, configures, "lamp", "hall", roomOf).equals(List.of(attic)),
+                "A room filter keeps the devices of the rooms of that name, ignoring case, with the search");
+        check(ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.OWN, owns, configures, "", "Hall", roomOf).isEmpty(),
+                "A room filter never shows a device the player does not find (the attic lamp's gate)");
+        List<ExplorerPage.RoomRef> ownRooms = ExplorerDirectory.rooms(ExplorerDirectory.matching(registry.records(), ExplorerPage.Scope.OWN, owns, configures,
+                "", "", roomOf), roomOf);
+        check(ownRooms.equals(List.of(new ExplorerPage.RoomRef(kitchen.id(), "Kitchen", 2))),
+                "The filter offers the rooms of the devices the player finds, with how many of them each holds: " + ownRooms);
+        List<ExplorerPage.RoomRef> allRooms = ExplorerDirectory.rooms(registry.records(), roomOf);
+        check(allRooms.equals(List.of(new ExplorerPage.RoomRef(hall.id(), "Hall", 1), new ExplorerPage.RoomRef(kitchen.id(), "Kitchen", 2))),
+                "in the rooms' order: " + allRooms);
+        Room otherKitchen = new Room(UUID.randomUUID(), "kitchen", Level.OVERWORLD, BlockPos.ZERO, new BlockPos(3, 0, 0), stranger, false, 3);
+        check(ExplorerDirectory.inRoom(Optional.of(otherKitchen), "Kitchen") && ExplorerDirectory.inRoom(Optional.empty(), "")
+                        && !ExplorerDirectory.inRoom(Optional.empty(), "Kitchen") && ExplorerDirectory.inRoom(Optional.of(hall), ""),
+                "Two rooms of one name pass one filter together; the empty filter passes every device");
+        DeviceGroup lights = new DeviceGroup(UUID.randomUUID(), "Hall Lights", "hall_lights");
+        check(ExplorerDirectory.matchingGroups(List.of(lights), ExplorerPage.Scope.ALL, "hall", "", group -> Optional.of(hall)).equals(List.of(lights))
+                        && ExplorerDirectory.matchingGroups(List.of(lights), ExplorerPage.Scope.OWN, "", "", group -> Optional.empty()).isEmpty()
+                        && ExplorerDirectory.matchingGroups(List.of(lights), ExplorerPage.Scope.NONE, "", "", group -> Optional.empty()).isEmpty()
+                        && ExplorerDirectory.matchingGroups(List.of(lights), ExplorerPage.Scope.ALL, "", "Kitchen", group -> Optional.of(hall)).isEmpty(),
+                "Groups are listed for an operator who may build alone, searched and filtered by their members' room");
+        check(ExplorerDirectory.normalise("  " + "x".repeat(100) + "  ").length() == ExplorerPage.MAX_QUERY_LENGTH
+                && ExplorerDirectory.normalise("\u0007Ab§l").equals("ab"), "A query is cleaned, lower case and at most 64 characters");
+
+        check(ExplorerDirectory.clampPage(0, 0) == 0 && ExplorerDirectory.clampPage(5, 0) == 0 && ExplorerDirectory.clampPage(-1, 120) == 0
+                && ExplorerDirectory.clampPage(1, 120) == 1 && ExplorerDirectory.clampPage(5, 120) == 2 && ExplorerDirectory.clampPage(1, 50) == 0,
+                "Pages of 50 run from 0 to the last one, which a page beyond it shows");
+
+        check(ExplorerDirectory.availability(ConsoleView.State.UNLOADED, UnloadedPolicy.QUEUE) == ExplorerPage.Availability.QUEUED
+                && ExplorerDirectory.availability(ConsoleView.State.UNLOADED, UnloadedPolicy.UNAVAILABLE) == ExplorerPage.Availability.UNAVAILABLE
+                && ExplorerDirectory.availability(ConsoleView.State.ONLINE, UnloadedPolicy.UNAVAILABLE) == ExplorerPage.Availability.ONLINE
+                && ExplorerDirectory.availability(ConsoleView.State.UNKNOWN_TYPE, null) == ExplorerPage.Availability.UNKNOWN_TYPE,
+                "An unloaded device queues or is unavailable by its type's policy");
+        check(ConsoleView.state(true, false, true, true) == ConsoleView.State.FAULTED && ConsoleView.state(false, false, true, true) == ConsoleView.State.UNKNOWN_TYPE
+                && ConsoleView.state(false, true, false, true) == ConsoleView.State.UNLOADED && ConsoleView.state(false, true, true, false) == ConsoleView.State.NO_BROKER
+                && ConsoleView.state(false, true, true, true) == ConsoleView.State.ONLINE, "The console's and the explorer's rule of how a device runs");
+
+        JsonObject output = JsonParser.parseString("{\"state\":\"ON\",\"power\":15,\"mode\":\"switch\",\"power_on_behaviour\":\"previous\",\"last_level\":15,"
+                + "\"location\":{\"dimension\":\"minecraft:overworld\",\"pos\":[1,2,3]}}").getAsJsonObject();
+        check(ExplorerDirectory.values(RedstoneOutput.TYPE, output).equals(List.of("ON", "15", "15")),
+                "A row's values are its out-ports without its settings and its location: " + ExplorerDirectory.values(RedstoneOutput.TYPE, output));
+        JsonObject panel = new JsonObject();
+        panel.addProperty("message", "§cHello\nwide‮ world " + "x".repeat(60));
+        panel.addProperty("level", 7);
+        panel.addProperty("color", "red");
+        List<String> panelValues = ExplorerDirectory.values(DisplayPanel.TYPE, panel);
+        check(panelValues.size() == 2 && panelValues.getFirst().equals(("Hello wide world " + "x".repeat(60)).substring(0, ExplorerPage.MAX_VALUE_LENGTH))
+                && panelValues.get(1).equals("7"), "Values are on one line, without formatting codes or bidirectional controls, cut to 32: " + panelValues);
+        JsonObject lamp = JsonParser.parseString("{\"state\":\"ON\",\"brightness\":200,\"color_mode\":\"rgb\",\"color\":{\"r\":255,\"g\":0,\"b\":0},"
+                + "\"light_level\":12}").getAsJsonObject();
+        check(ExplorerDirectory.values(SmartLamp.TYPE, lamp).getFirst().equals("ON"), "A lamp's light shows as its state: " + ExplorerDirectory.values(SmartLamp.TYPE, lamp));
+        check(ExplorerDirectory.values(null, output).isEmpty() && ExplorerDirectory.values(RedstoneOutput.TYPE, null).isEmpty(),
+                "No values for an unknown type or a device without a recorded state");
+
+        check(ExplorerDirectory.bearing(0, -5) == ExplorerPage.Bearing.NORTH && ExplorerDirectory.bearing(5, 0) == ExplorerPage.Bearing.EAST
+                && ExplorerDirectory.bearing(0, 5) == ExplorerPage.Bearing.SOUTH && ExplorerDirectory.bearing(-5, 0) == ExplorerPage.Bearing.WEST
+                && ExplorerDirectory.bearing(4, -4) == ExplorerPage.Bearing.NORTH_EAST && ExplorerDirectory.bearing(-4, 4) == ExplorerPage.Bearing.SOUTH_WEST
+                && ExplorerDirectory.bearing(1, -3) == ExplorerPage.Bearing.NORTH && ExplorerDirectory.bearing(0, 0) == ExplorerPage.Bearing.HERE,
+                "The bearing by the compass: north is -z, east +x");
+        check(ExplorerDirectory.distance(BlockPos.ZERO, new BlockPos(3, 4, 0)) == 5 && ExplorerDirectory.distance(BlockPos.ZERO, BlockPos.ZERO) == 0,
+                "The distance in blocks");
+
+        // The page on the wire: a player's page crosses unchanged, the largest one fits its cap, more rows than a page is refused.
+        ExplorerPage.Row row = ExplorerPage.Row.of(porch.id(), porch.name(), porch.slug(), "Smart Lamp", ExplorerPage.Availability.QUEUED, "",
+                List.of("ON", "200"), "overworld", 12, ExplorerPage.Bearing.NORTH_EAST, true, 0);
+        ExplorerPage.Row groupRow = ExplorerPage.Row.group(lights.id(), lights.name(), lights.slug(), "Smart Lamp", ExplorerPage.Availability.ONLINE,
+                List.of("ON"), -1, 2);
+        ExplorerPage.You you = ExplorerPage.You.of(Consent.PRESENCE, PrivacyPolicy.Shared.PRESENCE, PrivacyPolicy.Shared.FULL, false,
+                List.of("Your choice: share presence"), List.of("Steve: online"));
+        ExplorerPage page = new ExplorerPage("lamp", "", 0, List.of(row, groupRow), 2, ExplorerPage.Scope.OWN,
+                List.of(new ExplorerPage.RoomRef(kitchen.id(), "Kitchen", 2)), you);
+        check(explorerRoundTrip(page).equals(page), "A page crosses the wire unchanged");
+        check(ExplorerPage.Row.of(porch.id(), "x", "x", "x", ExplorerPage.Availability.ONLINE, "", List.of(), "the_nether", -1, ExplorerPage.Bearing.EAST,
+                false, -1).bearing() == ExplorerPage.Bearing.HERE, "A device in another dimension has no bearing");
+        check(page.roomOf(row).map(ExplorerPage.RoomRef::name).equals(Optional.of("Kitchen")) && page.roomOf(groupRow).isEmpty()
+                && groupRow.kind() == ExplorerPage.Kind.GROUP && !groupRow.usable() && !groupRow.near(), "A row points into the page's rooms; a group lies nowhere");
+        rejects(() -> new ExplorerPage("", "", 0, List.of(row), 1, ExplorerPage.Scope.OWN, List.of(), ExplorerPage.You.NOBODY),
+                "a row that points to a room the page does not list");
+        String wide = "😀".repeat(200);
+        List<ExplorerPage.Row> rows = new ArrayList<>();
+        for (int i = 0; i < ExplorerPage.PAGE_SIZE; i++) {
+            rows.add(ExplorerPage.Row.of(UUID.randomUUID(), wide, "s".repeat(80), wide, ExplorerPage.Availability.FAULTED, wide,
+                    List.of(wide, wide, wide, wide), wide, Integer.MAX_VALUE - 1, ExplorerPage.Bearing.NORTH_WEST, true, ExplorerPage.MAX_ROOMS - 1));
+        }
+        List<ExplorerPage.RoomRef> rooms = new ArrayList<>();
+        for (int i = 0; i < ExplorerPage.MAX_ROOMS; i++) rooms.add(ExplorerPage.RoomRef.of(UUID.randomUUID(), "😀".repeat(ExplorerPage.MAX_ROOM_LENGTH), Integer.MAX_VALUE));
+        check(rooms.getFirst().name().length() == ExplorerPage.MAX_ROOM_LENGTH, "A room's name is cut to what a search carries, without splitting a pair");
+        String longestQuery = "😀".repeat(ExplorerPage.MAX_QUERY_LENGTH / 2);
+        List<String> report = new ArrayList<>();
+        for (int i = 0; i < ExplorerPage.MAX_REPORT_LINES + 3; i++) report.add(wide);
+        List<String> presence = new ArrayList<>();
+        for (int i = 0; i < ExplorerPage.MAX_PRESENCE + 5; i++) presence.add(wide);
+        ExplorerPage.You largestYou = ExplorerPage.You.of(Consent.FULL, PrivacyPolicy.Shared.FULL, PrivacyPolicy.Shared.FULL, true, report, presence);
+        check(largestYou.report().size() == ExplorerPage.MAX_REPORT_LINES && largestYou.presence().size() == ExplorerPage.MAX_PRESENCE
+                && largestYou.morePresence() == 5, "The You row keeps at most 12 report lines and 16 presence devices, counting the rest");
+        ExplorerPage largest = new ExplorerPage(longestQuery, rooms.getFirst().name(), Integer.MAX_VALUE / ExplorerPage.PAGE_SIZE - 1, rows, Integer.MAX_VALUE,
+                ExplorerPage.Scope.ALL, rooms, largestYou);
+        RegistryFriendlyByteBuf largeBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        ExplorerPagePayload.CODEC.encode(largeBuf, new ExplorerPagePayload(largest));
+        check(largeBuf.readableBytes() <= ExplorerPage.MAX_BYTES, "The largest explorer page fits its cap: " + largeBuf.readableBytes() + " bytes");
+        check(ExplorerPagePayload.CODEC.decode(largeBuf).page().equals(largest) && largeBuf.readableBytes() == 0, "and crosses the wire unchanged");
+        check(largest.rows().getFirst().values().size() == ExplorerPage.MAX_VALUES, "A row keeps at most three values");
+        List<ExplorerPage.Row> tooMany = new ArrayList<>(rows);
+        tooMany.add(row);
+        rejects(() -> new ExplorerPage("", "", 0, tooMany, tooMany.size(), ExplorerPage.Scope.ALL, rooms, ExplorerPage.You.NOBODY), "a page of more rows than a page holds");
+        rejects(() -> new ExplorerPage("", "", 1, List.of(row), 1, ExplorerPage.Scope.ALL, rooms, ExplorerPage.You.NOBODY), "a page that counts fewer devices than it shows");
+        RegistryFriendlyByteBuf forged = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        ExplorerPagePayload.CODEC.encode(forged, new ExplorerPagePayload(new ExplorerPage("", "", 0, List.of(), 0, ExplorerPage.Scope.NONE, List.of(), ExplorerPage.You.NOBODY)));
+        forged.setByte(5, ExplorerPage.PAGE_SIZE + 1);
+        check(fails(() -> ExplorerPagePayload.CODEC.decode(forged)), "A page that claims more rows than a page holds is not read");
+
+        ExplorerQueryPayload query = new ExplorerQueryPayload("lamp", "", 2);
+        RegistryFriendlyByteBuf queryBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        ExplorerQueryPayload.CODEC.encode(queryBuf, query);
+        check(ExplorerQueryPayload.CODEC.decode(queryBuf).equals(query) && queryBuf.readableBytes() == 0, "A search crosses the wire");
+        RegistryFriendlyByteBuf longQuery = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        check(fails(() -> ExplorerQueryPayload.CODEC.encode(longQuery, new ExplorerQueryPayload("x".repeat(ExplorerPage.MAX_QUERY_LENGTH + 1), "", 0))),
+                "A query longer than 64 characters is not sent");
+        RegistryFriendlyByteBuf forgedQuery = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        forgedQuery.writeUtf("x".repeat(ExplorerPage.MAX_QUERY_LENGTH + 1));
+        forgedQuery.writeUtf("");
+        forgedQuery.writeVarInt(0);
+        check(fails(() -> ExplorerQueryPayload.CODEC.decode(forgedQuery)), "nor read");
+
+        long[] now = {5 * SECOND};
+        TokenBucket searches = new TokenBucket(ExplorerDirectory.QUERY_BURST, ExplorerDirectory.QUERIES_PER_SECOND, () -> now[0]);
+        for (int i = 0; i < ExplorerDirectory.QUERY_BURST; i++) check(searches.tryTake(), "A screen's searches allow a burst of six, search " + i);
+        check(!searches.tryTake(), "the seventh at once is dropped");
+        now[0] += SECOND / 4;
+        check(searches.tryTake() && !searches.tryTake(), "then four a second");
+    }
+
+    /**
+     * M4-18 (plan D13, D9): the explorer's actions. Each reaches only a device the player finds, the listing's rule asked
+     * afresh, so another player's device is never used, located or opened, and an unknown id reads as one too. Use needs
+     * a declared use; a loaded device needs the level to let the player interact there; an unloaded one queues where its
+     * type queues and is refused where it is unavailable. Locate marks within 128 blocks in the player's dimension, else
+     * says how far or which dimension. Open needs the device loaded, in the player's dimension, within the Configurator's
+     * range and where the level lets them interact. Both payloads cross the wire and an unknown kind or choice does not
+     * decode; one screen's actions are paced.
+     */
+    private static void explorerActions() {
+        for (ExplorerPage.Scope scope : ExplorerPage.Scope.values()) {
+            for (boolean owner : List.of(true, false)) {
+                for (boolean configures : List.of(true, false)) {
+                    boolean expected = scope == ExplorerPage.Scope.ALL || scope == ExplorerPage.Scope.OWN && owner && configures;
+                    check(ExplorerDirectory.lists(scope, owner, () -> configures) == expected,
+                            "An action reaches a device exactly when the tab lists it: " + scope + ", owner " + owner + ", configures " + configures);
+                }
+            }
+        }
+        check(ExplorerActions.useProblem(false, true, UnloadedPolicy.QUEUE, true).equals(Optional.of("mineqtt.explorer.use.none")),
+                "A device without a declared use is not used");
+        check(ExplorerActions.useProblem(true, true, UnloadedPolicy.UNAVAILABLE, true).isEmpty()
+                && ExplorerActions.useProblem(true, true, UnloadedPolicy.QUEUE, false).equals(Optional.of("mineqtt.explorer.use.protected")),
+                "A loaded device is used where the level lets the player interact, whatever its unloaded policy");
+        check(ExplorerActions.useProblem(true, false, UnloadedPolicy.QUEUE, false).isEmpty(),
+                "An unloaded device that queues commands queues the use (the level is asked only at a loaded one)");
+        check(ExplorerActions.useProblem(true, false, UnloadedPolicy.UNAVAILABLE, true).equals(Optional.of("mineqtt.explorer.use.unavailable")),
+                "An unloaded device that is unavailable refuses the use with the reason");
+        check(ExplorerActions.located(true, 0) == ExplorerActions.Located.MARKED && ExplorerActions.located(true, ExplorerActions.LOCATE_RANGE) == ExplorerActions.Located.MARKED
+                        && ExplorerActions.located(true, ExplorerActions.LOCATE_RANGE + 1) == ExplorerActions.Located.FAR
+                        && ExplorerActions.located(false, -1) == ExplorerActions.Located.ELSEWHERE,
+                "Locate marks within 128 blocks, says how far beyond, and names another dimension");
+        double range = C2SGuard.CONFIGURATOR_RANGE;
+        check(ExplorerActions.opens(true, true, (range - 1) * (range - 1), () -> true) == ExplorerActions.Opens.OPEN, "Open within the Configurator's range");
+        check(ExplorerActions.opens(true, true, range * range, never()) == ExplorerActions.Opens.FAR, "but not from 16 blocks on, without asking the level");
+        check(ExplorerActions.opens(true, true, 4, () -> false) == ExplorerActions.Opens.PROTECTED, "nor where the level protects the block");
+        check(ExplorerActions.opens(false, true, 0, never()) == ExplorerActions.Opens.UNLOADED
+                && ExplorerActions.opens(true, false, 0, never()) == ExplorerActions.Opens.ELSEWHERE, "nor an unloaded device or one in another dimension");
+
+        for (ExplorerActions.Kind kind : ExplorerActions.Kind.values()) {
+            ExplorerActionPayload action = new ExplorerActionPayload(UUID.randomUUID(), kind);
+            RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+            ExplorerActionPayload.CODEC.encode(buf, action);
+            check(ExplorerActionPayload.CODEC.decode(buf).equals(action) && buf.readableBytes() == 0, "An explorer action crosses the wire: " + kind);
+        }
+        RegistryFriendlyByteBuf unknownKind = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        UUIDUtil.STREAM_CODEC.encode(unknownKind, UUID.randomUUID());
+        unknownKind.writeVarInt(ExplorerActions.Kind.values().length);
+        check(fails(() -> ExplorerActionPayload.CODEC.decode(unknownKind)), "An explorer action of an unknown kind is not read");
+        // M4-19: All on and All off name a room, the others a device.
+        check(ExplorerActions.Kind.ROOM_ON.room() && ExplorerActions.Kind.ROOM_OFF.room() && !ExplorerActions.Kind.USE.room()
+                && !ExplorerActions.Kind.LOCATE.room() && !ExplorerActions.Kind.OPEN.room(), "A room action names a room, a device action a device");
+        for (PrivacyCommands.Choice choice : PrivacyCommands.Choice.values()) {
+            RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+            PrivacyChoicePayload.CODEC.encode(buf, new PrivacyChoicePayload(choice));
+            check(PrivacyChoicePayload.CODEC.decode(buf).choice() == choice && buf.readableBytes() == 0, "A privacy choice crosses the wire: " + choice);
+        }
+        RegistryFriendlyByteBuf unknownChoice = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        unknownChoice.writeVarInt(PrivacyCommands.Choice.values().length);
+        check(fails(() -> PrivacyChoicePayload.CODEC.decode(unknownChoice)), "A privacy choice the command does not know is not read");
+
+        long[] now = {7 * SECOND};
+        TokenBucket actions = new TokenBucket(ExplorerActions.ACTION_BURST, ExplorerActions.ACTIONS_PER_SECOND, () -> now[0]);
+        for (int i = 0; i < ExplorerActions.ACTION_BURST; i++) check(actions.tryTake(), "A screen's actions allow a burst of four, action " + i);
+        check(!actions.tryTake(), "the fifth at once is dropped");
+        now[0] += SECOND / 2;
+        check(actions.tryTake() && !actions.tryTake(), "then two a second");
+    }
+
+    private static DeviceRecord explorerDevice(DeviceRegistry registry, DeviceType type, String slug, String name, @Nullable UUID owner, AccessMode access) {
+        DeviceRecord record = new DeviceRecord(UUID.randomUUID(), type.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(registry.records().size(), -60, 0)), name, slug);
+        record.setOwner(owner);
+        record.setAccess(access);
+        registry.add(record);
+        return record;
+    }
+
+    private static ExplorerPage explorerRoundTrip(ExplorerPage page) {
+        RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        ExplorerPagePayload.CODEC.encode(buf, new ExplorerPagePayload(page));
+        ExplorerPage read = ExplorerPagePayload.CODEC.decode(buf).page();
+        check(buf.readableBytes() == 0, "An explorer page is read to its end");
+        return read;
     }
 
     private static ConsoleView roundTrip(ConsoleView view) {

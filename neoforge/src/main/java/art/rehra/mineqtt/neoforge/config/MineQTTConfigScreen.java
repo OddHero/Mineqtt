@@ -14,7 +14,11 @@ import net.minecraft.network.chat.MutableComponent;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.client.gui.ConfigurationScreen;
+import net.neoforged.neoforge.common.ModConfigSpec;
 
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -33,7 +37,10 @@ public final class MineQTTConfigScreen {
         return new ConfigurationScreen(container, parent, TopSection::new);
     }
 
-    /** The top level of the file. Nested sections use NeoForge's own section screen, so the overrides stay up here. */
+    /**
+     * The top level of the file. Nested sections use NeoForge's own section screen, so the overrides stay up here, except
+     * for the telemetry section's own screen.
+     */
     private static final class TopSection extends ConfigurationScreen.ConfigurationSectionScreen {
         TopSection(ConfigurationScreen parent, ModConfig.Type type, ModConfig modConfig, Component title) {
             super(parent, type, modConfig, title, (context, key, original) -> key.equals("configVersion") ? null : original);
@@ -41,7 +48,14 @@ public final class MineQTTConfigScreen {
 
         @Override
         protected Element createSection(String key, UnmodifiableConfig subconfig, UnmodifiableConfig subsection) {
-            return key.equals("legacy") ? null : super.createSection(key, subconfig, subsection);
+            if (key.equals("legacy")) return null;
+            // NeoForge's section screen would show telemetry.publishPlayerNames read-only (see TelemetrySection); its button
+            // opens the cached screen, so this one is put in its place.
+            if (key.equals("telemetry")) {
+                sectionCache.computeIfAbsent(key, k -> new TelemetrySection(context, this, subconfig.valueMap(), key, subsection.entrySet(),
+                        Component.translatable(getTranslationKey(key))));
+            }
+            return super.createSection(key, subconfig, subsection);
         }
 
         @Override
@@ -73,6 +87,27 @@ public final class MineQTTConfigScreen {
                 }
             });
             return new Element(getTranslationComponent(key), getTooltipComponent(key, null), box);
+        }
+    }
+
+    /**
+     * The telemetry section. {@code publishPlayerNames} is a plain config value rather than NeoForge's boolean, whose
+     * fixed validator would correct an invalid value to {@code true} ({@link NeoForgeConfigHandler}); NeoForge draws a
+     * plain value as a read-only label, so it gets the usual on/off button here.
+     */
+    private static final class TelemetrySection extends ConfigurationScreen.ConfigurationSectionScreen {
+        TelemetrySection(Context parentContext, Screen parent, Map<String, Object> valueSpecs, String key,
+                         Set<? extends UnmodifiableConfig.Entry> entrySet, Component title) {
+            super(parentContext, parent, valueSpecs, key, entrySet, title);
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        protected Element createOtherValue(String key, ModConfigSpec.ConfigValue<?> value) {
+            if (!key.equals("publishPlayerNames")) return super.createOtherValue(key, value);
+            // loadConfig narrowed an invalid value in memory already; the helper only guards the read.
+            return createBooleanValue(key, getValueSpec(key), () -> ConfigValidation.publishPlayerNamesOrNarrowest(value.getRaw(), new ArrayList<>()),
+                    newValue -> ((ModConfigSpec.ConfigValue<Boolean>) value).set(newValue));
         }
     }
 

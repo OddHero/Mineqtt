@@ -1,0 +1,27 @@
+{
+  "dev": {
+    "ids": ["mineqtt_player_3dab6558b8285ccbfa87c786c5c72afe"],
+    "name": "Player Steve",
+    "mf": "MineQTT",
+    "mdl": "MineQTT Player",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": { "name": "MineQTT", "sw": "2.0.0", "url": "https://github.com/OddHero/Mineqtt" },
+  "avty": [
+    { "t": "mineqtt/world_7f3a/bridge/state" }
+  ],
+  "qos": 1,
+  "cmps": {
+    "presence": {
+      "p": "binary_sensor",
+      "unique_id": "mineqtt_player_3dab6558b8285ccbfa87c786c5c72afe_presence",
+      "name": null,
+      "state_topic": "mineqtt/world_7f3a/player/player_steve",
+      "value_template": "{{ value_json.presence }}",
+      "payload_on": "ON",
+      "payload_off": "OFF",
+      "device_class": "presence"
+    }
+  }
+}

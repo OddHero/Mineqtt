@@ -1,8 +1,12 @@
 package art.rehra.mineqtt.device;
 
 import art.rehra.mineqtt.config.ConfigValidation;
+import art.rehra.mineqtt.config.StaticDefaults;
 import art.rehra.mineqtt.flow.core.Endpoint;
 import art.rehra.mineqtt.flow.core.Wire;
+import art.rehra.mineqtt.presence.PlayerEntry;
+import art.rehra.mineqtt.rooms.Room;
+import art.rehra.mineqtt.rooms.RoomIndex;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
@@ -35,11 +39,13 @@ import java.util.regex.Pattern;
 
 /**
  * Everything MineQTT knows about a world that is not chunk data (design §6.7): the bridge identity, every device
- * with its position and slug, the groups, the wires between their ports (M2 plan §3.2), each owner's literal set
- * ({@link RawTopics}) and how far the migration of the world's v1 data got. Saved to {@code devices.nbt} by
- * {@link RegistryStore}; every change marks it dirty. Server thread only.
+ * with its position and slug, the groups, the wires between their ports (M2 plan §3.2), the rooms (M4 plan D11), each
+ * owner's literal set ({@link RawTopics}), how far the migration of the world's v1 data got and each player's privacy
+ * choice ({@link PlayerEntry}, M4 plan D9). Saved to {@code devices.nbt} by {@link RegistryStore}; every change marks it
+ * dirty. Server thread only.
  * <p>
- * A structural change (a device, group or wire added or removed, a slug, name or membership changed, a literal trusted) is
+ * A structural change (a device, group, wire or room added or removed, a slug, name or membership changed, a room edited, a
+ * literal trusted, a player's consent or presence device changed) is
  * also marked as such (M2 plan D7): chunk data cannot rebuild it, so it is saved within a second instead of waiting for
  * the next autosave. Everything else (states, pending commands, discovery hashes, copies the attach takes from the block
  * entity again, migration flags) is only dirty.
@@ -73,10 +79,15 @@ public final class DeviceRegistry {
     // The wires by id, in the order they were made, and by the port they leave.
     private final Map<UUID, Wire> wires = new LinkedHashMap<>();
     private final Map<Endpoint, List<Wire>> wiresFrom = new HashMap<>();
+    // The rooms by id, in the order they were made, and which room each device is in, built again on every room edit.
+    private final Map<UUID, Room> rooms = new LinkedHashMap<>();
+    private RoomIndex roomIndex = RoomIndex.EMPTY;
     // Owner -> the slot literals their new links use as written (M2 plan D1); only trusted server paths add to it.
     private final Map<UUID, Set<String>> ownerLiterals = new LinkedHashMap<>();
     // v1 unique_ids whose old discovery message was replaced by the device discovery (design §9.3).
     private final Set<String> legacyDiscoveryMigrated = new LinkedHashSet<>();
+    // The players' privacy choices by UUID (M4 plan D9), in the order they were first stored.
+    private final Map<UUID, PlayerEntry> players = new LinkedHashMap<>();
     // Copies of the devices broken since the last level save, by id, as they were before their removal; at most one per
     // position and slug, the newest.
     private final Map<UUID, DeviceRecord> broken = new LinkedHashMap<>();
@@ -85,6 +96,7 @@ public final class DeviceRegistry {
     private final Map<UUID, BrokenWire> brokenWires = new LinkedHashMap<>();
     private boolean legacyImportDone;
     private boolean v1StatusCleared;
+    private boolean bridgeBroadcastDiscovered;
     private boolean dirty;
     private boolean structureChanged;
 
@@ -355,6 +367,58 @@ public final class DeviceRegistry {
         wiresOf(node).forEach(wire -> removeWire(wire.id()));
     }
 
+    /** Every room, in the order they were made. */
+    public Collection<Room> rooms() {
+        return Collections.unmodifiableCollection(rooms.values());
+    }
+
+    public @Nullable Room room(UUID id) {
+        return rooms.get(id);
+    }
+
+    /** Which room each device is in (M4 plan D11), as the rooms are now. */
+    public RoomIndex roomIndex() {
+        return roomIndex;
+    }
+
+    /** The room a device is in ({@link RoomIndex#roomOf}). */
+    public Optional<Room> roomOf(DeviceRecord record) {
+        return roomIndex.roomOf(record);
+    }
+
+    /**
+     * Adds a room. Whether its name, size and owner's count are allowed is the caller's to judge ({@code RoomRules}).
+     *
+     * @throws IllegalArgumentException when the id is taken
+     */
+    public void addRoom(Room room) {
+        if (rooms.containsKey(room.id())) throw new IllegalArgumentException("Room already registered: " + room.id());
+        rooms.put(room.id(), room);
+        roomsChanged();
+    }
+
+    /**
+     * Replaces a room with its renamed or resized self, keeping its place in the order.
+     *
+     * @throws IllegalArgumentException when no room has its id
+     */
+    public void replaceRoom(Room room) {
+        if (!rooms.containsKey(room.id())) throw new IllegalArgumentException("No room " + room.id());
+        rooms.put(room.id(), room);
+        roomsChanged();
+    }
+
+    public @Nullable Room removeRoom(UUID id) {
+        Room room = rooms.remove(id);
+        if (room != null) roomsChanged();
+        return room;
+    }
+
+    private void roomsChanged() {
+        roomIndex = new RoomIndex(rooms.values());
+        markStructureChanged();
+    }
+
     /** The literals an owner's new links use as written; empty for no owner. */
     public Set<String> ownerLiterals(@Nullable UUID owner) {
         Set<String> literals = owner == null ? null : ownerLiterals.get(owner);
@@ -401,6 +465,56 @@ public final class DeviceRegistry {
     public void setV1StatusCleared() {
         if (!v1StatusCleared) markDirty();
         v1StatusCleared = true;
+    }
+
+    /**
+     * Whether Home Assistant may still hold the bridge's broadcast text entity (M4 plan D8): set when the bridge was
+     * discovered with it, cleared once its removal went out while Home Assistant was online, so a restart before that
+     * removes it again. A structural change: a crash must not forget an entity Home Assistant keeps.
+     */
+    public boolean bridgeBroadcastDiscovered() {
+        return bridgeBroadcastDiscovered;
+    }
+
+    public void setBridgeBroadcastDiscovered(boolean discovered) {
+        if (bridgeBroadcastDiscovered == discovered) return;
+        bridgeBroadcastDiscovered = discovered;
+        markStructureChanged();
+    }
+
+    /** Every player entry (M4 plan D9), in the order they were first stored. */
+    public Collection<PlayerEntry> players() {
+        return Collections.unmodifiableCollection(players.values());
+    }
+
+    /** The entry of a player; empty for a player whose consent was never stored, which counts as unset. */
+    public Optional<PlayerEntry> player(UUID player) {
+        return Optional.ofNullable(players.get(player));
+    }
+
+    /** The entry whose presence device has this slug under {@code player/}. */
+    public Optional<PlayerEntry> playerBySlug(String slug) {
+        return players.values().stream().filter(entry -> entry.slug().filter(slug::equals).isPresent()).findFirst();
+    }
+
+    /**
+     * Stores a player's entry, replacing the one they had. A changed consent, prompt, name or presence device is a
+     * structural change (no chunk data holds it, and a consent withdrawn must survive a crash); a new last seen day alone
+     * waits for the autosave.
+     *
+     * @throws IllegalArgumentException when another player's presence device has the entry's slug
+     */
+    public void putPlayer(PlayerEntry entry) {
+        entry.slug().flatMap(this::playerBySlug).filter(holder -> !holder.uuid().equals(entry.uuid())).ifPresent(holder -> {
+            throw new IllegalArgumentException("Player slug not available: " + entry.slug().get());
+        });
+        PlayerEntry previous = players.put(entry.uuid(), entry);
+        if (entry.equals(previous)) return;
+        if (previous != null && previous.withLastSeenDay(entry.lastSeenDay()).equals(entry)) {
+            markDirty();
+        } else {
+            markStructureChanged();
+        }
     }
 
     /** A change that can wait for the next autosave. */
@@ -495,6 +609,7 @@ public final class DeviceRegistry {
         tag.put("devices", devices);
         tag.put("groups", groupList);
         tag.put("wires", wireList);
+        tag.put("rooms", encodeAll(Room.CODEC, rooms.values()));
         tag.put("ownerLiterals", encodeAll(OwnerLiterals.CODEC, ownerLiterals.entrySet().stream()
                 .map(entry -> new OwnerLiterals(entry.getKey(), List.copyOf(entry.getValue()))).toList()));
         ListTag migrated = new ListTag();
@@ -502,6 +617,9 @@ public final class DeviceRegistry {
         tag.put("legacyDiscoveryMigrated", migrated);
         tag.putBoolean("legacyImportDone", legacyImportDone);
         tag.putBoolean("v1StatusCleared", v1StatusCleared);
+        tag.put("players", encodeAll(PlayerEntry.CODEC, players.values()));
+        // Only while set, so a world that never turned broadcast text on saves as before.
+        if (bridgeBroadcastDiscovered) tag.putBoolean("bridgeBroadcastDiscovered", true);
         return tag;
     }
 
@@ -562,6 +680,17 @@ public final class DeviceRegistry {
                 registry.addWire(wire);
             }
         }
+        // Optional: a registry before M4 has no rooms. Their size is not judged again, so a lowered rooms.maxSize keeps them.
+        for (Room room : decodeAll(Room.CODEC, tag.getListOrEmpty("rooms"), "room", problems)) {
+            if (registry.rooms.containsKey(room.id())) {
+                problems.accept("Skipped room " + room.id() + ": registered twice");
+            } else if (registry.rooms.size() >= StaticDefaults.MAX_ROOMS_PER_WORLD) {
+                problems.accept("Skipped room " + room.id() + ": a world holds at most " + StaticDefaults.MAX_ROOMS_PER_WORLD + " rooms");
+            } else {
+                registry.rooms.put(room.id(), room);
+            }
+        }
+        registry.roomIndex = new RoomIndex(registry.rooms.values());
         // Optional: a registry M1 saved has no literal sets.
         for (OwnerLiterals owner : decodeAll(OwnerLiterals.CODEC, tag.getListOrEmpty("ownerLiterals"), "owner literal set", problems)) {
             owner.literals().forEach(literal -> registry.addOwnerLiteral(owner.owner(), literal));
@@ -571,6 +700,19 @@ public final class DeviceRegistry {
         }
         registry.legacyImportDone = tag.getBooleanOr("legacyImportDone", false);
         registry.v1StatusCleared = tag.getBooleanOr("v1StatusCleared", false);
+        registry.bridgeBroadcastDiscovered = tag.getBooleanOr("bridgeBroadcastDiscovered", false);
+        // Optional: a registry before M4 has no player entries, so every consent reads as unset.
+        for (PlayerEntry entry : decodeAll(PlayerEntry.CODEC, tag.getListOrEmpty("players"), "player entry", problems)) {
+            if (registry.players.containsKey(entry.uuid())) {
+                problems.accept("Skipped player entry " + entry.uuid() + ": stored twice");
+                continue;
+            }
+            if (entry.slug().flatMap(registry::playerBySlug).isPresent()) {
+                problems.accept("Player " + entry.uuid() + " had presence slug '" + entry.slug().get() + "', which another player has; their device gets a new one");
+                entry = entry.withSlug(Optional.empty());
+            }
+            registry.players.put(entry.uuid(), entry);
+        }
         registry.markSaved();
         return registry;
     }

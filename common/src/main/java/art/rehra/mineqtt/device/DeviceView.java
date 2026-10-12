@@ -1,6 +1,8 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.rooms.RoomRules;
 import art.rehra.mineqtt.security.AccessMode;
+import art.rehra.mineqtt.twin.core.AreaNames;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
@@ -17,6 +19,7 @@ import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -40,13 +43,15 @@ import java.util.UUID;
  * @param diagnostics  its id, availability and traffic, the payloads only for a player who may configure it
  * @param legacyItems  how many items its old configuration slots held and it still keeps (M2-12)
  * @param controlsOnly whether the view is for a player who may only use the device (P2: one who may not build), whose
- *                     screen has the Controls tab alone; everything but its position, type, name, grants and state is
- *                     then blank ({@link #redacted()})
+ *                     screen has the Controls tab alone; everything but its position, type, name, grants, state and
+ *                     status line is then blank ({@link #redacted()})
+ * @param statusLine   the type's line at the foot of the Controls tab (M4 plan D5, {@link DeviceType#statusLine}), at most
+ *                     {@value StatusLine#MAX_LENGTH} characters; empty for none
  */
 public record DeviceView(BlockPos pos, Identifier type, String name, String slug, String ownerName, AccessMode access,
                          Optional<Boolean> expose, Registration registration, Grants grants, String state, Optional<Raw> raw,
                          boolean privateMode, String status, Optional<String> problem, Ownership ownership, Diagnostics diagnostics,
-                         int legacyItems, boolean controlsOnly) {
+                         int legacyItems, boolean controlsOnly, String statusLine) {
     public static final int MAX_BYTES = 32 * 1024;
     public static final int MAX_STATE_BYTES = 16 * 1024;
     /** The most of a message's payload the Diagnostics tab shows; its size is shown in full. */
@@ -61,6 +66,10 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
     // The Diagnostics tab's texts stay short, so the largest view still fits MAX_BYTES: a fault's text, a message's topic.
     private static final int MAX_DETAIL_BYTES = 1024;
     private static final int MAX_TRAFFIC_TOPIC_BYTES = LinkSetting.MAX_TOPIC_BYTES;
+    // Four bytes per character at most.
+    private static final int MAX_STATUS_LINE_BYTES = 4 * StatusLine.MAX_LENGTH;
+    // A room name has at most 32 characters; an area Home Assistant keeps was a room name once.
+    private static final int MAX_ROOM_BYTES = 4 * RoomRules.MAX_NAME_LENGTH;
     private static final String ELLIPSIS = "…";
 
     public static final StreamCodec<ByteBuf, DeviceView> STREAM_CODEC = StreamCodec.of(DeviceView::write, DeviceView::read);
@@ -82,16 +91,43 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
 
     /**
      * What the bridge knows of a registered device, which its block does not: where its topics live, whether Home
-     * Assistant discovers it now and its group.
+     * Assistant discovers it now, its group and its room.
      *
      * @param topicRoot  {@code <base>/<bridgeId>}, under which the device's state topic is its slug
      *                   ({@code TopicScheme#device}); empty while the device is not registered
      * @param discovered whether Home Assistant discovers it now: its exposure, {@code ha.expose} and its group decide
      * @param group      the name of its group, if it is in one
+     * @param room       the name of its room (M4 plan D11), if it is in one: the area its discovery suggests
+     * @param keptArea   the area of the discovery message that first created it in Home Assistant, present only while
+     *                   that differs from the area its discovery suggests now, so Home Assistant may show another area
+     *                   than its room: it keeps the area a device has. {@code ""} for none (also for a device discovered
+     *                   before rooms existed)
      */
-    public record Registration(String topicRoot, boolean discovered, Optional<String> group) {
+    public record Registration(String topicRoot, boolean discovered, Optional<String> group, Optional<String> room, Optional<String> keptArea) {
         /** A device that does not run on this server (not attached yet, faulted, or MineQTT not started). */
         public static final Registration NONE = new Registration("", false, Optional.empty());
+
+        /** A registration of a device in no room. */
+        public Registration(String topicRoot, boolean discovered, Optional<String> group) {
+            this(topicRoot, discovered, group, Optional.empty(), Optional.empty());
+        }
+
+        /**
+         * The area of the message that first created a discovered device in Home Assistant when it differs from the one its
+         * discovery suggests now, as Home Assistant compares area names (case and spaces ignored), else empty. Home
+         * Assistant may then show another area than the device's room; which one depends on its version and on what was
+         * set there, so the hint built from it only says what it may be.
+         *
+         * @param retained       whether its discovery message is retained, so Home Assistant holds the device
+         * @param discoveryArea  the area of the message that first created it ({@code DeviceRecord#discoveryArea}), null
+         *                       when not known (discovered before rooms existed): read as none
+         * @param suggested      the area its message suggests now, null for none
+         */
+        public static Optional<String> keptArea(boolean retained, @Nullable String discoveryArea, @Nullable String suggested) {
+            if (!retained) return Optional.empty();
+            String kept = discoveryArea == null ? "" : discoveryArea;
+            return AreaNames.key(kept).equals(AreaNames.key(suggested == null ? "" : suggested)) ? Optional.empty() : Optional.of(kept);
+        }
 
         /** The device's state topic for a slug, {@code <topicRoot>/<slug>}; empty while it is not registered. */
         public Optional<String> topic(String slug) {
@@ -153,12 +189,19 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
      * @param sent             messages it published
      * @param bridgeDroppedIn  messages the bridge dropped before they reached any device (a full queue, a payload too large)
      * @param bridgeDroppedOut messages the bridge dropped on their way to the broker
+     * @param throttled        events it did not publish because they came sooner than their minimum interval (M4 plan D3)
      */
     public record Diagnostics(Optional<UUID> id, Availability availability, String detail, Optional<Traffic> lastIn, Optional<Traffic> lastOut,
-                              long received, long dropped, long sent, long bridgeDroppedIn, long bridgeDroppedOut) {
+                              long received, long dropped, long sent, long bridgeDroppedIn, long bridgeDroppedOut, long throttled) {
+        /** Diagnostics of a device that throttled no event. */
+        public Diagnostics(Optional<UUID> id, Availability availability, String detail, Optional<Traffic> lastIn, Optional<Traffic> lastOut,
+                           long received, long dropped, long sent, long bridgeDroppedIn, long bridgeDroppedOut) {
+            this(id, availability, detail, lastIn, lastOut, received, dropped, sent, bridgeDroppedIn, bridgeDroppedOut, 0);
+        }
+
         /** A device that does not run on this server, as far as anything is known of it. */
         public static Diagnostics notRunning(@Nullable UUID id) {
-            return new Diagnostics(Optional.ofNullable(id), Availability.NOT_RUNNING, "", Optional.empty(), Optional.empty(), 0, 0, 0, 0, 0);
+            return new Diagnostics(Optional.ofNullable(id), Availability.NOT_RUNNING, "", Optional.empty(), Optional.empty(), 0, 0, 0, 0, 0, 0);
         }
     }
 
@@ -191,6 +234,18 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
         if (controlsOnly && (grants.configure() || grants.expose() || grants.access())) {
             throw new IllegalArgumentException("A controls-only device view grants no more than USE");
         }
+        if (statusLine.codePointCount(0, statusLine.length()) > StatusLine.MAX_LENGTH) {
+            throw new IllegalArgumentException("A device view's status line exceeds " + StatusLine.MAX_LENGTH + " characters");
+        }
+    }
+
+    /** A view without a status line, as every type before M4 has. */
+    public DeviceView(BlockPos pos, Identifier type, String name, String slug, String ownerName, AccessMode access,
+                      Optional<Boolean> expose, Registration registration, Grants grants, String state, Optional<Raw> raw,
+                      boolean privateMode, String status, Optional<String> problem, Ownership ownership, Diagnostics diagnostics,
+                      int legacyItems, boolean controlsOnly) {
+        this(pos, type, name, slug, ownerName, access, expose, registration, grants, state, raw, privateMode, status, problem, ownership,
+                diagnostics, legacyItems, controlsOnly, "");
     }
 
     /**
@@ -206,30 +261,41 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
      */
     public static DeviceView of(BlockPos pos, DeviceLink link, Registration registration, boolean privateMode, JsonObject state, String status,
                                 @Nullable String problem, Grants grants, Ownership ownership, Diagnostics diagnostics) {
+        return of(pos, link, registration, privateMode, state, status, problem, grants, ownership, diagnostics, Instant.now());
+    }
+
+    /**
+     * {@link #of(BlockPos, DeviceLink, Registration, boolean, JsonObject, String, String, Grants, Ownership, Diagnostics)}
+     * with the type's status line ({@link DeviceType#statusLine}) as it reads at {@code now}.
+     */
+    public static DeviceView of(BlockPos pos, DeviceLink link, Registration registration, boolean privateMode, JsonObject state, String status,
+                                @Nullable String problem, Grants grants, Ownership ownership, Diagnostics diagnostics, Instant now) {
         String json = state.toString();
         if (utf8(json).length > MAX_STATE_BYTES) throw new IllegalArgumentException("The state of " + link.slug() + " exceeds " + MAX_STATE_BYTES + " bytes");
         DeviceType type = link.type();
         Optional<Raw> raw = Optional.ofNullable(link.raw()).flatMap(rawLink -> type.rawLink().map(spec -> Raw.of(rawLink, spec)));
         Registration capped = new Registration(cap(registration.topicRoot(), MAX_TOPIC_BYTES), registration.discovered(),
-                registration.group().map(group -> cap(group, MAX_NAME_BYTES)));
+                registration.group().map(group -> cap(group, MAX_NAME_BYTES)), registration.room().map(room -> cap(room, MAX_ROOM_BYTES)),
+                registration.keptArea().map(area -> cap(area, MAX_ROOM_BYTES)));
         Diagnostics cappedDiagnostics = new Diagnostics(diagnostics.id(), diagnostics.availability(), cap(diagnostics.detail(), MAX_DETAIL_BYTES),
                 diagnostics.lastIn().map(DeviceView::cap), diagnostics.lastOut().map(DeviceView::cap), diagnostics.received(), diagnostics.dropped(),
-                diagnostics.sent(), diagnostics.bridgeDroppedIn(), diagnostics.bridgeDroppedOut());
+                diagnostics.sent(), diagnostics.bridgeDroppedIn(), diagnostics.bridgeDroppedOut(), diagnostics.throttled());
         return new DeviceView(pos, type.id(), cap(link.name(), MAX_NAME_BYTES), cap(link.slug(), MAX_SLUG_BYTES), cap(link.ownerName(), MAX_OWNER_BYTES),
                 link.access(), Optional.ofNullable(link.expose()), capped, grants, json, raw, privateMode, cap(status, MAX_STATUS_BYTES),
                 Optional.ofNullable(problem).map(text -> cap(text, MAX_STATUS_BYTES)), ownership, cappedDiagnostics,
-                link.legacyItems().stream().mapToInt(item -> item.stack().getCount()).sum(), false);
+                link.legacyItems().stream().mapToInt(item -> item.stack().getCount()).sum(), false, type.statusLine(state, now));
     }
 
     /**
      * This view as a player who may only use the device sees it (P2): what its Controls tab and the screen's title need,
      * its position, type, name, grants and state, and nothing else. Its slug, owner, exposure, topics, group, Raw Link,
-     * status line, Raw Link problem, diagnostics and legacy items are blank; the access mode is the default and the
-     * ownership nobody's, without a claim mod. Such a player holds no grant beyond USE ({@code DeviceAccess}).
+     * link status, Raw Link problem, diagnostics and legacy items are blank; the access mode is the default and the
+     * ownership nobody's, without a claim mod. Such a player holds no grant beyond USE ({@code DeviceAccess}). The
+     * Controls tab's status line (M4 plan D5) stays: the tab shows it.
      */
     public DeviceView redacted() {
         return new DeviceView(pos, type, name, "", "", AccessMode.DEFAULT, Optional.empty(), Registration.NONE, grants, state, Optional.empty(),
-                false, "", Optional.empty(), new Ownership(Owner.NOBODY, false), Diagnostics.notRunning(null), 0, true);
+                false, "", Optional.empty(), new Ownership(Owner.NOBODY, false), Diagnostics.notRunning(null), 0, true, statusLine);
     }
 
     private static Traffic cap(Traffic traffic) {
@@ -273,6 +339,8 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
         writeText(buf, view.registration.topicRoot(), MAX_TOPIC_BYTES);
         buf.writeBoolean(view.registration.discovered());
         writeOptionalText(buf, view.registration.group(), MAX_NAME_BYTES);
+        writeOptionalText(buf, view.registration.room(), MAX_ROOM_BYTES);
+        writeOptionalText(buf, view.registration.keptArea(), MAX_ROOM_BYTES);
         buf.writeBoolean(view.grants.use());
         buf.writeBoolean(view.grants.configure());
         buf.writeBoolean(view.grants.expose());
@@ -306,12 +374,14 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
         writeText(buf, diagnostics.detail(), MAX_DETAIL_BYTES);
         writeTraffic(buf, diagnostics.lastIn());
         writeTraffic(buf, diagnostics.lastOut());
-        for (long count : new long[]{diagnostics.received(), diagnostics.dropped(), diagnostics.sent(), diagnostics.bridgeDroppedIn(), diagnostics.bridgeDroppedOut()}) {
+        for (long count : new long[]{diagnostics.received(), diagnostics.dropped(), diagnostics.sent(), diagnostics.bridgeDroppedIn(), diagnostics.bridgeDroppedOut(),
+                diagnostics.throttled()}) {
             if (count < 0) throw new EncoderException("A device view has a negative count");
             VarLong.write(buf, count);
         }
         VarInt.write(buf, view.legacyItems);
         buf.writeBoolean(view.controlsOnly);
+        writeText(buf, view.statusLine, MAX_STATUS_LINE_BYTES);
         if (buf.writerIndex() - start > MAX_BYTES) throw new EncoderException("A device view takes more than " + MAX_BYTES + " bytes");
     }
 
@@ -351,7 +421,8 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
         String ownerName = readText(buf, MAX_OWNER_BYTES);
         AccessMode access = readEnum(buf, AccessMode.values());
         Optional<Boolean> expose = readOptionalBoolean(buf);
-        Registration registration = new Registration(readText(buf, MAX_TOPIC_BYTES), buf.readBoolean(), readOptionalText(buf, MAX_NAME_BYTES));
+        Registration registration = new Registration(readText(buf, MAX_TOPIC_BYTES), buf.readBoolean(), readOptionalText(buf, MAX_NAME_BYTES),
+                readOptionalText(buf, MAX_ROOM_BYTES), readOptionalText(buf, MAX_ROOM_BYTES));
         Grants grants = new Grants(buf.readBoolean(), buf.readBoolean(), buf.readBoolean(), buf.readBoolean());
         String state = readText(buf, MAX_STATE_BYTES);
         Optional<Raw> raw = Optional.empty();
@@ -375,13 +446,14 @@ public record DeviceView(BlockPos pos, Identifier type, String name, String slug
         Optional<Traffic> lastIn = readTraffic(buf);
         Optional<Traffic> lastOut = readTraffic(buf);
         Diagnostics diagnostics = new Diagnostics(id, availability, detail, lastIn, lastOut, readCount(buf), readCount(buf), readCount(buf),
-                readCount(buf), readCount(buf));
+                readCount(buf), readCount(buf), readCount(buf));
         int legacyItems = VarInt.read(buf);
         boolean controlsOnly = buf.readBoolean();
+        String statusLine = readText(buf, MAX_STATUS_LINE_BYTES);
         if (buf.readerIndex() - start > MAX_BYTES) throw new DecoderException("A device view takes more than " + MAX_BYTES + " bytes");
         try {
             return new DeviceView(pos, type, name, slug, ownerName, access, expose, registration, grants, state, raw, privateMode, status, problem,
-                    ownership, diagnostics, legacyItems, controlsOnly);
+                    ownership, diagnostics, legacyItems, controlsOnly, statusLine);
         } catch (IllegalArgumentException e) {
             throw new DecoderException(e.getMessage());
         }

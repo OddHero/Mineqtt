@@ -18,7 +18,6 @@ import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
-import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
@@ -57,10 +56,11 @@ public class TabbedMqttMenu extends AbstractContainerMenu {
     /** The panel's height with the player's inventory; the tab bar sits above the panel. */
     public static final int GUI_HEIGHT = 192;
     /**
-     * The panel's height without the player's inventory: the tabs' content ends by y 100 (the Advanced tab's Save row;
-     * the others end by y 98, where the inventory's label starts on the taller panel, and keep vanilla's 7 px margin).
+     * The panel's height without the player's inventory: the tabs' content ends by y 102 (a device's General tab, whose
+     * room line came with M4; the Advanced tab's Save row ends by 100, the others by 98, where the inventory's label
+     * starts on the taller panel) and keeps vanilla's margin of about 7 px.
      */
-    public static final int GUI_HEIGHT_NO_INVENTORY = 105;
+    public static final int GUI_HEIGHT_NO_INVENTORY = 108;
 
     public final Player player;
     public final Container container;
@@ -306,29 +306,6 @@ public class TabbedMqttMenu extends AbstractContainerMenu {
      */
     public Slot addTabSlot(String tabId, Container c, int idx, int x, int y) {
         return this.addSlot(new TabbedSlot(this, tabId, c, idx, x, y));
-    }
-
-    /**
-     * Every slot change through the menu is a click (a pickup, shift-click, swap, drag or throw). A click that changed
-     * the block's slots makes the player its editor for a while ({@link BaseMqttBlockEntity#setLastEditor}), so they hear
-     * when the topic they set is refused or moved; a click that changed nothing, or one of a player who may not configure
-     * the block, does not.
-     */
-    @Override
-    public void clicked(int slotId, int button, ContainerInput input, Player player) {
-        if (!configurable || !(container instanceof BaseMqttBlockEntity blockEntity) || !(player instanceof ServerPlayer editor)) {
-            super.clicked(slotId, button, input, player);
-            return;
-        }
-        List<ItemStack> before = new ArrayList<>(containerSlotEnd - containerSlotStart);
-        for (int i = containerSlotStart; i < containerSlotEnd; i++) before.add(slots.get(i).getItem().copy());
-        super.clicked(slotId, button, input, player);
-        for (int i = containerSlotStart; i < containerSlotEnd; i++) {
-            if (!ItemStack.matches(before.get(i - containerSlotStart), slots.get(i).getItem())) {
-                blockEntity.setLastEditor(editor);
-                return;
-            }
-        }
     }
 
     @Override

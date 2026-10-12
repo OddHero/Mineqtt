@@ -2,8 +2,12 @@ package art.rehra.mineqtt.legacy;
 
 import art.rehra.mineqtt.device.RawLink;
 import art.rehra.mineqtt.device.ValueCodecs;
+import art.rehra.mineqtt.device.types.BlockObserver;
 import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.PresenceSensor;
+import art.rehra.mineqtt.device.types.Timers;
+import art.rehra.mineqtt.device.timer.core.TimerKind;
+import art.rehra.mineqtt.device.timer.core.TimerState;
 import com.mojang.serialization.Codec;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.UUIDUtil;
@@ -55,8 +59,25 @@ public final class LegacyNbtV1 {
     private static final String LAST_PUBLISH_TIME = "LastPublishTime";
     /** The message of a v1 Static Publisher, which it published on every rising edge; {@code true} when empty. */
     private static final String STATIC_MESSAGE = "staticMessage";
+    /** A v1 Block Sensor's data mode. */
+    private static final String SENSOR_DATA_MODE = "BlockSensorDataMode";
     // v1 sensors published every 200 ticks unless set otherwise.
     private static final int V1_SENSOR_INTERVAL_TICKS = 200;
+    // The v1 timers' own keys (M4 plan D4), each kind's first key telling it apart.
+    private static final String INTERVAL_VALUE = "intervalValue";
+    private static final String UNIT_INDEX = "unitIndex";
+    private static final String TICK_COUNTER = "tickCounter";
+    private static final String TRIGGER_MODE_INDEX = "triggerModeIndex";
+    private static final String CUSTOM_TIME = "customTime";
+    private static final String LAST_TRIGGER_DAY = "lastTriggerDay";
+    private static final String ALARM_TIME = "alarmTime";
+    private static final String LAST_ALARM_DAY = "lastAlarmDay";
+    private static final String CRON_EXPRESSION = "cronExpression";
+    private static final String LAST_TRIGGER_TICK = "lastTriggerTick";
+    private static final String LAST_TRIGGER_TIME = "lastTriggerTime";
+    // A v1 Daylight Timer without a custom time had noon; a day had 24000 ticks.
+    private static final int V1_CUSTOM_TIME = 6000;
+    private static final int V1_DAY_TICKS = 24_000;
 
     /**
      * What every v1 device block entity had.
@@ -200,6 +221,27 @@ public final class LegacyNbtV1 {
     }
 
     /**
+     * Whether the data holds a v1 Block Sensor's own key ({@code BlockSensorDataMode}), which 0.7.0 and every v1 sensor
+     * wrote and v2 data never has at its top level.
+     */
+    public static boolean hasSensorKeys(ValueInput input) {
+        return input.getString(SENSOR_DATA_MODE).isPresent();
+    }
+
+    /** A v1 Block Sensor (M4 plan D12): its data mode is the Block Observer's payload; {@code full_data} without one. */
+    public static BlockObserver.Observation sensorState(ValueInput input) {
+        return BlockObserver.Observation.ofV1(BlockObserver.Payload.ofV1(input.getStringOr(SENSOR_DATA_MODE, "")));
+    }
+
+    /**
+     * Writes a v1 Block Sensor's own key, for a block entity whose v1 data is not adopted yet: saved this way, it is still
+     * v1 data when it loads again.
+     */
+    public static void writeSensor(ValueOutput output, BlockObserver.Observation observation) {
+        output.putString(SENSOR_DATA_MODE, observation.payload().v1Name());
+    }
+
+    /**
      * Whether the data holds a v1 temperature or humidity sensor's own keys ({@code Temperature}, {@code Humidity},
      * {@code UpdateIntervalTicks}), which v2 data never has at its top level.
      */
@@ -229,6 +271,81 @@ public final class LegacyNbtV1 {
         }
         output.putLong(LAST_PUBLISH_TIME, climate.lastReading());
         output.putInt(UPDATE_INTERVAL_TICKS, climate.intervalTicks());
+    }
+
+    /**
+     * A v1 timer's settings and counters, from the keys of its kind (M4 plan D4).
+     *
+     * @param intervalValue the interval as v1 saved it, which {@link Timers.Settings} clamps; for the log
+     */
+    public record Timer(Timers.Settings settings, TimerState counters, long intervalValue) {
+    }
+
+    /**
+     * Whether the data holds a v1 timer's own keys, each kind told by its first: an interval timer's
+     * {@code intervalValue}, a Daylight Timer's {@code triggerModeIndex}, an alarm clock's {@code alarmTime}, a cron
+     * timer's {@code cronExpression}. v2 data never has them at its top level.
+     */
+    public static boolean hasTimerKeys(ValueInput input) {
+        return input.getLong(INTERVAL_VALUE).isPresent() || input.getInt(TRIGGER_MODE_INDEX).isPresent() || input.getInt(ALARM_TIME).isPresent()
+                || input.getString(CRON_EXPRESSION).isPresent();
+    }
+
+    /**
+     * A v1 timer of {@code kind} (D4): its settings and counters under their v1 meaning, with v1's defaults for a missing
+     * key. An alarm clock without an alarm ({@code alarmTime} -1) is disabled and set to 06:00; v1's
+     * {@code lastTriggerTime} starts the pulse of a timer saved while powered.
+     */
+    public static Timer timerState(ValueInput input, TimerKind kind) {
+        long lastTriggerTime = input.getLongOr(LAST_TRIGGER_TIME, 0L);
+        Timers.Settings defaults = Timers.Settings.DEFAULT;
+        return switch (kind) {
+            case INTERVAL -> {
+                long value = input.getLongOr(INTERVAL_VALUE, 20L);
+                int interval = (int) Math.clamp(value, 1, Timers.MAX_INTERVAL);
+                yield new Timer(defaults.withInterval(interval, Timers.Unit.ofV1(input.getIntOr(UNIT_INDEX, 0))),
+                        new TimerState(input.getLongOr(TICK_COUNTER, 0L), -1, -1, lastTriggerTime), value);
+            }
+            case GAME_TIME -> new Timer(defaults.withTriggerAt(Timers.TriggerAt.ofV1(input.getIntOr(TRIGGER_MODE_INDEX, 0)))
+                    .withTimeTicks(input.getIntOr(CUSTOM_TIME, V1_CUSTOM_TIME)),
+                    new TimerState(0, input.getLongOr(LAST_TRIGGER_DAY, -1L), -1, lastTriggerTime), defaults.interval());
+            case ALARM -> {
+                int alarm = input.getIntOr(ALARM_TIME, -1);
+                boolean set = alarm >= 0 && alarm < V1_DAY_TICKS;
+                yield new Timer(defaults.withEnabled(set).withTimeTicks(set ? alarm : 0),
+                        new TimerState(0, input.getLongOr(LAST_ALARM_DAY, -1L), -1, lastTriggerTime), defaults.interval());
+            }
+            case CRON -> new Timer(defaults.withCron(input.getStringOr(CRON_EXPRESSION, "")),
+                    new TimerState(0, -1, input.getLongOr(LAST_TRIGGER_TICK, -1L), lastTriggerTime), defaults.interval());
+        };
+    }
+
+    /**
+     * Writes a timer's own v1 keys, for a block entity whose v1 data is not adopted yet: saved this way, it is still the
+     * same v1 timer when it loads again. A disabled alarm clock is one without an alarm.
+     */
+    public static void writeTimer(ValueOutput output, TimerKind kind, Timers.Settings settings, TimerState counters) {
+        switch (kind) {
+            case INTERVAL -> {
+                output.putLong(INTERVAL_VALUE, settings.interval());
+                output.putInt(UNIT_INDEX, settings.unit().ordinal());
+                output.putLong(TICK_COUNTER, counters.tickCounter());
+            }
+            case GAME_TIME -> {
+                output.putInt(TRIGGER_MODE_INDEX, settings.triggerAt().ordinal());
+                output.putInt(CUSTOM_TIME, settings.timeTicks());
+                output.putLong(LAST_TRIGGER_DAY, counters.lastTriggerDay());
+            }
+            case ALARM -> {
+                output.putInt(ALARM_TIME, settings.enabled() ? settings.timeTicks() : -1);
+                output.putLong(LAST_ALARM_DAY, counters.lastTriggerDay());
+            }
+            case CRON -> {
+                output.putString(CRON_EXPRESSION, settings.cron());
+                output.putLong(LAST_TRIGGER_TICK, counters.lastTriggerTick());
+            }
+        }
+        if (kind != TimerKind.CRON) output.putLong(LAST_TRIGGER_TIME, counters.lastTriggerTime());
     }
 
     /**

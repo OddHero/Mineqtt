@@ -15,13 +15,15 @@ import art.rehra.mineqtt.network.MineqttNetworking;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
 import art.rehra.mineqtt.security.AclContext;
 import art.rehra.mineqtt.security.DeviceAccess;
+import art.rehra.mineqtt.telemetry.TelemetrySampler;
+import art.rehra.mineqtt.telemetry.core.TelemetrySnapshot;
+import art.rehra.mineqtt.telemetry.core.WorldReading;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import dev.architectury.registry.menu.MenuRegistry;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Util;
 import net.minecraft.world.SimpleMenuProvider;
@@ -103,9 +105,10 @@ public final class BridgeConsole {
     }
 
     /**
-     * The console as a player sees it: the bridge, the devices and groups they may configure (all for an operator, M2
-     * plan §4.2 M2-23), and whether they may run its actions. A player who may not build (P2), a spectator among them,
-     * configures nothing and runs nothing, an operator neither: they see the bridge alone, read-only.
+     * The console as a player sees it: the bridge, the world's telemetry (player names only for an operator), the devices
+     * and groups they may configure (all for an operator, M2 plan §4.2 M2-23), and whether they may run its actions. A
+     * player who may not build (P2), a spectator among them, configures nothing and runs nothing, an operator neither:
+     * they see the bridge and the world alone, read-only.
      */
     public ConsoleView view(ServerPlayer player, BlockPos pos) {
         boolean operator = AclContext.isOp(player.permissions()) && DeviceAccess.mayBuild(player);
@@ -113,7 +116,19 @@ public final class BridgeConsole {
         Predicate<UUID> configures = runtime.devices().configurer(player);
         List<ConsoleView.DeviceRow> devices = ConsoleView.visibleDevices(registry.records(), operator, configures, this::row);
         List<ConsoleView.GroupRow> groups = ConsoleView.visibleGroups(registry.groups(), operator, configures);
-        return ConsoleView.of(pos, bridge(), devices, groups, operator);
+        return ConsoleView.of(pos, bridge(), world(operator), devices, groups, operator);
+    }
+
+    /**
+     * The world as the telemetry reads it now (M4-17), whether or not it is published; the names of the players the name
+     * policy allows only for an operator.
+     */
+    private ConsoleView.World world(boolean operator) {
+        TelemetrySampler telemetry = runtime.telemetry();
+        WorldReading reading = telemetry.sample();
+        TelemetrySnapshot.Details world = TelemetrySnapshot.of(reading, true, 0, 0).details().orElseThrow();
+        return ConsoleView.World.of(world.tps(), world.mspt(), world.timeOfDay(), world.day(), world.isDay(), world.weather(), reading.playersOnline(),
+                world.players(), operator, telemetry.statusLine(reading));
     }
 
     private ConsoleView.Bridge bridge() {
@@ -147,30 +162,19 @@ public final class BridgeConsole {
     private ConsoleView.DeviceRow row(DeviceRecord record) {
         DeviceRuntime devices = runtime.devices();
         Optional<DeviceRuntime.Fault> fault = devices.fault(record.pos());
-        ConsoleView.State state;
-        String detail = "";
-        if (fault.isPresent()) {
-            state = ConsoleView.State.FAULTED;
-            detail = fault.get().text();
-        } else if (DeviceTypes.get(record.type()) == null) {
-            state = ConsoleView.State.UNKNOWN_TYPE;
-        } else if (devices.isAttached(record.id())) {
-            state = runtime.mqtt().state().status() == ConnectionState.Status.CONNECTED ? ConsoleView.State.ONLINE : ConsoleView.State.NO_BROKER;
-            detail = devices.rawProblem(record.id()).orElse("");
-        } else {
-            state = ConsoleView.State.UNLOADED;
-        }
-        return ConsoleView.DeviceRow.of(record.name(), record.slug(), typeName(record.type()), state, detail, where(record.pos()));
-    }
-
-    private static String typeName(Identifier type) {
-        return type.getNamespace().equals(MineQTT.MOD_ID) ? type.getPath() : type.toString();
+        boolean attached = devices.isAttached(record.id());
+        ConsoleView.State state = ConsoleView.state(fault.isPresent(), DeviceTypes.get(record.type()) != null, attached,
+                runtime.mqtt().state().status() == ConnectionState.Status.CONNECTED);
+        String detail = switch (state) {
+            case FAULTED -> fault.get().text();
+            case ONLINE, NO_BROKER -> devices.rawProblem(record.id()).orElse("");
+            case UNLOADED, UNKNOWN_TYPE -> "";
+        };
+        return ConsoleView.DeviceRow.of(record.name(), record.slug(), ConsoleView.typeName(record.type()), state, detail, where(record.pos()));
     }
 
     private static String where(GlobalPos pos) {
-        Identifier dimension = pos.dimension().identifier();
-        String name = dimension.getNamespace().equals(Identifier.DEFAULT_NAMESPACE) ? dimension.getPath() : dimension.toString();
-        return name + " " + pos.pos().getX() + " " + pos.pos().getY() + " " + pos.pos().getZ();
+        return ConsoleView.dimensionName(pos.dimension().identifier()) + " " + pos.pos().getX() + " " + pos.pos().getY() + " " + pos.pos().getZ();
     }
 
     private static Optional<MineqttRuntime> running(ServerPlayer player) {

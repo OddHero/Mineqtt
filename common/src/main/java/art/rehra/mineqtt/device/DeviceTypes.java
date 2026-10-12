@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.device.types.BlockObserver;
+import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
@@ -7,6 +9,7 @@ import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.WallSwitch;
 import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.Nullable;
@@ -40,6 +43,10 @@ public final class DeviceTypes {
         register(ClimateSensor.TYPE);
         register(WallSwitch.TYPE);
         register(DisplayPanel.TYPE);
+        // The four timers (M4 plan D2), in the order of their kinds.
+        Timers.all().forEach(DeviceTypes::register);
+        register(BlockObserver.TYPE);
+        register(BlockPlacer.TYPE);
     }
 
     public static synchronized @Nullable DeviceType get(Identifier id) {

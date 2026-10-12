@@ -1,0 +1,83 @@
+{
+  "dev": {
+    "ids": [
+      "mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566"
+    ],
+    "name": "Seams",
+    "mf": "MineQTT",
+    "mdl": "Seams",
+    "mdl_id": "mineqtt_check:seams",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/seams/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "qos": 1,
+  "cmps": {
+    "observed": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566_observed",
+      "name": null,
+      "state_topic": "mineqtt/world_7f3a/seams",
+      "value_template": "{{ value_json.observed }}",
+      "json_attributes_topic": "mineqtt/world_7f3a/seams",
+      "json_attributes_template": "{{ (value_json.properties if value_json.properties is defined else {}) | tojson }}"
+    },
+    "count": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566_count",
+      "name": "Count",
+      "state_topic": "mineqtt/world_7f3a/seams",
+      "value_template": "{{ value_json.count }}",
+      "json_attributes_topic": "mineqtt/world_7f3a/seams",
+      "json_attributes_template": "{{ (value_json['items'] if value_json['items'] is defined else {}) | tojson }}"
+    },
+    "block": {
+      "p": "select",
+      "unique_id": "mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566_block",
+      "name": "Block",
+      "state_topic": "mineqtt/world_7f3a/seams",
+      "value_template": "{{ value_json.block.split('[')[0] }}",
+      "command_topic": "mineqtt/world_7f3a/seams/set/block",
+      "options": [
+        "minecraft:black_concrete",
+        "minecraft:glass",
+        "minecraft:white_wool"
+      ],
+      "retain": false,
+      "entity_category": "config"
+    },
+    "time": {
+      "p": "text",
+      "unique_id": "mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566_time",
+      "name": "Time",
+      "state_topic": "mineqtt/world_7f3a/seams",
+      "value_template": "{{ value_json.time }}",
+      "command_topic": "mineqtt/world_7f3a/seams/set/time",
+      "max": 255,
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+      "retain": false,
+      "entity_category": "config"
+    },
+    "next_fire": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3f9c2d1e8a7b4c6d9e0f112233445566_next_fire",
+      "name": "Next fire",
+      "state_topic": "mineqtt/world_7f3a/seams",
+      "value_template": "{{ value_json.next_fire if value_json.next_fire else None }}",
+      "device_class": "timestamp"
+    }
+  }
+}

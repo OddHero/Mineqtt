@@ -53,6 +53,7 @@ public final class StatestreamParseCheck {
         ignoredTopics();
         catalogParse();
         catalogInStore();
+        catalogAreas();
         mergeTable();
         mergeInStore();
         birth();
@@ -540,6 +541,37 @@ public final class StatestreamParseCheck {
         }
     }
 
+    // M4 plan D11: the catalog's area names for the rooms, each once as Home Assistant compares them, kept current.
+    private static void catalogAreas() {
+        EntityDocuments store = store();
+        check(store.areas().isEmpty(), "No catalog, no areas");
+        accept(store, "ha_statestream/_mineqtt/catalog/light", "[{\"id\":\"light.kitchen\",\"area\":\"Kitchen\",\"state\":\"on\"},"
+                + "{\"id\":\"light.counter\",\"area\":\" kitchen \",\"state\":\"on\"},{\"id\":\"light.sofa\",\"area\":\"Living Room\",\"state\":\"on\"},"
+                + "{\"id\":\"light.attic\",\"area\":\"\",\"state\":\"on\"},{\"id\":\"light.porch\",\"state\":\"on\"}]", true);
+        accept(store, "ha_statestream/_mineqtt/catalog/switch", "[{\"id\":\"switch.fan\",\"area\":\"livingroom\",\"state\":\"off\"},"
+                + "{\"id\":\"switch.bed\",\"area\":\"bedroom\",\"state\":\"off\"}]", true);
+        check(store.areas().equals(List.of("bedroom", "Kitchen", "Living Room")),
+                "Each area once ignoring case and spaces, none for an entity without one, sorted ignoring case: " + store.areas());
+        check(store.areas(EntityGlobs.of(List.of("light.*"))).equals(List.of("Kitchen", "Living Room")),
+                "Only the areas of the entities the read gate lets through: " + store.areas(EntityGlobs.of(List.of("light.*"))));
+        check(store.areas(EntityGlobs.NONE).isEmpty(), "An empty allowlist shows no area");
+        accept(store, "ha_statestream/_mineqtt/catalog/switch", "[]", true);
+        check(store.areas().equals(List.of("Kitchen", "Living Room")), "A list that changed changes the areas: " + store.areas());
+        store.clearCatalog();
+        check(store.areas().isEmpty(), "Without the catalog no areas are left");
+
+        check(AreaNames.spelling("living room", List.of("Kitchen", "Living Room")).equals(Optional.of("Living Room"))
+                && AreaNames.spelling(" LIVINGROOM ", List.of("Living Room")).equals(Optional.of("Living Room")),
+                "An area matches ignoring case and spaces, in Home Assistant's spelling");
+        check(AreaNames.spelling("Pantry", List.of("Kitchen")).isEmpty() && AreaNames.spelling(" ", List.of(" ")).isEmpty(),
+                "No match, and a blank name matches nothing");
+        check(AreaNames.key("Straße Room").equals(AreaNames.key("STRASSE room")), "Case is folded, as Python's casefold does for ß");
+        List<String> many = new ArrayList<>();
+        for (int i = 0; i < 40; i++) many.add("Area " + i);
+        check(AreaNames.distinct(many).size() == 40 && AreaNames.MAX_SUGGESTIONS == 16,
+                "The list keeps every distinct name; a prompt takes at most 16 of them");
+    }
+
     // The catalog in the store: membership, the read gate in both modes, clearing, failing closed on a refusal.
     private static void catalogInStore() {
         EntityDocuments store = store();
@@ -872,7 +904,7 @@ public final class StatestreamParseCheck {
      * with no live statestream value in between is changing in Home Assistant without statestream publishing it; a live
      * value ends it, one change is not enough, an unchanged last_updated is no change, and an entity never streamed drifts
      * the same. A re-dating with the same state and attributes is no change: every restored entity after a Home Assistant
-     * restart (wave 6 open finding 3).
+     * restart.
      */
     private static void drift() {
         EntityDocuments store = store();
@@ -896,7 +928,7 @@ public final class StatestreamParseCheck {
         }
         check(!store.drifting("input_boolean.m3_flag") && !store.drifting("light.unknown"), "An included entity never drifts");
 
-        // Wave 5 finding 2: after two Home Assistant restarts a scene's, a script's and a button's catalog last_updated
+        // After two Home Assistant restarts a scene's, a script's and a button's catalog last_updated
         // moved twice without a live value (restored entities are re-dated at each start, statestream publishes nothing),
         // which is no sign of a missing include: they change only when triggered, so no drift is inferred for them.
         for (String entity : List.of("scene.m3_scene", "script.m3_script", "button.m3_button", "input_button.m3_press")) {
@@ -920,7 +952,7 @@ public final class StatestreamParseCheck {
         check(store.drifting("input_datetime.m3_alarm"), "The same two state changes on another domain drift");
         check(HaDomains.TRIGGER_DOMAINS.stream().noneMatch(HaDomains::infersDrift) && HaDomains.infersDrift("light") && HaDomains.infersDrift("sensor"),
                 "Drift is inferred for every domain but the trigger-only ones");
-        // Wave 6 open finding 3: two Home Assistant restarts re-date every restored entity (the catalog's last_updated moves,
+        // Two Home Assistant restarts re-date every restored entity (the catalog's last_updated moves,
         // statestream publishes nothing at start), also a light and a flag that are in the include and did not change: no
         // drift for them (the real-HA run named input_boolean.m3_flag and light.m3_lamp after the second restart).
         for (String entity : List.of("light.m3_lamp", "input_boolean.m3_flag2", "sensor.m3_temperature")) {
@@ -951,7 +983,7 @@ public final class StatestreamParseCheck {
     }
 
     /**
-     * Wave 5 finding 3: an entity a target switches (a held target entity, M3-14) that leaves the catalog is reported as
+     * An entity a target switches (a held target entity, M3-14) that leaves the catalog is reported as
      * changed and no longer readable, so the runtime judges the target again (NOT_SHARED, presses not sent); labelled
      * again, it is reported and readable once more, which heals it.
      */
@@ -1217,7 +1249,7 @@ public final class StatestreamParseCheck {
         }
         // Format consistency of the resource only, not evidence: its flags were written from the plan's Appendix A text,
         // not recorded (M3-2 deviation 1). Statestream's hard-coded retain=1 QoS 1 (cap §2, §4) was observed on the
-        // fixture sessions instead (e2e/README Results, M3 wave 1 and the wave 1 review floor run).
+        // fixture sessions instead (e2e/README Results, the two 2026-10-10 runs of M3-1 to M3-3).
         for (Section section : sections) {
             for (Line line : section.lines()) check(line.retainFlag() && line.qos() == 1, "The resource lists r=1 q=1 throughout: " + line.topic());
         }

@@ -3,10 +3,14 @@ package art.rehra.mineqtt.security;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.blocks.entities.TerminalBlockEntity;
+import art.rehra.mineqtt.config.MineQTTConfig;
+import art.rehra.mineqtt.device.DeviceConfig;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceLink;
 import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.device.DeviceRuntime;
+import art.rehra.mineqtt.device.DeviceType;
+import art.rehra.mineqtt.device.DeviceTypes;
 import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.integrations.MineqttPermission;
 import net.minecraft.server.level.ServerPlayer;
@@ -49,6 +53,7 @@ public final class DeviceAccess {
         BooleanSupplier claimTrust = claimTrust(sameLevel(player, blockEntity),
                 () -> MineQTT.permissionManager.canInteract(player, blockEntity.getBlockPos(), need));
         if (blockEntity instanceof DeviceHost host) {
+            if (need == MineqttPermission.CONFIGURE && !mayConfigureType(player, host.deviceType())) return false;
             return permits(need, host.deviceLink().access(), op, isOwner(player, blockEntity), mayBuild, claimTrust);
         }
         if (blockEntity instanceof BaseMqttBlockEntity) {
@@ -89,11 +94,23 @@ public final class DeviceAccess {
      */
     public static DeviceView.Grants grants(ServerPlayer player, BlockEntity blockEntity) {
         if (player.isSpectator()) return DeviceView.Grants.NONE;
-        AccessMode access = ((DeviceHost) blockEntity).deviceLink().access();
+        DeviceHost host = (DeviceHost) blockEntity;
+        AccessMode access = host.deviceLink().access();
         boolean sameLevel = sameLevel(player, blockEntity);
-        return grants(AclContext.isOp(player.permissions()), isOwner(player, blockEntity), mayBuild(player), access,
+        DeviceView.Grants grants = grants(AclContext.isOp(player.permissions()), isOwner(player, blockEntity), mayBuild(player), access,
                 need -> claimTrust(sameLevel, () -> MineQTT.permissionManager.canInteract(player, blockEntity.getBlockPos(), need)).getAsBoolean(),
                 AclContext.mayExpose(player.permissions()));
+        return mayConfigureType(player, host.deviceType()) ? grants : new DeviceView.Grants(grants.use(), false, false, grants.access());
+    }
+
+    /**
+     * The configure gate of a type that changes the world ({@link DeviceConfig#mayConfigure}, M4 plan D12): a player who
+     * is no operator configures a Block Placer only where {@code blockPlacer.playersMayConfigure} allows it, whatever the
+     * device's access mode and claim say; its access mode stays the owner's to set.
+     */
+    private static boolean mayConfigureType(ServerPlayer player, DeviceType type) {
+        return DeviceConfig.mayConfigure(type, AclContext.isOp(player.permissions()),
+                MineQTTConfig.blockPlacerPlayersMayConfigure(player.level().getServer().isDedicatedServer()));
     }
 
     /**
@@ -153,9 +170,12 @@ public final class DeviceAccess {
 
     /**
      * A registered device that may be unloaded or far away, e.g. for the explorer. The claim is only asked in the
-     * player's own dimension, since the claim API reads the player's level.
+     * player's own dimension, since the claim API reads the player's level. A type that changes the world keeps its
+     * configure gate here too ({@link DeviceConfig#mayConfigure}).
      */
     public static boolean check(ServerPlayer player, DeviceRecord record, MineqttPermission need) {
+        DeviceType type = DeviceTypes.get(record.type());
+        if (need == MineqttPermission.CONFIGURE && type != null && !mayConfigureType(player, type)) return false;
         boolean sameLevel = player.level().dimension().equals(record.pos().dimension());
         return permits(need, record.access(), AclContext.isOp(player.permissions()), player.getUUID().equals(record.owner()), mayBuild(player),
                 claimTrust(sameLevel, () -> MineQTT.permissionManager.canInteract(player, record.pos().pos(), need)));

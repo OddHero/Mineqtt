@@ -1,187 +1,195 @@
 package art.rehra.mineqtt.blocks.entities;
 
+import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.BlockSensorBlock;
-import art.rehra.mineqtt.legacy.LegacySubscriptionFacade;
-import art.rehra.mineqtt.ui.framework.MqttTab;
-import art.rehra.mineqtt.ui.framework.tabs.BlockSensorTab;
-import com.google.gson.JsonObject;
-import com.mojang.serialization.JsonOps;
+import art.rehra.mineqtt.config.MineQTTConfig;
+import art.rehra.mineqtt.device.CommandReader;
+import art.rehra.mineqtt.device.CommandResult;
+import art.rehra.mineqtt.device.CommandSource;
+import art.rehra.mineqtt.device.CommonFields;
+import art.rehra.mineqtt.device.DeviceLink;
+import art.rehra.mineqtt.device.DeviceType;
+import art.rehra.mineqtt.device.StateWriter;
+import art.rehra.mineqtt.device.types.BlockObserver;
+import art.rehra.mineqtt.device.types.BlockObserver.Observation;
+import art.rehra.mineqtt.legacy.LegacyNbtV1;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.Direction;
+import net.minecraft.core.GlobalPos;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
+import java.util.Optional;
 
 /**
- * Publishes the block in front of it to its v1 topic through the {@link LegacySubscriptionFacade}, with v1's flags (QoS
- * 0, not retained, dropped while the broker is unreachable).
+ * The Block Observer ({@link BlockObserver}): looks at the block in front of its face every tick once attached. Its
+ * settings and what it saw last are in the {@code mineqtt} compound; v1 data is read on load and adopted when the device
+ * attaches. Clients get no render data.
  */
-public class BlockSensorBlockEntity extends BaseMqttBlockEntity {
-    private DataMode dataMode = DataMode.FULL_DATA;
-    private BlockState observedState;
-    private BlockPos observedPos;
-    private String lastPayload;
-    private String lastPublishedTopic;
-    private boolean observationRequested = true;
-    private boolean wasConnected;
-    public BlockSensorBlockEntity(BlockPos pos, BlockState state) {
-        super(MineqttBlockEntityTypes.BLOCK_SENSOR_BLOCK.get(), pos, state);
+public class BlockSensorBlockEntity extends DeviceBlockEntity {
+    // How often the comparator level of an unchanged block is read, in game ticks.
+    private static final int SIGNAL_TICKS = 4;
+
+    private final DeviceLink link = new DeviceLink(BlockObserver.TYPE);
+    private Observation observation = Observation.DEFAULT;
+    // What the last look saw, since the attach; null until the first one, so the observation loaded may be stale.
+    private @Nullable BlockState observed;
+    private @Nullable BlockPos observedPos;
+    // The Raw Link payload of the last look, live once the first look is done.
+    private @Nullable String rawPayload;
+    // A setting changed what the Raw Link carries: the next look sends it.
+    private boolean rawRequested;
+
+    public BlockSensorBlockEntity(BlockPos pos, BlockState blockState) {
+        super(MineqttBlockEntityTypes.BLOCK_SENSOR_BLOCK.get(), pos, blockState);
     }
 
-    public static String createPayload(Level level, BlockPos targetPos, BlockState target, DataMode mode) {
-        BlockEntity targetEntity = mode == DataMode.FULL_DATA ? level.getBlockEntity(targetPos) : null;
-        CompoundTag entityData = targetEntity == null ? null : targetEntity.saveWithFullMetadata(level.registryAccess());
-        String dimension = mode == DataMode.FULL_DATA ? level.dimension().identifier().toString() : "";
-        return createPayload(target, targetPos, mode, dimension, entityData);
+    @Override
+    public DeviceType deviceType() {
+        return BlockObserver.TYPE;
     }
 
-    static String createPayload(BlockState target, BlockPos targetPos, DataMode mode, String dimension, CompoundTag entityData) {
-        String id = BuiltInRegistries.BLOCK.getKey(target.getBlock()).toString();
-        String name = target.getBlock().getName().getString();
-        if (mode == DataMode.BLOCK_ID) return id;
-        if (mode == DataMode.NAME) return name;
-
-        JsonObject properties = new JsonObject();
-        for (Property<?> property : target.getProperties()) {
-            properties.addProperty(property.getName(), propertyValue(target, property));
-        }
-        if (mode == DataMode.PROPERTIES) return properties.toString();
-
-        JsonObject data = new JsonObject();
-        data.addProperty("id", id);
-        data.addProperty("name", name);
-        data.add("properties", properties);
-        JsonObject position = new JsonObject();
-        position.addProperty("x", targetPos.getX());
-        position.addProperty("y", targetPos.getY());
-        position.addProperty("z", targetPos.getZ());
-        data.add("position", position);
-        data.addProperty("dimension", dimension);
-        data.add("block_entity", entityData == null ? com.google.gson.JsonNull.INSTANCE
-                : NbtOps.INSTANCE.convertTo(JsonOps.INSTANCE, entityData));
-        return data.toString();
+    @Override
+    public DeviceLink deviceLink() {
+        return link;
     }
 
-    private static <T extends Comparable<T>> String propertyValue(BlockState state, Property<T> property) {
-        return property.getName(state.getValue(property));
+    @Override
+    public void writeState(StateWriter out) {
+        observation.write(out).put(CommonFields.LOCATION, GlobalPos.of(level.dimension(), worldPosition));
     }
 
-    public static void tick(Level level, BlockPos pos, BlockState state, BlockSensorBlockEntity sensor) {
-        if (level.isClientSide()) return;
-        String topic = sensor.getCombinedTopic();
-        sensor.setTopic(topic);
-        // Blocks on this server hear the sensor without a broker; a reconnect still sends the broker a fresh snapshot.
-        boolean connected = LegacySubscriptionFacade.isConnected();
-        if (connected && !sensor.wasConnected) sensor.requestObservation();
-        sensor.wasConnected = connected;
-        if (!sensor.isEnabled() || topic.isEmpty()) {
-            // Publish a fresh snapshot when enabled, even if the block stayed the same.
-            sensor.requestObservation();
-            return;
-        }
+    @Override
+    public CommandResult applyCommand(CommandReader in, CommandSource source) {
+        Optional<Observation> next = observation.apply(in);
+        if (next.isEmpty()) return CommandResult.rejected("not a block observer command: " + in.keys());
+        if (next.get().equals(observation)) return CommandResult.unchanged();
+        if (next.get().payload() != observation.payload()) rawRequested = true;
+        observation = next.get();
+        setChanged();
+        return CommandResult.applied();
+    }
 
-        BlockPos targetPos = pos.relative(state.getValue(BlockSensorBlock.FACING));
-        // Do not load a neighboring chunk or report an unloaded block as air.
+    /**
+     * The payload the Raw Link output carries, once the observer looked after the attach: until then the block it saw is
+     * the one saved at the unload, which a retained publish must never repeat.
+     */
+    @Override
+    public @Nullable String rawValue() {
+        return rawPayload;
+    }
+
+    /**
+     * Looks at the block in front, unless its chunk is not loaded: the observer never loads it, nor reports an unloaded
+     * block as air. Its state follows the block and its comparator level; a change ({@link BlockObserver#changed}) is a
+     * {@code changed} event and goes to the Raw Link. A {@code full} payload is sampled every
+     * {@value BlockObserver#BLOCK_ENTITY_SAMPLE_TICKS} ticks besides, and sent when its block entity data changed, as v1
+     * did, or may no longer be sent.
+     */
+    private void look(ServerLevel level, BlockState state) {
+        Direction facing = state.getValue(BlockSensorBlock.FACING);
+        BlockPos targetPos = worldPosition.relative(facing);
         if (!level.hasChunkAt(targetPos)) return;
         BlockState target = level.getBlockState(targetPos);
-        boolean stateChanged = target != sensor.observedState || !targetPos.equals(sensor.observedPos);
-        boolean topicChanged = !topic.equals(sensor.lastPublishedTopic);
-        boolean force = sensor.observationRequested || topicChanged;
-        // State updates are checked each tick; block entity data is sampled twice per second.
-        if (!force && !stateChanged && (sensor.dataMode != DataMode.FULL_DATA || level.getGameTime() % 10 != 0)) return;
+        // The first look after the attach (or a turn of the block) compares with what the observer saw before it unloaded;
+        // a new observer has seen nothing, so its first look is no change.
+        boolean first = observed == null || !targetPos.equals(observedPos);
+        // A container's level changes without its block state: it is read with every new state and a few times a second,
+        // more often than the state is published.
+        int signal = first || target != observed || level.getGameTime() % SIGNAL_TICKS == 0
+                ? target.hasAnalogOutputSignal() ? target.getAnalogOutputSignal(level, targetPos, facing.getOpposite()) : 0
+                : observation.signal();
+        boolean changed = first
+                ? !observation.block().isEmpty() && BlockObserver.changedSince(observation.changeOn(), observation.block(), observation.properties(), target)
+                : BlockObserver.changed(observation.changeOn(), observed, target);
+        observed = target;
+        observedPos = targetPos;
 
-        String payload = createPayload(level, targetPos, target, sensor.dataMode);
-        if (force || stateChanged || !payload.equals(sensor.lastPayload)) {
-            sensor.publish(payload);
-            sensor.lastPayload = payload;
-            sensor.lastPublishedTopic = topic;
+        Observation next = observation.looked(target, signal);
+        if (!next.equals(observation)) {
+            observation = next;
+            setChanged();
+            link.stateChanged(this);
         }
-        sensor.observedState = target;
-        sensor.observedPos = targetPos;
-        sensor.observationRequested = false;
+        if (changed) link.publishEvent(this, BlockObserver.changedEvent(next.block()));
+
+        // A full payload is sampled while it may carry block entity data, and also when it may no longer, so data the
+        // server stops allowing (or a claim line now between them) leaves the Raw Link at the next sample.
+        boolean full = observation.payload() == BlockObserver.Payload.FULL;
+        boolean sample = full && level.getGameTime() % BlockObserver.BLOCK_ENTITY_SAMPLE_TICKS == 0;
+        if (!(changed || first || rawRequested || sample)) return;
+        boolean exports = full && BlockObserver.exportsBlockEntity(MineQTTConfig.blockObserverExportBlockEntityData,
+                MineQTT.permissionManager.sameClaim(level, worldPosition, targetPos));
+        String payload = BlockObserver.payload(observation.payload(), target, targetPos, level.dimension().identifier().toString(),
+                exports ? entityData(level, targetPos) : null);
+        if (changed || first || rawRequested || !payload.equals(rawPayload)) link.publishRaw(this, payload);
+        rawPayload = payload;
+        rawRequested = false;
+    }
+
+    // The target's block entity data, as a {@code full} payload may carry it; null for a block without one.
+    private static @Nullable CompoundTag entityData(ServerLevel level, BlockPos targetPos) {
+        BlockEntity target = level.getBlockEntity(targetPos);
+        return target == null ? null : target.saveWithFullMetadata(level.registryAccess());
     }
 
     @Override
-    protected String getDefaultTopic() {
-        return "/mineqtt/default";
+    protected void saveDevice(ValueOutput output) {
+        saveObserver(link, observation, output);
     }
 
     @Override
-    protected Component getDefaultName() {
-        return Component.translatable("container.mineqtt.block_sensor");
+    protected void loadDevice(ValueInput input) {
+        observation = loadObserver(link, input);
+        observed = null;
+        rawPayload = null;
     }
 
-    public DataMode getDataMode() {
-        return dataMode;
-    }
-
-    public void setDataMode(DataMode mode) {
-        if (dataMode != mode) {
-            dataMode = mode;
-            requestObservation();
-            markUpdated();
-        }
-    }
-
-    public void requestObservation() {
-        observationRequested = true;
-    }
-
-    private void publish(String message) {
-        String topic = getCombinedTopic();
-        if (isEnabled() && !topic.isEmpty()) {
-            LegacySubscriptionFacade.publish(level, worldPosition, topic, message);
-        }
-    }
-
+    /** A placed copy keeps its settings, and has seen nothing yet. */
     @Override
-    public List<MqttTab> getTabs() {
-        List<MqttTab> tabs = super.getTabs();
-        tabs.add(new BlockSensorTab());
-        return tabs;
+    protected void placedCopy() {
+        observation = observation.placed();
+        observed = null;
+        rawPayload = null;
     }
 
-    @Override
-    protected void saveAdditional(ValueOutput output) {
-        super.saveAdditional(output);
-        output.putString("BlockSensorDataMode", dataMode.id());
+    /**
+     * An observer's data: the link with the observer as its {@code state}, or v1's keys while its v1 data waits for
+     * adoption, so it is still v1 data when it loads again.
+     */
+    public static void saveObserver(DeviceLink link, Observation observation, ValueOutput output) {
+        if (link.awaitingAdoption()) {
+            link.saveV1(output);
+            LegacyNbtV1.writeSensor(output, observation);
+        } else {
+            link.save(output).store("state", Observation.CODEC, observation);
+        }
     }
 
-    @Override
-    protected void loadAdditional(ValueInput input) {
-        super.loadAdditional(input);
-        dataMode = DataMode.fromId(input.getString("BlockSensorDataMode").orElse("full_data"));
-        requestObservation();
+    /**
+     * Loads an observer's link and returns the observer; v1 data, also a placed v1 item's, is kept for adoption, its data
+     * mode as the payload.
+     */
+    public static Observation loadObserver(DeviceLink link, ValueInput input) {
+        return link.load(input, LegacyNbtV1.hasSensorKeys(input))
+                .map(data -> data.read("state", Observation.CODEC).orElse(Observation.DEFAULT))
+                .orElseGet(() -> LegacyNbtV1.sensorState(input));
     }
 
-    public enum DataMode {
-        FULL_DATA("full_data"), BLOCK_ID("block_id"), NAME("name"), PROPERTIES("properties");
-
-        private final String id;
-
-        DataMode(String id) {
-            this.id = id;
-        }
-
-        public static DataMode fromId(String id) {
-            for (DataMode mode : values()) if (mode.id.equals(id)) return mode;
-            return FULL_DATA;
-        }
-
-        public String id() {
-            return id;
-        }
-
-        public Component title() {
-            return Component.translatable("mineqtt.block_sensor.mode." + id);
+    /** A look every tick once the device is attached. */
+    public static class ServerTicker<T extends BlockEntity> implements BlockEntityTicker<T> {
+        @Override
+        public void tick(Level level, BlockPos pos, BlockState state, T blockEntity) {
+            if (blockEntity instanceof BlockSensorBlockEntity observer && level instanceof ServerLevel serverLevel && observer.link.attached()) {
+                observer.look(serverLevel, state);
+            }
         }
     }
 }

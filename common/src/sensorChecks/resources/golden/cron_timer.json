@@ -1,0 +1,88 @@
+{
+  "dev": {
+    "ids": [
+      "mineqtt_7173e000000040008000000000000004"
+    ],
+    "name": "Porch Cron Timer",
+    "mf": "MineQTT",
+    "mdl": "Cron Timer",
+    "mdl_id": "mineqtt:cron_timer",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/porch_cron_timer/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "qos": 1,
+  "cmps": {
+    "enabled": {
+      "p": "switch",
+      "unique_id": "mineqtt_7173e000000040008000000000000004_enabled",
+      "name": null,
+      "state_topic": "mineqtt/world_7f3a/porch_cron_timer",
+      "command_topic": "mineqtt/world_7f3a/porch_cron_timer/set",
+      "value_template": "{{ 'OFF' if value_json.enabled == false else 'ON' }}",
+      "payload_on": "{\"state\":\"ON\"}",
+      "payload_off": "{\"state\":\"OFF\"}",
+      "state_on": "ON",
+      "state_off": "OFF",
+      "retain": false
+    },
+    "fired": {
+      "p": "event",
+      "unique_id": "mineqtt_7173e000000040008000000000000004_fired",
+      "name": "Fired",
+      "state_topic": "mineqtt/world_7f3a/porch_cron_timer/action",
+      "event_types": [
+        "fired"
+      ]
+    },
+    "trigger": {
+      "p": "button",
+      "unique_id": "mineqtt_7173e000000040008000000000000004_trigger",
+      "name": "Trigger now",
+      "command_topic": "mineqtt/world_7f3a/porch_cron_timer/set/trigger",
+      "payload_press": "PRESS",
+      "retain": false
+    },
+    "next_fire": {
+      "p": "sensor",
+      "unique_id": "mineqtt_7173e000000040008000000000000004_next_fire",
+      "name": "Next fire",
+      "state_topic": "mineqtt/world_7f3a/porch_cron_timer",
+      "value_template": "{{ value_json.next_fire if value_json.next_fire else None }}",
+      "device_class": "timestamp"
+    },
+    "cron": {
+      "p": "text",
+      "unique_id": "mineqtt_7173e000000040008000000000000004_cron",
+      "name": "Cron",
+      "state_topic": "mineqtt/world_7f3a/porch_cron_timer",
+      "value_template": "{{ value_json.cron }}",
+      "command_topic": "mineqtt/world_7f3a/porch_cron_timer/set/cron",
+      "max": 64,
+      "retain": false,
+      "entity_category": "config"
+    },
+    "location": {
+      "p": "sensor",
+      "unique_id": "mineqtt_7173e000000040008000000000000004_location",
+      "name": "Location",
+      "state_topic": "mineqtt/world_7f3a/porch_cron_timer",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  }
+}

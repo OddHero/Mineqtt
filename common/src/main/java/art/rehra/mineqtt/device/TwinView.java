@@ -44,7 +44,7 @@ import java.util.Optional;
  * @param wires      the wires into the ports its source owns: with control they switch the source (D6)
  * @param pick       the binding key the player's picker should open for, once (the Configurator's Bind mode): a key of
  *                   the type, or {@code ""} to ask which of its targets first
- * @param rateRefused how many of its requests the rates refused since it was loaded or resumed (wave 6 open finding 2);
+ * @param rateRefused how many of its requests the rates refused since it was loaded or resumed;
  *                    names nothing, so every viewer sees it
  * @param rateLast    the last of them, its entity or topic and the rate's reason, for a viewer with details; {@code ""}
  *                    otherwise or while none was refused

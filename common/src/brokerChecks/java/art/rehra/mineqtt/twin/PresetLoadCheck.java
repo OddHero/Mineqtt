@@ -137,7 +137,7 @@ public final class PresetLoadCheck {
                 + "\"commands\":{\"turn_on\":\"{brightness_pct}\",\"turn_off\":\"0\"}}");
         expectText(dimmer.render(call("light.turn_on", "{\"brightness\":128}")), "50", "A text template with a number");
         check(dimmer.render(new Call("light.turn_on")) instanceof BindingPreset.Refused, "A text template without its number is refused, never sent half-filled");
-        // Wave 6 review: a JSON template whose members all lack their value renders nothing, so it is refused, never sent as {}.
+        // A JSON template whose members all lack their value renders nothing, so it is refused, never sent as {}.
         BindingPreset bare = parse("check:bare", "{\"kind\":\"light\",\"state_topic\":\"b/{device}\",\"command_topic\":\"b/{device}/set\","
                 + "\"commands\":{\"turn_on\":{\"brightness\":\"{brightness}\"},\"turn_off\":{\"state\":\"OFF\"}}}");
         expectJson(bare.render(call("light.turn_on", "{\"brightness\":128}")), "{\"brightness\":128}", "A JSON template with its value");

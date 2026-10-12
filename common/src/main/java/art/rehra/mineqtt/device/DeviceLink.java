@@ -259,7 +259,16 @@ public final class DeviceLink {
      * event its type declares ({@link DeviceType#eventProblem}).
      */
     public void publishEvent(BlockEntity blockEntity, JsonObject event) {
-        DeviceRuntime.ifAttached(blockEntity, (devices, host) -> devices.publishEvent(host, event));
+        DeviceRuntime.ifAttached(blockEntity, (devices, host) -> devices.publishEvent(host, event, null));
+    }
+
+    /**
+     * Publishes an event as {@link #publishEvent(BlockEntity, JsonObject)} does, and {@code rawPayload} to the device's
+     * Raw Link output with it (a timer's {@code ON} per fire, M4 plan D2). An event with a minimum interval (M4 plan D3)
+     * that comes too soon is published on neither, and counted; the bus carries it either way.
+     */
+    public void publishEvent(BlockEntity blockEntity, JsonObject event, String rawPayload) {
+        DeviceRuntime.ifAttached(blockEntity, (devices, host) -> devices.publishEvent(host, event, rawPayload));
     }
 
     /**
@@ -268,6 +277,14 @@ public final class DeviceLink {
      */
     public void rawValueKnown(BlockEntity blockEntity) {
         DeviceRuntime.ifAttached(blockEntity, DeviceRuntime::rawValueKnown);
+    }
+
+    /**
+     * The block entity's own answer to whether it follows its Raw Link input changed ({@link DeviceHost#rawInputOpen()}):
+     * the runtime subscribes the input again, or closes it.
+     */
+    public void rawInputChanged(BlockEntity blockEntity) {
+        DeviceRuntime.ifAttached(blockEntity, DeviceRuntime::rawInputChanged);
     }
 
     /** Publishes to the device's Raw Link output, if it has an active one. */
@@ -346,7 +363,8 @@ public final class DeviceLink {
      * resolved: untrusted data keeps it as its channel, resolved for its new owner at the attach. A name an anvil gave
      * the v1 block becomes the device's name, which the attach registers. A converted Static Publisher's output keeps
      * v1's events (M2 plan D11): its message on rising edges only, explicitly not retained. A v1 remote's topic becomes
-     * no Raw Link ({@link DeviceType#remote()}).
+     * no Raw Link ({@link DeviceType#remote()}), nor does the slots' literal of a type whose v1 blocks never published
+     * ({@link DeviceType#noV1Topic()}).
      */
     void adopt(LegacyNbtV1.Snapshot v1, boolean trusted) {
         if (owner == null && ownerName.isEmpty()) {
@@ -354,9 +372,16 @@ public final class DeviceLink {
             if (trusted && !ownerName.isEmpty()) owner = v1.ownerUuid();
         }
         if (name.isEmpty()) name = ValueCodecs.sanitizeText(v1.name()).strip();
+        // A block whose v1 slots never published (the timers, M4 plan D4) keeps neither v1's private mode, which only placed
+        // that topic, nor the tab of its v1 screen.
+        if (type.noV1Topic()) {
+            privateMode = false;
+            lastTab = "";
+        }
         RawLinkSpec spec = type.rawLink().orElse(null);
-        // A v1 remote's topic named the lamps it commanded, which the attach wires it to instead (M2 plan D15).
-        if (spec == null || type.remote() || v1.combinedTopic().isEmpty()) return;
+        // A v1 remote's topic named the lamps it commanded, which the attach wires it to instead (M2 plan D15); a type
+        // whose v1 blocks never published has no v1 topic to keep (M4 plan D2), whatever its slots' literal says.
+        if (spec == null || type.remote() || type.noV1Topic() || v1.combinedTopic().isEmpty()) return;
         String topic = v1.combinedTopic();
         ValueCodecs.CustomPayloads custom = spec.customPayloads() ? v1.custom() : ValueCodecs.CustomPayloads.NONE;
         RawLink.Edges edges = spec.direction() == RawLinkSpec.Direction.OUT ? v1.edges() : RawLink.Edges.BOTH;

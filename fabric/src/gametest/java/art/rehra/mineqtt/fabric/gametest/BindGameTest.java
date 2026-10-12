@@ -185,7 +185,7 @@ public final class BindGameTest implements FabricClientGameTest {
     }
 
     /**
-     * W6 follow-up (4): the domain chip searches after the debounce, as typing does. Two steps within the debounce send one
+     * The domain chip searches after the debounce, as typing does. Two steps within the debounce send one
      * search, for the chip the picker rests on, and the list shows that answer alone (its domain, its rows); stepping back
      * to All shows every domain again.
      */
@@ -463,7 +463,7 @@ public final class BindGameTest implements FabricClientGameTest {
                     .equals(Optional.of("script.turn_on " + BEDTIME)), "a press of the right button runs the script: " + right);
             session.check(twin.awaitRequest(requests, 20).isEmpty(), "one request each");
 
-            // Wave 6 open finding 2: presses beyond the device's rate (4 a second) are refused, never held (a scene is no
+            // Presses beyond the device's rate (4 a second) are refused, never held (a scene is no
             // state); the open Twin tab counts them for everyone and names the last one's entity for its owner.
             session.hold(Items.AIR);
             session.openBlock(wall);

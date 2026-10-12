@@ -913,8 +913,9 @@ public final class BrokerIntegrationCheck {
     /**
      * The Home Assistant ghost cleanup (design §4.5, M2-24) on its service: the scan after each connect clears exactly
      * the retained configs that name this bridge and a device id it does not know. A known device or group, another
-     * bridge's device, an oversized or malformed config, another object id and the bridge's own config stay. The scan
-     * ends with its window, so a ghost left after it waits for the next connect, which finds it.
+     * bridge's device, an oversized or malformed config, another object id and the bridge's own config stay. The same
+     * scan clears a retained presence state whose slug no player holds, and keeps a known player's. The scan ends with its
+     * window, so a ghost left after it waits for the next connect, which finds it.
      */
     private static void ghostCleanup(Target target, ProtocolVersion protocol, String root) throws Exception {
         String prefix = root + "/ha";
@@ -932,9 +933,12 @@ public final class BrokerIntegrationCheck {
         kept.put(discoveryTopic(prefix, UUID.randomUUID()), "[\"" + bridge + "\"]");
         kept.put(prefix + "/device/zigbee_" + hex32() + "/config", deviceConfig(UUID.randomUUID(), "dev", bridge, ""));
         kept.put(prefix + "/device/" + bridge + "/config", "{\"dev\":{\"ids\":[\"" + bridge + "\"]}}");
+        String playerRoot = root + "/bridge/player";
+        kept.put(playerRoot + "/player_steve", "{\"presence\":\"ON\"}");
         UUID ghost = UUID.randomUUID();
         UUID spelledOut = UUID.randomUUID();
-        List<String> ghosts = List.of(discoveryTopic(prefix, ghost), discoveryTopic(prefix, spelledOut));
+        String ghostState = playerRoot + "/player_alex";
+        List<String> ghosts = List.of(discoveryTopic(prefix, ghost), discoveryTopic(prefix, spelledOut), ghostState);
         UUID late = UUID.randomUUID();
         String lateTopic = discoveryTopic(prefix, late);
         try (TcpProxy proxy = new TcpProxy(target.host(), target.port()); Remote remote = new Remote(target)) {
@@ -942,16 +946,19 @@ public final class BrokerIntegrationCheck {
             for (Map.Entry<String, String> config : kept.entrySet()) remote.publish(config.getKey(), config.getValue(), 2, true);
             remote.publish(ghosts.get(0), deviceConfig(ghost, "dev", bridge, ""), 2, true);
             remote.publish(ghosts.get(1), deviceConfig(spelledOut, "device", bridge, ""), 2, true);
+            remote.publish(ghostState, "{\"presence\":\"ON\",\"health\":20.0,\"x\":1,\"y\":64,\"z\":2}", 2, true);
             remote.subscribe(prefix + "/device/+/config", 1);
+            remote.subscribe(playerRoot + "/+", 1);
             HiveMqttService service = service(target, proxy, protocol, root, BrokerSettings.DEFAULT_MAX_INBOUND_BYTES);
             AtomicLong clock = new AtomicLong();
-            GhostCleanup cleanup = new GhostCleanup(service, () -> prefix, bridge, known::contains, () -> true, clock::get, LOG);
+            GhostCleanup cleanup = new GhostCleanup(service, () -> prefix, bridge, known::contains, player -> false, () -> playerRoot,
+                    "player_steve"::equals, () -> true, clock::get, LOG);
             try {
                 service.onConnected(cleanup::connected);
                 tickUntil(service, () -> {
                     cleanup.tick();
                     return ghosts.stream().allMatch(topic -> remote.payloads(topic).contains(""));
-                }, "the clears of both ghosts");
+                }, "the clears of both ghost configs and the ghost state");
                 check(cleanup.pending(), "The scan listens for its whole window");
                 clock.addAndGet(GhostCleanup.WINDOW_MILLIS);
                 cleanup.tick();

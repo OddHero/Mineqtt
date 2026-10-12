@@ -14,16 +14,19 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.function.Predicate;
 
 /**
  * The twin's store of Home Assistant entities (M3 plan D1, D3): it folds statestream topics and the catalog blueprint's
@@ -62,7 +65,7 @@ public final class EntityDocuments {
      * changing in Home Assistant without statestream publishing it (it is not in the include). A change is a newer
      * {@code last_updated} with another state or other attributes: Home Assistant re-dates every restored entity at its
      * start without a state change, and statestream, which attaches only after the start, publishes nothing for it, so a
-     * re-dating alone is no sign of a missing include (wave 6 open finding 3).
+     * re-dating alone is no sign of a missing include.
      */
     public static final int DRIFT_CYCLES = 2;
 
@@ -150,6 +153,8 @@ public final class EntityDocuments {
     private final Map<String, Entity> entities = new HashMap<>();
     // domain -> entity id -> entry, as the last list of that domain had them
     private final Map<String, Map<String, CatalogEntry>> catalog = new TreeMap<>();
+    // The catalog's area names, worked out again after the catalog changed; null until then.
+    private List<String> areas;
     private final Map<String, CatalogParser.Refusal> refusals = new TreeMap<>();
     private CatalogParser.Status status;
     private long outsideBase, shape, reservedDomain, invalidId, rawAttributes, badTimestamps, oversize, entityOverflow,
@@ -251,6 +256,7 @@ public final class EntityDocuments {
     public void clear() {
         entities.clear();
         catalog.clear();
+        areas = null;
         refusals.clear();
         status = null;
     }
@@ -275,6 +281,7 @@ public final class EntityDocuments {
             if (!entity.streamPresent) it.remove();
         }
         catalog.clear();
+        areas = null;
         refusals.clear();
         status = null;
         return Collections.unmodifiableSet(changed);
@@ -326,6 +333,26 @@ public final class EntityDocuments {
         Map<String, Map<String, CatalogEntry>> copy = new TreeMap<>();
         catalog.forEach((domain, entries) -> copy.put(domain, Collections.unmodifiableMap(new LinkedHashMap<>(entries))));
         return Collections.unmodifiableMap(copy);
+    }
+
+    /**
+     * The distinct area names of the current catalog's entries (M4 plan D11, {@link AreaNames#distinct}), for the rooms'
+     * spelling of Home Assistant's areas; empty without a catalog.
+     */
+    public List<String> areas() {
+        if (areas == null) areas = AreaNames.distinct(catalogAreas(entry -> true));
+        return areas;
+    }
+
+    /** {@link #areas()} of the entries the read gate lets through ({@link #readable}): what a player may be shown. */
+    public List<String> areas(EntityGlobs allowed) {
+        return AreaNames.distinct(catalogAreas(entry -> readable(entry.entityId(), allowed)));
+    }
+
+    private List<String> catalogAreas(Predicate<CatalogEntry> filter) {
+        List<String> names = new ArrayList<>();
+        catalog.values().forEach(entries -> entries.values().stream().filter(filter).forEach(entry -> names.add(entry.area())));
+        return names;
     }
 
     /** Whether a catalog status has been received, so the read gate needs catalog membership (D3). */
@@ -503,6 +530,7 @@ public final class EntityDocuments {
         }
         if (next.isEmpty()) catalog.remove(list.domain());
         else catalog.put(list.domain(), next);
+        areas = null;
         return new Update(list.refused() ? Kind.REFUSED : Kind.CATALOG, changed);
     }
 

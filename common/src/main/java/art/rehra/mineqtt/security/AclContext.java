@@ -36,6 +36,12 @@ public final class AclContext {
     public static final Permission TWIN_BIND = Permission.Atom.create(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "twin.bind"));
     /** The {@code mineqtt.twin.control} permission (M3 plan D13): turn control on, so using a bound device switches Home Assistant. */
     public static final Permission TWIN_CONTROL = Permission.Atom.create(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "twin.control"));
+    /**
+     * The {@code mineqtt.rooms.admin} permission (M4 plan D11): make rooms that apply to every device inside them, not
+     * only the maker's own, because such a room changes the Home Assistant area of other players' devices. Operators
+     * (level 2) have it too.
+     */
+    public static final Permission ROOMS_ADMIN = Permission.Atom.create(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "rooms.admin"));
     /** A device without a known owner: no private subtree, no operator bypass. */
     public static final TopicAcl.Subject NOBODY = new TopicAcl.Subject(null, false, false);
 
@@ -79,10 +85,26 @@ public final class AclContext {
 
     /**
      * Whether these permissions may expose devices to Home Assistant, or hide them again (M2 plan D6): an op, or
-     * {@link #HA_EXPOSE}. It is also what a command source needs to reach {@code /mineqtt} at all.
+     * {@link #HA_EXPOSE}. It is also what a command source needs to reach {@code /mineqtt devices} (M4 plan D14).
      */
     public static boolean mayExpose(PermissionSet permissions) {
         return isOp(permissions) || permissions.hasPermission(HA_EXPOSE);
+    }
+
+    /**
+     * Whether the explorer shows a subject the topics of the presence device with this slug ({@code player/<slug>}, M4 plan
+     * D10): admins see every player's, a player only their own; the bare {@code player} level belongs to no one.
+     *
+     * @param slugOf the slug of a player's presence device, if they have one
+     */
+    public static boolean mayReadPlayerTopic(TopicAcl.Subject subject, String slug, Function<UUID, Optional<String>> slugOf) {
+        if (subject.admin()) return true;
+        return subject.player() != null && !slug.isEmpty() && slugOf.apply(subject.player()).filter(slug::equals).isPresent();
+    }
+
+    /** Whether these permissions may make rooms for every device inside them ({@link #ROOMS_ADMIN}): an op, or the permission. */
+    public static boolean mayAdminRooms(PermissionSet permissions) {
+        return isOp(permissions) || permissions.hasPermission(ROOMS_ADMIN);
     }
 
     /** Whether these permissions may bind devices to Home Assistant on this server type ({@link #TWIN_BIND}). */

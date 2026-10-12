@@ -9,6 +9,7 @@ import art.rehra.mineqtt.device.DeviceType;
 import art.rehra.mineqtt.device.LinkSetting;
 import art.rehra.mineqtt.integrations.MineqttPermission;
 import art.rehra.mineqtt.items.ConfiguratorMode;
+import art.rehra.mineqtt.items.ConfiguratorRoom;
 import art.rehra.mineqtt.items.ConfiguratorSessions;
 import art.rehra.mineqtt.security.DeviceAccess;
 import art.rehra.mineqtt.ui.device.AdvancedTab;
@@ -46,6 +47,16 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
                 BlockState state = player.level().getBlockState(pos);
                 if (state.getBlock() instanceof BaseMqttBlock block) {
                     return block.click(player, hand, pos, face);
+                }
+                // The Configurator's Room mode (M4 plan D11) takes a sneaking click on any other block, the pick of a room,
+                // which vanilla would not give the block either (a sneaking player with an item in hand uses the item). An
+                // ordinary click goes to the block first, so a door, a chest or a lever works as with any other item, and
+                // only a block that does nothing with it passes it on to the Configurator's use, which makes that block a
+                // corner (CyberdeckItem#use, ConfiguratorRoom#clickAtRange). Both sides decide alike, so the client never
+                // sends a second click for one the server took.
+                if (!player.isSpectator() && player.isShiftKeyDown() && Interaction.Held.of(player, hand) == Interaction.Held.CONFIGURATOR_ROOM) {
+                    if (player instanceof ServerPlayer serverPlayer) ConfiguratorRoom.clickBlock(serverPlayer, pos, true);
+                    return EventResult.interruptTrue();
                 }
                 return EventResult.pass();
             });
@@ -111,6 +122,12 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
         if (outcome == Interaction.Outcome.PASS) {
             return EventResult.pass();
         }
+        // A room's corner is a position: the device is not used, so it needs no USE (M4 plan D11); the Room mode judges
+        // the build rights there.
+        if (outcome == Interaction.Outcome.ROOM) {
+            if (player instanceof ServerPlayer serverPlayer) ConfiguratorRoom.clickBlock(serverPlayer, pos, player.isShiftKeyDown());
+            return EventResult.interruptTrue();
+        }
         if (player instanceof ServerPlayer serverPlayer) {
             if (!DeviceAccess.check(serverPlayer, blockEntity, MineqttPermission.USE)) {
                 if (outcome != Interaction.Outcome.USE && outcome != Interaction.Outcome.SCREEN) {
@@ -132,6 +149,8 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
                 case GROUP -> step(serverPlayer, blockEntity, ConfiguratorMode.GROUP);
                 case COPY -> step(serverPlayer, blockEntity, ConfiguratorMode.COPY_PASTE);
                 case BIND -> step(serverPlayer, blockEntity, ConfiguratorMode.BIND);
+                case PASS, ROOM -> {
+                }
             }
         }
         return EventResult.interruptTrue();

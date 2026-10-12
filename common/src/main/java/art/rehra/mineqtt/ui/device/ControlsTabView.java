@@ -43,7 +43,9 @@ import java.util.Optional;
  * {@value art.rehra.mineqtt.security.C2SGuard#PACKETS_PER_SECOND} payloads a second, and the last pick always goes out,
  * at the latest when the view is left. A control shows the device's value from each new view, except while the player
  * works it and for a moment after, so a view on its way does not pull it back; a refused change snaps back after that.
- * A control the view's grants do not allow is read-only, and says why on hover.
+ * A control the view's grants do not allow is read-only, and says why on hover. A number field (M4 plan D5) sends a
+ * typed whole number within the control's bounds on Enter or Set, and refuses to send anything else. A type's status
+ * line ({@link DeviceView#statusLine()}) is drawn read-only on the last row.
  */
 public class ControlsTabView implements MqttTabView {
 
@@ -56,6 +58,8 @@ public class ControlsTabView implements MqttTabView {
     private static final int LABEL_COLOR = 0xFF555555;
     private static final int PREVIEW_COLOR = 0xFF0066CC;
     private static final int MUTED_COLOR = 0xFF777777;
+    private static final int INVALID_COLOR = 0xFFCC3333;
+    private static final int STATUS_COLOR = 0xFF404040;
     private static final long SEND_INTERVAL_MILLIS = 100;
     // How long a control keeps what the player picked before it follows the views again.
     private static final long SETTLE_MILLIS = 750;
@@ -91,6 +95,7 @@ public class ControlsTabView implements MqttTabView {
                 case LIGHT -> new LightRow(control, x, y);
                 case PRESS -> new PressRow(control, x, y);
                 case TEXT_FIELD -> new TextRow(control, x, y);
+                case NUMBER_FIELD -> new NumberRow(control, x, y);
             };
             rows.add(row);
             widgets.addAll(row.widgets());
@@ -130,6 +135,10 @@ public class ControlsTabView implements MqttTabView {
             if (!row.held() && now >= row.localUntil) row.follow(syncedState);
             row.render(g, mouseX, mouseY);
         }
+        if (tab.statusLine() && !current.get().statusLine().isEmpty()) {
+            int y = guiTop + FIRST_ROW_Y + (ControlsTab.MAX_ROWS - 1) * PITCH + 3;
+            GuiText.drawTruncated(g, Component.literal(current.get().statusLine()), guiLeft + 8, y, CONTENT_W, STATUS_COLOR);
+        }
     }
 
     @Override
@@ -139,12 +148,13 @@ public class ControlsTabView implements MqttTabView {
         return false;
     }
 
-    /** Enter sends the text field that has the focus; while one has it, it takes every other key but Escape. */
+    /** Enter sends the text or number field that has the focus; while one has it, it takes every other key but Escape. */
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == InputConstants.KEY_ESCAPE) return false;
         for (Row row : rows) {
             if (row instanceof TextRow text && text.field.isFocused()) return text.keyPressed(keyCode, scanCode, modifiers);
+            if (row instanceof NumberRow number && number.field.isFocused()) return number.keyPressed(keyCode, scanCode, modifiers);
         }
         return false;
     }
@@ -154,6 +164,7 @@ public class ControlsTabView implements MqttTabView {
         // A click elsewhere ends the typing, so the screen's keys work again (the inventory key closes it).
         for (Row row : rows) {
             if (row instanceof TextRow text && !text.field.isMouseOver(mouseX, mouseY)) text.field.setFocused(false);
+            if (row instanceof NumberRow number && !number.field.isMouseOver(mouseX, mouseY)) number.field.setFocused(false);
         }
         return false;
     }
@@ -481,6 +492,97 @@ public class ControlsTabView implements MqttTabView {
             field.moveCursorToStart(false);
             syncedText = text;
             pick(new JsonPrimitive(text));
+        }
+    }
+
+    /**
+     * A typed whole number with its label and a Set button, for a range too wide for a slider (M4 plan D5): Enter or Set
+     * sends it when it is a whole number within the bounds, else the field turns red and nothing is sent. The device's
+     * number replaces the field's unless the player changed it since, as in a text field.
+     */
+    private final class NumberRow extends Row {
+        private final EditBox field;
+        private final Button set;
+        private final int labelX;
+        private final int labelY;
+        private String syncedText = "";
+
+        NumberRow(DeviceTabs.Control control, int x, int y) {
+            super(control);
+            Font font = GuiText.font();
+            Component setLabel = Component.translatable("mineqtt.device.controls.set");
+            Component label = label(control);
+            int labelW = font.width(label);
+            int setW = font.width(setLabel) + 10;
+            this.labelX = x;
+            this.labelY = y + 3;
+            this.field = new EditBox(font, x + labelW + GAP, y, CONTENT_W - labelW - setW - 2 * GAP, ROW_H, label);
+            field.setMaxLength(Math.max(String.valueOf(control.min()).length(), String.valueOf(control.max()).length()));
+            // Only digits (and a leading minus for a range below zero) stay in the field.
+            field.setResponder(text -> {
+                String digits = (control.min() < 0 && text.startsWith("-") ? "-" : "") + text.replaceAll("\\D", "");
+                if (!digits.equals(text)) field.setValue(digits);
+            });
+            field.setTextColorUneditable(MUTED_COLOR);
+            this.set = Button.builder(setLabel, pressed -> commit()).bounds(x + CONTENT_W - setW, y, setW, ROW_H).build();
+        }
+
+        @Override
+        List<AbstractWidget> widgets() {
+            return List.of(field, set);
+        }
+
+        @Override
+        void grants(DeviceView view) {
+            boolean editable = control.editable(view.grants());
+            field.setEditable(editable);
+            field.active = editable;
+            set.visible = editable;
+            Tooltip readOnly = readOnly(control, view);
+            Component range = control.unit()
+                    .<Component>map(unit -> Component.translatable("mineqtt.device.controls.range.unit", control.min(), control.max(), unit))
+                    .orElseGet(() -> Component.translatable("mineqtt.device.controls.range", control.min(), control.max()));
+            field.setTooltip(readOnly != null ? readOnly : Tooltip.create(range));
+        }
+
+        @Override
+        void follow(JsonObject state) {
+            String text = String.valueOf(control.level(state));
+            if (field.getValue().equals(syncedText) && !field.getValue().equals(text)) {
+                field.setValue(text);
+                field.moveCursorToStart(false);
+            }
+            syncedText = text;
+        }
+
+        @Override
+        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+            String typed = field.getValue().strip();
+            boolean pending = !typed.equals(syncedText);
+            boolean valid = control.typedNumber(typed).isPresent();
+            field.setTextColor(!valid ? INVALID_COLOR : pending ? PREVIEW_COLOR : EditBox.DEFAULT_TEXT_COLOR);
+            set.active = pending && valid;
+            g.text(GuiText.font(), label(control), labelX, labelY, LABEL_COLOR, false);
+        }
+
+        boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            if (keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER) {
+                commit();
+                return true;
+            }
+            return field.keyPressed(new KeyEvent(keyCode, scanCode, modifiers)) || field.canConsumeInput();
+        }
+
+        // A number outside the bounds is not sent: the field stays red until the player fixes it.
+        private void commit() {
+            String typed = field.getValue().strip();
+            Optional<JsonElement> number = control.typedNumber(typed);
+            if (number.isEmpty() || typed.equals(syncedText)) return;
+            String text = number.get().getAsString();
+            field.setValue(text);
+            field.moveCursorToStart(false);
+            syncedText = text;
+            pick(number.get());
         }
     }
 

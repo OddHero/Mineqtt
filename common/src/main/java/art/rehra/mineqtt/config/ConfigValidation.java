@@ -9,6 +9,8 @@ import art.rehra.mineqtt.twin.core.EntityGlobs;
 import art.rehra.mineqtt.twin.core.HaDomains;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -168,5 +170,64 @@ public final class ConfigValidation {
 
     public static boolean isValidTwinCatalogMax(int value) {
         return value >= 1 && value <= StaticDefaults.MAX_TWIN_CATALOG_MAX;
+    }
+
+    public static boolean isValidTelemetryIntervalSeconds(int value) {
+        return value >= StaticDefaults.MIN_TELEMETRY_INTERVAL_SECONDS && value <= StaticDefaults.MAX_TELEMETRY_INTERVAL_SECONDS;
+    }
+
+    public static boolean isValidTelemetryMaxPresenceDevices(int value) {
+        return value >= StaticDefaults.MIN_TELEMETRY_MAX_PRESENCE_DEVICES && value <= StaticDefaults.MAX_TELEMETRY_MAX_PRESENCE_DEVICES;
+    }
+
+    /** 0 (never forget) up to {@value StaticDefaults#MAX_TELEMETRY_FORGET_AFTER_DAYS} days. */
+    public static boolean isValidTelemetryForgetAfterDays(int value) {
+        return value >= 0 && value <= StaticDefaults.MAX_TELEMETRY_FORGET_AFTER_DAYS;
+    }
+
+    public static boolean isValidRoomsMaxSize(int value) {
+        return value >= StaticDefaults.MIN_ROOMS_MAX_SIZE && value <= StaticDefaults.MAX_ROOMS_MAX_SIZE;
+    }
+
+    /** 0 (unlimited, the world's cap still applies) up to the world's cap of {@value StaticDefaults#MAX_ROOMS_PER_WORLD}. */
+    public static boolean isValidLimitsMaxRoomsPerPlayer(int value) {
+        return value >= 0 && value <= StaticDefaults.MAX_ROOMS_PER_WORLD;
+    }
+
+    /**
+     * {@code telemetry.players} as both loaders read it from their file (M4 plan D9): an absent key takes the default, a
+     * name in any case (or the constant, as NeoForge may hold it) is that setting, and anything else falls back to the
+     * narrowest setting, {@code OFF}, with a message, never to the default: a typo must not publish more about players.
+     *
+     * @param raw the value as the file holds it: a string, boolean, number, list, the enum constant, or null when absent
+     */
+    public static TelemetryPlayers telemetryPlayersOrNarrowest(Object raw, List<String> messages) {
+        if (raw == null) return StaticDefaults.DEFAULT_TELEMETRY_PLAYERS;
+        if (raw instanceof TelemetryPlayers players) return players;
+        if (raw instanceof String text) {
+            for (TelemetryPlayers players : TelemetryPlayers.values()) {
+                if (players.name().equals(text.strip().toUpperCase(Locale.ROOT))) return players;
+            }
+        }
+        messages.add("telemetry.players: expected one of " + List.of(TelemetryPlayers.values()) + ", using " + TelemetryPlayers.OFF
+                + " (nothing is published about players) until it is fixed");
+        return TelemetryPlayers.OFF;
+    }
+
+    /**
+     * {@code telemetry.publishPlayerNames} as both loaders read it from their file (M4 plan D9): an absent key takes the
+     * default, a boolean (or {@code "true"}/{@code "false"} in any case, which NeoForge accepts for its booleans) is that
+     * value, and anything else falls back to the narrowest value, {@code false} (no names), with a message.
+     *
+     * @param raw the value as the file holds it, or null when absent
+     */
+    public static boolean publishPlayerNamesOrNarrowest(Object raw, List<String> messages) {
+        if (raw == null) return StaticDefaults.DEFAULT_TELEMETRY_PUBLISH_PLAYER_NAMES;
+        if (raw instanceof Boolean value) return value;
+        if (raw instanceof String text && (text.strip().equalsIgnoreCase("true") || text.strip().equalsIgnoreCase("false"))) {
+            return text.strip().equalsIgnoreCase("true");
+        }
+        messages.add("telemetry.publishPlayerNames: expected true or false, using false (no player names) until it is fixed");
+        return false;
     }
 }

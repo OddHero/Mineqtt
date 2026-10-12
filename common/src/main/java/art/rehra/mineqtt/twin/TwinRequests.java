@@ -57,8 +57,8 @@ import java.util.random.RandomGenerator;
  *     <li>the rates, each over the last second: {@value #DEVICE_PER_SECOND} per device, {@value #PLAYER_PER_SECOND} per
  *     player and {@code twin.maxRequestsPerSecond} for the bridge. A value with data (a brightness, a colour, a number)
  *     over a rate waits instead, newest wins per device and entity (a Wall Switch's two targets wait apart), and is
- *     sent when the rates allow, and so does an explicit state the world asked for (a redstone edge's {@code turn_on},
- *     wave 5 finding 1), so a burst of edges ends with the entity in the world's last state ({@link #holds}; a later
+ *     sent when the rates allow, and so does an explicit state the world asked for (a redstone edge's {@code turn_on}),
+ *     so a burst of edges ends with the entity in the world's last state ({@link #holds}; a later
  *     edge to the state the entity already shows drops the waiting one, {@link #supersede}); a player's switch, a toggle and a press over a rate are
  *     refused, counted per device and logged once per burst ({@link #rateRefusals});</li>
  *     <li>the breaker's count: a device that would send more than {@value #BREAKER_LIMIT} requests the world caused
@@ -133,7 +133,7 @@ public final class TwinRequests {
 
         /**
          * A rate refused one of the device's requests, so its count grew ({@link #rateRefusals}): the device's Twin tab shows
-         * the count (wave 6 open finding 2).
+         * the count.
          */
         default void rateRefused(UUID device) {
         }
@@ -227,7 +227,7 @@ public final class TwinRequests {
     }
 
     /**
-     * The requests of a device the rates refused (wave 5 finding 1), for its info, its status line and the Twin tab's
+     * The requests of a device the rates refused, for its info, its status line and the Twin tab's
      * Diagnostics: how many since it was loaded or resumed, and the last one.
      *
      * @param entityId the entity (or a preset device's key, {@link #topicKey}) the last refused request was for
@@ -252,7 +252,7 @@ public final class TwinRequests {
     }
 
     // What a held request waits in: one slot per device and entity (a preset device's key), so a device with two targets
-    // (a Wall Switch's left and right) never loses one target's request to the other's (wave 6 review).
+    // (a Wall Switch's left and right) never loses one target's request to the other's.
     private record HeldKey(UUID device, String entityId) {
     }
 
@@ -432,7 +432,7 @@ public final class TwinRequests {
     }
 
     /**
-     * Wave 6 review: a value the world caused that the LIVE mirror already shows (every outcome a dedupe {@link
+     * A value the world caused that the LIVE mirror already shows (every outcome a dedupe {@link
      * HaCalls.Skip}) is the world's newest state, so a request still waiting for the rate for the same entity that would
      * leave another state is dropped; sent late, it would leave the entity opposite to the world (a lever flipped back to
      * the state the entity already has). A waiting value with data (a brightness) survives a skipped "on", which it does
@@ -740,7 +740,7 @@ public final class TwinRequests {
 
     /**
      * Whether a call over a rate waits instead of being refused: a value with data ({@link #waits}), and an explicit state
-     * the world caused (wave 5 finding 1: a redstone edge's {@code turn_on}/{@code turn_off}, a wire's desired value),
+     * the world caused (a redstone edge's {@code turn_on}/{@code turn_off}, a wire's desired value),
      * which the world's next state replaces, so a burst of edges ends with the entity as the world left it instead of the
      * two disagreeing. A player's switch is still refused (a stale click never fires later), and so is anything that is
      * not idempotent: a toggle, a press, a scene or a script.
@@ -812,7 +812,7 @@ public final class TwinRequests {
     }
 
     /**
-     * Whether a request counts towards the circuit breaker (D10, wave 4 review): one the world caused (a lever, a wire, a
+     * Whether a request counts towards the circuit breaker (D10): one the world caused (a lever, a wire, a
      * repeater loop) does; a player's own command does not. A player cannot loop, and their input is capped by the device
      * and player rates already, while dragging a picker sends 4 a second for as long as it lasts, which an 8-in-10-s
      * breaker would pause within about 2 s. A paused device still refuses a player's command until it is resumed.

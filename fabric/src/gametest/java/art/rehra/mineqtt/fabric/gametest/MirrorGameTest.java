@@ -46,7 +46,7 @@ import java.util.function.Predicate;
  * nothing. A mirrored plug joins no group, and its Advanced tab says its Raw Link is paused; unbinding republishes its
  * full discovery.
  * <p>
- * The preset step (M3-17, wave 7): with the Home Assistant twin off, the probe plays a zigbee2mqtt colour bulb; a fourth
+ * The preset step (M3-17): with the Home Assistant twin off, the probe plays a zigbee2mqtt colour bulb; a fourth
  * lamp is bound to it on its Twin tab (the source cycle's MQTT device, the preset cycle, the device's name) and follows
  * it. Control is refused while {@code acl.rawAllow} lacks the bulb's {@code /set}, and taken once it has it; a right-click
  * then publishes the preset's command (TOGGLE while the state is only retained, then the explicit opposite) and changes
@@ -315,7 +315,7 @@ public final class MirrorGameTest implements FabricClientGameTest {
             session.check(commands.nextLive().isEmpty(), "and nothing is published on " + state + "/set");
         }
 
-        // Bind mode's picker would replace the MQTT device: it says so (wave 6 open finding 1).
+        // Bind mode's picker would replace the MQTT device: it says so.
         session.hold(MineqttItems.Cyberdeck.get());
         session.onServer(s -> {
             CyberdeckDataUtil.setMode(session.player(s).getMainHandItem(), ConfiguratorMode.BIND);

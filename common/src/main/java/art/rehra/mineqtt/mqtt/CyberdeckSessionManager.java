@@ -40,7 +40,8 @@ import java.util.UUID;
  *     {@code acl.explorerBrokerWide} is set. The scope follows the player's rights: it is built again on a config reload
  *     and whenever the player gains or loses operator or admin rights. Every message is then judged for that player
  *     ({@link TopicAcl#explorerExposure}): other players' private topics are hidden, a device's topics are shown only to
- *     players who may configure it, groups and unregistered devices only to operators who may build (P2), and discovery
+ *     players who may configure it, groups and unregistered devices only to operators who may build (P2), a player's
+ *     presence device only to admins and that player (M4 plan D10), and discovery
  *     payloads are cut to their size. At most
  *     {@value #FORWARDED_PER_SECOND} messages per second reach a player.</li>
  *     <li>A publish passes the full {@link TopicAcl} for the player, is never retained and is limited to
@@ -228,6 +229,8 @@ public final class CyberdeckSessionManager {
                 yield record == null ? operator : DeviceAccess.check(player, record, MineqttPermission.CONFIGURE);
             }
             case GROUP -> operator;
+            // A player's presence device (M4 plan D10): admins and that player only.
+            case PLAYER -> AclContext.mayReadPlayerTopic(subject, exposure.slug(), runtime.presence()::slugOf);
         };
         if (!visible || !session.forwarded.tryTake()) return;
         String payload = exposure.kind() == TopicAcl.Exposure.Kind.REDACT

@@ -35,8 +35,11 @@ import org.jetbrains.annotations.Nullable;
  * right-click opens the screen of the device it points at, up to {@link C2SGuard#CONFIGURATOR_RANGE} blocks away (a
  * ceiling lamp, say); pointing at nothing it opens the topic explorer. In Link, Group, Copy-Paste and Bind mode a
  * right-click on a device within that range is a step of that mode ({@link ConfiguratorLink}, {@link ConfiguratorGroup},
- * {@link ConfiguratorCopy}, {@link ConfiguratorBind}), and one at nothing stops it or says how the mode works. Sneak +
- * right-click into the air steps to the next mode, which
+ * {@link ConfiguratorCopy}, {@link ConfiguratorBind}), and one at nothing stops it or says how the mode works. In Room
+ * mode a right-click on a block within that range is a corner ({@link ConfiguratorRoom}). Within reach of the hand an
+ * ordinary click goes to the block first, so doors, chests and levers work and only a block that does nothing with the
+ * click becomes a corner here; a device is always a corner, and a sneaking click within reach picks a room
+ * ({@code BaseMqttBlock}'s click handlers). Sneak + right-click beyond the hand's reach steps to the next mode, which
  * forgets what the player began ({@link ConfiguratorSessions}). A device within reach is handled by its block
  * ({@code BaseMqttBlock#click}), which does the same for a Configurator.
  */
@@ -55,6 +58,9 @@ public class CyberdeckItem extends Item {
                 CyberdeckDataUtil.setMode(stack, next);
                 ConfiguratorSessions.forget(serverPlayer.getUUID());
                 serverPlayer.sendSystemMessage(Component.translatable("mineqtt.configurator.mode", next.displayName()), true);
+            } else if (mode == ConfiguratorMode.ROOM) {
+                // A corner beyond the hand's reach, within the Configurator's; picking a room takes a sneak-click within reach.
+                ConfiguratorRoom.clickAtRange(serverPlayer);
             } else if (mode != ConfiguratorMode.CONFIGURE) {
                 stepAtRange(serverPlayer, mode);
             } else if (!configureAtRange(serverPlayer)) {

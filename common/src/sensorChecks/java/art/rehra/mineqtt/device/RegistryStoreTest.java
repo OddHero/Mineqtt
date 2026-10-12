@@ -4,6 +4,9 @@ import art.rehra.mineqtt.flow.core.Endpoint;
 import art.rehra.mineqtt.flow.core.Mapping;
 import art.rehra.mineqtt.flow.core.Scope;
 import art.rehra.mineqtt.flow.core.Wire;
+import art.rehra.mineqtt.presence.Consent;
+import art.rehra.mineqtt.presence.PlayerEntry;
+import art.rehra.mineqtt.rooms.Room;
 import art.rehra.mineqtt.security.AccessMode;
 import art.rehra.mineqtt.twin.core.Binding;
 import art.rehra.mineqtt.twin.core.ValuePath;
@@ -22,6 +25,7 @@ import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.util.Util;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
@@ -37,6 +41,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
@@ -75,6 +80,7 @@ public final class RegistryStoreTest {
             ownerCounts();
             twinCopies();
             discoveryCleanup();
+            rooms();
         } finally {
             try (Stream<Path> files = Files.walk(root)) {
                 for (Path path : files.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
@@ -125,6 +131,15 @@ public final class RegistryStoreTest {
                 && first.ownerLiterals(UUID.randomUUID()).isEmpty() && first.ownerLiterals(null).isEmpty(), "Owner literal sets persist, per owner");
         check(List.copyOf(first.wires()).equals(List.copyOf(fresh.wires())) && first.wiresFrom(Endpoint.port(first.bySlug("hall_lamp_1").id(), "light")).size() == 1
                 && first.wiresOf(lamp.id()).size() == 1 && first.wiresOf(group.id()).size() == 1, "Wires persist in order, indexed by source and by node");
+        check(List.copyOf(first.players()).equals(List.copyOf(fresh.players())) && first.player(KITCHEN_OWNER).orElseThrow().consent() == Consent.FULL
+                && first.playerBySlug("player_steve").isPresent(), "Player entries persist in order, with consent, name and slug (M4 plan D9)");
+        CompoundTag beforePlayers = written.copy();
+        beforePlayers.remove("players");
+        DeviceRegistry m3 = DeviceRegistry.decode(beforePlayers, problem -> {
+            throw new AssertionError("A file without player entries (0.7.0) is valid: " + problem);
+        });
+        check(m3.players().isEmpty() && m3.player(KITCHEN_OWNER).isEmpty() && m3.records().size() == 3 && !m3.isDirty(),
+                "A file 0.7.0 wrote, without player entries, reads with every consent unset");
         CompoundTag withoutWires = written.copy();
         withoutWires.remove("wires");
         DeviceRegistry m1 = DeviceRegistry.decode(withoutWires, problem -> {
@@ -358,6 +373,20 @@ public final class RegistryStoreTest {
             registry.markDirty();
         });
         state(saved, "A migrated v1 discovery", registry -> registry.markLegacyDiscoveryMigrated("home_hall"));
+
+        // M4 plan D8: whether Home Assistant may hold the bridge's broadcast text entity; written only while set.
+        check(!saved.contains("bridgeBroadcastDiscovered") && !DeviceRegistry.decode(saved, RegistryStoreTest::noProblem).bridgeBroadcastDiscovered(),
+                "A world that never discovered the broadcast entity saves no mark and reads none");
+        structural(saved, "Marking the broadcast entity discovered", registry -> registry.setBridgeBroadcastDiscovered(true));
+        DeviceRegistry marked = DeviceRegistry.decode(saved, RegistryStoreTest::noProblem);
+        marked.setBridgeBroadcastDiscovered(true);
+        CompoundTag markedTag = marked.encode();
+        DeviceRegistry reread = DeviceRegistry.decode(markedTag, RegistryStoreTest::noProblem);
+        check(markedTag.getBooleanOr("bridgeBroadcastDiscovered", false) && reread.bridgeBroadcastDiscovered() && !reread.isDirty(), "The mark persists");
+        reread.setBridgeBroadcastDiscovered(true);
+        check(!reread.isDirty(), "Marking it again changes nothing");
+        reread.setBridgeBroadcastDiscovered(false);
+        check(reread.structureChanged() && !reread.encode().contains("bridgeBroadcastDiscovered"), "Cleared, it is a structural change and leaves the file");
 
         DeviceRegistry same = DeviceRegistry.decode(saved, RegistryStoreTest::noProblem);
         check(!same.addOwnerLiteral(KITCHEN_OWNER, "minecraft/stone") && !same.isDirty(), "A literal the set holds changes nothing");
@@ -599,6 +628,8 @@ public final class RegistryStoreTest {
 
     // Two lamps in a group, one with a queued command; one device of a type this MineQTT does not know.
     private static void populate(DeviceRegistry registry) {
+        registry.putPlayer(new PlayerEntry(KITCHEN_OWNER, Consent.FULL, true, "Steve", Optional.of("player_steve"), 20_738));
+        registry.putPlayer(PlayerEntry.of(UUID.fromString("0f3e2d1c-4b5a-4968-8776-655443322110")).withConsent(Consent.OFF).withAsked());
         DeviceRecord kitchen = new DeviceRecord(UUID.randomUUID(), LAMP, at(17, 64, -3), "Kitchen Lamp", "kitchen_lamp");
         kitchen.setOwner(KITCHEN_OWNER);
         kitchen.setAccess(AccessMode.PUBLIC);
@@ -744,6 +775,106 @@ public final class RegistryStoreTest {
             throw new AssertionError("A marked record is valid: " + problem);
         });
         check(decoded.record(kept.id()).discoveryCleanup() && decoded.encode().equals(encoded), "The registry keeps the mark, schema " + DeviceRegistry.SCHEMA);
+    }
+
+    /**
+     * M4 plan D11, D17: the rooms are a list of their own after the wires, read entry by entry; the area a device's
+     * discovery created it with is a third flat key of the discovery state, so a record without it saves byte-identical
+     * and a registry from before rooms reads unchanged.
+     */
+    private static void rooms() {
+        DeviceRecord lamp = new DeviceRecord(UUID.fromString("00000000-0000-0000-0000-0000000000d1"), LAMP, at(3, 64, 1), "Den Lamp", "den_lamp");
+        lamp.setDiscoveryHash("77aa");
+        CompoundTag before = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, lamp).getOrThrow();
+        check(!before.contains("discoveryArea"), "No area writes no key");
+        DeviceRecord read = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, before).getOrThrow();
+        check(read.discoveryArea() == null && DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, read).getOrThrow().equals(before),
+                "A record from before rooms reads without an area and saves byte-identical");
+        for (String area : List.of("", "Kitchen")) {
+            read.setDiscoveryArea(area);
+            CompoundTag withArea = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, read).getOrThrow();
+            check(withArea.getStringOr("discoveryArea", "?").equals(area) && withArea.keySet().size() == before.keySet().size() + 1,
+                    "The area '" + area + "' is one flat key beside the hash: " + withArea);
+            before.keySet().forEach(key -> check(withArea.get(key).equals(before.get(key)), "The area changes no other key: " + key));
+            check(area.equals(DeviceRecord.CODEC.parse(NbtOps.INSTANCE, withArea).getOrThrow().discoveryArea()), "The area '" + area + "' round-trips");
+        }
+
+        DeviceRegistry registry = new DeviceRegistry("world_7f3a", UUID.randomUUID());
+        CompoundTag empty = registry.encode();
+        check(empty.getListOrEmpty("rooms").isEmpty(), "A registry without rooms writes an empty list");
+        Room kitchen = Room.between(UUID.fromString("00000000-0000-0000-0000-0000000000e1"), "Kitchen", Level.OVERWORLD, new BlockPos(5, 67, 5),
+                new BlockPos(0, 64, 0), KITCHEN_OWNER, false, 1_700_000_000_000L);
+        Room shared = Room.between(UUID.fromString("00000000-0000-0000-0000-0000000000e2"), "Great Hall", Level.NETHER, new BlockPos(-8, 30, -8),
+                new BlockPos(8, 40, 8), Util.NIL_UUID, true, 1_700_000_000_001L);
+        check(kitchen.min().equals(new BlockPos(0, 64, 0)) && kitchen.max().equals(new BlockPos(5, 67, 5)), "Corners in any order are normalised");
+        registry.add(read);
+        registry.markSaved();
+        registry.addRoom(kitchen);
+        check(registry.structureChanged(), "A new room is a structural change: chunks cannot rebuild it");
+        registry.addRoom(shared);
+        expectFailure(() -> registry.addRoom(kitchen), "A room id registered twice");
+        CompoundTag encoded = registry.encode();
+        List<String> keys = List.copyOf(encoded.keySet());
+        check(encoded.getListOrEmpty("rooms").size() == 2, "Both rooms are written: " + keys);
+        DeviceRegistry decoded = DeviceRegistry.decode(encoded, problem -> {
+            throw new AssertionError("The rooms are valid: " + problem);
+        });
+        check(List.copyOf(decoded.rooms()).equals(List.of(kitchen, shared)), "The rooms round-trip in order: " + decoded.rooms());
+        check(decoded.encode().equals(encoded) && DeviceRegistry.decode(decoded.encode(), problem -> {
+        }).encode().equals(encoded), "Twice round-tripped, the registry is the same");
+        check(decoded.roomOf(decoded.record(read.id())).isEmpty(), "The lamp has no owner, so only a room for everyone could hold it");
+
+        Room renamed = kitchen.renamed("Cookhouse");
+        decoded.markSaved();
+        decoded.replaceRoom(renamed);
+        check(decoded.structureChanged() && decoded.room(kitchen.id()).name().equals("Cookhouse") && List.copyOf(decoded.rooms()).getFirst().equals(renamed),
+                "A rename replaces the room in its place, a structural change");
+        decoded.markSaved();
+        check(shared.equals(decoded.removeRoom(shared.id())) && decoded.structureChanged() && decoded.rooms().size() == 1, "A removal is a structural change");
+        check(decoded.removeRoom(shared.id()) == null, "A room removed twice is gone once");
+
+        // Bad entries are skipped and reported; the rest is read.
+        ListTag rooms = encoded.getListOrEmpty("rooms");
+        CompoundTag nameless = rooms.getCompoundOrEmpty(0).copy();
+        nameless.remove("name");
+        nameless.store("id", UUIDUtil.CODEC, UUID.randomUUID());
+        CompoundTag blank = rooms.getCompoundOrEmpty(0).copy();
+        blank.putString("name", "   ");
+        blank.store("id", UUIDUtil.CODEC, UUID.randomUUID());
+        CompoundTag tooLong = rooms.getCompoundOrEmpty(0).copy();
+        tooLong.putString("name", "x".repeat(33));
+        tooLong.store("id", UUIDUtil.CODEC, UUID.randomUUID());
+        CompoundTag swapped = rooms.getCompoundOrEmpty(0).copy();
+        UUID swappedId = UUID.randomUUID();
+        swapped.store("id", UUIDUtil.CODEC, swappedId);
+        swapped.store("min", BlockPos.CODEC, new BlockPos(9, 9, 9));
+        swapped.store("max", BlockPos.CODEC, new BlockPos(1, 1, 1));
+        rooms.add(nameless);
+        rooms.add(blank);
+        rooms.add(tooLong);
+        rooms.add(rooms.getCompoundOrEmpty(1).copy());
+        rooms.add(StringTag.valueOf("not a room"));
+        rooms.add(swapped);
+        // A name today's text rules would clean is still read: a stricter sanitiser never loses a stored room.
+        CompoundTag oldName = rooms.getCompoundOrEmpty(0).copy();
+        UUID oldNameId = UUID.randomUUID();
+        oldName.store("id", UUIDUtil.CODEC, oldNameId);
+        oldName.putString("name", "OldDen");
+        rooms.add(oldName);
+        List<String> problems = new ArrayList<>();
+        DeviceRegistry repaired = DeviceRegistry.decode(encoded, problems::add);
+        check(problems.size() == 5, "Each bad room is reported: " + problems);
+        check(repaired.rooms().size() == 4 && repaired.room(swappedId).min().equals(new BlockPos(1, 1, 1)) && repaired.room(oldNameId) != null,
+                "The good rooms are read, stored corners in the wrong order are put right, an old name is kept: " + repaired.rooms());
+
+        // A registry from before rooms has no list: nothing is reported and nothing is lost.
+        CompoundTag old = encoded.copy();
+        old.remove("rooms");
+        DeviceRegistry fromOld = DeviceRegistry.decode(old, problem -> {
+            throw new AssertionError("A registry from before rooms is valid: " + problem);
+        });
+        check(fromOld.rooms().isEmpty() && fromOld.records().size() == 1 && fromOld.roomIndex().roomOf(fromOld.record(read.id())).isEmpty(),
+                "A registry from before rooms reads without rooms");
     }
 
     // The wire codec (M2 plan §3.2) round-trips what M2 builds and refuses the reserved endpoints and the cable scope.

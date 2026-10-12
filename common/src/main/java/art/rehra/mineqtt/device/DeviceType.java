@@ -14,6 +14,7 @@ import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.Nullable;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -45,6 +46,9 @@ public final class DeviceType {
     private final @Nullable RawLinkSpec rawLink;
     private final boolean groupable;
     private final boolean remote;
+    private final boolean noV1Topic;
+    private final boolean editsWorld;
+    private final @Nullable StatusLine status;
     private final Duration minInterval;
     private final Map<String, Double> deadbands;
     private final CommandPreview preview;
@@ -65,6 +69,9 @@ public final class DeviceType {
         this.rawLink = builder.rawLink;
         this.groupable = builder.groupable;
         this.remote = builder.remote;
+        this.noV1Topic = builder.noV1Topic;
+        this.editsWorld = builder.editsWorld;
+        this.status = builder.status;
         this.minInterval = builder.minInterval;
         this.deadbands = Map.copyOf(builder.deadbands);
         this.preview = builder.preview != null ? builder.preview : this::applyFields;
@@ -252,6 +259,35 @@ public final class DeviceType {
         return remote;
     }
 
+    /**
+     * Whether v1 blocks of this type never published under their slots' topic (M4 plan D2: the timers, whose slots held
+     * at most hopper-inserted items): their adoption makes no Raw Link from it, although the type has one.
+     */
+    public boolean noV1Topic() {
+        return noV1Topic;
+    }
+
+    /**
+     * Whether devices of this type change the world (M4 plan D12: the Block Placer): configuring one needs an operator
+     * unless the server lets players ({@code blockPlacer.playersMayConfigure}), see {@link DeviceConfig#mayConfigure}.
+     */
+    public boolean editsWorld() {
+        return editsWorld;
+    }
+
+    /** The read-only line at the foot of the Controls tab (M4 plan D5); empty for a type without one. */
+    public Optional<StatusLine> status() {
+        return Optional.ofNullable(status);
+    }
+
+    /**
+     * The status line of a device of this type in {@code state} at {@code now}, as a view carries it
+     * ({@link StatusLine#cap}); empty for a type without one, or when its line is empty.
+     */
+    public String statusLine(JsonObject state, Instant now) {
+        return status == null ? "" : StatusLine.cap(status.line(state.deepCopy(), now));
+    }
+
     /** The shortest time between two state publishes; a newer state waits for it, it is never dropped. */
     public Duration minInterval() {
         return minInterval;
@@ -406,6 +442,9 @@ public final class DeviceType {
         private @Nullable RawLinkSpec rawLink;
         private boolean groupable;
         private boolean remote;
+        private boolean noV1Topic;
+        private boolean editsWorld;
+        private @Nullable StatusLine status;
         private Duration minInterval = Duration.ZERO;
         private final Map<String, Double> deadbands = new LinkedHashMap<>();
         private @Nullable CommandPreview preview;
@@ -479,6 +518,24 @@ public final class DeviceType {
             return this;
         }
 
+        /** v1 blocks of this type never published under their slots' topic ({@link DeviceType#noV1Topic()}). */
+        public Builder noV1Topic() {
+            this.noV1Topic = true;
+            return this;
+        }
+
+        /** Devices of this type change the world ({@link DeviceType#editsWorld()}). */
+        public Builder editsWorld() {
+            this.editsWorld = true;
+            return this;
+        }
+
+        /** The read-only line at the foot of the type's Controls tab ({@link DeviceType#status()}). */
+        public Builder status(StatusLine status) {
+            this.status = status;
+            return this;
+        }
+
         /** Sensors: 1 s by default in the design; actuators keep 0 so every change is published at once. */
         public Builder minInterval(Duration interval) {
             this.minInterval = interval;
@@ -516,8 +573,9 @@ public final class DeviceType {
          *                               notify without its declared action, a switch or light without a {@code state}
          *                               in-port, an action that shadows a writable field, two ports of one key and
          *                               direction, a field named like a link setting, a writable inline field that
-         *                               is no light, a use that is no declared action that toggles or fires, or a
-         *                               twin adapter that does not fit the ports ({@link #checkTwin})
+         *                               is no light, a use that is no declared action that toggles or fires, a
+         *                               minimum interval on a bus-only event, or a twin adapter that does not fit the
+         *                               ports ({@link #checkTwin})
          */
         public DeviceType build() {
             if (model.isBlank()) fail("needs a model name");
@@ -547,6 +605,8 @@ public final class DeviceType {
             for (EventSpec event : events) {
                 if (!eventTypes.add(event.type())) fail("declares event " + event.type() + " twice");
                 if (event.busOnly()) busOnly.add(event.type());
+                // Only the action topic and the Raw Link are throttled (M4 plan D3); a bus-only event reaches neither.
+                if (event.busOnly() && event.throttled()) fail("throttles event " + event.type() + ", which only the bus carries");
             }
             Set<Field<?>> commanded = new HashSet<>();
             Set<String> entityKeys = new HashSet<>();
@@ -586,6 +646,18 @@ public final class DeviceType {
                     case HaEntity.Switch<?> _, HaEntity.Light _ -> {
                         // Home Assistant commands both with {"state": ...}, which may be TOGGLE: only the state action toggles.
                         if (!actionKeys.contains(Action.STATE)) fail(entity.platform() + " " + entity.key() + " needs the state action");
+                    }
+                    case HaEntity.Select select -> {
+                        // Runtime options are names the field must take as they are (M4 plan §3.2).
+                        if (select.dynamic() && !(select.field().kind() instanceof PortType.Text || select.field().kind() instanceof PortType.Enum)) {
+                            fail("select " + entity.key() + " takes runtime options into field " + select.field().key() + ", which is no text or enum");
+                        }
+                    }
+                    case HaEntity.Sensor sensor -> {
+                        // Home Assistant takes only a JSON object as attributes (M4 plan §3.2).
+                        if (sensor.jsonAttributes() != null && !(sensor.jsonAttributes().kind() instanceof PortType.Json)) {
+                            fail("sensor " + entity.key() + " reads attributes from field " + sensor.jsonAttributes().key() + ", which is no JSON field");
+                        }
                     }
                     default -> {
                     }

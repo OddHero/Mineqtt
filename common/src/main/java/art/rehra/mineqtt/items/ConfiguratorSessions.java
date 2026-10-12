@@ -7,9 +7,10 @@ import net.minecraft.server.level.ServerPlayer;
 import java.util.UUID;
 
 /**
- * The Configurator's modes besides Configure (Link, Group, Copy-Paste, Bind), as one: a click on a device or into the
- * air in a mode goes to that mode, and what a player began in any mode is forgotten when they change the mode or leave,
- * and when the server stops. Bind keeps nothing between clicks. Server thread only.
+ * The Configurator's modes besides Configure (Link, Group, Copy-Paste, Bind, Room), as one: a click on a device or into
+ * the air in a mode goes to that mode, and what a player began in any mode is forgotten when they change the mode or
+ * leave, and when the server stops. Bind keeps nothing between clicks; Room takes a click on any block, a device's is a
+ * corner like any other. Server thread only.
  */
 public final class ConfiguratorSessions {
     private ConfiguratorSessions() {
@@ -22,6 +23,7 @@ public final class ConfiguratorSessions {
             case GROUP -> ConfiguratorGroup.click(player, device);
             case COPY_PASTE -> ConfiguratorCopy.click(player, device);
             case BIND -> ConfiguratorBind.click(player, device);
+            case ROOM -> ConfiguratorRoom.clickBlock(player, device.getBlockPos(), false);
             case CONFIGURE -> throw new IllegalArgumentException("Configure mode opens screens");
         }
     }
@@ -33,6 +35,7 @@ public final class ConfiguratorSessions {
             case GROUP -> ConfiguratorGroup.clickAir(player);
             case COPY_PASTE -> ConfiguratorCopy.clickAir(player);
             case BIND -> ConfiguratorBind.clickAir(player);
+            case ROOM -> ConfiguratorRoom.clickAir(player);
             case CONFIGURE -> throw new IllegalArgumentException("Configure mode opens screens");
         }
     }
@@ -47,6 +50,7 @@ public final class ConfiguratorSessions {
         ConfiguratorLink.forget(player);
         ConfiguratorGroup.forget(player);
         ConfiguratorCopy.forget(player);
+        ConfiguratorRoom.forget(player);
     }
 
     /** The server stops. */
@@ -54,5 +58,6 @@ public final class ConfiguratorSessions {
         ConfiguratorLink.clear();
         ConfiguratorGroup.clear();
         ConfiguratorCopy.clear();
+        ConfiguratorRoom.clear();
     }
 }

@@ -7,8 +7,10 @@ import art.rehra.mineqtt.config.ConfigValidation;
 import art.rehra.mineqtt.config.HaExpose;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.config.StaticDefaults;
+import art.rehra.mineqtt.config.TelemetryPlayers;
 import art.rehra.mineqtt.mqtt.core.ProtocolVersion;
 import com.electronwill.nightconfig.core.CommentedConfig;
+import com.electronwill.nightconfig.core.EnumGetMethod;
 import com.electronwill.nightconfig.core.UnmodifiableConfig;
 import com.electronwill.nightconfig.core.io.ParsingException;
 import com.electronwill.nightconfig.core.io.WritingMode;
@@ -24,6 +26,7 @@ import java.io.IOException;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -33,6 +36,8 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     private static final String V1_BACKUP_SUFFIX = ".v1.bak";
     /** Tables only a v1 file has. [goal], which Milestone 1's v2 files have too, is not read any more. */
     private static final List<String> V1_ONLY_TABLES = List.of("connection", "topics");
+    // Stands for a telemetry.players value NightConfig could not read; it is no setting, so it narrows to OFF.
+    private static final Object UNREADABLE = new Object();
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
     public static final ModConfigSpec.IntValue CONFIG_VERSION;
@@ -60,9 +65,16 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     public static final ModConfigSpec.BooleanValue ACL_EXPLORER_BROKER_WIDE;
 
     public static final ModConfigSpec.BooleanValue BLOCK_PLACER_ENABLED;
+    public static final ModConfigSpec.EnumValue<AutoBoolean> BLOCK_PLACER_PLAYERS_MAY_CONFIGURE;
+    public static final ModConfigSpec.BooleanValue BLOCK_PLACER_CONSUME_ITEMS;
+
+    public static final ModConfigSpec.BooleanValue BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA;
 
     public static final ModConfigSpec.IntValue LIMITS_MAX_DEVICES_PER_PLAYER;
     public static final ModConfigSpec.IntValue LIMITS_MAX_WIRES_PER_PLAYER;
+    public static final ModConfigSpec.IntValue LIMITS_MAX_ROOMS_PER_PLAYER;
+
+    public static final ModConfigSpec.IntValue ROOMS_MAX_SIZE;
 
     public static final ModConfigSpec.ConfigValue<String> TWIN_STATESTREAM_BASE;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> TWIN_ALLOWED_ENTITIES;
@@ -70,6 +82,15 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     public static final ModConfigSpec.IntValue TWIN_MAX_REQUESTS_PER_SECOND;
     public static final ModConfigSpec.BooleanValue TWIN_CATALOG;
     public static final ModConfigSpec.IntValue TWIN_CATALOG_MAX;
+
+    public static final ModConfigSpec.BooleanValue TELEMETRY_ENABLED;
+    public static final ModConfigSpec.IntValue TELEMETRY_INTERVAL_SECONDS;
+    public static final ModConfigSpec.EnumValue<TelemetryPlayers> TELEMETRY_PLAYERS;
+    // No BooleanValue: NeoForge would correct an invalid value to true, the widest; see isPresent.
+    public static final ModConfigSpec.ConfigValue<Boolean> TELEMETRY_PUBLISH_PLAYER_NAMES;
+    public static final ModConfigSpec.BooleanValue TELEMETRY_ALLOW_BROADCAST;
+    public static final ModConfigSpec.IntValue TELEMETRY_MAX_PRESENCE_DEVICES;
+    public static final ModConfigSpec.IntValue TELEMETRY_FORGET_AFTER_DAYS;
 
     public static final ModConfigSpec.BooleanValue SERVER_KEEP_TICKING_WHEN_EMPTY;
 
@@ -182,6 +203,27 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                 .translation("config.mineqtt.block_placer_enabled")
                 .define("enabled", StaticDefaults.DEFAULT_BLOCK_PLACER_ENABLED);
 
+        BLOCK_PLACER_PLAYERS_MAY_CONFIGURE = BUILDER
+                .comment("Whether players who may configure a Block Placer may set its block and raw link; operators always may.",
+                        "TRUE, FALSE, or AUTO (true on integrated, false on dedicated servers)")
+                .translation("config.mineqtt.block_placer_players_may_configure")
+                .defineEnum("playersMayConfigure", StaticDefaults.DEFAULT_BLOCK_PLACER_PLAYERS_MAY_CONFIGURE);
+
+        BLOCK_PLACER_CONSUME_ITEMS = BUILDER
+                .comment("A placed block costs its item from the container behind the Block Placer; clearing returns it")
+                .translation("config.mineqtt.block_placer_consume_items")
+                .define("consumeItems", StaticDefaults.DEFAULT_BLOCK_PLACER_CONSUME_ITEMS);
+
+        BUILDER.pop();
+
+        BUILDER.comment("Block Observer (the block sensor)").translation("config.mineqtt.section.block_observer").push("blockObserver");
+
+        BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA = BUILDER
+                .comment("Include the observed block's block-entity data (chest or sign contents) in the observer's full raw payload.",
+                        "Only when the observer and its target share one claim, or no claim mod is installed; never in Home Assistant.")
+                .translation("config.mineqtt.block_observer_export_block_entity_data")
+                .define("exportBlockEntityData", StaticDefaults.DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA);
+
         BUILDER.pop();
 
         BUILDER.comment("Limits").translation("config.mineqtt.section.limits").push("limits");
@@ -195,6 +237,21 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                 .comment("Maximum number of wires (Configurator links) a player may own, 0 for unlimited; wires made from the console count for nobody")
                 .translation("config.mineqtt.limits_max_wires_per_player")
                 .defineInRange("maxWiresPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER, 0, Integer.MAX_VALUE);
+
+        LIMITS_MAX_ROOMS_PER_PLAYER = BUILDER
+                .comment("Maximum number of rooms a player may own, 0 for unlimited; operators are not limited, and a world holds at most "
+                        + StaticDefaults.MAX_ROOMS_PER_WORLD + " rooms")
+                .translation("config.mineqtt.limits_max_rooms_per_player")
+                .defineInRange("maxRoomsPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_ROOMS_PER_PLAYER, 0, StaticDefaults.MAX_ROOMS_PER_WORLD);
+
+        BUILDER.pop();
+
+        BUILDER.comment("Rooms: boxes that name the Home Assistant area of the devices inside").translation("config.mineqtt.section.rooms").push("rooms");
+
+        ROOMS_MAX_SIZE = BUILDER
+                .comment("The longest side of a room, in blocks")
+                .translation("config.mineqtt.rooms_max_size")
+                .defineInRange("maxSize", StaticDefaults.DEFAULT_ROOMS_MAX_SIZE, StaticDefaults.MIN_ROOMS_MAX_SIZE, StaticDefaults.MAX_ROOMS_MAX_SIZE);
 
         BUILDER.pop();
 
@@ -232,6 +289,52 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                 .comment("Home Assistant entities the twin keeps at most")
                 .translation("config.mineqtt.twin_catalog_max")
                 .defineInRange("catalogMax", StaticDefaults.DEFAULT_TWIN_CATALOG_MAX, 1, StaticDefaults.MAX_TWIN_CATALOG_MAX);
+
+        BUILDER.pop();
+
+        BUILDER.comment("World telemetry on the bridge device and what is published about players").translation("config.mineqtt.section.telemetry").push("telemetry");
+
+        TELEMETRY_ENABLED = BUILDER
+                .comment("Publish the world's time, weather, day and server load on the bridge device; off keeps only the player count and drop counters")
+                .translation("config.mineqtt.telemetry_enabled")
+                .define("enabled", StaticDefaults.DEFAULT_TELEMETRY_ENABLED);
+
+        TELEMETRY_INTERVAL_SECONDS = BUILDER
+                .comment("At most this often, in seconds, a telemetry change other than players, day or weather is published")
+                .translation("config.mineqtt.telemetry_interval_seconds")
+                .defineInRange("intervalSeconds", StaticDefaults.DEFAULT_TELEMETRY_INTERVAL_SECONDS, StaticDefaults.MIN_TELEMETRY_INTERVAL_SECONDS,
+                        StaticDefaults.MAX_TELEMETRY_INTERVAL_SECONDS);
+
+        // These two only ever narrow what is published about players, so NeoForge keeps an invalid value as written
+        // instead of correcting it to the default, and loadConfig narrows it (ConfigValidation): see isPresent.
+        TELEMETRY_PLAYERS = BUILDER
+                .comment("The most this server publishes about a player who consents: OFF (counts only), PRESENCE (name and a presence device)",
+                        "or FULL (also health, dimension and position). Nothing is published about a player without their consent.",
+                        "Any other value counts as OFF until it is fixed.")
+                .translation("config.mineqtt.telemetry_players")
+                .defineEnum("players", StaticDefaults.DEFAULT_TELEMETRY_PLAYERS, EnumGetMethod.NAME_IGNORECASE, NeoForgeConfigHandler::isPresent);
+
+        TELEMETRY_PUBLISH_PLAYER_NAMES = BUILDER
+                .comment("false publishes counts only: no player names and no presence devices, whatever players consent to.",
+                        "Any value other than true or false counts as false until it is fixed.")
+                .translation("config.mineqtt.telemetry_publish_player_names")
+                .define("publishPlayerNames", () -> StaticDefaults.DEFAULT_TELEMETRY_PUBLISH_PLAYER_NAMES, NeoForgeConfigHandler::isPresent);
+
+        TELEMETRY_ALLOW_BROADCAST = BUILDER
+                .comment("Let Home Assistant (anyone who may write the bridge's request topic) show a line of text in chat, prefixed [MQTT]")
+                .translation("config.mineqtt.telemetry_allow_broadcast")
+                .define("allowBroadcast", StaticDefaults.DEFAULT_TELEMETRY_ALLOW_BROADCAST);
+
+        TELEMETRY_MAX_PRESENCE_DEVICES = BUILDER
+                .comment("Presence devices at most; beyond it no new player gets one")
+                .translation("config.mineqtt.telemetry_max_presence_devices")
+                .defineInRange("maxPresenceDevices", StaticDefaults.DEFAULT_TELEMETRY_MAX_PRESENCE_DEVICES, StaticDefaults.MIN_TELEMETRY_MAX_PRESENCE_DEVICES,
+                        StaticDefaults.MAX_TELEMETRY_MAX_PRESENCE_DEVICES);
+
+        TELEMETRY_FORGET_AFTER_DAYS = BUILDER
+                .comment("Days a player may stay away before their presence device and name are forgotten, 0 for never; their consent is kept")
+                .translation("config.mineqtt.telemetry_forget_after_days")
+                .defineInRange("forgetAfterDays", StaticDefaults.DEFAULT_TELEMETRY_FORGET_AFTER_DAYS, 0, StaticDefaults.MAX_TELEMETRY_FORGET_AFTER_DAYS);
 
         BUILDER.pop();
 
@@ -326,14 +429,34 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         MineQTTConfig.aclOpsBypassAllowlist = ACL_OPS_BYPASS_ALLOWLIST.get();
         MineQTTConfig.aclExplorerBrokerWide = ACL_EXPLORER_BROKER_WIDE.get();
         MineQTTConfig.blockPlacerEnabled = BLOCK_PLACER_ENABLED.get();
+        MineQTTConfig.blockPlacerPlayersMayConfigure = BLOCK_PLACER_PLAYERS_MAY_CONFIGURE.get();
+        MineQTTConfig.blockPlacerConsumeItems = BLOCK_PLACER_CONSUME_ITEMS.get();
+        MineQTTConfig.blockObserverExportBlockEntityData = BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA.get();
         MineQTTConfig.limitsMaxDevicesPerPlayer = LIMITS_MAX_DEVICES_PER_PLAYER.get();
         MineQTTConfig.limitsMaxWiresPerPlayer = LIMITS_MAX_WIRES_PER_PLAYER.get();
+        MineQTTConfig.limitsMaxRoomsPerPlayer = LIMITS_MAX_ROOMS_PER_PLAYER.get();
+        MineQTTConfig.roomsMaxSize = ROOMS_MAX_SIZE.get();
         MineQTTConfig.twinStatestreamBase = TWIN_STATESTREAM_BASE.get();
         MineQTTConfig.twinAllowedEntities = List.copyOf(TWIN_ALLOWED_ENTITIES.get());
         MineQTTConfig.twinHaActionAllowlist = List.copyOf(TWIN_HA_ACTION_ALLOWLIST.get());
         MineQTTConfig.twinMaxRequestsPerSecond = TWIN_MAX_REQUESTS_PER_SECOND.get();
         MineQTTConfig.twinCatalog = TWIN_CATALOG.get();
         MineQTTConfig.twinCatalogMax = TWIN_CATALOG_MAX.get();
+        MineQTTConfig.telemetryEnabled = TELEMETRY_ENABLED.get();
+        MineQTTConfig.telemetryIntervalSeconds = TELEMETRY_INTERVAL_SECONDS.get();
+        List<String> narrowed = new ArrayList<>();
+        MineQTTConfig.telemetryPlayers = ConfigValidation.telemetryPlayersOrNarrowest(rawTelemetryPlayers(), narrowed);
+        MineQTTConfig.telemetryPublishPlayerNames = ConfigValidation.publishPlayerNamesOrNarrowest(
+                ((ModConfigSpec.ConfigValue<?>) TELEMETRY_PUBLISH_PLAYER_NAMES).get(), narrowed);
+        if (!narrowed.isEmpty()) {
+            // Held in memory, so get() and the config screen read the narrow value; the file keeps its text until the next save.
+            TELEMETRY_PLAYERS.set(MineQTTConfig.telemetryPlayers);
+            TELEMETRY_PUBLISH_PLAYER_NAMES.set(MineQTTConfig.telemetryPublishPlayerNames);
+            narrowed.forEach(problem -> LOGGER.warn("Config: {}", problem));
+        }
+        MineQTTConfig.telemetryAllowBroadcast = TELEMETRY_ALLOW_BROADCAST.get();
+        MineQTTConfig.telemetryMaxPresenceDevices = TELEMETRY_MAX_PRESENCE_DEVICES.get();
+        MineQTTConfig.telemetryForgetAfterDays = TELEMETRY_FORGET_AFTER_DAYS.get();
         MineQTTConfig.serverKeepTickingWhenEmpty = SERVER_KEEP_TICKING_WHEN_EMPTY.get();
         MineQTTConfig.legacyV1StatusTopic = LEGACY_V1_STATUS_TOPIC.get();
         MineQTTConfig.sanitize().forEach(problem -> LOGGER.warn("Config: {}", problem));
@@ -392,6 +515,29 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         return value instanceof String;
     }
 
+    /**
+     * The validator of {@code telemetry.players} and {@code telemetry.publishPlayerNames}: every value present in the file
+     * passes, so NeoForge never corrects one to its default (the widest setting) at load or at a reload of the edited
+     * file; a missing key is still added with its default. {@link ConfigValidation} judges the value in
+     * {@link #loadConfig()} and narrows an invalid one.
+     */
+    private static boolean isPresent(Object value) {
+        return value != null;
+    }
+
+    /**
+     * {@code telemetry.players} as {@link ConfigValidation#telemetryPlayersOrNarrowest} takes it: the setting NightConfig
+     * reads (a name in any case), or {@link #UNREADABLE} for a string that names none or a value of another type, which
+     * NightConfig refuses with an exception.
+     */
+    private static Object rawTelemetryPlayers() {
+        try {
+            return TELEMETRY_PLAYERS.get();
+        } catch (RuntimeException e) {
+            return UNREADABLE;
+        }
+    }
+
     private static String v1String(UnmodifiableConfig v1File, String path) {
         return v1File.get(path) instanceof String value ? value : null;
     }
@@ -419,14 +565,26 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         sink.put(ACL_OPS_BYPASS_ALLOWLIST, MineQTTConfig.aclOpsBypassAllowlist);
         sink.put(ACL_EXPLORER_BROKER_WIDE, MineQTTConfig.aclExplorerBrokerWide);
         sink.put(BLOCK_PLACER_ENABLED, MineQTTConfig.blockPlacerEnabled);
+        sink.put(BLOCK_PLACER_PLAYERS_MAY_CONFIGURE, MineQTTConfig.blockPlacerPlayersMayConfigure);
+        sink.put(BLOCK_PLACER_CONSUME_ITEMS, MineQTTConfig.blockPlacerConsumeItems);
+        sink.put(BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA, MineQTTConfig.blockObserverExportBlockEntityData);
         sink.put(LIMITS_MAX_DEVICES_PER_PLAYER, MineQTTConfig.limitsMaxDevicesPerPlayer);
         sink.put(LIMITS_MAX_WIRES_PER_PLAYER, MineQTTConfig.limitsMaxWiresPerPlayer);
+        sink.put(LIMITS_MAX_ROOMS_PER_PLAYER, MineQTTConfig.limitsMaxRoomsPerPlayer);
+        sink.put(ROOMS_MAX_SIZE, MineQTTConfig.roomsMaxSize);
         sink.put(TWIN_STATESTREAM_BASE, MineQTTConfig.twinStatestreamBase);
         sink.put(TWIN_ALLOWED_ENTITIES, MineQTTConfig.twinAllowedEntities);
         sink.put(TWIN_HA_ACTION_ALLOWLIST, MineQTTConfig.twinHaActionAllowlist);
         sink.put(TWIN_MAX_REQUESTS_PER_SECOND, MineQTTConfig.twinMaxRequestsPerSecond);
         sink.put(TWIN_CATALOG, MineQTTConfig.twinCatalog);
         sink.put(TWIN_CATALOG_MAX, MineQTTConfig.twinCatalogMax);
+        sink.put(TELEMETRY_ENABLED, MineQTTConfig.telemetryEnabled);
+        sink.put(TELEMETRY_INTERVAL_SECONDS, MineQTTConfig.telemetryIntervalSeconds);
+        sink.put(TELEMETRY_PLAYERS, MineQTTConfig.telemetryPlayers);
+        sink.put(TELEMETRY_PUBLISH_PLAYER_NAMES, MineQTTConfig.telemetryPublishPlayerNames);
+        sink.put(TELEMETRY_ALLOW_BROADCAST, MineQTTConfig.telemetryAllowBroadcast);
+        sink.put(TELEMETRY_MAX_PRESENCE_DEVICES, MineQTTConfig.telemetryMaxPresenceDevices);
+        sink.put(TELEMETRY_FORGET_AFTER_DAYS, MineQTTConfig.telemetryForgetAfterDays);
         sink.put(SERVER_KEEP_TICKING_WHEN_EMPTY, MineQTTConfig.serverKeepTickingWhenEmpty);
         sink.put(LEGACY_V1_STATUS_TOPIC, MineQTTConfig.legacyV1StatusTopic);
     }
