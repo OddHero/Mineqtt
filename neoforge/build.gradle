@@ -1,5 +1,6 @@
 plugins {
     id 'com.gradleup.shadow'
+    id 'com.modrinth.minotaur' version '2.10.0'
 }
 
 architectury {
@@ -89,3 +90,22 @@ shadowJar {
 }
 
 assemble.dependsOn shadowJar
+
+modrinth {
+    // MODRINTH_TOKEN must be set (the release workflow passes the repository secret); keep it private.
+    // MODRINTH_DEBUG=true prints the upload instead of sending it.
+    token = System.getenv("MODRINTH_TOKEN")
+    debugMode = System.getenv("MODRINTH_DEBUG") == "true"
+    projectId = "mineqtt"
+    versionNumber = project.version.toString()
+    versionName = "MineQTT ${project.version} (NeoForge)"
+    versionType = rootProject.modrinthVersionType(project.version.toString())
+    changelog = rootProject.changelogFor(project.version.toString())
+    uploadFile = shadowJar // The shadow jar is the final artifact.
+    gameVersions = [rootProject.minecraft_version]
+    loaders = ["neoforge"]
+    dependencies {
+        required.project "architectury-api"
+        optional.project "flan"
+    }
+}

@@ -1,6 +1,6 @@
 plugins {
     id 'com.gradleup.shadow'
-    id "com.modrinth.minotaur" version "2.+"
+    id "com.modrinth.minotaur" version "2.10.0"
     id("net.darkhax.curseforgegradle") version "1.1.15"
 }
 
@@ -162,17 +162,19 @@ shadowJar {
 assemble.dependsOn shadowJar
 
 modrinth {
+    // MODRINTH_TOKEN must be set (the release workflow passes the repository secret); keep it private.
+    // MODRINTH_DEBUG=true prints the upload instead of sending it.
     token = System.getenv("MODRINTH_TOKEN")
-    // Remember to have the MODRINTH_TOKEN environment variable set or else this will fail - just make sure it stays private!
-    projectId = "mineqtt" // This can be the project ID or the slug. Either will work!
-    versionType = "release" // This is the default -- can also be `beta` or `alpha`
+    debugMode = System.getenv("MODRINTH_DEBUG") == "true"
+    projectId = "mineqtt"
+    versionNumber = project.version.toString()
+    versionName = "MineQTT ${project.version} (Fabric)"
+    versionType = rootProject.modrinthVersionType(project.version.toString())
+    changelog = rootProject.changelogFor(project.version.toString())
     uploadFile = shadowJar // With non-remapping Loom the shadow jar is the final artifact.
-    gameVersions = ["26.2"] // Must be an array, even with only one version
-    loaders = ["fabric"] // Must also be an array - no need to specify this if you're using Loom or ForgeGradle
-    dependencies { // A special DSL for creating dependencies
-        // scope.type
-        // The scope can be `required`, `optional`, `incompatible`, or `embedded`
-        // The type can either be `project` or `version`
+    gameVersions = [rootProject.minecraft_version]
+    loaders = ["fabric"]
+    dependencies {
         required.project "fabric-api"
         required.project "architectury-api"
         optional.project "flan"

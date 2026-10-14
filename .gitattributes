@@ -1,0 +1,5 @@
+# Scripts that run on Linux (GitHub runners, Docker containers) keep LF line endings in every checkout and export,
+# also on Windows with core.autocrlf=true.
+gradlew text eol=lf
+*.sh text eol=lf
+gradlew.bat text eol=crlf

@@ -8,6 +8,45 @@ architectury {
     minecraft = project.minecraft_version
 }
 
+// Release notes of one version: the CHANGELOG.md section from its "## <version>" heading up to the next "## " heading.
+// CHANGELOG.md is wrapped at 120 columns; GitHub releases would show every line break, so wrapped lines are joined:
+// a line continues the one before unless it is blank, a heading or a new list item.
+ext.changelogFor = { String v ->
+    def lines = rootProject.file('CHANGELOG.md').readLines('UTF-8')
+    def heading = ~/^## ${java.util.regex.Pattern.quote(v)}(\s.*)?$/
+    def start = lines.findIndexOf { heading.matcher(it).matches() }
+    if (start < 0) {
+        throw new GradleException("CHANGELOG.md has no '## ${v}' section")
+    }
+    def end = lines.findIndexOf(start + 1) { it.startsWith('## ') }
+    def startsBlock = { String line -> line.isBlank() || line.startsWith('#') || line ==~ /^\s*([-*]|\d+\.)\s.*/ }
+    def out = []
+    lines.subList(start + 1, end < 0 ? lines.size() : end).each { line ->
+        if (!startsBlock(line) && out && !out.last().isBlank() && !out.last().startsWith('#')) {
+            out[-1] = out.last() + ' ' + line.trim()
+        } else {
+            out << line
+        }
+    }
+    out.join('\n').trim()
+}
+
+// Modrinth version type from the version: 1.2.3-alpha.1 is an alpha, 1.2.3-beta.1 or -rc.1 a beta, the rest releases.
+ext.modrinthVersionType = { String v ->
+    v.contains('-alpha') ? 'alpha' : (v.contains('-beta') || v.contains('-rc')) ? 'beta' : 'release'
+}
+
+// Writes the release notes of mod_version to build/release-notes.md (the body of the GitHub release).
+tasks.register('releaseNotes') {
+    def out = layout.buildDirectory.file('release-notes.md')
+    def notes = changelogFor(project.mod_version)
+    inputs.property('notes', notes)
+    outputs.file(out)
+    doLast {
+        out.get().asFile.setText(notes + '\n', 'UTF-8')
+    }
+}
+
 allprojects {
     group = rootProject.maven_group
     version = rootProject.mod_version

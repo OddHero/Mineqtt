@@ -1,0 +1,108 @@
+name: Release
+
+# Publishes the version in gradle.properties (mod_version) for Fabric and NeoForge:
+#   - a GitHub release with both jars and the version's CHANGELOG.md section,
+#   - one Modrinth version per loader (project "mineqtt"), with the same changelog.
+#
+# Start it by pushing a tag that equals mod_version (for example 0.8.0, or v0.8.0), or by hand from the Actions tab
+# ("Run workflow", which tags the selected commit). Every step can be re-run: an existing GitHub release gets its files
+# replaced, and a loader that Modrinth already has for this version is skipped.
+#
+# Needs the repository secret MODRINTH_TOKEN: a Modrinth personal access token with the "Create versions" scope.
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+*'
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+    inputs:
+      modrinth:
+        description: Also publish to Modrinth
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version
+        run: |
+          version=$(sed -n 's/^mod_version=//p' gradle.properties | tr -d '\r')
+          minecraft=$(sed -n 's/^minecraft_version=//p' gradle.properties | tr -d '\r')
+          if [ -z "$version" ] || [ -z "$minecraft" ]; then
+            echo "::error::gradle.properties has no mod_version or minecraft_version"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+            if [ "${tag#v}" != "$version" ]; then
+              echo "::error::Tag $tag does not match mod_version $version in gradle.properties"
+              exit 1
+            fi
+          else
+            tag="$version"
+          fi
+          {
+            echo "VERSION=$version"
+            echo "MINECRAFT=$minecraft"
+            echo "TAG=$tag"
+          } >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Build, run the checks and write the release notes
+        run: ./gradlew build releaseNotes --console=plain
+
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
+          name: MineQTT ${{ env.VERSION }}
+          body_path: build/release-notes.md
+          prerelease: ${{ contains(env.VERSION, '-') }}
+          files: |
+            fabric/build/libs/MineQTT-fabric-${{ env.VERSION }}.jar
+            neoforge/build/libs/MineQTT-neoforge-${{ env.VERSION }}.jar
+          fail_on_unmatched_files: true
+
+      - name: Modrinth
+        if: github.event_name == 'push' || inputs.modrinth
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+        run: |
+          if [ -z "$MODRINTH_TOKEN" ]; then
+            echo "::error::The repository secret MODRINTH_TOKEN is not set"
+            exit 1
+          fi
+          set --
+          for loader in fabric neoforge; do
+            url="https://api.modrinth.com/v2/project/mineqtt/version?loaders=%5B%22$loader%22%5D&game_versions=%5B%22$MINECRAFT%22%5D"
+            existing=$(curl -fsS -A "OddHero/Mineqtt release workflow" "$url" \
+              | jq --arg v "$VERSION" '[.[] | select(.version_number == $v)] | length')
+            if [ "$existing" -gt 0 ]; then
+              echo "Modrinth already has $VERSION for $loader on $MINECRAFT, skipping it."
+            else
+              set -- "$@" ":$loader:modrinth"
+            fi
+          done
+          if [ "$#" -gt 0 ]; then
+            ./gradlew "$@" --console=plain
+          fi

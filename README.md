@@ -1109,6 +1109,24 @@ Loom preserves JVM arguments in existing application configurations.
 Home Assistant) and the manual end-to-end checklist. The architecture is described in
 [`.github/mineqtt-architecture.md`](.github/mineqtt-architecture.md).
 
+## Releases
+
+GitHub Actions builds both loaders and runs `./gradlew build` (all checks) on every push to `main` and on pull
+requests; the jars are attached to the run for two weeks.
+
+A release publishes the version in `gradle.properties` (`mod_version`) for Fabric and NeoForge: a GitHub release with
+both jars and one Modrinth version per loader, each with that version's section of [`CHANGELOG.md`](CHANGELOG.md).
+
+1. Set `mod_version`, add its `## <version>` section to `CHANGELOG.md` and merge to `main`.
+2. Push a tag that equals the version (`git tag 0.8.0 && git push origin 0.8.0`; `v0.8.0` works as well), or start
+   the *Release* workflow by hand on the Actions tab. A version with `-alpha`, `-beta` or `-rc` is published as a
+   pre-release on GitHub and as an alpha or beta on Modrinth.
+
+The workflow needs the repository secret `MODRINTH_TOKEN`, a Modrinth personal access token with the *Create versions*
+scope. Re-running a failed release is safe: the GitHub release gets its files replaced, and a loader that Modrinth
+already lists for the version is skipped. To see what would be uploaded without sending anything, run
+`MODRINTH_DEBUG=true MODRINTH_TOKEN=x ./gradlew :fabric:modrinth :neoforge:modrinth`.
+
 ## Roadmap
 
 ### Implemented (MineQTT 0.6.0: the v2 milestones 1 and 2)
