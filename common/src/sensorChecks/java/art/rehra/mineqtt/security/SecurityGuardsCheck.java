@@ -906,14 +906,25 @@ public final class SecurityGuardsCheck {
     }
 
     private static CompoundTag save(Slots block) {
+        // A block entity saves into a ValueOutput from 1.21.6 on, into a tag before.
+        //? if >=1.21.6 {
         TagValueOutput output = TagValueOutput.createWithoutContext(ProblemReporter.DISCARDING);
         block.saveAdditional(output);
         return output.buildResult();
+        //?} else {
+        /*CompoundTag tag = new CompoundTag();
+        block.saveAdditional(tag, RegistryAccess.EMPTY);
+        return tag;
+        *///?}
     }
 
     private static Slots load(CompoundTag tag) {
         Slots block = new Slots();
+        //? if >=1.21.6 {
         block.loadAdditional(TagValueInput.create(ProblemReporter.DISCARDING, RegistryAccess.EMPTY, tag));
+        //?} else {
+        /*block.loadAdditional(tag, RegistryAccess.EMPTY);
+        *///?}
         return block;
     }
 

@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.legacy;
 
+import art.rehra.mineqtt.compat.BlockEntityStorage;
+import art.rehra.mineqtt.compat.ContainerItems;
 import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.blocks.HumiditySensorBlock;
 import art.rehra.mineqtt.blocks.StaticPublisherBlock;
@@ -67,7 +69,6 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.util.ProblemReporter;
-import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.ItemStackWithSlot;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EntityTypes;
@@ -423,7 +424,7 @@ public final class LegacyNbtV1Test {
     private static DecommissionedBlockEntity retired(CompoundTag data) {
         DecommissionedBlockEntity blockEntity = new DecommissionedBlockEntity(BlockEntityTypes.DAYLIGHT_DETECTOR, BlockPos.ZERO,
                 Blocks.DAYLIGHT_DETECTOR.defaultBlockState());
-        blockEntity.loadCustomOnly(input(data));
+        BlockEntityStorage.loadCustomOnly(blockEntity, input(data));
         return blockEntity;
     }
 
@@ -1101,7 +1102,7 @@ public final class LegacyNbtV1Test {
         output.putString("lastTabId", "settings");
         output.putString("ownerName", owner);
         output.putBoolean("privateMode", privateMode);
-        ContainerHelper.saveAllItems(output, NonNullList.of(ItemStack.EMPTY, base, sub, on, off));
+        ContainerItems.save(output, NonNullList.of(ItemStack.EMPTY, base, sub, on, off));
         return output.buildResult();
     }
 
@@ -1133,10 +1134,10 @@ public final class LegacyNbtV1Test {
     private static CompoundTag v1Motion(CompoundTag device, boolean motion, int lastCount) {
         CompoundTag sensor = device.copy();
         NonNullList<ItemStack> items = NonNullList.withSize(9, ItemStack.EMPTY);
-        ContainerHelper.loadAllItems(input(device), items);
+        ContainerItems.load(input(device), items);
         items.set(6, spawnEgg(Items.ZOMBIE_SPAWN_EGG, EntityTypes.ZOMBIE));
         TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
-        ContainerHelper.saveAllItems(output, items);
+        ContainerItems.save(output, items);
         sensor.merge(output.buildResult());
         sensor.putByte("MotionDetected", (byte) (motion ? 1 : 0));
         sensor.putLong("LastMotionTime", 1_759_917_600_000L);
@@ -1191,7 +1192,7 @@ public final class LegacyNbtV1Test {
     private static CompoundTag v1Dynamic(CompoundTag device, ItemStack base, ItemStack sub, int dataType) {
         CompoundTag publisher = device.copy();
         TagValueOutput slots = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
-        ContainerHelper.saveAllItems(slots, NonNullList.of(ItemStack.EMPTY, base, sub));
+        ContainerItems.save(slots, NonNullList.of(ItemStack.EMPTY, base, sub));
         publisher.merge(slots.buildResult());
         publisher.putInt("dataType", dataType);
         publisher.putBoolean("wasPowered", false);
@@ -1207,7 +1208,7 @@ public final class LegacyNbtV1Test {
         output.putString("lastTabId", "rgb_status");
         output.putString("ownerName", "Steve");
         output.putBoolean("privateMode", false);
-        ContainerHelper.saveAllItems(output, NonNullList.of(ItemStack.EMPTY, base, ItemStack.EMPTY));
+        ContainerItems.save(output, NonNullList.of(ItemStack.EMPTY, base, ItemStack.EMPTY));
         output.putString("currentSubscribedTopic", topic);
         output.putInt("Red", red);
         output.putInt("Green", green);

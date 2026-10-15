@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.framework;
 
+import art.rehra.mineqtt.compat.GuiPose;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -168,12 +169,11 @@ public final class GuiText {
         }
         int drawY = y + (maxHeight - scaledH) / 2;
 
-        var pose = g.pose();
-        pose.pushMatrix();
-        pose.translate(drawX, drawY);
-        pose.scale(scale, scale);
+        GuiPose.push(g);
+        GuiPose.translate(g, drawX, drawY);
+        GuiPose.scale(g, scale);
         g.text(f, rendered, 0, 0, color, false);
-        pose.popMatrix();
+        GuiPose.pop(g);
 
         if (truncated) {
             maybeTooltip(g, text, drawX, drawY, scaledW, scaledH, mouseX, mouseY);
@@ -194,14 +194,13 @@ public final class GuiText {
             lines = f.split(Component.literal(text), (int) Math.floor(maxWidth / scale));
         }
         int fitting = Math.min(lines.size(), (int) Math.floor(maxHeight / (f.lineHeight * scale)));
-        var pose = g.pose();
-        pose.pushMatrix();
-        pose.translate(x, y);
-        pose.scale(scale, scale);
+        GuiPose.push(g);
+        GuiPose.translate(g, x, y);
+        GuiPose.scale(g, scale);
         for (int i = 0; i < fitting; i++) {
             g.text(f, lines.get(i), 0, i * f.lineHeight, color, false);
         }
-        pose.popMatrix();
+        GuiPose.pop(g);
         if (fitting < lines.size()) maybeTooltip(g, text, x, y, maxWidth, maxHeight, mouseX, mouseY);
     }
 

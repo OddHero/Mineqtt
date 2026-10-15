@@ -36,6 +36,31 @@ stonecutter.parameters {
         }
     }
 
+    // 1.21.6 saves block entities through ValueInput and ValueOutput; before, compat.storage stands in for them over the
+    // CompoundTag a block entity is handed, and ItemStackWithSlot too.
+    replacements.string(before('1.21.6')) {
+        ['ValueInput', 'ValueOutput', 'TagValueInput', 'TagValueOutput'].each {
+            replace("import net.minecraft.world.level.storage.${it};", "import art.rehra.mineqtt.compat.storage.${it};")
+        }
+        replace('import net.minecraft.util.ProblemReporter;', 'import art.rehra.mineqtt.compat.storage.ProblemReporter;')
+        replace('import net.minecraft.world.ItemStackWithSlot;', 'import art.rehra.mineqtt.compat.ItemStackWithSlot;')
+    }
+    replacements.regex(before('1.21.6')) {
+        // A command's permission predicate (Commands.hasPermission is new in 1.21.6) and the GUI's deferred tooltips.
+        replace('\\bCommands\\.hasPermission\\((Commands\\.LEVEL_\\w+)\\)', 'source -> source.hasPermission($1)',
+                'source -> source\\.hasPermission\\((Commands\\.LEVEL_\\w+)\\)', 'Commands.hasPermission($1)')
+        replace('\\bg\\.setTooltipForNextFrame\\(', 'g.renderTooltip(', '\\bg\\.renderTooltip\\(', 'g.setTooltipForNextFrame(')
+        def params = 'net.minecraft.nbt.CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries'
+        [save: ['ValueOutput', 'output'], load: ['ValueInput', 'input']].each { verb, typed ->
+            def (type, name) = typed
+            def wrap = "${type} ${name} = art.rehra.mineqtt.compat.storage.Tag${type}.wrap(tag, registries);"
+            replace("protected void ${verb}Additional\\(${type} ${name}\\) \\{(\\r?\\n)([ \\t]+)super\\.${verb}Additional\\(${name}\\);",
+                    "protected void ${verb}Additional(${params}) {\$1\$2super.${verb}Additional(tag, registries);\$1\$2${wrap}",
+                    "protected void ${verb}Additional\\(${java.util.regex.Pattern.quote(params)}\\) \\{(\\r?\\n)([ \\t]+)super\\.${verb}Additional\\(tag, registries\\);\\r?\\n[ \\t]+${java.util.regex.Pattern.quote(wrap)}",
+                    "protected void ${verb}Additional(${type} ${name}) {\$1\$2super.${verb}Additional(${name});")
+        }
+    }
+
     // 1.21.9 made game profiles records and named a player by NameAndId; before, compat.NameAndId stands in for it.
     replacements.string(before('1.21.9')) {
         replace('EditBox.DEFAULT_HINT_STYLE', 'net.minecraft.ChatFormatting.DARK_GRAY')

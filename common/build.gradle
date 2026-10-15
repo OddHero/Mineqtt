@@ -18,8 +18,9 @@ dependencies {
     // Common Cloth Config dependency
     add(project.modCompileOnly, "me.shedaniel.cloth:cloth-config:$project.cloth_config_version")
 
-    // Common Flan API dependency
-    add(project.modCompileOnly, "io.github.flemmli97:flan:${project.flan_version}-common:api") { transitive = false }
+    // The Flan API, from its NeoForge jar: that one has Mojang's names on every version, while some common jars (1.21.4,
+    // 1.21.5) keep intermediary names, which Loom does not remap in a jar that is no mod.
+    compileOnly("io.github.flemmli97:flan:${project.flan_version}-neoforge:api") { transitive = false }
 }
 
 // The data files are written for 26.2. Where another version reads them differently, processResources rewrites the

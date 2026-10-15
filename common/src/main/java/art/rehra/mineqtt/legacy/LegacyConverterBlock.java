@@ -115,9 +115,13 @@ public abstract class LegacyConverterBlock extends BaseEntityBlock {
         level.setBlock(pos, converter.successorState(state), Block.UPDATE_ALL | Block.UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS);
         BlockEntity successor = level.getBlockEntity(pos);
         if (successor == null) throw new IllegalStateException(converter.successor() + " at " + pos.toShortString() + " has no block entity to take the data");
+        //? if >=1.21.6 {
         try (ProblemReporter.ScopedCollector problems = new ProblemReporter.ScopedCollector(successor.problemPath(), MineQTT.LOGGER)) {
             successor.loadWithComponents(TagValueInput.create(problems, level.registryAccess(), data));
         }
+        //?} else {
+        /*successor.loadWithComponents(data, level.registryAccess());
+        *///?}
         successor.setChanged();
         MineQTT.LOGGER.info("Converted the {} at {} in {} into {}", BuiltInRegistries.BLOCK.getKey(converter), pos.toShortString(),
                 level.dimension().identifier(), BuiltInRegistries.BLOCK.getKey(converter.successor()));

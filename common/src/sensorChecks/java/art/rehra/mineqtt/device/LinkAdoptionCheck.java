@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.BlockEntityStorage;
 import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity;
 import art.rehra.mineqtt.blocks.entities.BlockSensorBlockEntity;
@@ -146,7 +147,7 @@ public final class LinkAdoptionCheck {
         CompoundTag ownerless = v1Lamp.copy();
         ownerless.remove("ownerName");
         LampData lamp = new LampData();
-        lamp.loadCustomOnly(input(registries, ownerless));
+        BlockEntityStorage.loadCustomOnly(lamp, input(registries, ownerless));
         lamp.link.adopt(lamp.link.takePendingV1(), true);
         RawLink raw = lamp.link.raw();
         check(lamp.link.owner() == null && lamp.link.ownerName().isEmpty(), "A v1 lamp without owner name has no owner");
@@ -161,7 +162,7 @@ public final class LinkAdoptionCheck {
         check(!lamp.link.claim(lamp, STEVE, "Steve") && ALEX.equals(lamp.link.owner()), "An owned device cannot be claimed");
 
         LampData named = new LampData();
-        named.loadCustomOnly(input(registries, v1Lamp));
+        BlockEntityStorage.loadCustomOnly(named, input(registries, v1Lamp));
         named.link.adopt(named.link.takePendingV1(), true);
         check(!named.link.claim(named, ALEX, "Alex") && named.link.owner() == null, "A v1 owner name still to resolve is not claimed by someone else");
     }
@@ -741,7 +742,7 @@ public final class LinkAdoptionCheck {
     // Loads M1 data into a fresh stand-in, checks the migration and that a second load is idempotent, and returns it.
     private static <T extends StandIn> T migrated(HolderLookup.Provider registries, CompoundTag m1, Supplier<T> fresh) {
         T device = fresh.get();
-        device.loadCustomOnly(input(registries, m1));
+        BlockEntityStorage.loadCustomOnly(device, input(registries, m1));
         DeviceLink link = device.deviceLink();
         CompoundTag m1Compound = m1.getCompound(DeviceLink.KEY).orElseThrow();
         String name = m1Compound.getStringOr("slug", "?");
@@ -759,7 +760,7 @@ public final class LinkAdoptionCheck {
             check(Objects.equals(compound.get(key), m1Compound.get(key)), name + ": " + key + " is unchanged: " + compound.get(key) + " was " + m1Compound.get(key));
         }
         T again = fresh.get();
-        again.loadCustomOnly(input(registries, saved));
+        BlockEntityStorage.loadCustomOnly(again, input(registries, saved));
         check(again.deviceLink().loadedVersion() == DeviceLink.VERSION && sameItems(again.deviceLink().legacyItems(), m1, registries)
                 && again.saveCustomOnly(registries).equals(saved), name + ": a second load and save changes nothing");
         return device;
@@ -792,7 +793,7 @@ public final class LinkAdoptionCheck {
 
     private static <T extends StandIn> T fresh(HolderLookup.Provider registries, CompoundTag data, Supplier<T> factory) {
         T device = factory.get();
-        device.loadCustomOnly(input(registries, data));
+        BlockEntityStorage.loadCustomOnly(device, input(registries, data));
         return device;
     }
 

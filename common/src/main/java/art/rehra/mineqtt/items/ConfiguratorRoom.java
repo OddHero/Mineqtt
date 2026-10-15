@@ -292,7 +292,7 @@ public final class ConfiguratorRoom {
     private static void outline(ServerPlayer player, DeviceRegistry registry) {
         List<Box> boxes = boxes(player, registry);
         int budget = MAX_PARTICLES;
-        ServerLevel level = player.level();
+        ServerLevel level = (ServerLevel) player.level(); // a ServerPlayer's level is typed so from 1.21.6 on
         for (int i = 0; i < boxes.size() && budget > 0; i++) {
             Box box = boxes.get(i);
             List<double[]> points = edgePoints(box, budget / (boxes.size() - i));

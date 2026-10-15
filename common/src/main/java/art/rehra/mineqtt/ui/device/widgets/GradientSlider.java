@@ -1,7 +1,9 @@
 package art.rehra.mineqtt.ui.device.widgets;
 
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+//? if >=1.21.6 {
 import net.minecraft.client.renderer.RenderPipelines;
+//?}
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.ARGB;
@@ -55,8 +57,19 @@ public class GradientSlider extends IntSlider {
         }
         if (!active) g.fill(left, top, left + width, bottom, INACTIVE_SHADE);
         float handleAlpha = dimmed && !held() ? 0.45f : 1f;
-        g.blitSprite(RenderPipelines.GUI_TEXTURED, isHoveredOrFocused() && active ? HANDLE_HIGHLIGHTED : HANDLE,
-                getX() + (int) (value * (getWidth() - HANDLE_W)), getY(), HANDLE_W, getHeight(), ARGB.white(handleAlpha * alpha));
+        Identifier handle = isHoveredOrFocused() && active ? HANDLE_HIGHLIGHTED : HANDLE;
+        int handleX = getX() + (int) (value * (getWidth() - HANDLE_W));
+        // Sprites are drawn through a render pipeline from 1.21.6 on, a render type from 1.21.2 on, and tinted by the
+        // shader colour before.
+        //? if >=1.21.6 {
+        g.blitSprite(RenderPipelines.GUI_TEXTURED, handle, handleX, getY(), HANDLE_W, getHeight(), ARGB.white(handleAlpha * alpha));
+        //?} else if >=1.21.2 {
+        /*g.blitSprite(net.minecraft.client.renderer.RenderType::guiTextured, handle, handleX, getY(), HANDLE_W, getHeight(), ARGB.white(handleAlpha * alpha));
+        *///?} else {
+        /*com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1f, 1f, 1f, handleAlpha * alpha);
+        g.blitSprite(handle, handleX, getY(), HANDLE_W, getHeight());
+        com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        *///?}
         //? if >=1.21.11 {
         handleCursor(g);
         //?}
