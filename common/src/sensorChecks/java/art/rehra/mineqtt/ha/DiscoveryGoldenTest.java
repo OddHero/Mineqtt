@@ -472,7 +472,11 @@ public final class DiscoveryGoldenTest {
     // #mineqtt:placeable as a datapack reload binds it, the built-in registry being frozen.
     private static void bindPlaceable(Block... blocks) {
         List<Holder<Block>> members = Arrays.stream(blocks).<Holder<Block>>map(Block::builtInRegistryHolder).toList();
+        //? if >=1.21.2 {
         BuiltInRegistries.BLOCK.prepareTagReload(new TagLoader.LoadResult<>(Registries.BLOCK, Map.of(PlacerRules.PLACEABLE, members))).apply();
+        //?} else {
+        /*BuiltInRegistries.BLOCK.bindTags(Map.of(PlacerRules.PLACEABLE, members));
+        *///?}
     }
 
     /**

@@ -49,7 +49,11 @@ public class CyberdeckItem extends Item {
     }
 
     @Override
+    //? if >=1.21.2 {
     public InteractionResult use(Level level, Player player, InteractionHand hand) {
+    //?} else {
+    /*public net.minecraft.world.InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
+    *///?}
         if (!level.isClientSide() && player instanceof ServerPlayer serverPlayer) {
             ItemStack stack = player.getItemInHand(hand);
             ConfiguratorMode mode = CyberdeckDataUtil.mode(stack);
@@ -67,7 +71,11 @@ public class CyberdeckItem extends Item {
                 openExplorer(serverPlayer);
             }
         }
+        //? if >=1.21.2 {
         return InteractionResult.SUCCESS;
+        //?} else {
+        /*return net.minecraft.world.InteractionResultHolder.sidedSuccess(player.getItemInHand(hand), level.isClientSide());
+        *///?}
     }
 
     /**
@@ -91,7 +99,11 @@ public class CyberdeckItem extends Item {
                 player.getInventory().placeItemBackInInventory(item);
                 //?}
             } else {
+                //? if >=1.21.2 {
                 entity.spawnAtLocation(level, item);
+                //?} else {
+                /*entity.spawnAtLocation(item);
+                *///?}
             }
         }
     }

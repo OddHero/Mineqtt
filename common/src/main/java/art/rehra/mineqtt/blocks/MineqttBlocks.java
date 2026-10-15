@@ -74,6 +74,10 @@ public class MineqttBlocks {
     }
 
     public static Block.Properties baseProperties(String name) {
+        //? if >=1.21.2 {
         return BlockBehaviour.Properties.of().setId(ResourceKey.create(Registries.BLOCK, Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, name)));
+        //?} else {
+        /*return BlockBehaviour.Properties.of(); // blocks know their id from 1.21.2 on
+        *///?}
     }
 }

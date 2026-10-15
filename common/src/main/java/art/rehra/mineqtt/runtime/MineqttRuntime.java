@@ -217,7 +217,11 @@ public final class MineqttRuntime {
         mqtt.onConnected(this::connected);
         this.dedicated = server.isDedicatedServer();
         // Queued, never run in place: a wake from inside a slow tick's flush must not run the pump within it.
+        //? if >=1.21.2 {
         this.pump = new PausedServerPump(task -> server.schedule(server.wrapRunnable(task)), this::pausedPump,
+        //?} else {
+        /*this.pump = new PausedServerPump(task -> server.tell(new net.minecraft.server.TickTask(server.getTickCount(), task)), this::pausedPump,
+        *///?}
                 () -> paused(playersAtLastTick), this::pendingWork, log, PausedServerPump.PERIOD_MILLIS);
         mqtt.onInboundAvailable(pump::wake);
     }
@@ -385,7 +389,11 @@ public final class MineqttRuntime {
 
     /** {@code pause-when-empty-seconds} as {@code server.properties} sets it; 0 on any other server. */
     public int configuredPauseWhenEmptySeconds() {
+        //? if >=1.21.2 {
         return dedicated ? ((DedicatedServer) server).pauseWhenEmptySeconds() : 0;
+        //?} else {
+        /*return 0; // 1.21.2 brought pause-when-empty-seconds
+        *///?}
     }
 
     /**

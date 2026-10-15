@@ -265,7 +265,11 @@ public class TwinTabView implements MqttTabView {
      */
     private void openPickerLater(String key) {
         Minecraft minecraft = Minecraft.getInstance();
+        //? if >=1.21.2 {
         minecraft.schedule(() -> {
+        //?} else {
+        /*minecraft.tell(() -> {
+        *///?}
             if (Screens.current() == screen) Screens.open(new TwinPickerScreen(screen, menu, tab, key));
         });
     }

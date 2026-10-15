@@ -43,6 +43,21 @@ processResources {
             }
         }
     }
+    if (stonecutter.eval(mc, '<1.21.2')) {
+        // An empty server pauses from 1.21.2 on; before, there is no pause for the mixin to hold off.
+        filesMatching('mineqtt.mixins.json') {
+            filter { String line -> line.contains('"MinecraftServerPauseMixin"') ? null : line }
+        }
+        // 1.21.2 lets a recipe name an ingredient by its id alone ("minecraft:clock", "#minecraft:planks"); before, an
+        // ingredient is an object. Pattern rows have no colon, so only keys and ingredient list entries match.
+        def ingredient = { String prefix -> '^(\\s*(?:"\\w": )?)"' + prefix + '([a-z0-9_.-]+:[a-z0-9_./-]+)"' }
+        filesMatching('data/*/recipe/**/*.json') {
+            filter { String line ->
+                line.replaceFirst(ingredient('#'), '$1{"tag": "$2"}')
+                    .replaceFirst(ingredient(''), '$1{"item": "$2"}')
+            }
+        }
+    }
     if (stonecutter.eval(mc, '>=26.3')) {
         // 26.3's recipe_unlocked trigger takes "recipes" instead of "recipe".
         filesMatching('data/*/advancement/**/*.json') {

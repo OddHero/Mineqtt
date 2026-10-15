@@ -14,7 +14,9 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
+//? if >=1.21.2 {
 import net.minecraft.world.level.ScheduledTickAccess;
+//?}
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
@@ -73,10 +75,19 @@ public class BlockEmitterBlock extends BaseMqttBlock {
 
     /** The block in front changed: the placer looks whether the block it placed still stands. */
     @Override
+    //? if >=1.21.2 {
     protected BlockState updateShape(BlockState state, LevelReader level, ScheduledTickAccess ticks, BlockPos pos, Direction direction, BlockPos neighborPos,
                                      BlockState neighborState, RandomSource random) {
+    //?} else {
+    /*protected BlockState updateShape(BlockState state, Direction direction, BlockState neighborState, net.minecraft.world.level.LevelAccessor level, BlockPos pos,
+                                     BlockPos neighborPos) {
+    *///?}
         if (direction == state.getValue(FACING) && level.getBlockEntity(pos) instanceof BlockEmitterBlockEntity placer) placer.frontChanged();
+        //? if >=1.21.2 {
         return super.updateShape(state, level, ticks, pos, direction, neighborPos, neighborState, random);
+        //?} else {
+        /*return super.updateShape(state, direction, neighborState, level, pos, neighborPos);
+        *///?}
     }
 
     @Override

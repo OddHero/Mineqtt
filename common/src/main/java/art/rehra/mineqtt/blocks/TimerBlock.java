@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks;
 
+import art.rehra.mineqtt.compat.Redstone;
 import art.rehra.mineqtt.blocks.entities.TimerBlockEntity;
 import art.rehra.mineqtt.device.timer.core.TimerKind;
 import com.mojang.serialization.Codec;
@@ -19,8 +20,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
-import net.minecraft.world.level.redstone.ExperimentalRedstoneUtils;
-import net.minecraft.world.level.redstone.Orientation;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -73,12 +72,7 @@ public class TimerBlock extends BaseMqttBlock {
 
     /** Tells the blocks around and the blocks around those that the timer's power changed. */
     public void updateNeighbors(Level level, BlockPos pos, BlockState state) {
-        for (Direction direction : Direction.values()) {
-            BlockPos blockPos = pos.relative(direction);
-            Orientation orientation = ExperimentalRedstoneUtils.initialOrientation(level, direction, Direction.UP);
-            level.neighborChanged(blockPos, this, orientation);
-            level.updateNeighborsAtExceptFromFacing(blockPos, this, direction.getOpposite(), orientation);
-        }
+        Redstone.updateNeighbors(level, pos, this);
     }
 
     @Override

@@ -9,7 +9,9 @@ import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
+//? if >=1.21.2 {
 import net.minecraft.world.level.ScheduledTickAccess;
+//?}
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Mirror;
@@ -142,12 +144,21 @@ public class RgbLedBlock extends BaseMqttBlock {
      * as a lamp below switching on, keeps a lamp it never held, which 0.6.0 placed without a survival check.
      */
     @Override
+    //? if >=1.21.2 {
     protected BlockState updateShape(BlockState state, LevelReader level, ScheduledTickAccess ticks, BlockPos pos, Direction direction,
                                      BlockPos neighbourPos, BlockState neighbourState, RandomSource random) {
+    //?} else {
+    /*protected BlockState updateShape(BlockState state, Direction direction, BlockState neighbourState, net.minecraft.world.level.LevelAccessor level, BlockPos pos,
+                                     BlockPos neighbourPos) {
+    *///?}
         if (direction == pointing(state).getOpposite() && neighbourState.canBeReplaced() && !state.canSurvive(level, pos)) {
             return Blocks.AIR.defaultBlockState();
         }
+        //? if >=1.21.2 {
         return super.updateShape(state, level, ticks, pos, direction, neighbourPos, neighbourState, random);
+        //?} else {
+        /*return super.updateShape(state, direction, neighbourState, level, pos, neighbourPos);
+        *///?}
     }
 
     @Override

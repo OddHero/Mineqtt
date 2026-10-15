@@ -150,7 +150,7 @@ public class BlockEmitterBlockEntity extends DeviceBlockEntity {
 
     // The block of a setting, checked against the code's denies and the tag as the server has it now.
     private static DataResult<PlacerRules.Request> allowed(String text) {
-        return PlacerRules.allowed(text, BuiltInRegistries.BLOCK, PlacerRules::placeable);
+        return PlacerRules.allowed(text, art.rehra.mineqtt.compat.Lookups.blocks(), PlacerRules::placeable);
     }
 
     /**

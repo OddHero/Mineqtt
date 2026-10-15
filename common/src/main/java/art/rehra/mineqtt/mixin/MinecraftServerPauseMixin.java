@@ -21,6 +21,8 @@ import java.util.function.BooleanSupplier;
  */
 @Mixin(MinecraftServer.class)
 public abstract class MinecraftServerPauseMixin {
+    // An empty server pauses from 1.21.2 on; before, the mixin is left out of mineqtt.mixins.json and has nothing to do.
+    //? if >=1.21.2 {
 
     @Shadow
     private int emptyTicks;
@@ -29,4 +31,5 @@ public abstract class MinecraftServerPauseMixin {
     private void mineqtt$keepTickingWhenEmpty(BooleanSupplier haveTime, CallbackInfo ci) {
         if (MineQTTConfig.serverKeepTickingWhenEmpty && (Object) this instanceof DedicatedServer) emptyTicks = 0;
     }
+    //?}
 }

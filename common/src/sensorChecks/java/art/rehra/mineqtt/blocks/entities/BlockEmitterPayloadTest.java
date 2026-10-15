@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.CheckItems;
+import art.rehra.mineqtt.compat.Lookups;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.PlacerRules;
 import art.rehra.mineqtt.device.RawLinkSpec;
@@ -104,7 +105,7 @@ public final class BlockEmitterPayloadTest {
         refused("minecraft:white_wool please", "text after it", "Nothing may follow the block");
         refused("minecraft:nothing_like_it", "not a block", "An unknown block");
         refused("", "no block given", "Nothing");
-        check(PlacerRules.parse("Stone", BuiltInRegistries.BLOCK).error().isPresent(), "v1's display names are no ids any more");
+        check(PlacerRules.parse("Stone", Lookups.blocks()).error().isPresent(), "v1's display names are no ids any more");
     }
 
     /** D12: a datapack may add anything to the tag; the code still refuses these. */
@@ -236,7 +237,7 @@ public final class BlockEmitterPayloadTest {
     }
 
     private static DataResult<PlacerRules.Request> allowed(String text) {
-        return PlacerRules.allowed(text, BuiltInRegistries.BLOCK, PLACEABLE::contains);
+        return PlacerRules.allowed(text, Lookups.blocks(), PLACEABLE::contains);
     }
 
     private static void refused(String text, String reason, String description) {
@@ -266,7 +267,11 @@ public final class BlockEmitterPayloadTest {
                 } else {
                     Identifier id = Identifier.parse(entry);
                     check(BuiltInRegistries.BLOCK.containsKey(id), "The tag names a block that exists: " + id);
+                    //? if >=1.21.2 {
                     blocks.add(BuiltInRegistries.BLOCK.getValue(id));
+                    //?} else {
+                    /*blocks.add(BuiltInRegistries.BLOCK.get(id));
+                    *///?}
                 }
             }
         }

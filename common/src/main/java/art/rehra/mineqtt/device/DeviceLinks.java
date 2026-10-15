@@ -63,7 +63,7 @@ public record DeviceLinks(BlockPos pos, List<Row> rows, int total) {
         // Here rather than beside the list's codec, so the row's class needs nothing of the list's to initialise.
         private static final IntFunction<Mapping> MAPPING_BY_ID = ByIdMap.continuous(Enum::ordinal, Mapping.values(), ByIdMap.OutOfBoundsStrategy.ZERO);
         private static final StreamCodec<ByteBuf, Mapping> MAPPING_CODEC = ByteBufCodecs.idMapper(MAPPING_BY_ID, Enum::ordinal);
-        public static final StreamCodec<ByteBuf, Row> STREAM_CODEC = StreamCodec.composite(
+        public static final StreamCodec<ByteBuf, Row> STREAM_CODEC = art.rehra.mineqtt.compat.StreamCodecs.composite(
                 UUIDUtil.STREAM_CODEC, Row::wire,
                 ByteBufCodecs.BOOL, Row::outgoing,
                 ByteBufCodecs.stringUtf8(MAX_PORT_CHARS), Row::port,

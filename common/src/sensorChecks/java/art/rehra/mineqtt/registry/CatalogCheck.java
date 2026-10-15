@@ -270,15 +270,22 @@ public final class CatalogCheck {
         List<String> ids = new ArrayList<>();
         Consumer<JsonElement> add = ingredient -> {
             if (ingredient.isJsonArray()) {
-                ingredient.getAsJsonArray().forEach(alternative -> ids.add(alternative.getAsString()));
+                ingredient.getAsJsonArray().forEach(alternative -> ids.add(ingredientId(alternative)));
             } else {
-                ids.add(ingredient.getAsString());
+                ids.add(ingredientId(ingredient));
             }
         };
         if (recipe.has("key")) recipe.getAsJsonObject("key").entrySet().forEach(key -> add.accept(key.getValue()));
         if (recipe.has("ingredients")) recipe.getAsJsonArray("ingredients").forEach(add);
         if (recipe.has("ingredient")) add.accept(recipe.get("ingredient"));
         return ids;
+    }
+
+    // An ingredient by its id ("minecraft:clock", "#minecraft:planks"), or before 1.21.2 as {"item": ...} or {"tag": ...}.
+    private static String ingredientId(JsonElement ingredient) {
+        if (!ingredient.isJsonObject()) return ingredient.getAsString();
+        JsonObject object = ingredient.getAsJsonObject();
+        return object.has("tag") ? "#" + object.get("tag").getAsString() : object.get("item").getAsString();
     }
 
     // ===== Recipe advancements =====

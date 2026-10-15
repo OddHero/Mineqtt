@@ -36,6 +36,13 @@ stonecutter.parameters {
         }
     }
 
+    // 1.21.2 brought net.minecraft.util.ARGB; before, compat.ARGB has the helpers the mod uses. Screen.getFont() is new
+    // in 1.21.2 too.
+    replacements.string(before('1.21.2')) {
+        replace('import net.minecraft.util.ARGB;', 'import art.rehra.mineqtt.compat.ARGB;')
+        replace('screen.getFont()', 'net.minecraft.client.Minecraft.getInstance().font')
+    }
+
     // 1.21.6 saves block entities through ValueInput and ValueOutput; before, compat.storage stands in for them over the
     // CompoundTag a block entity is handed, and ItemStackWithSlot too.
     replacements.string(before('1.21.6')) {
