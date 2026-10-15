@@ -37,10 +37,10 @@ public interface PermissionSet {
 //? if >=1.21.9 && <1.21.11 {
 /*        return LevelBasedPermissionSet.forLevel(((MinecraftServer) server).getProfilePermissions(profile));
 *///?} else if <1.21.9 {
-/*        return LevelBasedPermissionSet.forLevel(((MinecraftServer) server).getProfilePermissions(profile.toProfile()));
+        /*return LevelBasedPermissionSet.forLevel(((MinecraftServer) server).getProfilePermissions(profile.toProfile()));
 *///?}
 //? if <1.21.11 {
-/*    }
+    /*}
 
     static Function<NameAndId, PermissionSet> profiles(MinecraftServer server) {
         return profile -> ofProfile(server, profile);
