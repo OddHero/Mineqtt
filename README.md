@@ -24,6 +24,17 @@ temperature, and a pressure plate switches the real hallway light. What changed 
 Another Use Case is wireless redstone between multiple servers that are connected to the same mqtt broker. You can also
 send signals from Single Player Worlds to online Servers and Vice versa.
 
+## Supported versions
+
+MineQTT is built for Fabric and NeoForge on Minecraft 1.21.1, 1.21.3, 1.21.4, 1.21.5, 1.21.8, 1.21.10, 1.21.11,
+26.1.2, 26.2 and 26.3, one jar per loader and version (`MineQTT-<loader>-<mod version>+<minecraft>.jar`). A jar also
+runs on the patch releases next to its version that share its code (1.21 for the 1.21.1 jar, 1.21.2 for 1.21.3,
+1.21.6 and 1.21.7 for 1.21.8, 1.21.9 for 1.21.10), so every release from 1.21 to 1.21.11 and from 26.1.2 to 26.3 is
+covered. Fabric needs Fabric API and Architectury API, NeoForge needs Architectury API.
+
+Where a feature depends on the game version, this README says so: an empty dedicated server pauses only from 1.21.2 on,
+for example.
+
 ## Note of caution
 
 This Mod establishes a connection to a seperate MQTT Server (Configurable). Connecting to public mqtt servers bears the
@@ -62,7 +73,7 @@ and kept as `mineqtt.json.v1.bak` / `mineqtt.toml.v1.bak`.
 | `twin.catalog` | true | Read the entity catalog of the MineQTT catalog blueprint. |
 | `twin.catalogMax` | 2000 | Home Assistant entities the twin keeps at most (1-10000). |
 | `blockPlacer.enabled` | false | Lets Block Placers place and clear blocks. While it is off a placer listens on nothing and answers every action with "disabled". |
-| `server.keepTickingWhenEmpty` | false | Dedicated servers only: never pause with nobody online, overriding `pause-when-empty-seconds`. See "Dedicated servers pause when empty" under [Home Assistant](#home-assistant). |
+| `server.keepTickingWhenEmpty` | false | Dedicated servers only: never pause with nobody online, overriding `pause-when-empty-seconds`. See "Dedicated servers pause when empty" under [Home Assistant](#home-assistant). Minecraft 1.21.1 never pauses, so the setting does nothing there. |
 
 **Keys added in 0.8.0** (world telemetry, players, the Block Placer and Block Observer, rooms). They are read,
 checked and saved on both loaders (on Fabric `telemetry.allowBroadcast` needs a server restart). An existing config
@@ -560,7 +571,7 @@ A Redstone Output whose chunk loads after a Redstone Input on the same server ch
 level from the broker's retained copy. That copy was published by the server's own client, and MineQTT subscribes with
 MQTT 5 no-local, which a strict reading of the specification extends to retained messages. Mosquitto 2 delivers it
 anyway; a broker that withholds it leaves such an output at its saved level until the input's next change. Run
-`./gradlew :common:verifyBrokerSmoke --args=host:port` against your broker: "own retained message on a no-local
+`./gradlew :common:26.2:verifyBrokerSmoke --args=host:port` against your broker: "own retained message on a no-local
 subscribe: yes" means it delivers. Outputs on other servers and on MQTT 3.1.1 are not affected.
 
 Give other broker users write access to `mineqtt/shared/#` and to raw-link topics only if you trust them: a retained
@@ -1085,7 +1096,30 @@ containers there; otherwise placing answers "refused by the claim behind it". Th
 answers "the space in front is not loaded", and with `consumeItems` "the container behind it is not loaded" while
 that is not. Each action, refused ones included, counts against the 4 a second.
 
-## Development launches
+## Development
+
+The build is a [Stonecutter](https://stonecutter.kikugie.dev/) multi-version project, set up like
+[minecraft-mod-template](https://github.com/OddHero/minecraft-mod-template): `common`, `fabric` and `neoforge` each have
+one Gradle project per Minecraft version, such as `:fabric:1.21.4`. The versions are listed in `settings.gradle`; each
+one's dependency versions are in `versions/<minecraft>/gradle.properties`. The sources in `src/` are written for the
+active version (26.2, set in `stonecutter.gradle`), and the other versions compile a copy that Stonecutter rewrites:
+
+- `//? if >=1.21.5 {` … `//?} else {` … `//?}` comments choose code per version; the branch for other versions stays
+  commented out.
+- `stonecutter.gradle` renames classes and methods that only changed their name (`Identifier`, `GuiGraphicsExtractor`,
+  …) and swaps imports for the stand-ins in `art.rehra.mineqtt.compat`, which also holds the helpers that hide API
+  changes behind one call.
+- `common/build.gradle` rewrites the data files a version reads differently (recipes before 1.21.2, the concrete tag
+  before 26.2, advancements on 26.3).
+
+To work on another version in the IDE, run the Gradle task *Set active project to 1.21.4* (group `stonecutter`), and
+*Reset active project* before committing: the active version's spelling is what the repository holds. Minecraft up to
+1.21.11 needs Java 21, 26.x Java 25; Gradle looks for both in the usual places.
+
+`./gradlew build` builds and checks every version; `./gradlew :fabric:1.21.4:build` one version and loader, and
+`./gradlew collectJars` copies all release jars to `build/libs`. The client game tests run from 1.21.4 on.
+
+### Development launches
 
 Gradle generates IntelliJ run configurations grouped under **Fabric** and **NeoForge**.
 Each loader has four configurations:
@@ -1099,23 +1133,24 @@ The login variants use the accounts in your existing DevAuth configuration. Acco
 and tokens stay local; see the [DevAuth documentation](https://github.com/DJtheRedstoner/DevAuth#configuration-file).
 All four configurations for a loader share that loader's existing run directory.
 
-To regenerate the configurations, run `./gradlew :fabric:ideaSyncTask :neoforge:ideaSyncTask`.
-The matching Gradle launch tasks are `runServer`, `runClient`, `runClientDevMain`, and
-`runClientDevAlt` in each loader project. If an existing IntelliJ configuration retains old
+To regenerate the configurations, run `./gradlew :fabric:26.2:ideaSyncTask :neoforge:26.2:ideaSyncTask` (or the
+version you work on). The matching Gradle launch tasks are `runServer`, `runClient`, `runClientDevMain`, and
+`runClientDevAlt` in each version's loader project, such as `:fabric:26.2:runClient`. If an existing IntelliJ configuration retains old
 JVM arguments after a dependency upgrade, remove that configuration and regenerate it;
 Loom preserves JVM arguments in existing application configurations.
 
-`./gradlew check` runs the regression checks. [`e2e/`](e2e/README.md) holds the Docker environment (Mosquitto 2 and 1.5,
+`./gradlew check` runs the regression checks of every version. [`e2e/`](e2e/README.md) holds the Docker environment (Mosquitto 2 and 1.5,
 Home Assistant) and the manual end-to-end checklist. The architecture is described in
 [`.github/mineqtt-architecture.md`](.github/mineqtt-architecture.md).
 
 ## Releases
 
-GitHub Actions builds both loaders and runs `./gradlew build` (all checks) on every push to `main` and on pull
-requests; the jars are attached to the run for two weeks.
+GitHub Actions builds both loaders for every Minecraft version and runs `./gradlew build` (all checks) on every push to
+`main` and on pull requests; the jars are attached to the run for two weeks.
 
-A release publishes the version in `gradle.properties` (`mod_version`) for Fabric and NeoForge: a GitHub release with
-both jars and one Modrinth version per loader, each with that version's section of [`CHANGELOG.md`](CHANGELOG.md).
+A release publishes the version in `gradle.properties` (`mod_version`) for Fabric and NeoForge on every Minecraft
+version: a GitHub release with all jars and one Modrinth version per loader and Minecraft version (numbered
+`<mod_version>+<minecraft>`), each with that version's section of [`CHANGELOG.md`](CHANGELOG.md).
 
 1. Set `mod_version`, add its `## <version>` section to `CHANGELOG.md` and merge to `main`.
 2. Push a tag that equals the version (`git tag 0.8.0 && git push origin 0.8.0`; `v0.8.0` works as well), or start
@@ -1123,9 +1158,9 @@ both jars and one Modrinth version per loader, each with that version's section 
    pre-release on GitHub and as an alpha or beta on Modrinth.
 
 The workflow needs the repository secret `MODRINTH_TOKEN`, a Modrinth personal access token with the *Create versions*
-scope. Re-running a failed release is safe: the GitHub release gets its files replaced, and a loader that Modrinth
-already lists for the version is skipped. To see what would be uploaded without sending anything, run
-`MODRINTH_DEBUG=true MODRINTH_TOKEN=x ./gradlew :fabric:modrinth :neoforge:modrinth`.
+scope. Re-running a failed release is safe: the GitHub release gets its files replaced, and a jar that Modrinth already
+lists is skipped. To see what would be uploaded without sending anything, run
+`MODRINTH_DEBUG=true MODRINTH_TOKEN=x ./gradlew :fabric:26.2:modrinth :neoforge:26.2:modrinth`.
 
 ## Roadmap
 

@@ -6,7 +6,7 @@
 #   lane.sh build [--host H]            build the server image (up does it when it is missing; auto: here and on every
 #                                       reachable remote with build=auto, never on a build=manual one)
 #   lane.sh up <id> [--ha] [--jar] [--host H]   start the lane and wait until the server is up and MQTT connected
-#                                       (--jar: ./gradlew :fabric:assemble first; the host-built jar is shipped)
+#                                       (--jar: ./gradlew :fabric:26.2:assemble first; the host-built jar is shipped)
 #   lane.sh reload <id> [--jar]         ship the jar again and restart the server (world and config kept)
 #   lane.sh wait <id>                   start the server if stopped and wait until it is healthy
 #   lane.sh reset <id>                  new world: remove the server and its world volume, start again
@@ -255,8 +255,8 @@ build_image() {
 }
 ensure_image() { dk image inspect "$LANE_SERVER_IMAGE" >/dev/null 2>&1 || build_image; }
 
-assemble() { (cd "$REPO" && ./gradlew :fabric:assemble -q); }
-# The bundled MineQTT jar of fabric/build/libs (never the -raw jar, which lacks HiveMQ, or -sources), or MINEQTT_LANE_JAR.
+assemble() { (cd "$REPO" && ./gradlew :fabric:26.2:assemble -q); }
+# The bundled MineQTT jar of fabric/versions/26.2/build/libs (never the -raw jar, which lacks HiveMQ, or -sources), or MINEQTT_LANE_JAR.
 # The jar of the checkout's mod_version wins, so jars of older versions left in build/libs do not get in the way.
 host_jar() {
     local jar found="" current
@@ -266,18 +266,18 @@ host_jar() {
 ' "$MINEQTT_LANE_JAR"
         return
     fi
-    current="$REPO/fabric/build/libs/$(prop archives_name)-fabric-$(prop mod_version).jar"
+    current="$REPO/fabric/versions/26.2/build/libs/$(prop archives_name)-fabric-$(prop mod_version)+26.2.jar"
     if [ -f "$current" ]; then
         printf '%s\n' "$current"
         return
     fi
-    for jar in "$REPO"/fabric/build/libs/*.jar; do
+    for jar in "$REPO"/fabric/versions/26.2/build/libs/*.jar; do
         case "$jar" in *-raw.jar|*-sources.jar|*-dev*.jar) continue ;; esac
         [ -f "$jar" ] || continue
-        [ -z "$found" ] || die "no jar for mod_version $(prop mod_version) and more than one other MineQTT jar in fabric/build/libs: $found $jar"
+        [ -z "$found" ] || die "no jar for mod_version $(prop mod_version) and more than one other MineQTT jar in fabric/versions/26.2/build/libs: $found $jar"
         found=$jar
     done
-    [ -n "$found" ] || die "no jar in fabric/build/libs: run ./gradlew :fabric:assemble (or pass --jar)"
+    [ -n "$found" ] || die "no jar in fabric/versions/26.2/build/libs: run ./gradlew :fabric:26.2:assemble (or pass --jar)"
     printf '%s\n' "$found"
 }
 # Copies the jar into the lane's mods volume through the server container (created or running), always as

@@ -1,6 +1,7 @@
 name: Build
 
-# Builds both loaders and runs every check on each push to main and on pull requests.
+# Builds both loaders for every Minecraft version (Stonecutter nodes, see settings.gradle) and runs every check on each
+# push to main and on pull requests.
 on:
   push:
     branches: [main]
@@ -17,31 +18,31 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
+      # Minecraft up to 1.21.11 needs Java 21, 26.x needs Java 25. Gradle finds both through
+      # org.gradle.java.installations.fromEnv instead of downloading them.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '25'
+          java-version: |
+            21
+            25
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           # Only builds of main write the shared Gradle cache; pull requests read it.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      - name: Build and run the checks
-        run: ./gradlew build --console=plain
+      - name: Build every version and run the checks
+        run: ./gradlew build collectJars --console=plain -Porg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64,JAVA_HOME_25_X64
 
       - name: Upload the jars
         uses: actions/upload-artifact@v4
         with:
           name: MineQTT-${{ github.sha }}
-          path: |
-            fabric/build/libs/MineQTT-fabric-*.jar
-            neoforge/build/libs/MineQTT-neoforge-*.jar
-            !**/*-raw.jar
-            !**/*-sources.jar
+          path: build/libs/*.jar
           if-no-files-found: error
           retention-days: 14
