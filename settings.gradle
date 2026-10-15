@@ -3,17 +3,46 @@ pluginManagement {
         maven { url = "https://maven.fabricmc.net/" }
         maven { url = "https://maven.architectury.dev/" }
         maven { url = "https://files.minecraftforge.net/maven/" }
+        maven { url = "https://maven.kikugie.dev/releases" }
         gradlePluginPortal()
+    }
+
+    // Every Minecraft version node applies these plugins, so their versions live here, once.
+    // Both Loom IDs come from the same artifact: obfuscated versions (up to 1.21.11) use the remapping
+    // 'dev.architectury.loom', unobfuscated ones (26.1+) 'dev.architectury.loom-no-remap'. See gradle/shared.gradle.
+    plugins {
+        id 'dev.architectury.loom' version '1.17-SNAPSHOT'
+        id 'dev.architectury.loom-no-remap' version '1.17-SNAPSHOT'
+        id 'architectury-plugin' version '3.5-SNAPSHOT'
+        id 'com.gradleup.shadow' version '9.6.1'
+        id 'com.modrinth.minotaur' version '2.10.0'
+        id 'net.darkhax.curseforgegradle' version '1.1.15'
     }
 }
 
 plugins {
-    // Allows Gradle to automatically download the JDK required by the build (Java 25).
+    // Allows Gradle to automatically download the JDKs required by the build (Java 21 and 25).
     id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+    // Builds the same sources for several Minecraft versions, see stonecutter.gradle.
+    id 'dev.kikugie.stonecutter' version '0.9.8'
 }
 
 rootProject.name = 'mineqtt'
 
-include 'common'
-include 'fabric'
-include 'neoforge'
+stonecutter {
+    kotlinController = false
+    centralScript = 'build.gradle'
+
+    create(getRootProject()) {
+        // Each version needs versions/<version>/gradle.properties with its dependency versions.
+        // One node per Architectury line, on the line's newest stable patch. The jars declare the whole group
+        // (minecraft_range_* in the version's gradle.properties), so together they cover 1.21 to 26.3.
+        versions '1.21.1', '1.21.3', '1.21.4', '1.21.5', '1.21.8', '1.21.10', '1.21.11', '26.1.2', '26.2', '26.3'
+        // The version the sources in src/ are written for when committed.
+        vcsVersion = '26.2'
+
+        branch 'common'
+        branch 'fabric'
+        branch 'neoforge'
+    }
+}

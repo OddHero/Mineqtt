@@ -1,19 +1,10 @@
-plugins {
-    id 'com.gradleup.shadow'
-    id "com.modrinth.minotaur" version "2.10.0"
-    id("net.darkhax.curseforgegradle") version "1.1.15"
-}
+apply from: rootProject.file('gradle/shared.gradle')
+apply plugin: 'com.modrinth.minotaur'
+apply plugin: 'net.darkhax.curseforgegradle'
 
 architectury {
     platformSetupLoomIde()
     fabric()
-}
-
-repositories {
-    maven {
-        name = "Shedaniel Maven"
-        url = "https://maven.shedaniel.me/"
-    }
 }
 
 configurations {
@@ -33,101 +24,111 @@ configurations {
     }
 }
 
+// The fabric branch folder; this node's folder is fabric/versions/<mc>.
+def branchDir = project.parent.projectDir
+
 dependencies {
-    implementation "net.fabricmc:fabric-loader:$rootProject.fabric_loader_version"
+    // modImplementation on obfuscated versions, implementation on unobfuscated ones (see gradle/shared.gradle).
+    add(project.modImplementation, "net.fabricmc:fabric-loader:$rootProject.fabric_loader_version")
+    add(project.modImplementation, "net.fabricmc.fabric-api:fabric-api:$project.fabric_api_version")
+    add(project.modImplementation, "dev.architectury:architectury-fabric:$project.architectury_api_version")
 
-    implementation "net.fabricmc.fabric-api:fabric-api:$rootProject.fabric_api_version"
+    add(project.modImplementation, "com.terraformersmc:modmenu:$project.modmenu_version")
 
-    implementation "dev.architectury:architectury-fabric:$rootProject.architectury_api_version"
+    // Flan's Fabric jar is not published for every version; the Flan API is only referenced in common anyway.
 
-    implementation("com.terraformersmc:modmenu:${project.modmenu_version}")
-
-    // Flan's fabric api jar is not published for 26.2; the Flan API is only referenced in :common anyway.
-
-    // Add Cloth Config for Fabric
-    implementation("me.shedaniel.cloth:cloth-config-fabric:${rootProject.cloth_config_version}") {
+    add(project.modImplementation, "me.shedaniel.cloth:cloth-config-fabric:$project.cloth_config_version") {
         exclude(group: "net.fabricmc.fabric-api")
     }
 
-    common(project(path: ':common')) { transitive = false }
-    shadowBundle project(path: ':common', configuration: 'transformProductionFabric')
+    common(commonNamed(commonNode)) { transitive false }
+    shadowBundle project(path: commonNode, configuration: 'transformProductionFabric')
 
-    // Add HiveMQ MQTT client dependency for bundling
-    shadowBundle("com.hivemq:hivemq-mqtt-client:1.3.7")
+    // The HiveMQ MQTT client is bundled (relocated, without Netty).
+    shadowBundle("com.hivemq:hivemq-mqtt-client:$rootProject.hivemq_version")
 }
 
 // Client game tests (fabric-client-gametest-api-v1, part of Fabric API): the "gametest" source set is a separate test
-// mod, run by the opt-in task :fabric:runClientGameTest in build/run/clientGameTest. They open a game window, so they are
+// mod, run by the opt-in task :fabric:<mc>:runClientGameTest in build/run/clientGameTest. They open a game window, so they are
 // not part of check; check only compiles them. See e2e/README.md.
-fabricApi {
-    configureTests {
-        createSourceSet = true
-        modId = 'mineqtt-gametest'
-        // The server game-test run would be wired into check.
-        enableGameTests = false
-        // The in-process dedicated server of the client game tests needs an accepted EULA in the run directory.
-        eula = true
-    }
-}
-
-loom.runs.named('clientGameTest') {
-    displayName.set('Client:fabric:GameTest')
-    // Fails the run when the test mod is not loaded, instead of running no test at all.
-    property('fabric.client.gametest.modid', 'mineqtt-gametest')
-    // A client out of heap otherwise keeps running without progress and the run never ends.
-    vmArg('-XX:+ExitOnOutOfMemoryError')
-    // Without it the JVM takes 25 % of the machine's (or container's) memory as heap; docker/client-test sets it so a
-    // small container still gives the game enough.
-    def heap = System.getenv('MINEQTT_CLIENT_HEAP')
-    if (heap) {
-        vmArg("-Xmx$heap")
-    }
-}
-
-tasks.named('check') {
-    dependsOn 'compileGametestJava'
-}
-
-def gameTestSuites = new groovy.json.JsonSlurper().parse(file('src/gametest/resources/fabric.mod.json'))
-        .entrypoints['fabric-client-gametest'].size()
-// MINEQTT_GAMETEST_SUITES: comma-separated suite names as the report writes them; unset runs every suite.
-def gameTestSuiteFilter = providers.environmentVariable('MINEQTT_GAMETEST_SUITES').getOrElse('')
-def selectedGameTestSuites = gameTestSuiteFilter.split(',')*.trim().findAll { !it.isEmpty() } as LinkedHashSet<String>
-
-tasks.named('runClientGameTest') {
-    group = 'verification'
-    description = 'Runs the MineQTT client game tests in a game window (set MINEQTT_E2E_BROKER to use a broker, ' +
-            'MINEQTT_GAMETEST_BRIDGE for the bridge id, MINEQTT_GAMETEST_SUITES to select suites).'
-    // The client reads the same selection the verdict below expects.
-    environment('MINEQTT_GAMETEST_SUITES', selectedGameTestSuites.join(','))
-    // A passing run returns from the client's main method; the client's 15 s shutdown watchdog then ends the JVM with
-    // -8 (248 on Unix) because the dev runtime leaves idle non-daemon threads. A failing test ends the JVM with 1 before
-    // that. The verdict therefore comes from the exit value together with the report every suite writes.
-    ignoreExitValue = true
-    doLast {
-        int exit = executionResult.get().exitValue
-        File report = new File(workingDir, 'mineqtt-gametest-report.txt')
-        List<String> lines = report.exists() ? report.readLines() : []
-        lines.findAll { it.startsWith('SKIP') }.each { logger.warn("Client game test {}", it) }
-        Set<String> passed = lines.findAll { it.startsWith('SUITE PASS ') }.collect { it.substring('SUITE PASS '.length()).trim() } as Set<String>
-        int expected = selectedGameTestSuites.isEmpty() ? gameTestSuites : selectedGameTestSuites.size()
-        Set<String> missing = selectedGameTestSuites.findAll { !passed.contains(it) } as LinkedHashSet<String>
-        boolean complete = selectedGameTestSuites.isEmpty() ? passed.size() == gameTestSuites : missing.isEmpty()
-        if (!(exit in [0, -8, 248]) || !complete || lines.any { it.startsWith('FAIL') }) {
-            String notPassed = missing.isEmpty() ? '' : ", not passed: ${missing.join(', ')}"
-            throw new GradleException("Client game tests failed: exit value $exit, ${passed.size()} of $expected suites passed$notPassed, see $report")
+// fabric-client-gametest-api-v1 exists from Minecraft 1.21.4 on; older nodes build without the game tests.
+def clientGameTests = stonecutter.eval(stonecutter.current.version, '>=1.21.4')
+if (clientGameTests) {
+    fabricApi {
+        configureTests {
+            createSourceSet = true
+            modId = 'mineqtt-gametest'
+            // The server game-test run would be wired into check.
+            enableGameTests = false
+            // The in-process dedicated server of the client game tests needs an accepted EULA in the run directory.
+            eula = true
         }
-        logger.lifecycle("Client game tests passed: ${passed.size()} suites, report $report")
+    }
+
+    loom.runs.named('clientGameTest') {
+        displayName.set("Client:fabric:${stonecutter.current.version}:GameTest")
+        // Fails the run when the test mod is not loaded, instead of running no test at all.
+        property('fabric.client.gametest.modid', 'mineqtt-gametest')
+        // A client out of heap otherwise keeps running without progress and the run never ends.
+        vmArg('-XX:+ExitOnOutOfMemoryError')
+        // Without it the JVM takes 25 % of the machine's (or container's) memory as heap; docker/client-test sets it so a
+        // small container still gives the game enough.
+        def heap = System.getenv('MINEQTT_CLIENT_HEAP')
+        if (heap) {
+            vmArg("-Xmx$heap")
+        }
+    }
+
+    tasks.named('check') {
+        dependsOn 'compileGametestJava'
+    }
+
+    def gameTestSuites = new groovy.json.JsonSlurper().parse(new File(branchDir, 'src/gametest/resources/fabric.mod.json'))
+            .entrypoints['fabric-client-gametest'].size()
+    // MINEQTT_GAMETEST_SUITES: comma-separated suite names as the report writes them; unset runs every suite.
+    def gameTestSuiteFilter = providers.environmentVariable('MINEQTT_GAMETEST_SUITES').getOrElse('')
+    def selectedGameTestSuites = gameTestSuiteFilter.split(',')*.trim().findAll { !it.isEmpty() } as LinkedHashSet<String>
+
+    tasks.named('runClientGameTest') {
+        group = 'verification'
+        description = 'Runs the MineQTT client game tests in a game window (set MINEQTT_E2E_BROKER to use a broker, ' +
+                'MINEQTT_GAMETEST_BRIDGE for the bridge id, MINEQTT_GAMETEST_SUITES to select suites).'
+        // The client reads the same selection the verdict below expects.
+        environment('MINEQTT_GAMETEST_SUITES', selectedGameTestSuites.join(','))
+        // A passing run returns from the client's main method; the client's 15 s shutdown watchdog then ends the JVM with
+        // -8 (248 on Unix) because the dev runtime leaves idle non-daemon threads. A failing test ends the JVM with 1 before
+        // that. The verdict therefore comes from the exit value together with the report every suite writes.
+        ignoreExitValue = true
+        doLast {
+            int exit = executionResult.get().exitValue
+            File report = new File(workingDir, 'mineqtt-gametest-report.txt')
+            List<String> lines = report.exists() ? report.readLines() : []
+            lines.findAll { it.startsWith('SKIP') }.each { logger.warn("Client game test {}", it) }
+            Set<String> passed = lines.findAll { it.startsWith('SUITE PASS ') }.collect { it.substring('SUITE PASS '.length()).trim() } as Set<String>
+            int expected = selectedGameTestSuites.isEmpty() ? gameTestSuites : selectedGameTestSuites.size()
+            Set<String> missing = selectedGameTestSuites.findAll { !passed.contains(it) } as LinkedHashSet<String>
+            boolean complete = selectedGameTestSuites.isEmpty() ? passed.size() == gameTestSuites : missing.isEmpty()
+            if (!(exit in [0, -8, 248]) || !complete || lines.any { it.startsWith('FAIL') }) {
+                String notPassed = missing.isEmpty() ? '' : ", not passed: ${missing.join(', ')}"
+                throw new GradleException("Client game tests failed: exit value $exit, ${passed.size()} of $expected suites passed$notPassed, see $report")
+            }
+            logger.lifecycle("Client game tests passed: ${passed.size()} suites, report $report")
+        }
     }
 }
 
 processResources {
-    // Read at configuration time: the filesMatching action runs during execution, where Task.project is deprecated.
-    def modVersion = project.version
-    inputs.property 'version', modVersion
+    def props = [
+            version                 : project.version,
+            minecraft_range         : project.minecraft_range_fabric,
+            java_version            : project.java_version,
+            fabric_loader_version   : rootProject.fabric_loader_version,
+            architectury_api_version: project.architectury_api_version,
+    ]
+    inputs.properties props
 
     filesMatching('fabric.mod.json') {
-        expand version: modVersion
+        expand props
     }
 }
 
@@ -135,31 +136,9 @@ jar {
     archiveClassifier = 'raw'
 }
 
-shadowJar {
-    configurations = [project.configurations.shadowBundle]
-    archiveClassifier = ''
+configureReleaseShadow(tasks.named('shadowJar'))
 
-    // Relocate HiveMQ packages to avoid conflicts with other mods
-    relocate('com.hivemq', 'art.rehra.mineqtt.libs.hivemq')
-    relocate('io.reactivex', 'art.rehra.mineqtt.libs.reactivex')
-    relocate('org.reactivestreams', 'art.rehra.mineqtt.libs.reactivestreams')
-    relocate('org.jetbrains', 'art.rehra.mineqtt.libs.jetbrains')
-    relocate('org.jctools', 'art.rehra.mineqtt.libs.jctools')
-    relocate('org.intellij', 'art.rehra.mineqtt.libs.intellij')
-    relocate('javax.inject', 'art.rehra.mineqtt.libs.javax.inject')
-    relocate('dagger', 'art.rehra.mineqtt.libs.dagger')
-
-    // Exclude netty as it is already provided by Fabric/Minecraft
-    exclude 'io/netty/**'
-    exclude 'META-INF/services/io.netty.**'
-
-    exclude 'META-INF/services/reactor.blockhound.integration.BlockHoundIntegration'
-
-    // Ensure all classes are included
-    mergeServiceFiles()
-}
-
-assemble.dependsOn shadowJar
+def gameVersions = (project.game_versions as String).split(',') as List
 
 modrinth {
     // MODRINTH_TOKEN must be set (the release workflow passes the repository secret); keep it private.
@@ -168,11 +147,11 @@ modrinth {
     debugMode = System.getenv("MODRINTH_DEBUG") == "true"
     projectId = "mineqtt"
     versionNumber = project.version.toString()
-    versionName = "MineQTT ${project.version} (Fabric)"
-    versionType = rootProject.modrinthVersionType(project.version.toString())
-    changelog = rootProject.changelogFor(project.version.toString())
-    uploadFile = shadowJar // With non-remapping Loom the shadow jar is the final artifact.
-    gameVersions = [rootProject.minecraft_version]
+    versionName = "MineQTT ${rootProject.mod_version} for Minecraft ${project.minecraft_version} (Fabric)"
+    versionType = rootProject.modrinthVersionType(rootProject.mod_version.toString())
+    changelog = rootProject.changelogFor(rootProject.mod_version.toString())
+    uploadFile = releaseJarTask
+    gameVersions = gameVersions
     loaders = ["fabric"]
     dependencies {
         required.project "fabric-api"
@@ -182,8 +161,7 @@ modrinth {
     syncBodyFrom = rootProject.file("README.md").text
 }
 
-task publishCurseForge(type: net.darkhax.curseforgegradle.TaskPublishCurseForge) {
-
+tasks.register('publishCurseForge', net.darkhax.curseforgegradle.TaskPublishCurseForge) {
     // Your auth token for CurseForge. This is like a password, and you should
     // never share your token with a third party. Store this token in an
     // environment variable or build secret.
@@ -192,12 +170,9 @@ task publishCurseForge(type: net.darkhax.curseforgegradle.TaskPublishCurseForge)
     // The ID of the CurseForge project you want to upload to.
     def projectId = 1347076
 
-    // Defines the output of the jar task as the file to upload. This returns
-    // an UploadArtifact that can be used to configure things like versions and
-    // the changelog.
-    def mainFile = upload(projectId, shadowJar)
+    def mainFile = upload(projectId, releaseJarTask)
     mainFile.changelog = 'See Description.'
-    mainFile.addGameVersion('26.2')
+    gameVersions.each { mainFile.addGameVersion(it) }
     mainFile.addModLoader('Fabric')
     mainFile.releaseType = 'release'
 }

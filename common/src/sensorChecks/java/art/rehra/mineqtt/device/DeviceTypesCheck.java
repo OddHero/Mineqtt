@@ -716,7 +716,8 @@ public final class DeviceTypesCheck {
             public void failed(Wire wire, FlowMessage message, RuntimeException e) {
                 throw new AssertionError("No delivery throws here", e);
             }
-        }, System::nanoTime);
+        // A frozen clock: the 2 ms drain budget must not cut a drain short on a busy machine (a parallel build).
+        }, () -> 0L);
         check(bus.emit(FlowMessage.Kind.VALUE, powered, "powered", new JsonPrimitive(true), 0), "A wired out-port emits");
         check(!bus.emit(FlowMessage.Kind.VALUE, Endpoint.port(lamp1.id(), "light_level"), "light_level", new JsonPrimitive(3), 0), "An unwired out-port emits nothing");
         bus.drain();

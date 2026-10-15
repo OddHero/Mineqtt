@@ -864,7 +864,8 @@ public final class MirrorNoLoopCheck {
             public void failed(Wire wire, FlowMessage message, RuntimeException e) {
                 throw new AssertionError("Delivery threw", e);
             }
-        }, System::nanoTime);
+        // A frozen clock: the 2 ms drain budget must not cut a drain short on a busy machine (a parallel build).
+        }, () -> 0L);
         Set<UUID> changed = DeviceRuntime.powerOnRecords(registry, bus, (source, key, value) -> bus.emit(FlowMessage.Kind.VALUE, source, key, value, 0),
                 (record, e) -> {
                     throw new AssertionError("Power-on threw", e);
@@ -1926,7 +1927,8 @@ public final class MirrorNoLoopCheck {
             public void failed(Wire wire, FlowMessage message, RuntimeException e) {
                 throw new AssertionError("Delivery threw", e);
             }
-        }, System::nanoTime);
+        // A frozen clock: the 2 ms drain budget must not cut a drain short on a busy machine (a parallel build).
+        }, () -> 0L);
         holder[0] = bus;
 
         int value = 1;

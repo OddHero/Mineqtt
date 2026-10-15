@@ -1,7 +1,5 @@
-plugins {
-    id 'com.gradleup.shadow'
-    id 'com.modrinth.minotaur' version '2.10.0'
-}
+apply from: rootProject.file('gradle/shared.gradle')
+apply plugin: 'com.modrinth.minotaur'
 
 architectury {
     platformSetupLoomIde()
@@ -33,29 +31,37 @@ configurations {
 }
 
 dependencies {
-    neoForge "net.neoforged:neoforge:$rootProject.neoforge_version"
+    neoForge "net.neoforged:neoforge:$project.neoforge_version"
+    // modImplementation on obfuscated versions, implementation on unobfuscated ones (see gradle/shared.gradle).
+    add(project.modImplementation, "dev.architectury:architectury-neoforge:$project.architectury_api_version")
 
-    implementation "dev.architectury:architectury-neoforge:$rootProject.architectury_api_version"
+    add(project.modCompileOnly, "io.github.flemmli97:flan:${project.flan_version}-neoforge:api") { transitive = false }
+    // Flan in the dev runs only where it is published for this very Minecraft version.
+    if ((project.flan_version as String).startsWith("${project.minecraft_version}-")) {
+        add(project.modRuntimeOnly, "io.github.flemmli97:flan:${project.flan_version}-neoforge") { transitive = false }
+    }
 
-    compileOnly "io.github.flemmli97:flan:${minecraft_version}-${flan_version}-neoforge:api"
-    runtimeOnly "io.github.flemmli97:flan:${minecraft_version}-${flan_version}-neoforge"
+    common(commonNamed(commonNode)) { transitive false }
+    shadowBundle project(path: commonNode, configuration: 'transformProductionNeoForge')
 
-    common(project(path: ':common')) { transitive = false }
-    shadowBundle project(path: ':common', configuration: 'transformProductionNeoForge')
-
-    forgeRuntimeLibrary("com.hivemq:hivemq-mqtt-client:1.3.7") {
+    forgeRuntimeLibrary("com.hivemq:hivemq-mqtt-client:$rootProject.hivemq_version") {
         exclude group: 'io.netty'
     }
-    shadowBundle("com.hivemq:hivemq-mqtt-client:1.3.7")
+    // The HiveMQ MQTT client is bundled (relocated, without Netty).
+    shadowBundle("com.hivemq:hivemq-mqtt-client:$rootProject.hivemq_version")
 }
 
 processResources {
-    // Read at configuration time: the filesMatching action runs during execution, where Task.project is deprecated.
-    def modVersion = project.version
-    inputs.property 'version', modVersion
+    def props = [
+            version                 : project.version,
+            minecraft_range         : project.minecraft_range_neoforge,
+            neoforge_range          : project.neoforge_range,
+            architectury_api_version: project.architectury_api_version,
+    ]
+    inputs.properties props
 
     filesMatching('META-INF/neoforge.mods.toml') {
-        expand version: modVersion
+        expand props
     }
 }
 
@@ -63,33 +69,7 @@ jar {
     archiveClassifier = 'raw'
 }
 
-shadowJar {
-    configurations = [project.configurations.shadowBundle]
-    archiveClassifier = ''
-    // Relocate HiveMQ packages to avoid conflicts with other mods
-    relocate('com.hivemq', 'art.rehra.mineqtt.libs.hivemq')
-    //relocate('io.netty', 'art.rehra.mineqtt.libs.netty')
-    relocate('io.reactivex', 'art.rehra.mineqtt.libs.reactivex')
-    relocate('org.reactivestreams', 'art.rehra.mineqtt.libs.reactivestreams')
-    relocate('org.jetbrains', 'art.rehra.mineqtt.libs.jetbrains')
-    relocate('org.jctools', 'art.rehra.mineqtt.libs.jctools')
-    relocate('org.intellij', 'art.rehra.mineqtt.libs.intellij')
-    relocate('javax.inject', 'art.rehra.mineqtt.libs.javax.inject')
-    relocate('dagger', 'art.rehra.mineqtt.libs.dagger')
-
-
-    //// Exclude netty as it is already provided by NeoForge/Minecraft
-    exclude 'io/netty/**'
-    exclude 'META-INF/services/io.netty.**'
-
-
-    exclude 'META-INF/services/reactor.blockhound.integration.BlockHoundIntegration'
-
-    //// Ensure all classes are included
-    mergeServiceFiles()
-}
-
-assemble.dependsOn shadowJar
+configureReleaseShadow(tasks.named('shadowJar'))
 
 modrinth {
     // MODRINTH_TOKEN must be set (the release workflow passes the repository secret); keep it private.
@@ -98,11 +78,11 @@ modrinth {
     debugMode = System.getenv("MODRINTH_DEBUG") == "true"
     projectId = "mineqtt"
     versionNumber = project.version.toString()
-    versionName = "MineQTT ${project.version} (NeoForge)"
-    versionType = rootProject.modrinthVersionType(project.version.toString())
-    changelog = rootProject.changelogFor(project.version.toString())
-    uploadFile = shadowJar // The shadow jar is the final artifact.
-    gameVersions = [rootProject.minecraft_version]
+    versionName = "MineQTT ${rootProject.mod_version} for Minecraft ${project.minecraft_version} (NeoForge)"
+    versionType = rootProject.modrinthVersionType(rootProject.mod_version.toString())
+    changelog = rootProject.changelogFor(rootProject.mod_version.toString())
+    uploadFile = releaseJarTask
+    gameVersions = (project.game_versions as String).split(',') as List
     loaders = ["neoforge"]
     dependencies {
         required.project "architectury-api"

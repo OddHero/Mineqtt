@@ -452,7 +452,8 @@ public final class LifecycleGuardTest {
             public void failed(Wire failed, FlowMessage message, RuntimeException e) {
                 throw new AssertionError("No delivery throws here", e);
             }
-        }, System::nanoTime);
+        // A frozen clock: the 2 ms drain budget must not cut a drain short on a busy machine (a parallel build).
+        }, () -> 0L);
         boolean[] level = {false};
         // DeviceLink.publishState from neighborChanged: no extent of its own, only the bus's current root.
         Runnable neighborChanged = () -> {

@@ -1,27 +1,25 @@
+apply from: rootProject.file('gradle/shared.gradle')
+
 architectury {
     common rootProject.enabled_platforms.split(',')
 }
 
-repositories {
-    maven {
-        name = "Shedaniel Maven"
-        url = "https://maven.shedaniel.me/"
-    }
-}
+// The branch folder (common/) with the sources and resources of every version; this node's folder is common/versions/<mc>.
+def branchDir = project.parent.projectDir
 
 dependencies {
     // We depend on Fabric Loader here to use the Fabric @Environment annotations,
     // which get remapped to the correct annotations on each platform.
     // Do NOT use other classes from Fabric Loader.
-    implementation "net.fabricmc:fabric-loader:$rootProject.fabric_loader_version"
+    add(project.modImplementation, "net.fabricmc:fabric-loader:$rootProject.fabric_loader_version")
 
-    implementation "dev.architectury:architectury:$rootProject.architectury_api_version"
+    add(project.modImplementation, "dev.architectury:architectury:$project.architectury_api_version")
 
     // Common Cloth Config dependency
-    compileOnly("me.shedaniel.cloth:cloth-config:${rootProject.cloth_config_version}")
+    add(project.modCompileOnly, "me.shedaniel.cloth:cloth-config:$project.cloth_config_version")
 
     // Common Flan API dependency
-    compileOnly "io.github.flemmli97:flan:${minecraft_version}-${flan_version}-common:api"
+    add(project.modCompileOnly, "io.github.flemmli97:flan:${project.flan_version}-common:api") { transitive = false }
 }
 
 // Keep the executable regression harness separate from framework-based unit tests.
@@ -39,7 +37,7 @@ sourceSets {
 }
 
 dependencies {
-    brokerChecksImplementation 'com.hivemq:hivemq-mqtt-client:1.3.7'
+    brokerChecksImplementation "com.hivemq:hivemq-mqtt-client:$rootProject.hivemq_version"
     // Test-only in-process broker. Only the brokerChecks configurations see it, so it never reaches a shadowBundle.
     brokerChecksImplementation 'io.moquette:moquette-broker:0.17'
     // Must match the Gson that Minecraft 26.2 ships, which main gets from Minecraft itself.
@@ -188,7 +186,7 @@ tasks.register('verifyCatalog', JavaExec) {
     dependsOn sensorChecksClasses
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.registry.CatalogCheck'
-    def resourcesDir = file('src/main/resources')
+    def resourcesDir = new File(branchDir, 'src/main/resources')
     inputs.dir(resourcesDir).withPropertyName('resources')
     args resourcesDir.absolutePath
 }
@@ -295,8 +293,8 @@ tasks.register('verifyPresetLoad', JavaExec) {
     dependsOn brokerChecksClasses
     classpath = sourceSets.brokerChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.twin.PresetLoadCheck'
-    def resourcesDir = file('src/main/resources')
-    inputs.dir(file('src/main/resources/data')).withPropertyName('presets')
+    def resourcesDir = new File(branchDir, 'src/main/resources')
+    inputs.dir(new File(branchDir, 'src/main/resources/data')).withPropertyName('presets')
     args resourcesDir.absolutePath
     timeout = java.time.Duration.ofMinutes(2)
 }
@@ -324,24 +322,24 @@ tasks.register('verifyCoreIsolation') {
                                'art.rehra.mineqtt.security.TokenBucket', 'art.rehra.mineqtt.security.RateLimit']
     def timerAllowed = m4CoreAllowed + ['art.rehra.mineqtt.device.timer.core']
     def telemetryAllowed = m4CoreAllowed + ['art.rehra.mineqtt.telemetry.core']
-    def securityDir = file('src/main/java/art/rehra/mineqtt/security')
-    def haDir = file('src/main/java/art/rehra/mineqtt/ha')
-    def utilDir = file('src/main/java/art/rehra/mineqtt/util')
+    def securityDir = new File(branchDir, 'src/main/java/art/rehra/mineqtt/security')
+    def haDir = new File(branchDir, 'src/main/java/art/rehra/mineqtt/ha')
+    def utilDir = new File(branchDir, 'src/main/java/art/rehra/mineqtt/util')
     // A scope of single classes names the folder of their package third: its files must exist, and the other classes there are off limits.
     def scopes = [
-            'mqtt.core'        : [fileTree('src/main/java/art/rehra/mineqtt/mqtt/core') { include '**/*.java' }, mqttAllowed],
-            'mqtt.core checks' : [fileTree('src/brokerChecks/java/art/rehra/mineqtt/mqtt/core') { include '**/*.java' },
+            'mqtt.core'        : [fileTree(new File(branchDir, 'src/main/java/art/rehra/mineqtt/mqtt/core')) { include '**/*.java' }, mqttAllowed],
+            'mqtt.core checks' : [fileTree(new File(branchDir, 'src/brokerChecks/java/art/rehra/mineqtt/mqtt/core')) { include '**/*.java' },
                                   mqttAllowed + ['io.moquette', 'art.rehra.mineqtt.ha.GhostCleanup']],
-            'flow.core'        : [fileTree('src/main/java/art/rehra/mineqtt/flow/core') { include '**/*.java' }, flowAllowed],
-            'flow.core checks' : [fileTree('src/brokerChecks/java/art/rehra/mineqtt/flow/core') { include '**/*.java' }, flowAllowed],
-            'twin.core'        : [fileTree('src/main/java/art/rehra/mineqtt/twin/core') { include '**/*.java' }, twinAllowed],
-            'twin.core checks' : [fileTree('src/brokerChecks/java/art/rehra/mineqtt/twin/core') { include '**/*.java' }, twinAllowed],
+            'flow.core'        : [fileTree(new File(branchDir, 'src/main/java/art/rehra/mineqtt/flow/core')) { include '**/*.java' }, flowAllowed],
+            'flow.core checks' : [fileTree(new File(branchDir, 'src/brokerChecks/java/art/rehra/mineqtt/flow/core')) { include '**/*.java' }, flowAllowed],
+            'twin.core'        : [fileTree(new File(branchDir, 'src/main/java/art/rehra/mineqtt/twin/core')) { include '**/*.java' }, twinAllowed],
+            'twin.core checks' : [fileTree(new File(branchDir, 'src/brokerChecks/java/art/rehra/mineqtt/twin/core')) { include '**/*.java' }, twinAllowed],
             'rate limits'      : [files(new File(securityDir, 'TokenBucket.java'), new File(securityDir, 'RateLimit.java')), jdk, securityDir],
             'ghost cleanup'    : [files(new File(haDir, 'GhostCleanup.java')), mqttAllowed, haDir],
             // The timers' schedules (M4-2) and the world telemetry (M4-7); the self-test below proves the rule bites on every run.
-            'device.timer.core': [fileTree('src/main/java/art/rehra/mineqtt/device/timer/core') { include '**/*.java' }, timerAllowed],
-            'telemetry.core'   : [fileTree('src/main/java/art/rehra/mineqtt/telemetry/core') { include '**/*.java' }, telemetryAllowed],
-            'telemetry.core checks': [fileTree('src/brokerChecks/java/art/rehra/mineqtt/telemetry/core') { include '**/*.java' }, telemetryAllowed],
+            'device.timer.core': [fileTree(new File(branchDir, 'src/main/java/art/rehra/mineqtt/device/timer/core')) { include '**/*.java' }, timerAllowed],
+            'telemetry.core'   : [fileTree(new File(branchDir, 'src/main/java/art/rehra/mineqtt/telemetry/core')) { include '**/*.java' }, telemetryAllowed],
+            'telemetry.core checks': [fileTree(new File(branchDir, 'src/brokerChecks/java/art/rehra/mineqtt/telemetry/core')) { include '**/*.java' }, telemetryAllowed],
             'clocks'          : [files(new File(utilDir, 'GameClock.java'), new File(utilDir, 'CronSchedule.java')), jdk, utilDir],
     ]
     // Synthetic sources each M4 core must refuse, and one it must accept: a scope that matches no file yet checks nothing,
@@ -354,7 +352,7 @@ tasks.register('verifyCoreIsolation') {
     def forbiddenNames = ['net.minecraft.world.level.Level', 'net.minecraft.core.BlockPos', 'art.rehra.mineqtt.device.DeviceType']
     def allowedSource = 'import com.google.gson.JsonObject;\nimport java.time.Instant;\nimport art.rehra.mineqtt.util.GameClock;\n' +
             'import art.rehra.mineqtt.util.CronSchedule;\nimport art.rehra.mineqtt.security.TokenBucket;\nclass Probe { /* net.minecraft.Ignored in a comment */ String s = "net.minecraft.Ignored"; }\n'
-    def baseDir = projectDir
+    def baseDir = branchDir
     scopes.each { name, scope -> inputs.files(scope[0]).withPropertyName(name.replaceAll(/\W/, '_')) }
     inputs.files(fileTree(securityDir) { include '*.java' }).withPropertyName('securityPackage')
     inputs.files(fileTree(haDir) { include '*.java' }).withPropertyName('haPackage')
