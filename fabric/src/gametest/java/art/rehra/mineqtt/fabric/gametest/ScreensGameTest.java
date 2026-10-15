@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.BaseMqttBlock;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.blocks.entities.TerminalBlockEntity;
@@ -128,8 +129,8 @@ public final class ScreensGameTest implements FabricClientGameTest {
     }
 
     private static ClothConfigScreen configScreen(Minecraft mc) {
-        if (mc.gui.screen() instanceof ClothConfigScreen screen) return screen;
-        throw new AssertionError("The config screen is not open: " + mc.gui.screen());
+        if (Screens.current() instanceof ClothConfigScreen screen) return screen;
+        throw new AssertionError("The config screen is not open: " + Screens.current());
     }
 
     private record Category(String name, int entries) {

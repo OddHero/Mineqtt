@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.device.GroupRules;
 import art.rehra.mineqtt.network.MineqttNetworking.GroupNamePayload;
 import art.rehra.mineqtt.network.MineqttNetworking.GroupPromptPayload;
@@ -46,7 +47,7 @@ public class GroupNameScreen extends Screen {
 
     /** Opens the prompt the server sent (client). */
     public static void open(GroupPromptPayload prompt) {
-        Minecraft.getInstance().gui.setScreen(new GroupNameScreen(prompt));
+        Screens.open(new GroupNameScreen(prompt));
     }
 
     @Override

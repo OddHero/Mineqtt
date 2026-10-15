@@ -318,7 +318,11 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     @Override
     public boolean keyPressed(KeyEvent event) {
         int keyCode = event.key();
+        //? if >=26.3 {
+        /*int scanCode = event.keycode();
+        *///?} else {
         int scanCode = event.scancode();
+        //?}
         int modifiers = event.modifiers();
         if (activeView != null && (activeView.isModal() || activeView.keyPressed(keyCode, scanCode, modifiers))) {
             if (activeView.isModal()) {

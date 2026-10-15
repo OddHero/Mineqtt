@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.device;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.device.LinkSetting;
 import art.rehra.mineqtt.device.TwinView;
@@ -265,7 +266,7 @@ public class TwinTabView implements MqttTabView {
     private void openPickerLater(String key) {
         Minecraft minecraft = Minecraft.getInstance();
         minecraft.schedule(() -> {
-            if (minecraft.gui.screen() == screen) minecraft.gui.setScreen(new TwinPickerScreen(screen, menu, tab, key));
+            if (Screens.current() == screen) Screens.open(new TwinPickerScreen(screen, menu, tab, key));
         });
     }
 

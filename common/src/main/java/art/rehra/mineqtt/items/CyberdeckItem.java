@@ -79,7 +79,11 @@ public class CyberdeckItem extends Item {
         super.inventoryTick(stack, level, entity, slot);
         for (ItemStack item : CyberdeckDataUtil.stripDeprecated(stack)) {
             if (entity instanceof Player player) {
+                //? if >=26.3 {
+                /*player.getInventory().placeItemBackInInventory(item, net.minecraft.util.Prediction.SERVER_ONLY);
+                *///?} else {
                 player.getInventory().placeItemBackInInventory(item);
+                //?}
             } else {
                 entity.spawnAtLocation(level, item);
             }

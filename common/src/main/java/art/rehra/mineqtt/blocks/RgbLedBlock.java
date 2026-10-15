@@ -165,7 +165,7 @@ public class RgbLedBlock extends BaseMqttBlock {
         builder.add(FACE, FACING, LIGHT_LEVEL);
     }
 
-    @Override
+    // Not @Override: blocks have no codec from 26.3 on.
     protected MapCodec<RgbLedBlock> codec() {
         return CODEC;
     }

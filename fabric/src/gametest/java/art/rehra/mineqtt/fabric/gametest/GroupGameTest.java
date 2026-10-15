@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
 import art.rehra.mineqtt.config.MineQTTConfig;
@@ -133,19 +134,19 @@ public final class GroupGameTest implements FabricClientGameTest {
                         && line.text().equals("Grouping with Kitchen Lamp: click the devices to add, or Kitchen Lamp again to stop"), ANSWER_TICKS).isPresent(),
                 "a click on the kitchen lamp picks it to group with (messages: " + ChatLog.since(mark) + ")");
         click(session, HALL);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof GroupNameScreen, ANSWER_TICKS), "a click on the hall lamp asks for the group's name");
-        session.check(session.onClient(mc -> ((GroupNameScreen) mc.gui.screen()).prompt().source().equals("Kitchen Lamp")
-                && ((GroupNameScreen) mc.gui.screen()).prompt().target().equals("Hall Lamp")), "the prompt names both lamps");
+        session.check(session.awaitClient(mc -> Screens.current() instanceof GroupNameScreen, ANSWER_TICKS), "a click on the hall lamp asks for the group's name");
+        session.check(session.onClient(mc -> ((GroupNameScreen) Screens.current()).prompt().source().equals("Kitchen Lamp")
+                && ((GroupNameScreen) Screens.current()).prompt().target().equals("Hall Lamp")), "the prompt names both lamps");
         session.check(!buttonActive(session, "Create"), "Create waits for a name");
         session.context().getInput().typeChars("Living Room");
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof GroupNameScreen screen && screen.name().equals("Living Room"), ANSWER_TICKS),
+        session.check(session.awaitClient(mc -> Screens.current() instanceof GroupNameScreen screen && screen.name().equals("Living Room"), ANSWER_TICKS),
                 "the name field has the focus and takes the typed name");
         session.screenshot("group_name_prompt");
         mark = ChatLog.mark();
         session.clickWidget(isButton("Create"), "the prompt's Create button");
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Created group Living Room with Kitchen Lamp and Hall Lamp"),
                 ANSWER_TICKS).isPresent(), "Create makes the group with both lamps (messages: " + ChatLog.since(mark) + ")");
-        session.check(session.awaitClient(mc -> mc.gui.screen() == null, ANSWER_TICKS), "the prompt closes");
+        session.check(session.awaitClient(mc -> Screens.current() == null, ANSWER_TICKS), "the prompt closes");
         DeviceGroup group = group(session, "living_room").orElse(null);
         session.check(group != null && group.members().equals(Set.of(id(session, KITCHEN), id(session, HALL))) && group.name().equals("Living Room"),
                 "group living_room holds the kitchen and hall lamps");
@@ -403,18 +404,18 @@ public final class GroupGameTest implements FabricClientGameTest {
         openGeneral(session, pos);
         // The General tab labels its group button when it draws, so wait for a frame with the label too.
         Predicate<AbstractWidget> groupButton = widget -> widget instanceof Button && widget.visible && widget.getMessage().getString().endsWith(" >");
-        session.check(session.awaitClient(mc -> groups(mc).isPresent() && mc.gui.screen().children().stream()
+        session.check(session.awaitClient(mc -> groups(mc).isPresent() && Screens.current().children().stream()
                 .anyMatch(child -> child instanceof AbstractWidget widget && groupButton.test(widget)), ANSWER_TICKS), "the group page's data arrives with the screen");
         session.clickWidget(groupButton, "the group button");
         session.check(session.awaitClient(mc -> buttonVisible(mc, "< General"), ANSWER_TICKS), "the group page opens");
     }
 
     private static TabbedMqttScreen screen(Minecraft mc) {
-        return (TabbedMqttScreen) mc.gui.screen();
+        return (TabbedMqttScreen) Screens.current();
     }
 
     private static Optional<DeviceGroups> groups(Minecraft mc) {
-        return mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu ? menu.groups() : Optional.empty();
+        return Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu ? menu.groups() : Optional.empty();
     }
 
     private static boolean isNameField(AbstractWidget widget) {
@@ -426,7 +427,7 @@ public final class GroupGameTest implements FabricClientGameTest {
     }
 
     private static boolean buttonVisible(Minecraft mc, String labelStart) {
-        return mc.gui.screen() != null && mc.gui.screen().children().stream().anyMatch(child -> child instanceof Button button
+        return Screens.current() != null && Screens.current().children().stream().anyMatch(child -> child instanceof Button button
                 && button.visible && button.getMessage().getString().startsWith(labelStart));
     }
 
@@ -435,7 +436,7 @@ public final class GroupGameTest implements FabricClientGameTest {
     }
 
     private static boolean buttonActiveNow(Minecraft mc, String labelStart) {
-        return mc.gui.screen() != null && mc.gui.screen().children().stream().anyMatch(child -> child instanceof Button button
+        return Screens.current() != null && Screens.current().children().stream().anyMatch(child -> child instanceof Button button
                 && button.visible && button.active && button.getMessage().getString().startsWith(labelStart));
     }
 

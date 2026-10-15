@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.device.DeviceType;
 import art.rehra.mineqtt.device.DeviceTypes;
 import art.rehra.mineqtt.device.DeviceView;
@@ -280,7 +281,7 @@ public class TwinPickerScreen extends Screen {
     public void tick() {
         // The device's screen closed underneath (out of reach, the device gone): nothing to bind any more.
         if (minecraft.player == null || minecraft.player.containerMenu != menu) {
-            minecraft.gui.setScreen(null);
+            Screens.open(null);
             return;
         }
         if (key.isEmpty()) return;
@@ -351,7 +352,7 @@ public class TwinPickerScreen extends Screen {
     /** Back to the device's screen; nothing changed unless a pick went out. */
     @Override
     public void onClose() {
-        minecraft.gui.setScreen(minecraft.player != null && minecraft.player.containerMenu == menu ? parent : null);
+        Screens.open(minecraft.player != null && minecraft.player.containerMenu == menu ? parent : null);
     }
 
     private void select(int index) {
@@ -539,6 +540,6 @@ public class TwinPickerScreen extends Screen {
 
     /** The picker for the device whose screen is open, if one shows (client, for tests). */
     public static Optional<TwinPickerScreen> open(Minecraft minecraft) {
-        return minecraft.gui.screen() instanceof TwinPickerScreen picker ? Optional.of(picker) : Optional.empty();
+        return Screens.current() instanceof TwinPickerScreen picker ? Optional.of(picker) : Optional.empty();
     }
 }

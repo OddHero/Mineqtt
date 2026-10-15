@@ -131,7 +131,11 @@ public class DisplayPanelRenderer implements BlockEntityRenderer<DisplayPanelBlo
         pose.pushPose();
         // Into the screen's plane: the block's centre, turned so that +z is where the screen faces, onto the plate's face.
         pose.translate(0.5f, 0.5f, 0.5f);
+        //? if >=26.3 {
+        /*pose.mulPose(new org.joml.Matrix4f().rotation(Axis.YP.rotationDegrees(-state.facing.toYRot())));
+        *///?} else {
         pose.mulPose(Axis.YP.rotationDegrees(-state.facing.toYRot()));
+        //?}
         pose.translate(0f, 0f, -(0.5f - DisplayPanelBlock.THICKNESS / 16f) + Z_OFFSET);
 
         float lineHeight = font.lineHeight;

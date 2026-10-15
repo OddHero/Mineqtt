@@ -31,7 +31,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
 
-public abstract class BaseMqttBlock extends BaseEntityBlock implements InteractionEvent.RightClickBlock {
+public abstract class BaseMqttBlock extends BaseEntityBlock {
 
     private static boolean eventsRegistered = false;
     protected final MapCodec<? extends BaseMqttBlock> codec;
@@ -41,12 +41,23 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
         this.codec = codec;
     }
 
+    //? if >=26.3 {
+    /*// Blocks have no codec from 26.3 on; the stand-ins keep the codec fields of the versions before compiling.
+    protected static <B extends net.minecraft.world.level.block.Block> MapCodec<B> simpleCodec(java.util.function.Function<Properties, B> factory) {
+        return art.rehra.mineqtt.compat.BlockCodecs.simpleCodec(factory);
+    }
+
+    protected static <B extends net.minecraft.world.level.block.Block> com.mojang.serialization.codecs.RecordCodecBuilder<B, Properties> propertiesCodec() {
+        return art.rehra.mineqtt.compat.BlockCodecs.propertiesCodec();
+    }
+    *///?}
+
     public static void registerInteractionEvents() {
         if (!eventsRegistered) {
             InteractionEvent.RIGHT_CLICK_BLOCK.register((player, hand, pos, face) -> {
                 BlockState state = player.level().getBlockState(pos);
                 if (state.getBlock() instanceof BaseMqttBlock block) {
-                    return block.click(player, hand, pos, face);
+                    return clickResult(block.click(player, hand, pos, face));
                 }
                 // The Configurator's Room mode (M4 plan D11) takes a sneaking click on any other block, the pick of a room,
                 // which vanilla would not give the block either (a sneaking player with an item in hand uses the item). An
@@ -56,13 +67,24 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
                 // sends a second click for one the server took.
                 if (!player.isSpectator() && player.isShiftKeyDown() && Interaction.Held.of(player, hand) == Interaction.Held.CONFIGURATOR_ROOM) {
                     if (player instanceof ServerPlayer serverPlayer) ConfiguratorRoom.clickBlock(serverPlayer, pos, true);
-                    return EventResult.interruptTrue();
+                    return clickResult(EventResult.interruptTrue());
                 }
-                return EventResult.pass();
+                return clickResult(EventResult.pass());
             });
             eventsRegistered = true;
         }
     }
+
+    // Architectury's right-click event answers with an InteractionResult from 1.21.2 to 26.1.2, else with an EventResult.
+    //? if >=1.21.2 && <26.2 {
+    /*private static InteractionResult clickResult(EventResult result) {
+        return result.asMinecraft();
+    }
+    *///?} else {
+    private static EventResult clickResult(EventResult result) {
+        return result;
+    }
+    //?}
 
     @Override
     public void setPlacedBy(Level level, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack stack) {
@@ -81,7 +103,11 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
     }
 
     @Override
+    //? if >=26.3 {
+    /*public void playerDestroy(net.minecraft.server.level.ServerLevel level, ServerPlayer player, BlockPos pos, BlockState state, @Nullable BlockEntity blockEntity, ItemStack tool) {
+    *///?} else {
     public void playerDestroy(Level level, Player player, BlockPos pos, BlockState state, @Nullable BlockEntity blockEntity, ItemStack tool) {
+    //?}
         if (blockEntity instanceof Container container) {
             Containers.dropContents(level, pos, container);
             level.updateNeighbourForOutputSignal(pos, this);
@@ -89,7 +115,7 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
         super.playerDestroy(level, player, pos, state, blockEntity, tool);
     }
 
-    @Override
+    // Not @Override: blocks have no codec from 26.3 on.
     protected MapCodec<? extends BaseEntityBlock> codec() {
         return codec;
     }
@@ -108,7 +134,6 @@ public abstract class BaseMqttBlock extends BaseEntityBlock implements Interacti
      * nothing ({@code C2SGuard}). The event comes before vanilla's spectator check on both loaders, and vanilla would then
      * open the block entity's menu without asking {@link DeviceAccess}, so a spectator's click never passes.
      */
-    @Override
     public EventResult click(Player player, InteractionHand hand, BlockPos pos, Direction face) {
         BlockEntity blockEntity = player.level().getBlockEntity(pos);
         if (!(blockEntity instanceof TabbedScreenHost screenHost)) {

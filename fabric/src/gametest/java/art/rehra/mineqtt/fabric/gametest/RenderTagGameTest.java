@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.RedstoneEmitterBlock;
 import art.rehra.mineqtt.blocks.RedstonePublisherBlock;
@@ -198,7 +199,7 @@ public final class RenderTagGameTest implements FabricClientGameTest {
     }
 
     private static boolean awaitView(GameTestSession session, Predicate<DeviceView> matches) {
-        return session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu().deviceView().filter(matches).isPresent(), ANSWER_TICKS);
+        return session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu().deviceView().filter(matches).isPresent(), ANSWER_TICKS);
     }
 
     // Whether the client's block entity at pos carries no owner, device identity, Raw Link or legacy items. A device that

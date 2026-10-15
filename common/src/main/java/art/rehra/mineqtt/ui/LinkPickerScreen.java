@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.flow.core.Mapping;
 import art.rehra.mineqtt.items.ConfiguratorLink;
 import art.rehra.mineqtt.network.MineqttNetworking.LinkChoicePayload;
@@ -68,7 +69,7 @@ public class LinkPickerScreen extends Screen {
 
     /** Opens the picker the server sent (client). */
     public static void open(LinkPickerPayload picker) {
-        if (!picker.choices().isEmpty()) Minecraft.getInstance().gui.setScreen(new LinkPickerScreen(picker));
+        if (!picker.choices().isEmpty()) Screens.open(new LinkPickerScreen(picker));
     }
 
     @Override

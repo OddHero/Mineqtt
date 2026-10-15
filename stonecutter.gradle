@@ -15,6 +15,43 @@ stonecutter.active '26.2'
 stonecutter.parameters {
     // In code, `/*$ minecraft*/ "26.2";` becomes the node's Minecraft version.
     swaps.put('minecraft', "\"${current.version}\";")
+
+    // Renames between versions, written as the active version (26.2) has them. Each one is undone exactly when the active
+    // version switches back, so the other side's spelling must not occur in the 26.2 sources.
+    def before = { String version -> stonecutter.eval(current.version, "<$version") }
+    def from = { String version -> stonecutter.eval(current.version, ">=$version") }
+
+    // 26.2 moved the vanilla entity and block entity types into EntityTypes and BlockEntityTypes.
+    replacements.regex(before('26.2')) {
+        replace('\\bEntityTypes\\.([A-Z][A-Z0-9_]*)\\b', 'EntityType.$1', '\\bEntityType\\.([A-Z][A-Z0-9_]*)\\b', 'EntityTypes.$1')
+        replace('\\bBlockEntityTypes\\.([A-Z][A-Z0-9_]*)\\b', 'BlockEntityType.$1', '\\bBlockEntityType\\.([A-Z][A-Z0-9_]*)\\b', 'BlockEntityTypes.$1')
+        replace('import net\\.minecraft\\.world\\.entity\\.EntityTypes;', 'import net.minecraft.world.entity.EntityType; // EntityTypes',
+                'import net\\.minecraft\\.world\\.entity\\.EntityType; // EntityTypes', 'import net.minecraft.world.entity.EntityTypes;')
+        replace('import net\\.minecraft\\.world\\.level\\.block\\.entity\\.BlockEntityTypes;', 'import net.minecraft.world.level.block.entity.BlockEntityType; // BlockEntityTypes',
+                'import net\\.minecraft\\.world\\.level\\.block\\.entity\\.BlockEntityType; // BlockEntityTypes', 'import net.minecraft.world.level.block.entity.BlockEntityTypes;')
+    }
+
+    // 26.2 grouped the dyed blocks and items into colour collections: Blocks.WOOL.white() was Blocks.WHITE_WOOL.
+    def colors = ['white', 'orange', 'magenta', 'lightBlue', 'yellow', 'lime', 'pink', 'gray', 'lightGray', 'cyan', 'purple', 'blue',
+                  'brown', 'green', 'red', 'black']
+    def collections = [WOOL: 'WOOL', STAINED_GLASS: 'STAINED_GLASS', STAINED_GLASS_PANE: 'STAINED_GLASS_PANE', CONCRETE: 'CONCRETE',
+                       CONCRETE_POWDER: 'CONCRETE_POWDER', CARPET: 'CARPET', DYED_TERRACOTTA: 'TERRACOTTA', GLAZED_TERRACOTTA: 'GLAZED_TERRACOTTA',
+                       BED: 'BED', BANNER: 'BANNER', DYE: 'DYE']
+    replacements.regex(before('26.2')) {
+        collections.each { collection, suffix ->
+            colors.each { color ->
+                def old = color.replaceAll(/([A-Z])/, '_$1').toUpperCase() + '_' + suffix
+                replace("\\b(Blocks|Items)\\.${collection}\\.${color}\\(\\)", "\$1.${old}", "\\b(Blocks|Items)\\.${old}\\b", "\$1.${collection}.${color}()")
+            }
+        }
+    }
+
+    // 26.3 renamed the redstone wire and the advancement display's getters.
+    replacements.string(from('26.3')) {
+        replace('RedStoneWireBlock', 'RedstoneWireBlock')
+        replace('DisplayInfo::shouldAnnounceChat', 'DisplayInfo::announceToChat')
+        replace('DisplayInfo::isHidden', 'DisplayInfo::hidden')
+    }
 }
 
 // One folder with the release jar of every loader and Minecraft version: build/libs/.

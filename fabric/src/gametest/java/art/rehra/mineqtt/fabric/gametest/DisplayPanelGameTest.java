@@ -305,7 +305,11 @@ public final class DisplayPanelGameTest implements FabricClientGameTest {
         session.context().waitTicks(TELEPORT_TICKS);
         session.context().runOnClient(mc -> {
             mc.player.lookAt(EntityAnchorArgument.Anchor.EYES, Vec3.atCenterOf(at).subtract(0, 0.75, 0));
+            //? if >=26.2 {
             mc.gui.hud.getChat().clearMessages(false);
+            //?} else {
+            /*mc.gui.getChat().clearMessages(false);
+            *///?}
         });
         session.context().waitTicks(SETTLE_TICKS);
     }

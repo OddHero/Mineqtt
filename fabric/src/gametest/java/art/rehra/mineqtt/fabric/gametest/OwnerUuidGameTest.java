@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.integrations.MineqttPermission;
 import art.rehra.mineqtt.security.DeviceAccess;
@@ -83,7 +84,7 @@ public final class OwnerUuidGameTest implements FabricClientGameTest {
         // Sneak + right-click asks for the screen; a plain right-click would ask to switch the lamp.
         session.sneakUse();
         session.context().waitTicks(NO_SCREEN_TICKS);
-        session.check(session.onClient(mc -> !(mc.gui.screen() instanceof TabbedMqttScreen)), "the private lamp's screen does not open for the alt");
+        session.check(session.onClient(mc -> !(Screens.current() instanceof TabbedMqttScreen)), "the private lamp's screen does not open for the alt");
 
         // A v1 lamp that only names its owner: its attach binds the player of that name.
         setblock(session, DEVICE_V1, "mineqtt:rgb_led_block", "{ownerName:\"" + name + "\"}");

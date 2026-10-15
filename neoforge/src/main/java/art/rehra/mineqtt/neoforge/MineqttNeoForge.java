@@ -29,7 +29,12 @@ public final class MineqttNeoForge {
         NeoForgeConfigHandler.migrateV1File(FMLPaths.CONFIGDIR.get().resolve(NeoForgeConfigHandler.FILE_NAME));
 
         // Register the config with NeoForge
+        // NeoForge 26.3 renamed COMMON, a config of each side that is not synced, to LOCAL.
+        //? if >=26.3 {
+        /*container.registerConfig(ModConfig.Type.LOCAL, NeoForgeConfigHandler.SPEC, NeoForgeConfigHandler.FILE_NAME);
+        *///?} else {
         container.registerConfig(ModConfig.Type.COMMON, NeoForgeConfigHandler.SPEC, NeoForgeConfigHandler.FILE_NAME);
+        //?}
 
         // Run our common setup
         MineQTT.init();

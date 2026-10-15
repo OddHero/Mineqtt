@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceRecord;
@@ -244,7 +245,7 @@ public final class ExplorerGameTest implements FabricClientGameTest {
         clickButton(session, "Open");
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().contains("blocks away; its screen opens within 16"), ANSWER_TICKS).isPresent(),
                 "Open from 38 blocks away is refused with the distance");
-        session.check(session.onClient(mc -> mc.gui.screen() instanceof CyberdeckScreen), "and the explorer stays open");
+        session.check(session.onClient(mc -> Screens.current() instanceof CyberdeckScreen), "and the explorer stays open");
 
         UUID foreignId = deviceId(session, FOREIGN_LAMP);
         String foreignBefore = state(session, FOREIGN_LAMP);
@@ -269,7 +270,7 @@ public final class ExplorerGameTest implements FabricClientGameTest {
         awaitPage(session, answer -> answer.rows().stream().anyMatch(row -> row.id().equals(lampId)));
         select(session, lampId);
         clickButton(session, "Open");
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
                 && lamp.equals(menu.blockPos), ANSWER_TICKS), "Open within 16 blocks opens the lamp's screen");
         session.closeScreen();
     }
@@ -408,11 +409,11 @@ public final class ExplorerGameTest implements FabricClientGameTest {
 
     // The page the server sent last, whether or not the tab drew it yet.
     private static Optional<ExplorerPage> arrived(GameTestSession session) {
-        return session.onClient(mc -> mc.gui.screen() instanceof CyberdeckScreen screen ? ((CyberdeckMenu) screen.getMenu()).explorerPage() : Optional.empty());
+        return session.onClient(mc -> Screens.current() instanceof CyberdeckScreen screen ? ((CyberdeckMenu) screen.getMenu()).explorerPage() : Optional.empty());
     }
 
     private static Optional<DevicesTabView> view(Minecraft mc) {
-        return mc.gui.screen() instanceof CyberdeckScreen screen && screen.activeView().orElse(null) instanceof DevicesTabView view ? Optional.of(view) : Optional.empty();
+        return Screens.current() instanceof CyberdeckScreen screen && screen.activeView().orElse(null) instanceof DevicesTabView view ? Optional.of(view) : Optional.empty();
     }
 
     // Selects a device's row with a click on its name, and waits until its actions show.
@@ -441,7 +442,7 @@ public final class ExplorerGameTest implements FabricClientGameTest {
 
     // Whether a visible button of that label may be pressed; empty without one.
     private static Optional<Boolean> buttonState(Minecraft mc, String label) {
-        return mc.gui.screen() == null ? Optional.empty() : mc.gui.screen().children().stream().filter(Button.class::isInstance).map(Button.class::cast)
+        return Screens.current() == null ? Optional.empty() : Screens.current().children().stream().filter(Button.class::isInstance).map(Button.class::cast)
                 .filter(button -> button.visible && button.getMessage().getString().equals(label)).map(button -> button.active)
                 .reduce(Boolean::logicalOr);
     }
@@ -484,7 +485,7 @@ public final class ExplorerGameTest implements FabricClientGameTest {
     }
 
     private static boolean previousActive(Minecraft mc) {
-        return mc.gui.screen() != null && mc.gui.screen().children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
+        return Screens.current() != null && Screens.current().children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
                 .anyMatch(widget -> pageButton("<").test(widget) && widget.active);
     }
 

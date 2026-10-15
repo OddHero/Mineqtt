@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
 import art.rehra.mineqtt.config.MineQTTConfig;
@@ -247,7 +248,7 @@ public final class MirrorGameTest implements FabricClientGameTest {
         session.clickWidget(isButton("This block"), "the source cycle");
         session.context().waitForScreen(TwinPickerScreen.class);
         session.context().getInput().pressKey(InputConstants.KEY_ESCAPE);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen && label(mc, IS_SOURCE).equals("Home Assistant"), ANSWER_TICKS),
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen && label(mc, IS_SOURCE).equals("Home Assistant"), ANSWER_TICKS),
                 "choosing Home Assistant opened the picker, and the cycle still shows it after Escape: " + labels(session));
         session.clickWidget(isButton("Home Assistant"), "the source cycle");
         session.check(session.awaitClient(mc -> label(mc, IS_SOURCE).equals("MQTT device") && menu(mc).presetResults().isPresent(), ANSWER_TICKS),
@@ -329,7 +330,7 @@ public final class MirrorGameTest implements FabricClientGameTest {
                         .map(text -> text.contains("replaces its MQTT device " + device)).orElse(false), ANSWER_TICKS),
                 "the entity picker warns that binding replaces the MQTT device: " + session.onClient(mc -> TwinPickerScreen.open(mc).flatMap(TwinPickerScreen::warningText)));
         session.context().getInput().pressKey(InputConstants.KEY_ESCAPE);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen && label(mc, IS_SOURCE).equals("MQTT device"), ANSWER_TICKS),
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen && label(mc, IS_SOURCE).equals("MQTT device"), ANSWER_TICKS),
                 "Escape goes back to the Twin tab, still on the MQTT device");
         session.check(twin.preset(bulb).isPresent(), "and nothing was replaced");
         session.clickWidget(isButton("MQTT device"), "the source cycle");

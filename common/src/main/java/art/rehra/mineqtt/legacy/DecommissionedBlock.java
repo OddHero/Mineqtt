@@ -46,7 +46,18 @@ public abstract class DecommissionedBlock extends BaseEntityBlock {
         super(properties);
     }
 
-    @Override
+    //? if >=26.3 {
+    /*// Blocks have no codec from 26.3 on; the stand-ins keep the codec fields of the versions before compiling.
+    protected static <B extends net.minecraft.world.level.block.Block> MapCodec<B> simpleCodec(java.util.function.Function<Properties, B> factory) {
+        return art.rehra.mineqtt.compat.BlockCodecs.simpleCodec(factory);
+    }
+
+    protected static <B extends net.minecraft.world.level.block.Block> com.mojang.serialization.codecs.RecordCodecBuilder<B, Properties> propertiesCodec() {
+        return art.rehra.mineqtt.compat.BlockCodecs.propertiesCodec();
+    }
+    *///?}
+
+    // Not @Override: blocks have no codec from 26.3 on.
     protected abstract MapCodec<? extends DecommissionedBlock> codec();
 
     /**

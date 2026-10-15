@@ -29,7 +29,7 @@ public class DynamicPublisherBlock extends DecommissionedBlock {
         this.registerDefaultState(this.getStateDefinition().any().setValue(POWERED, false));
     }
 
-    @Override
+    // Not @Override: blocks have no codec from 26.3 on.
     protected MapCodec<DynamicPublisherBlock> codec() {
         return CODEC;
     }

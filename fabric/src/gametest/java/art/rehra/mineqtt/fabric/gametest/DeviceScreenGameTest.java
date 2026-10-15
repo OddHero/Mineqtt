@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.config.MineQTTConfig;
@@ -333,8 +334,8 @@ public final class DeviceScreenGameTest implements FabricClientGameTest {
     }
 
     private static TabbedMqttScreen screen(Minecraft mc) {
-        if (mc.gui.screen() instanceof TabbedMqttScreen screen) return screen;
-        throw new AssertionError("No MineQTT screen is open: " + mc.gui.screen());
+        if (Screens.current() instanceof TabbedMqttScreen screen) return screen;
+        throw new AssertionError("No MineQTT screen is open: " + Screens.current());
     }
 
     /** A UUID as an SNBT int array, the way block entity data stores it. */

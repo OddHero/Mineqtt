@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.config.MineQTTConfig;
@@ -135,7 +136,7 @@ public final class AccessDiagnosticsGameTest implements FabricClientGameTest {
         String slug = session.device(OTHERS, link -> link.slug());
         session.consoleCommand("mineqtt devices access " + slug + " private");
         session.check(session.device(OTHERS, link -> link.access()) == AccessMode.PRIVATE, "devices access, the twin, sets it private");
-        session.check(session.awaitClient(mc -> !(mc.gui.screen() instanceof TabbedMqttScreen), ANSWER_TICKS),
+        session.check(session.awaitClient(mc -> !(Screens.current() instanceof TabbedMqttScreen), ANSWER_TICKS),
                 "the player, who may no longer use it, has its screen closed");
         session.consoleCommand("mineqtt devices access " + slug + " claim");
         session.check(session.device(OTHERS, link -> link.access()) == AccessMode.CLAIM, "and claim again");
@@ -401,8 +402,8 @@ public final class AccessDiagnosticsGameTest implements FabricClientGameTest {
     }
 
     private static TabbedMqttScreen screen(Minecraft mc) {
-        if (mc.gui.screen() instanceof TabbedMqttScreen screen) return screen;
-        throw new AssertionError("No MineQTT screen is open: " + mc.gui.screen());
+        if (Screens.current() instanceof TabbedMqttScreen screen) return screen;
+        throw new AssertionError("No MineQTT screen is open: " + Screens.current());
     }
 
     /** A UUID as an SNBT int array, the way block entity data stores it. */

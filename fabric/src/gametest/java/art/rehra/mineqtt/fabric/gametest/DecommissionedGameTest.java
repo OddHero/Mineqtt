@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.device.DeviceLink;
 import art.rehra.mineqtt.items.MineqttItems;
@@ -131,7 +132,7 @@ public final class DecommissionedGameTest implements FabricClientGameTest {
         Optional<ChatLog.Line> line = session.awaitChat(mark, l -> l.text().startsWith("Topic Relay was retired in MineQTT 2"), ANSWER_TICKS);
         session.check(line.map(l -> !l.actionBar() && l.text().contains(RELAY_REPLACEMENT) && l.text().contains("Network Chip")).orElse(false),
                 "a right-click tells in chat that it is retired, what replaced it and what breaking it gives (" + line + ")");
-        session.check(session.onClient(mc -> mc.gui.screen() == null), "no screen opens");
+        session.check(session.onClient(mc -> Screens.current() == null), "no screen opens");
         session.screenshot("decommissioned_use");
     }
 
@@ -152,7 +153,11 @@ public final class DecommissionedGameTest implements FabricClientGameTest {
             double guiY = (window.getGuiScaledHeight() - INVENTORY_H) / 2 + HOTBAR_SLOT_Y;
             return new double[]{guiX * window.getScreenWidth() / window.getGuiScaledWidth(), guiY * window.getScreenHeight() / window.getGuiScaledHeight()};
         });
+        //? if >=26.2 {
         session.context().runOnClient(mc -> mc.gui.toastManager().clear());
+        //?} else {
+        /*session.context().runOnClient(mc -> mc.getToastManager().clear());
+        *///?}
         session.context().getInput().setCursorPos(cursor[0], cursor[1]);
         session.context().waitTicks(2);
         session.context().takeScreenshot("decommissioned_tooltip");

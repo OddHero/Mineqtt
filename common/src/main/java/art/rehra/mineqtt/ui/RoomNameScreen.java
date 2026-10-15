@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.network.MineqttNetworking.RoomNamePayload;
 import art.rehra.mineqtt.network.MineqttNetworking.RoomPromptPayload;
 import art.rehra.mineqtt.rooms.RoomOffer;
@@ -58,7 +59,7 @@ public class RoomNameScreen extends Screen {
 
     /** Opens the prompt the server sent (client). */
     public static void open(RoomPromptPayload prompt) {
-        Minecraft.getInstance().gui.setScreen(new RoomNameScreen(prompt));
+        Screens.open(new RoomNameScreen(prompt));
     }
 
     @Override

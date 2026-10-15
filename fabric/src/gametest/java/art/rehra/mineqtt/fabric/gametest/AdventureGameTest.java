@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.LightRemoteBlock;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.SmartPlugBlock;
@@ -132,12 +133,12 @@ public final class AdventureGameTest implements FabricClientGameTest {
                 "in survival the lamp's screen has all six tabs, Twin included (" + session.tabIds() + ")");
         int containerId = session.onClient(mc -> GameTestSession.openScreen(mc).getMenu().containerId);
         gameMode(session, GameType.ADVENTURE);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu().containerId != containerId
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu().containerId != containerId
                 && screen.getMenu() instanceof DeviceMenu menu && menu.controlsOnly(), ANSWER_TICKS), "switched to adventure mode, the open screen is rebuilt");
         session.check(session.tabIds().equals(List.of(ControlsTab.ID)), "with the Controls tab alone (" + session.tabIds() + ")");
         session.screenshot("adventure_lamp_rebuilt");
         gameMode(session, GameType.SURVIVAL);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
                 && !menu.controlsOnly() && menu.tabs.size() == 6, ANSWER_TICKS), "back in survival mode it has all six tabs again (" + session.tabIds() + ")");
         session.closeScreen();
 
@@ -146,7 +147,7 @@ public final class AdventureGameTest implements FabricClientGameTest {
         session.check(session.tabIds().size() == 5, "in survival the Alarm Clock's screen has its five tabs (" + session.tabIds() + ")");
         int clockContainer = session.onClient(mc -> GameTestSession.openScreen(mc).getMenu().containerId);
         gameMode(session, GameType.ADVENTURE);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu().containerId != clockContainer
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu().containerId != clockContainer
                 && screen.getMenu() instanceof DeviceMenu menu && menu.controlsOnly(), ANSWER_TICKS), "switched to adventure mode, the Alarm Clock's screen is rebuilt");
         session.check(session.tabIds().equals(List.of(ControlsTab.ID)), "with its Controls tab alone (" + session.tabIds() + ")");
         gameMode(session, GameType.SURVIVAL);
@@ -156,7 +157,7 @@ public final class AdventureGameTest implements FabricClientGameTest {
         String name = session.onServer(s -> s.overworld().getBlockState(input).getBlock().getName().getString());
         int mark = ChatLog.mark();
         gameMode(session, GameType.ADVENTURE);
-        session.check(session.awaitClient(mc -> mc.gui.screen() == null, ANSWER_TICKS), "the " + name + "'s screen closes in adventure mode");
+        session.check(session.awaitClient(mc -> Screens.current() == null, ANSWER_TICKS), "the " + name + "'s screen closes in adventure mode");
         String reason = name + " has no controls; devices can only be used in this game mode";
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals(reason), ANSWER_TICKS).isPresent(),
                 "and the action bar says why (messages: " + ChatLog.since(mark) + ")");
@@ -372,7 +373,7 @@ public final class AdventureGameTest implements FabricClientGameTest {
         session.check(!view.operator() && view.devices().isEmpty() && view.groups().isEmpty(),
                 "the Bridge Console opens for an operator in adventure mode read-only, listing nothing (" + view.devices() + ")");
         session.check(session.awaitTitleNote(Optional.of("Read only"), ANSWER_TICKS), "\"Read only\" shows in its title row");
-        session.check(session.onClient(mc -> mc.gui.screen().children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
+        session.check(session.onClient(mc -> Screens.current().children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
                 .noneMatch(widget -> widget.visible && widget instanceof Button && List.of("Reconnect", "Republish", "Prune").contains(widget.getMessage().getString()))),
                 "no action button shows");
         session.screenshot("adventure_console_operator");
@@ -416,7 +417,7 @@ public final class AdventureGameTest implements FabricClientGameTest {
     }
 
     private static boolean noScreen(GameTestSession session) {
-        return session.onClient(mc -> mc.gui.screen() == null);
+        return session.onClient(mc -> Screens.current() == null);
     }
 
     private static Predicate<AbstractWidget> isButton(String prefix) {

@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.RedstoneEmitterBlock;
 import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
@@ -203,7 +204,7 @@ public final class RawLinkNoticesGameTest implements FabricClientGameTest {
     }
 
     private static @Nullable TabbedMqttMenu menu(Minecraft mc) {
-        return mc.gui.screen() instanceof TabbedMqttScreen screen ? screen.getMenu() : null;
+        return Screens.current() instanceof TabbedMqttScreen screen ? screen.getMenu() : null;
     }
 
     private static @Nullable RawLink raw(@Nullable BlockEntity blockEntity) {

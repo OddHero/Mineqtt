@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceRecord;
@@ -108,8 +109,8 @@ public final class RoomsGameTest implements FabricClientGameTest {
         session.check(session.awaitClient(mc -> particles(mc) > 0, PARTICLE_TICKS), "the box being chosen is outlined with particles for the player");
 
         click(session, CORNER_B);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof RoomNameScreen, ANSWER_TICKS), "the opposite corner opens the name prompt");
-        RoomNameScreen prompt = session.onClient(mc -> (RoomNameScreen) mc.gui.screen());
+        session.check(session.awaitClient(mc -> Screens.current() instanceof RoomNameScreen, ANSWER_TICKS), "the opposite corner opens the name prompt");
+        RoomNameScreen prompt = session.onClient(mc -> (RoomNameScreen) Screens.current());
         session.check(prompt.prompt().sizeX() == 6 && prompt.prompt().sizeY() == 4 && prompt.prompt().sizeZ() == 6 && !prompt.prompt().edits(),
                 "the prompt offers the box of 6 x 4 x 6 blocks to make a room of");
         session.check(prompt.prompt().suggestions().equals(List.of("Great Hall")), "it suggests the name of the room for everyone: " + prompt.prompt().suggestions());
@@ -118,7 +119,7 @@ public final class RoomsGameTest implements FabricClientGameTest {
         session.check(!buttonActive(session, "Create"), "Create waits for a name");
         session.screenshot("rooms_prompt");
         session.clickWidget(isButton("Use: Great Hall"), "the suggestion");
-        session.check(session.onClient(mc -> ((RoomNameScreen) mc.gui.screen()).name().equals("Great Hall")), "the suggestion fills in its name");
+        session.check(session.onClient(mc -> ((RoomNameScreen) Screens.current()).name().equals("Great Hall")), "the suggestion fills in its name");
         retype(session, "Kitchen");
         int offer = prompt.prompt().offer();
         mark = ChatLog.mark();
@@ -156,10 +157,10 @@ public final class RoomsGameTest implements FabricClientGameTest {
     private static void pickRenameRemove(GameTestSession session) {
         session.aim(INSIDE, Direction.UP);
         session.sneakUse(INSIDE);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof RoomNameScreen screen && screen.prompt().edits(), ANSWER_TICKS),
+        session.check(session.awaitClient(mc -> Screens.current() instanceof RoomNameScreen screen && screen.prompt().edits(), ANSWER_TICKS),
                 "a sneak-click inside the room picks it");
-        session.check(session.onClient(mc -> ((RoomNameScreen) mc.gui.screen()).prompt().existingName().equals("Kitchen")
-                && ((RoomNameScreen) mc.gui.screen()).name().equals("Kitchen")), "the prompt shows its name");
+        session.check(session.onClient(mc -> ((RoomNameScreen) Screens.current()).prompt().existingName().equals("Kitchen")
+                && ((RoomNameScreen) Screens.current()).name().equals("Kitchen")), "the prompt shows its name");
         session.check(!buttonActive(session, "Rename") && buttonActive(session, "Remove"), "Rename waits for another name; Remove is ready");
         retype(session, "Cookhouse");
         int mark = ChatLog.mark();
@@ -170,7 +171,7 @@ public final class RoomsGameTest implements FabricClientGameTest {
 
         session.aim(INSIDE, Direction.UP);
         session.sneakUse(INSIDE);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof RoomNameScreen screen && screen.prompt().existingName().equals("Cookhouse"), ANSWER_TICKS),
+        session.check(session.awaitClient(mc -> Screens.current() instanceof RoomNameScreen screen && screen.prompt().existingName().equals("Cookhouse"), ANSWER_TICKS),
                 "a second pick offers the renamed room");
         mark = ChatLog.mark();
         session.clickWidget(isButton("Remove"), "Remove");
@@ -196,7 +197,7 @@ public final class RoomsGameTest implements FabricClientGameTest {
         session.pressUse();
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Room selection cancelled"), ANSWER_TICKS).isPresent(),
                 "a click into the air cancels the corner (messages: " + ChatLog.since(mark) + ")");
-        session.check(session.onClient(mc -> !(mc.gui.screen() instanceof RoomNameScreen)), "and opens nothing");
+        session.check(session.onClient(mc -> !(Screens.current() instanceof RoomNameScreen)), "and opens nothing");
 
         int maxSize = MineQTTConfig.roomsMaxSize;
         MineQTTConfig.roomsMaxSize = 8;
@@ -209,7 +210,7 @@ public final class RoomsGameTest implements FabricClientGameTest {
             session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals(
                             "Not done: A room is at most 8 blocks on each side; this one is 14 x 2 x 1"), ANSWER_TICKS).isPresent(),
                     "a box larger than rooms.maxSize is refused in the action bar (messages: " + ChatLog.since(mark) + ")");
-            session.check(session.onClient(mc -> !(mc.gui.screen() instanceof RoomNameScreen)), "and asks for no name");
+            session.check(session.onClient(mc -> !(Screens.current() instanceof RoomNameScreen)), "and asks for no name");
         } finally {
             MineQTTConfig.roomsMaxSize = maxSize;
         }
@@ -280,14 +281,14 @@ public final class RoomsGameTest implements FabricClientGameTest {
             session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().startsWith("Corner A at"), ANSWER_TICKS).isPresent(),
                     "corner A (messages: " + ChatLog.since(mark) + ")");
             click(session, AREA_CORNER);
-            session.check(session.awaitClient(mc -> mc.gui.screen() instanceof RoomNameScreen, ANSWER_TICKS), "the opposite corner opens the name prompt");
-            List<String> suggestions = session.onClient(mc -> ((RoomNameScreen) mc.gui.screen()).prompt().suggestions());
+            session.check(session.awaitClient(mc -> Screens.current() instanceof RoomNameScreen, ANSWER_TICKS), "the opposite corner opens the name prompt");
+            List<String> suggestions = session.onClient(mc -> ((RoomNameScreen) Screens.current()).prompt().suggestions());
             session.check(suggestions.equals(List.of("Great Hall", "Hallway", "Living Room")),
                     "the operator gets the room names, then Home Assistant's area names: " + suggestions);
             session.clickWidget(isButton("Use: Great Hall"), "the first suggestion");
             session.check(hasButton(session, "Use: Hallway"), "the suggestion steps on to the first area name");
             session.clickWidget(isButton("Use: Hallway"), "the area name");
-            session.check(session.onClient(mc -> ((RoomNameScreen) mc.gui.screen()).name().equals("Hallway")), "which fills in its name");
+            session.check(session.onClient(mc -> ((RoomNameScreen) Screens.current()).name().equals("Hallway")), "which fills in its name");
             session.screenshot("rooms_area_suggestions");
             retype(session, "living room");
             mark = ChatLog.mark();
@@ -314,7 +315,7 @@ public final class RoomsGameTest implements FabricClientGameTest {
         int mark = ChatLog.mark();
         session.aim(CHEST);
         session.pressUse();
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof ContainerScreen, ANSWER_TICKS), "a click on a chest opens it");
+        session.check(session.awaitClient(mc -> Screens.current() instanceof ContainerScreen, ANSWER_TICKS), "a click on a chest opens it");
         session.closeScreen();
         session.check(ChatLog.since(mark).stream().noneMatch(line -> line.actionBar() && line.text().startsWith("Corner A")), "and sets no corner");
 
@@ -329,10 +330,10 @@ public final class RoomsGameTest implements FabricClientGameTest {
                 "while corner A waits, a click on a lever flips it");
         session.aim(CHEST);
         session.pressUse();
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof ContainerScreen, ANSWER_TICKS), "and one on the chest opens it");
+        session.check(session.awaitClient(mc -> Screens.current() instanceof ContainerScreen, ANSWER_TICKS), "and one on the chest opens it");
         session.closeScreen();
         session.check(ChatLog.since(mark).stream().noneMatch(line -> line.actionBar() && (line.text().startsWith("Corner A") || line.text().startsWith("Not done")))
-                && session.onClient(mc -> !(mc.gui.screen() instanceof RoomNameScreen)), "neither is a corner: " + ChatLog.since(mark));
+                && session.onClient(mc -> !(Screens.current() instanceof RoomNameScreen)), "neither is a corner: " + ChatLog.since(mark));
         mark = ChatLog.mark();
         session.aimAtSky();
         session.pressUse();
@@ -372,13 +373,13 @@ public final class RoomsGameTest implements FabricClientGameTest {
     private static void retype(GameTestSession session, String name) {
         session.clickWidget(widget -> widget instanceof EditBox, "the name field");
         session.context().getInput().pressKey(InputConstants.KEY_END);
-        int length = session.onClient(mc -> ((RoomNameScreen) mc.gui.screen()).name().length());
+        int length = session.onClient(mc -> ((RoomNameScreen) Screens.current()).name().length());
         for (int i = 0; i < length; i++) {
             session.context().getInput().pressKey(InputConstants.KEY_BACKSPACE);
         }
         session.context().getInput().typeChars(name);
         session.context().waitTick();
-        session.check(session.onClient(mc -> ((RoomNameScreen) mc.gui.screen()).name().equals(name)), "the name field takes " + name);
+        session.check(session.onClient(mc -> ((RoomNameScreen) Screens.current()).name().equals(name)), "the name field takes " + name);
     }
 
     private static void gameMode(GameTestSession session, GameType mode) {
@@ -389,12 +390,12 @@ public final class RoomsGameTest implements FabricClientGameTest {
     }
 
     private static boolean hasButton(GameTestSession session, String labelStart) {
-        return session.onClient(mc -> mc.gui.screen() != null && mc.gui.screen().children().stream()
+        return session.onClient(mc -> Screens.current() != null && Screens.current().children().stream()
                 .anyMatch(child -> child instanceof Button button && button.visible && button.getMessage().getString().startsWith(labelStart)));
     }
 
     private static boolean buttonActive(GameTestSession session, String labelStart) {
-        return session.onClient(mc -> mc.gui.screen() != null && mc.gui.screen().children().stream()
+        return session.onClient(mc -> Screens.current() != null && Screens.current().children().stream()
                 .anyMatch(child -> child instanceof Button button && button.visible && button.active && button.getMessage().getString().startsWith(labelStart)));
     }
 

@@ -22,6 +22,43 @@ dependencies {
     add(project.modCompileOnly, "io.github.flemmli97:flan:${project.flan_version}-common:api") { transitive = false }
 }
 
+// The data files are written for 26.2. Where another version reads them differently, processResources rewrites the
+// lines in question, so each version's jar carries data that version parses (verifyCatalog checks the processed files).
+def colorIds = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue',
+                'brown', 'green', 'red', 'black']
+def mc = stonecutter.current.version
+processResources {
+    inputs.property('minecraftVersion', mc)
+    // A rewritten file must not outlive its source.
+    doFirst { delete destinationDir }
+    if (stonecutter.eval(mc, '<26.2')) {
+        // The #minecraft:concrete block tag is new in 26.2; before, the tag names the 16 concrete blocks.
+        filesMatching('data/*/tags/block/**/*.json') {
+            filter { String line ->
+                def m = line =~ /^(\s*)"#minecraft:concrete"(,?)\s*$/
+                if (!m.matches()) return line
+                def (indent, comma) = [m.group(1), m.group(2)]
+                colorIds.collect { "${indent}\"minecraft:${it}_concrete\"" }.join(',\n') + comma
+            }
+        }
+    }
+    if (stonecutter.eval(mc, '>=26.3')) {
+        // 26.3's recipe_unlocked trigger takes "recipes" instead of "recipe".
+        filesMatching('data/*/advancement/**/*.json') {
+            filter { String line -> line.replaceFirst(/^(\s*)"recipe":/, '$1"recipes":') }
+        }
+    }
+}
+
+// The checks bootstrap Minecraft or start brokers and wait with timeouts; with every version building at once, too many of
+// them side by side starve each other. At most two check JVMs run at a time across all nodes.
+def checkSlots = gradle.sharedServices.registerIfAbsent('mineqttCheckSlots', BuildService) {
+    maxParallelUsages = 2
+}
+tasks.withType(JavaExec).configureEach {
+    usesService(checkSlots)
+}
+
 // Keep the executable regression harness separate from framework-based unit tests.
 sourceSets {
     sensorChecks {
@@ -180,15 +217,18 @@ tasks.register('verifyMirrorNoLoop', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.device.MirrorNoLoopCheck'
 }
-// The Catalog of blocks and items: assets, loot tables, lang keys, 26.2 recipes behind the Network Chip and their unlock
-// advancements (bootstrapped). It reads the source resources, so a deleted file cannot survive in build/resources.
+// The Catalog of blocks and items: assets, loot tables, lang keys, recipes behind the Network Chip and their unlock
+// advancements (bootstrapped). It reads the processed resources, which processResources rebuilds from scratch, so a deleted
+// file cannot survive there.
 tasks.register('verifyCatalog', JavaExec) {
     dependsOn sensorChecksClasses
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.registry.CatalogCheck'
-    def resourcesDir = new File(branchDir, 'src/main/resources')
+    // The processed resources: the data as this version's jar carries it.
+    def resourcesDir = tasks.named('processResources').map { it.destinationDir }
+    dependsOn tasks.named('processResources')
     inputs.dir(resourcesDir).withPropertyName('resources')
-    args resourcesDir.absolutePath
+    argumentProviders.add({ [resourcesDir.get().absolutePath] } as CommandLineArgumentProvider)
 }
 
 // Run mqtt.core checks against an in-process Moquette broker; the timeout keeps a stuck broker from hanging check.
@@ -435,21 +475,25 @@ tasks.named('check') {
     dependsOn tasks.named('verifyDiscoveryPublisher')
     dependsOn tasks.named('verifyCatalog')
     dependsOn tasks.named('verifyMirrorNoLoop')
-    dependsOn tasks.named('verifyBrokerSmoke')
-    dependsOn tasks.named('verifyHaCalls')
-    dependsOn tasks.named('verifyPresetLoad')
-    dependsOn tasks.named('verifyTopicTrie')
-    dependsOn tasks.named('verifyBrokerUri')
-    dependsOn tasks.named('verifyInboundQueue')
-    dependsOn tasks.named('verifyOutboundBuffer')
-    dependsOn tasks.named('verifyTopicAcl')
-    dependsOn tasks.named('verifyBrokerIntegration')
-    dependsOn tasks.named('verifyMessageBus')
-    dependsOn tasks.named('verifyStatestreamParse')
-    dependsOn tasks.named('verifyCoreIsolation')
-    dependsOn tasks.named('verifyValuePath')
-    dependsOn tasks.named('verifyValueMap')
-    dependsOn tasks.named('verifyTelemetry')
     dependsOn tasks.named('verifyPrivacy')
     dependsOn tasks.named('verifyRooms')
+    // The Minecraft-free checks (brokerChecks and the isolation of the cores) are the same for every Minecraft version and
+    // start brokers on fixed ports, so only the active version's check runs them.
+    if (stonecutter.current.isActive) {
+        dependsOn tasks.named('verifyBrokerSmoke')
+        dependsOn tasks.named('verifyHaCalls')
+        dependsOn tasks.named('verifyPresetLoad')
+        dependsOn tasks.named('verifyTopicTrie')
+        dependsOn tasks.named('verifyBrokerUri')
+        dependsOn tasks.named('verifyInboundQueue')
+        dependsOn tasks.named('verifyOutboundBuffer')
+        dependsOn tasks.named('verifyTopicAcl')
+        dependsOn tasks.named('verifyBrokerIntegration')
+        dependsOn tasks.named('verifyMessageBus')
+        dependsOn tasks.named('verifyStatestreamParse')
+        dependsOn tasks.named('verifyCoreIsolation')
+        dependsOn tasks.named('verifyValuePath')
+        dependsOn tasks.named('verifyValueMap')
+        dependsOn tasks.named('verifyTelemetry')
+    }
 }

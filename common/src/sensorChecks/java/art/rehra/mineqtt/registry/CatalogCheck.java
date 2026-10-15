@@ -38,8 +38,9 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
- * The Catalog and the data behind it (M2 plan D8), run by Gradle's verifyCatalog task on the source resources folder it
- * passes as the only argument, so a file deleted there cannot survive in a stale build output.
+ * The Catalog and the data behind it (M2 plan D8), run by Gradle's verifyCatalog task on the processed resources folder
+ * it passes as the only argument: the data as the jar of the Minecraft version carries it. processResources rebuilds that
+ * folder from scratch, so a file deleted from the sources cannot survive in it.
  * <ul>
  *     <li>Every entry has its item model definition, the models and textures they reach, and its lang keys; a block also
  *     its blockstate and a loot table that parses and drops only vanilla items and Catalog entries; a decommissioned
@@ -289,9 +290,18 @@ public final class CatalogCheck {
             JsonObject advancement = read(file).getAsJsonObject();
             JsonObject criteria = advancement.getAsJsonObject("criteria");
             collectStrings(criteria, "items", item -> itemExists(item, "Advancement " + id));
-            collectStrings(criteria, "recipe", recipe -> expect(!recipe.startsWith(NAMESPACE + ":") || recipes.containsKey(recipe),
-                    "Advancement " + id + " waits for the unknown recipe " + recipe));
+            Consumer<String> knownRecipe = recipe -> expect(!recipe.startsWith(NAMESPACE + ":") || recipes.containsKey(recipe),
+                    "Advancement " + id + " waits for the unknown recipe " + recipe);
+            // recipe_unlocked names its recipe in "recipe", from 26.3 on in "recipes".
+            collectStrings(criteria, "recipe", knownRecipe);
+            collectStrings(criteria, "recipes", knownRecipe);
+            //? if >=26.3 {
+            /*// 26.3 resolves the recipes of recipe_unlocked in the recipe registry, which only a loaded world has; the rest of
+            // the advancement still parses.
+            parse(Advancement.CODEC, withoutRecipeUnlocked(advancement), "advancement " + id);
+            *///?} else {
             parse(Advancement.CODEC, advancement, "advancement " + id);
+            //?}
             JsonObject rewards = advancement.getAsJsonObject("rewards");
             JsonArray rewarded = rewards == null ? null : rewards.getAsJsonArray("recipes");
             if (!expect(rewarded != null && !rewarded.isEmpty(), "Advancement " + id + " unlocks no recipe")) continue;
@@ -307,6 +317,31 @@ public final class CatalogCheck {
                 expect(advancements.stream().anyMatch(CatalogCheck::completesOnChip), "Recipe " + id + " takes the Network Chip but does not unlock on obtaining it");
             }
         });
+    }
+
+    // The advancement without its recipe_unlocked criteria, also in the requirements.
+    private static JsonObject withoutRecipeUnlocked(JsonObject advancement) {
+        JsonObject copy = advancement.deepCopy();
+        JsonObject criteria = copy.getAsJsonObject("criteria");
+        List<String> removed = new ArrayList<>();
+        for (String name : List.copyOf(criteria.keySet())) {
+            if (criteria.getAsJsonObject(name).get("trigger").getAsString().equals("minecraft:recipe_unlocked")) {
+                criteria.remove(name);
+                removed.add(name);
+            }
+        }
+        if (copy.has("requirements")) {
+            JsonArray groups = new JsonArray();
+            for (JsonElement group : copy.getAsJsonArray("requirements")) {
+                JsonArray names = new JsonArray();
+                group.getAsJsonArray().forEach(name -> {
+                    if (!removed.contains(name.getAsString())) names.add(name);
+                });
+                if (!names.isEmpty()) groups.add(names);
+            }
+            copy.add("requirements", groups);
+        }
+        return copy;
     }
 
     /**

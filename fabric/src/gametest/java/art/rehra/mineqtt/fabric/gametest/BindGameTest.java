@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.device.DeviceHost;
@@ -128,7 +129,7 @@ public final class BindGameTest implements FabricClientGameTest {
                         .map(results -> results.notice() == TwinPicker.Notice.NO_BIND && results.rows().isEmpty()).orElse(false)),
                 "a player without mineqtt:twin.bind gets no rows, only why");
         session.context().getInput().pressKey(InputConstants.KEY_ESCAPE);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && TwinTab.ID.equals(screen.getMenu().getActiveTabId()),
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && TwinTab.ID.equals(screen.getMenu().getActiveTabId()),
                 ANSWER_TICKS), "Escape goes back to the lamp's Twin tab");
         session.closeScreen();
         twin.op();
@@ -159,7 +160,7 @@ public final class BindGameTest implements FabricClientGameTest {
         session.screenshot("bind_picker");
 
         session.context().getInput().pressKey(InputConstants.KEY_RETURN);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen, ANSWER_TICKS), "Enter binds and goes back to the Twin tab");
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen, ANSWER_TICKS), "Enter binds and goes back to the Twin tab");
         session.check(session.await(() -> twin.source(lamp).equals(Optional.of(KITCHEN)), ANSWER_TICKS), "the lamp is bound to " + KITCHEN);
         session.check(session.await(() -> "M3 Kitchen Ceiling".equals(session.device(lamp, link -> link.name())), ANSWER_TICKS),
                 "and named after it (was " + defaultName + "): " + session.device(lamp, link -> link.name()));
@@ -218,7 +219,7 @@ public final class BindGameTest implements FabricClientGameTest {
         List<String> all = session.onClient(mc -> TwinPickerScreen.open(mc).map(TwinPickerScreen::shownEntities).orElse(List.of()));
         session.check(all.stream().anyMatch(entity -> !entity.startsWith(rests + ".")), "and lists more than " + rests + ": " + all);
         session.context().getInput().pressKey(InputConstants.KEY_ESCAPE);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen, ANSWER_TICKS), "Escape goes back to the Twin tab");
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen, ANSWER_TICKS), "Escape goes back to the Twin tab");
         session.closeScreen();
     }
 
@@ -302,7 +303,7 @@ public final class BindGameTest implements FabricClientGameTest {
                 "with twin.allowedEntities empty the picker says the twin is off and why");
         session.screenshot("bind_picker_off");
         session.context().getInput().pressKey(InputConstants.KEY_ESCAPE);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen, ANSWER_TICKS), "back on the Twin tab");
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen, ANSWER_TICKS), "back on the Twin tab");
         int mark = ChatLog.mark();
         session.send(new DeviceConfigPayload(lamp, "twin.entity", StringTag.valueOf(KITCHEN)));
         session.check(session.awaitChat(mark, line -> !line.actionBar() && line.text().contains("twin.allowedEntities"), ANSWER_TICKS).isPresent(),
@@ -382,7 +383,7 @@ public final class BindGameTest implements FabricClientGameTest {
         session.check(session.onClient(mc -> TwinPickerScreen.open(mc).map(TwinPickerScreen::shownEntities).orElse(List.of())).equals(List.of(FLAG)),
                 "only the flag matches");
         session.context().getInput().pressKey(InputConstants.KEY_RETURN);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen, ANSWER_TICKS), "Enter binds and goes back to the Twin tab");
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen, ANSWER_TICKS), "Enter binds and goes back to the Twin tab");
         session.check(session.await(() -> FLAG.equals(target(session, input, "powered")), ANSWER_TICKS), "the Input's target switches " + FLAG);
         session.check(session.awaitClient(mc -> label(mc, isButton("Target:")).equals("Target: M3 Flag"), ANSWER_TICKS),
                 "the Twin tab shows the target row: " + labels(session));
@@ -523,7 +524,7 @@ public final class BindGameTest implements FabricClientGameTest {
     }
 
     private static boolean awaitTwinView(GameTestSession session, Predicate<TwinView> matches) {
-        return session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
+        return session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
                 && menu.twinView().filter(matches).isPresent(), ANSWER_TICKS);
     }
 

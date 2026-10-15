@@ -1045,7 +1045,11 @@ public final class DeviceRuntime {
         if (refusal == null) {
             List<ItemStack> items = device.ejectLegacyItems();
             int count = items.stream().mapToInt(ItemStack::getCount).sum();
+            //? if >=26.3 {
+            /*items.forEach(stack -> player.getInventory().placeItemBackInInventory(stack, net.minecraft.util.Prediction.SERVER_ONLY));
+            *///?} else {
             items.forEach(stack -> player.getInventory().placeItemBackInInventory(stack));
+            //?}
             player.sendSystemMessage(Component.translatable("mineqtt.device.eject.done", count), true);
             return;
         }
