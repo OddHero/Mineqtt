@@ -82,7 +82,11 @@ public class DisplayPanelBlock extends BaseMqttBlock {
 
     /** The panel's level: 0 while it shows nothing, its source has no value, or it has not loaded its data yet. */
     @Override
+    //? if >=1.21.9 {
     protected int getAnalogOutputSignal(BlockState state, Level level, BlockPos pos, Direction direction) {
+    //?} else {
+    /*protected int getAnalogOutputSignal(BlockState state, Level level, BlockPos pos) {
+    *///?}
         return level.getBlockEntity(pos) instanceof DisplayPanelBlockEntity panel ? panel.comparatorLevel() : 0;
     }
 

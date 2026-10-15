@@ -232,7 +232,12 @@ public final class ExplorerGameTest implements FabricClientGameTest {
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Used Explorer Lamp"), ANSWER_TICKS).isPresent(),
                 "and the action bar says so");
 
+        // clearParticles is private before 1.21.9; setting the level clears them too.
+        //? if >=1.21.9 {
         session.context().runOnClient(mc -> mc.particleEngine.clearParticles());
+        //?} else {
+        /*session.context().runOnClient(mc -> mc.particleEngine.setLevel(mc.level));
+        *///?}
         mark = ChatLog.mark();
         clickButton(session, "Locate");
         GlobalPos at = GlobalPos.of(Level.OVERWORLD, lamp);

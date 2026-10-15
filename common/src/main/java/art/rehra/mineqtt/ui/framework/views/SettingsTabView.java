@@ -178,7 +178,12 @@ public class SettingsTabView implements MqttTabView {
         private ItemStack headFor(String name) {
             if (!name.equals(cachedOwner) || cachedHead.isEmpty()) {
                 ItemStack head = new ItemStack(Items.PLAYER_HEAD);
+                //? if >=1.21.9 {
                 head.set(DataComponents.PROFILE, ResolvableProfile.createUnresolved(name));
+                //?} else {
+                /*head.set(DataComponents.PROFILE, new ResolvableProfile(java.util.Optional.of(name), java.util.Optional.empty(),
+                        new com.mojang.authlib.properties.PropertyMap()));
+                *///?}
                 cachedHead = head;
                 cachedOwner = name;
             }

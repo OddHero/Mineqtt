@@ -16,7 +16,9 @@ import art.rehra.mineqtt.twin.core.TwinHealth;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.minecraft.client.Minecraft;
+//? if >=1.21.9 {
 import net.minecraft.client.renderer.blockentity.state.BlockEntityRenderState;
+//?}
 import net.minecraft.commands.arguments.EntityAnchorArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -145,10 +147,10 @@ public final class DisplayPanelGameTest implements FabricClientGameTest {
         setblock(session, LAMP, "minecraft:redstone_lamp");
         set(session, GAUGE, "{\"message\":\"Washer done!\"}");
         session.check(session.await(() -> lit(session), ANSWER_TICKS), "text lights the lamp behind the comparator");
-        session.check(session.onServer(s -> s.overworld().getBlockState(GAUGE).getAnalogOutputSignal(s.overworld(), GAUGE, Direction.EAST)) == 15,
+        session.check(session.onServer(s -> signal(s, GAUGE)) == 15,
                 "the panel gives 15 for text");
         set(session, GAUGE, "{\"message\":\"7\"}");
-        session.check(session.await(() -> session.onServer(s -> s.overworld().getBlockState(GAUGE).getAnalogOutputSignal(s.overworld(), GAUGE, Direction.EAST)) == 7,
+        session.check(session.await(() -> session.onServer(s -> signal(s, GAUGE)) == 7,
                 ANSWER_TICKS), "\"7\" gives 7");
         set(session, GAUGE, "{\"message\":\"off\"}");
         session.check(session.await(() -> !lit(session), ANSWER_TICKS), "off puts the lamp out");
@@ -223,7 +225,7 @@ public final class DisplayPanelGameTest implements FabricClientGameTest {
             awaitShown(session, MIRROR, render -> render.lines().equals(List.of("14.5 °C")), "a live change reaches the client");
             session.check(session.onClient(mc -> panel(mc, MIRROR).deviceLink().twin() == null && !panel(mc, MIRROR).shown().toString().contains(entity)),
                     "the client block entity holds neither the binding nor the entity id");
-            session.check(session.onServer(s -> s.overworld().getBlockState(MIRROR).getAnalogOutputSignal(s.overworld(), MIRROR, Direction.EAST)) == 15,
+            session.check(session.onServer(s -> signal(s, MIRROR)) == 15,
                     "14.5 over 0..15 gives 15");
             look(session, MIRROR.south(3), MIRROR);
             session.screenshot("panel_mirror_live");
@@ -232,7 +234,7 @@ public final class DisplayPanelGameTest implements FabricClientGameTest {
             session.check(session.awaitClient(mc -> panel(mc, MIRROR).twinHint() == TwinHealth.Hint.UNAVAILABLE, ANSWER_TICKS), "the client learns it is unavailable");
             DisplayPanelRenderState unavailable = extract(session, MIRROR, System.currentTimeMillis());
             session.check(unavailable.lines.equals(List.of("Unavailable")) && "Outdoor".equals(unavailable.title), "it shows Unavailable under its name");
-            session.check(session.onServer(s -> s.overworld().getBlockState(MIRROR).getAnalogOutputSignal(s.overworld(), MIRROR, Direction.EAST)) == 0,
+            session.check(session.onServer(s -> signal(s, MIRROR)) == 0,
                     "its comparator reads 0 while the entity has no value");
             session.screenshot("panel_mirror_unavailable");
             session.consoleCommand("mineqtt devices bind outdoor none");
@@ -287,7 +289,11 @@ public final class DisplayPanelGameTest implements FabricClientGameTest {
         return session.onClient(mc -> {
             DisplayPanelBlockEntity panel = panel(mc, pos);
             DisplayPanelRenderState state = new DisplayPanelRenderState();
+            //? if >=1.21.9 {
             BlockEntityRenderState.extractBase(panel, state, null);
+            //?} else {
+            /*state.lightCoords = net.minecraft.client.renderer.LevelRenderer.getLightColor(mc.level, pos);
+            *///?}
             DisplayPanelRenderer.extractText(panel, state, now);
             return state;
         });
@@ -326,4 +332,15 @@ public final class DisplayPanelGameTest implements FabricClientGameTest {
     private static void setblock(GameTestSession session, BlockPos pos, String block) {
         session.consoleCommand("setblock " + pos.getX() + " " + pos.getY() + " " + pos.getZ() + " " + block);
     }
+
+    // The comparator output of the panel at pos, read from the east as the comparator behind it reads it (the side counts
+    // from 1.21.9 on).
+    private static int signal(net.minecraft.server.MinecraftServer server, BlockPos pos) {
+        //? if >=1.21.9 {
+        return server.overworld().getBlockState(pos).getAnalogOutputSignal(server.overworld(), pos, Direction.EAST);
+        //?} else {
+        /*return server.overworld().getBlockState(pos).getAnalogOutputSignal(server.overworld(), pos);
+        *///?}
+    }
+
 }

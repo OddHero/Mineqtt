@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Profiles;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceRecord;
@@ -56,13 +57,13 @@ final class TwinFixture implements AutoCloseable {
     /** Makes the player an operator, who holds {@code mineqtt:twin.bind} and {@code mineqtt:twin.control} on a dedicated server. */
     void op() {
         session.consoleCommand("op " + session.playerName());
-        session.awaitServer(s -> s.getPlayerList().isOp(new net.minecraft.server.players.NameAndId(session.player(s).getGameProfile())));
+        session.awaitServer(s -> Profiles.isOp(s, Profiles.of(session.player(s))));
     }
 
     /** Takes the player's operator rights away again: a dedicated server's player, who may not bind. */
     void deop() {
         session.consoleCommand("deop " + session.playerName());
-        session.awaitServer(s -> !s.getPlayerList().isOp(new net.minecraft.server.players.NameAndId(session.player(s).getGameProfile())));
+        session.awaitServer(s -> !Profiles.isOp(s, Profiles.of(session.player(s))));
     }
 
     BrokerProbe probe() {

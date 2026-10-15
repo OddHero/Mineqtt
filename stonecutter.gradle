@@ -38,6 +38,9 @@ stonecutter.parameters {
 
     // 1.21.9 made game profiles records and named a player by NameAndId; before, compat.NameAndId stands in for it.
     replacements.string(before('1.21.9')) {
+        replace('EditBox.DEFAULT_HINT_STYLE', 'net.minecraft.ChatFormatting.DARK_GRAY')
+        replace('addFormatter(PasswordMask.FORMATTER)', 'setFormatter(PasswordMask.FORMATTER)')
+        replace(').pauseWhenEmptySeconds()', ').pauseWhileEmptySeconds()')
         replace('getGameProfile().name()', 'getGameProfile().getName()')
         replace('getGameProfile().id()', 'getGameProfile().getId()')
         replace('net.minecraft.server.players.NameAndId', 'art.rehra.mineqtt.compat.NameAndId')

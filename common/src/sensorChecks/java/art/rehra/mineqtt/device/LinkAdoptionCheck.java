@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity;
 import art.rehra.mineqtt.blocks.entities.BlockSensorBlockEntity;
 import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
@@ -39,7 +40,6 @@ import net.minecraft.world.ItemStackWithSlot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.component.TypedEntityData;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntityTypes;
 import net.minecraft.world.level.storage.TagValueInput;
@@ -173,7 +173,7 @@ public final class LinkAdoptionCheck {
      */
     public static void placedFromItem(HolderLookup.Provider registries, CompoundTag v1Lamp, String topic, LightState v1Light) {
         LampData lamp = new LampData();
-        check(TypedEntityData.of(BlockEntityTypes.DAYLIGHT_DETECTOR, v1Lamp).loadInto(lamp, registries), "The item data is applied");
+        check(CheckItems.loadItemData(BlockEntityTypes.DAYLIGHT_DETECTOR, v1Lamp, lamp, registries), "The item data is applied");
         check(lamp.link.awaitingAdoption() && lamp.light.equals(v1Light), "The merged data is still v1 data, colour included: " + lamp.light);
         lamp.link.sanitizePlaced(ALEX, "Alex", raw -> Optional.of("not in acl.rawAllow"));
         RawLink raw = lamp.link.raw();
@@ -188,7 +188,7 @@ public final class LinkAdoptionCheck {
         v2.light = v1Light;
         CompoundTag v2Item = v2.saveCustomOnly(registries);
         LampData copy = new LampData();
-        check(TypedEntityData.of(BlockEntityTypes.DAYLIGHT_DETECTOR, v2Item).loadInto(copy, registries), "The v2 item data is applied");
+        check(CheckItems.loadItemData(BlockEntityTypes.DAYLIGHT_DETECTOR, v2Item, copy, registries), "The v2 item data is applied");
         check(!copy.link.awaitingAdoption() && v2.link.id().equals(copy.link.id()) && copy.light.equals(v1Light),
                 "v2 item data stays v2 data until the placement drops the copied id");
     }
@@ -323,7 +323,7 @@ public final class LinkAdoptionCheck {
      */
     public static void plugPlacedFromItem(HolderLookup.Provider registries, CompoundTag v1Plug) {
         PlugData placed = new PlugData();
-        check(TypedEntityData.of(BlockEntityTypes.DAYLIGHT_DETECTOR, v1Plug).loadInto(placed, registries), "The plug item data is applied");
+        check(CheckItems.loadItemData(BlockEntityTypes.DAYLIGHT_DETECTOR, v1Plug, placed, registries), "The plug item data is applied");
         check(placed.link.awaitingAdoption(), "Merged v1 plug data is still v1 data");
         placed.link.sanitizePlaced(ALEX, "Alex", raw -> Optional.of("not in acl.rawAllow"));
         check(ALEX.equals(placed.link.owner()) && placed.link.ownerName().equals("Alex") && placed.link.raw() != null
@@ -545,7 +545,7 @@ public final class LinkAdoptionCheck {
                 "The adopted input round-trips: " + reloaded.raw());
 
         InputData placed = new InputData();
-        check(TypedEntityData.of(BlockEntityTypes.DAYLIGHT_DETECTOR, converted).loadInto(placed, registries) && placed.link.awaitingAdoption(),
+        check(CheckItems.loadItemData(BlockEntityTypes.DAYLIGHT_DETECTOR, converted, placed, registries) && placed.link.awaitingAdoption(),
                 "A converted item's data is still v1 data");
         placed.link.sanitizePlaced(ALEX, "Alex", candidate -> Optional.empty());
         RawLink placedRaw = placed.link.raw();
@@ -596,14 +596,14 @@ public final class LinkAdoptionCheck {
      */
     public static void redstonePlacedFromItem(HolderLookup.Provider registries, CompoundTag v1Emitter, CompoundTag v1Publisher) {
         OutputData emitter = new OutputData();
-        check(TypedEntityData.of(BlockEntityTypes.DAYLIGHT_DETECTOR, v1Emitter).loadInto(emitter, registries), "The emitter item data is applied");
+        check(CheckItems.loadItemData(BlockEntityTypes.DAYLIGHT_DETECTOR, v1Emitter, emitter, registries), "The emitter item data is applied");
         check(emitter.link.awaitingAdoption(), "Merged v1 emitter data is still v1 data");
         emitter.link.sanitizePlaced(ALEX, "Alex", raw -> Optional.of("not in acl.rawAllow"));
         check(emitter.link.raw() != null && emitter.link.raw().grandfathered() == null && !emitter.link.raw().active(),
                 "A placed v1 emitter's topic is checked for the placer, without grandfather flag: " + emitter.link.raw());
 
         InputData publisher = new InputData();
-        check(TypedEntityData.of(BlockEntityTypes.DAYLIGHT_DETECTOR, v1Publisher).loadInto(publisher, registries), "The publisher item data is applied");
+        check(CheckItems.loadItemData(BlockEntityTypes.DAYLIGHT_DETECTOR, v1Publisher, publisher, registries), "The publisher item data is applied");
         check(publisher.link.awaitingAdoption(), "Merged v1 publisher data is still v1 data");
         publisher.link.sanitizePlaced(ALEX, "Alex", raw -> Optional.empty());
         check(publisher.link.raw() != null && publisher.link.raw().direction() == RawLinkSpec.Direction.OUT && publisher.link.raw().grandfathered() == null
@@ -613,12 +613,12 @@ public final class LinkAdoptionCheck {
         v2Emitter.link.assign(UUID.randomUUID(), "Gate", "gate");
         v2Emitter.output = new Output(5, 5, RedstoneOutput.Mode.LEVEL, RedstoneOutput.PowerOn.ON);
         OutputData emitterCopy = new OutputData();
-        check(TypedEntityData.of(BlockEntityTypes.DAYLIGHT_DETECTOR, v2Emitter.saveCustomOnly(registries)).loadInto(emitterCopy, registries)
+        check(CheckItems.loadItemData(BlockEntityTypes.DAYLIGHT_DETECTOR, v2Emitter.saveCustomOnly(registries), emitterCopy, registries)
                 && !emitterCopy.link.awaitingAdoption() && emitterCopy.output.equals(v2Emitter.output), "A v2 output's item stays v2 data");
         InputData v2Publisher = new InputData();
         v2Publisher.link.assign(UUID.randomUUID(), "Bell", "bell");
         InputData publisherCopy = new InputData();
-        check(TypedEntityData.of(BlockEntityTypes.DAYLIGHT_DETECTOR, v2Publisher.saveCustomOnly(registries)).loadInto(publisherCopy, registries)
+        check(CheckItems.loadItemData(BlockEntityTypes.DAYLIGHT_DETECTOR, v2Publisher.saveCustomOnly(registries), publisherCopy, registries)
                 && !publisherCopy.link.awaitingAdoption() && v2Publisher.link.id().equals(publisherCopy.link.id()), "A v2 input's item stays v2 data");
     }
 
@@ -676,7 +676,7 @@ public final class LinkAdoptionCheck {
      */
     public static void motionPlacedFromItem(HolderLookup.Provider registries, CompoundTag v1Motion) {
         SensorData sensor = new SensorData();
-        check(TypedEntityData.of(BlockEntityTypes.DAYLIGHT_DETECTOR, v1Motion).loadInto(sensor, registries), "The sensor item data is applied");
+        check(CheckItems.loadItemData(BlockEntityTypes.DAYLIGHT_DETECTOR, v1Motion, sensor, registries), "The sensor item data is applied");
         check(sensor.link.awaitingAdoption() && sensor.presence.detect() == PresenceSensor.Detect.MOBS, "Merged v1 sensor data is still v1 data");
         sensor.link.sanitizePlaced(ALEX, "Alex", raw -> Optional.empty());
         RawLink raw = sensor.link.raw();
@@ -689,7 +689,7 @@ public final class LinkAdoptionCheck {
         v2.link.assign(UUID.randomUUID(), "Porch", "porch");
         v2.presence = new Presence(PresenceSensor.Detect.ALL, 3, 0, List.of(Identifier.withDefaultNamespace("pig")), 1, true, 120);
         SensorData copy = new SensorData();
-        check(TypedEntityData.of(BlockEntityTypes.DAYLIGHT_DETECTOR, v2.saveCustomOnly(registries)).loadInto(copy, registries)
+        check(CheckItems.loadItemData(BlockEntityTypes.DAYLIGHT_DETECTOR, v2.saveCustomOnly(registries), copy, registries)
                 && !copy.link.awaitingAdoption() && copy.presence.equals(v2.presence), "A v2 sensor's item stays v2 data");
     }
 
@@ -799,7 +799,7 @@ public final class LinkAdoptionCheck {
     // The item data of a device placed again, as the block's placement applies and checks it.
     private static <T extends StandIn> T placedCopy(HolderLookup.Provider registries, StandIn original, Supplier<T> factory) {
         T copy = factory.get();
-        check(TypedEntityData.of(BlockEntityTypes.DAYLIGHT_DETECTOR, original.saveCustomOnly(registries)).loadInto(copy, registries), "The item data is applied");
+        check(CheckItems.loadItemData(BlockEntityTypes.DAYLIGHT_DETECTOR, original.saveCustomOnly(registries), copy, registries), "The item data is applied");
         copy.deviceLink().sanitizePlaced(ALEX, "Alex", raw -> Optional.empty());
         copy.placedBy(null);
         check(copy.deviceLink().legacyItems().isEmpty(), "A placed copy has no legacy items");

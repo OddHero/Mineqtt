@@ -169,8 +169,11 @@ public final class LegacyNbtV1 {
             if (!(item.stack().getItem() instanceof SpawnEggItem egg)) continue;
             //? if >=26.1 {
             EntityType<?> type = SpawnEggItem.getType(item.stack());
-            //?} else {
+            //?} else if >=1.21.9 || <1.21.4 {
             /*EntityType<?> type = egg.getType(item.stack());
+            *///?} else {
+            /*// The registries only resolve the egg's entity data; entity types are built in.
+            EntityType<?> type = egg.getType(net.minecraft.core.RegistryAccess.fromRegistryOfRegistries(net.minecraft.core.registries.BuiltInRegistries.REGISTRY), item.stack());
             *///?}
             if (type == null || type == EntityTypes.PLAYER) continue;
             Identifier id = EntityType.getKey(type);

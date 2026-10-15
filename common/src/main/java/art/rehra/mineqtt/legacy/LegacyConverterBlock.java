@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.legacy;
 
+import art.rehra.mineqtt.compat.ItemBlockEntityData;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.device.DeviceRuntime;
 import art.rehra.mineqtt.items.DeviceBlockItem;
@@ -18,7 +19,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
-import net.minecraft.world.item.component.TypedEntityData;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
@@ -146,8 +146,7 @@ public abstract class LegacyConverterBlock extends BaseEntityBlock {
      */
     public ItemStack convertItem(ItemStack stack) {
         ItemStack converted = stack.transmuteCopy(successor());
-        TypedEntityData<BlockEntityType<?>> data = stack.get(DataComponents.BLOCK_ENTITY_DATA);
-        if (data != null) converted.set(DataComponents.BLOCK_ENTITY_DATA, TypedEntityData.of(successorType(), convert(data.copyTagWithoutId())));
+        ItemBlockEntityData.read(stack).ifPresent(data -> ItemBlockEntityData.set(converted, successorType(), convert(data)));
         return converted;
     }
 

@@ -75,7 +75,9 @@ import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+//? if >=1.21.9 {
 import net.minecraft.world.item.component.TypedEntityData;
+//?}
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntityTypes;
@@ -1239,7 +1241,13 @@ public final class LegacyNbtV1Test {
     // A spawn egg as a server has it: its mob is the default entity data of the item.
     private static ItemStack spawnEgg(Item egg, EntityType<?> type) {
         ItemStack stack = new ItemStack(egg);
+        //? if >=1.21.9 {
         stack.set(DataComponents.ENTITY_DATA, TypedEntityData.of(type, new CompoundTag()));
+        //?} else {
+        /*CompoundTag data = new CompoundTag();
+        data.putString("id", EntityType.getKey(type).toString());
+        stack.set(DataComponents.ENTITY_DATA, net.minecraft.world.item.component.CustomData.of(data));
+        *///?}
         return stack;
     }
 

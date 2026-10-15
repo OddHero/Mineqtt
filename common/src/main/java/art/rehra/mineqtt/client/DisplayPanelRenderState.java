@@ -1,7 +1,9 @@
 package art.rehra.mineqtt.client;
 
 import art.rehra.mineqtt.twin.core.DisplayText;
+//? if >=1.21.9 {
 import net.minecraft.client.renderer.blockentity.state.BlockEntityRenderState;
+//?}
 import net.minecraft.core.Direction;
 import org.jetbrains.annotations.Nullable;
 
@@ -11,7 +13,13 @@ import java.util.List;
  * What {@link DisplayPanelRenderer} draws of one Display Panel in a frame, extracted from its block entity on the client
  * (the 26.2 render-state split): the finished lines, how large they are drawn and in which colours and light.
  */
+//? if >=1.21.9 {
 public class DisplayPanelRenderState extends BlockEntityRenderState {
+//?} else {
+/*public class DisplayPanelRenderState {
+    // The block's light, as the renderer is given it (a BlockEntityRenderState holds it from 1.21.9 on).
+    public int lightCoords;
+*///?}
     /** Where the panel's screen faces. */
     public Direction facing = Direction.NORTH;
     /** The small line over a mirrored panel's value; null for none. */

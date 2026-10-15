@@ -27,8 +27,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+//? if >=1.21.9 {
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.input.MouseButtonInfo;
+//?}
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.server.level.ServerPlayer;
@@ -230,10 +232,15 @@ public final class BindGameTest implements FabricClientGameTest {
         Button chip = picker.children().stream().filter(Button.class::isInstance).map(Button.class::cast)
                 .filter(button -> button.visible && button.getY() == row).findFirst().orElseThrow(() -> new AssertionError("No domain chip"));
         if (!chip.active) throw new AssertionError("The domain chip is inactive: the lamp has one domain");
-        MouseButtonEvent click = new MouseButtonEvent(chip.getX() + chip.getWidth() / 2.0, chip.getY() + chip.getHeight() / 2.0,
-                new MouseButtonInfo(InputConstants.MOUSE_BUTTON_LEFT, 0));
+        double x = chip.getX() + chip.getWidth() / 2.0, y = chip.getY() + chip.getHeight() / 2.0;
+        //? if >=1.21.9 {
+        MouseButtonEvent click = new MouseButtonEvent(x, y, new MouseButtonInfo(InputConstants.MOUSE_BUTTON_LEFT, 0));
         picker.mouseClicked(click, false);
         picker.mouseReleased(click);
+        //?} else {
+        /*picker.mouseClicked(x, y, InputConstants.MOUSE_BUTTON_LEFT);
+        picker.mouseReleased(x, y, InputConstants.MOUSE_BUTTON_LEFT);
+        *///?}
     }
 
     // Waits until the open picker shows the answer to its current query for this domain chip.

@@ -105,7 +105,12 @@ public final class RoomsGameTest implements FabricClientGameTest {
         click(session, CORNER_A);
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Corner A at -1 -61 -1, click the opposite corner"), ANSWER_TICKS)
                 .isPresent(), "the first click sets corner A (messages: " + ChatLog.since(mark) + ")");
+        // clearParticles is private before 1.21.9; setting the level clears them too.
+        //? if >=1.21.9 {
         session.context().runOnClient(mc -> mc.particleEngine.clearParticles());
+        //?} else {
+        /*session.context().runOnClient(mc -> mc.particleEngine.setLevel(mc.level));
+        *///?}
         session.check(session.awaitClient(mc -> particles(mc) > 0, PARTICLE_TICKS), "the box being chosen is outlined with particles for the player");
 
         click(session, CORNER_B);

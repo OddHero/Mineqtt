@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks.entities;
 
+import art.rehra.mineqtt.compat.Profiles;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.BlockEmitterBlock;
 import art.rehra.mineqtt.config.MineQTTConfig;
@@ -269,11 +270,17 @@ public class BlockEmitterBlockEntity extends DeviceBlockEntity {
         if (online != null) return server.isUnderSpawnProtection(serverLevel, target, online);
         // Only a dedicated server protects its spawn.
         if (!(server instanceof DedicatedServer dedicated)) return false;
-        LevelData.RespawnData respawn = serverLevel.getRespawnData();
         UUID owner = link.owner();
-        boolean ownerOp = owner != null && server.getPlayerList().isOp(new NameAndId(owner, link.ownerName()));
+        boolean ownerOp = owner != null && Profiles.isOp(server, new NameAndId(owner, link.ownerName()));
+        // The world spawn may lie in another dimension from 1.21.9 on; before, it is the overworld's.
+        //? if >=1.21.9 {
+        LevelData.RespawnData respawn = serverLevel.getRespawnData();
         return PlacerRules.underSpawnProtection(dedicated.spawnProtectionRadius(), serverLevel.dimension() == respawn.dimension(), respawn.pos(), target,
                 server.getPlayerList().getOps().isEmpty(), ownerOp);
+        //?} else {
+        /*return PlacerRules.underSpawnProtection(dedicated.getSpawnProtectionRadius(), serverLevel.dimension() == net.minecraft.world.level.Level.OVERWORLD,
+                serverLevel.getSharedSpawnPos(), target, server.getPlayerList().getOps().isEmpty(), ownerOp);
+        *///?}
     }
 
     /**

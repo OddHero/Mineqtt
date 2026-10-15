@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.presence;
 
+import art.rehra.mineqtt.compat.Profiles;
 import art.rehra.mineqtt.config.HaExpose;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.DeviceRegistry;
@@ -74,9 +75,9 @@ public final class PlayerPrivacy {
      */
     public boolean host(UUID player) {
         ServerPlayer online = server.getPlayerList().getPlayer(player);
-        if (online != null) return server.isSingleplayerOwner(online.nameAndId());
+        if (online != null) return Profiles.isSingleplayerOwner(server, Profiles.of(online));
         String name = entry(player).name();
-        return !name.isEmpty() && server.isSingleplayerOwner(new NameAndId(player, name));
+        return !name.isEmpty() && Profiles.isSingleplayerOwner(server, new NameAndId(player, name));
     }
 
     /** The consent that counts for a player ({@link Consent#effective}). */

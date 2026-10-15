@@ -8,11 +8,17 @@ import art.rehra.mineqtt.twin.core.TwinHealth;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import net.minecraft.client.gui.Font;
+//? if >=1.21.9 {
 import net.minecraft.client.renderer.SubmitNodeCollector;
+//?} else {
+/*import net.minecraft.client.renderer.MultiBufferSource;
+*///?}
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
+//? if >=1.21.9 {
 import net.minecraft.client.renderer.feature.ModelFeatureRenderer;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+//?}
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.ARGB;
@@ -40,7 +46,12 @@ import java.time.ZoneId;
  * </ul>
  * Client only; registered from both platform client inits. The view distance is the default one, as for signs.
  */
+// The renderer extracts a render state and submits it from 1.21.9 on; before, it draws in render, from the same state.
+//? if >=1.21.9 {
 public class DisplayPanelRenderer implements BlockEntityRenderer<DisplayPanelBlockEntity, DisplayPanelRenderState> {
+//?} else {
+/*public class DisplayPanelRenderer implements BlockEntityRenderer<DisplayPanelBlockEntity> {
+*///?}
     /** The side of the square text area on the screen, in blocks: the screen's 12 pixels less half a pixel each side. */
     public static final float TEXT_AREA = 11f / 16f;
     // How far in front of the plate's face the text floats, against z-fighting (with the polygon offset).
@@ -55,9 +66,14 @@ public class DisplayPanelRenderer implements BlockEntityRenderer<DisplayPanelBlo
     private final Font font;
 
     public DisplayPanelRenderer(BlockEntityRendererProvider.Context context) {
+        //? if >=1.21.9 {
         this.font = context.font();
+        //?} else {
+        /*this.font = context.getFont();
+        *///?}
     }
 
+    //? if >=1.21.9 {
     @Override
     public DisplayPanelRenderState createRenderState() {
         return new DisplayPanelRenderState();
@@ -68,6 +84,40 @@ public class DisplayPanelRenderer implements BlockEntityRenderer<DisplayPanelBlo
                                    ModelFeatureRenderer.@Nullable CrumblingOverlay breakProgress) {
         BlockEntityRenderer.super.extractRenderState(panel, state, partialTick, cameraPosition, breakProgress);
         extractText(panel, state, System.currentTimeMillis());
+    }
+
+    @Override
+    public void submit(DisplayPanelRenderState state, PoseStack pose, SubmitNodeCollector collector, CameraRenderState camera) {
+        // submitText(pose, x, y, text, shadow, mode, light, colour, background, outline): the order AbstractSignRenderer uses.
+        draw(state, pose, (at, x, text, light, color) ->
+                collector.submitText(at, x, 0, text, false, Font.DisplayMode.POLYGON_OFFSET, light, color, 0, 0));
+    }
+    //?} else if >=1.21.5 {
+    /*@Override
+    public void render(DisplayPanelBlockEntity panel, float partialTick, PoseStack pose, MultiBufferSource buffers, int light, int overlay,
+                       net.minecraft.world.phys.Vec3 cameraPosition) {
+        render(panel, pose, buffers, light);
+    }
+    *///?} else {
+    /*@Override
+    public void render(DisplayPanelBlockEntity panel, float partialTick, PoseStack pose, MultiBufferSource buffers, int light, int overlay) {
+        render(panel, pose, buffers, light);
+    }
+    *///?}
+
+    //? if <1.21.9 {
+    /*private void render(DisplayPanelBlockEntity panel, PoseStack pose, MultiBufferSource buffers, int light) {
+        DisplayPanelRenderState state = new DisplayPanelRenderState();
+        state.lightCoords = light;
+        extractText(panel, state, System.currentTimeMillis());
+        draw(state, pose, (at, x, text, textLight, color) ->
+                font.drawInBatch(text, x, 0, color, false, at.last().pose(), buffers, Font.DisplayMode.POLYGON_OFFSET, 0, textLight));
+    }
+    *///?}
+
+    // Where draw puts its text: at the pose, x font units from the line's left, in that light and colour.
+    private interface TextSink {
+        void text(PoseStack pose, float x, FormattedCharSequence text, int light, int color);
     }
 
     /**
@@ -125,8 +175,7 @@ public class DisplayPanelRenderer implements BlockEntityRenderer<DisplayPanelBlo
         return Component.translatable("mineqtt.display_panel.time.hours_minutes", shown.hours(), shown.minutes()).getString();
     }
 
-    @Override
-    public void submit(DisplayPanelRenderState state, PoseStack pose, SubmitNodeCollector collector, CameraRenderState camera) {
+    private void draw(DisplayPanelRenderState state, PoseStack pose, TextSink sink) {
         if (state.lines.isEmpty() && state.title == null && !state.pending) return;
         pose.pushPose();
         // Into the screen's plane: the block's centre, turned so that +z is where the screen faces, onto the plate's face.
@@ -153,11 +202,11 @@ public class DisplayPanelRenderer implements BlockEntityRenderer<DisplayPanelBlo
         float total = titleHeight + gap + state.lines.size() * lineHeight * valueScale;
         float top = total / 2;
         if (state.title != null) {
-            line(pose, collector, state.title, top, titleScale, state.titleColor, state.textLight);
+            line(pose, sink, state.title, top, titleScale, state.titleColor, state.textLight);
             top -= titleHeight + gap;
         }
         for (String line : state.lines) {
-            line(pose, collector, line, top, valueScale, state.color, state.textLight);
+            line(pose, sink, line, top, valueScale, state.color, state.textLight);
             top -= lineHeight * valueScale;
         }
         if (state.pending) {
@@ -165,8 +214,7 @@ public class DisplayPanelRenderer implements BlockEntityRenderer<DisplayPanelBlo
             pose.pushPose();
             pose.translate(TEXT_AREA / 2 - font.width(PENDING_GLYPH) * scale, TEXT_AREA / 2, 0f);
             pose.scale(scale, -scale, scale);
-            collector.submitText(pose, 0, 0, Component.literal(PENDING_GLYPH).getVisualOrderText(), false, Font.DisplayMode.POLYGON_OFFSET,
-                    LightCoordsUtil.FULL_BRIGHT, PENDING_WHITE, 0, 0);
+            sink.text(pose, 0, Component.literal(PENDING_GLYPH).getVisualOrderText(), LightCoordsUtil.FULL_BRIGHT, PENDING_WHITE);
             pose.popPose();
         }
         pose.popPose();
@@ -174,13 +222,12 @@ public class DisplayPanelRenderer implements BlockEntityRenderer<DisplayPanelBlo
 
     // One line centred on the screen with its top edge at `top` (blocks, up from the screen's middle), `scale` blocks per
     // font unit.
-    private void line(PoseStack pose, SubmitNodeCollector collector, String text, float top, float scale, int color, int light) {
+    private void line(PoseStack pose, TextSink sink, String text, float top, float scale, int color, int light) {
         FormattedCharSequence sequence = Component.literal(text).getVisualOrderText();
         pose.pushPose();
         pose.translate(0f, top, 0f);
         pose.scale(scale, -scale, scale);
-        // submitText(pose, x, y, text, shadow, mode, light, colour, background, outline): the order AbstractSignRenderer uses.
-        collector.submitText(pose, -font.width(sequence) / 2f, 0, sequence, false, Font.DisplayMode.POLYGON_OFFSET, light, color, 0, 0);
+        sink.text(pose, -font.width(sequence) / 2f, sequence, light, color);
         pose.popPose();
     }
 }

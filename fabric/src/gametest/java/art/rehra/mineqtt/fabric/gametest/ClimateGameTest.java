@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.ItemBlockEntityData;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.TemperatureSensorBlock;
 import art.rehra.mineqtt.blocks.entities.MineqttBlockEntityTypes;
@@ -28,7 +29,6 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemContainerContents;
-import net.minecraft.world.item.component.TypedEntityData;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -169,7 +169,7 @@ public final class ClimateGameTest implements FabricClientGameTest {
             ItemStack paper = new ItemStack(Items.PAPER);
             paper.set(DataComponents.CUSTOM_NAME, Component.literal(FORGED_TOPIC));
             ItemStack stack = new ItemStack(MineqttItems.HumiditySensorBlock.get());
-            stack.set(DataComponents.BLOCK_ENTITY_DATA, TypedEntityData.of(MineqttBlockEntityTypes.HUMIDITY_SENSOR_BLOCK.get(), parse(data)));
+            ItemBlockEntityData.set(stack, MineqttBlockEntityTypes.HUMIDITY_SENSOR_BLOCK.get(), parse(data));
             stack.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(List.of(paper)));
             BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(LEGACY_ITEM_GROUND).add(0, 0.5, 0), Direction.UP, LEGACY_ITEM_GROUND, false);
             return stack.useOn(new UseOnContext(s.overworld(), session.player(s), InteractionHand.MAIN_HAND, stack, hit)).consumesAction();

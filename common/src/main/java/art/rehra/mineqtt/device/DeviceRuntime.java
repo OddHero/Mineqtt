@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.Profiles;
 import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
@@ -3750,7 +3751,7 @@ public final class DeviceRuntime {
         waiting = new ArrayList<>();
         waiting.add(done);
         ownerLookupsByName.put(name, waiting);
-        CompletableFuture.supplyAsync(() -> server.services().nameToIdCache().get(name), Util.nonCriticalIoPool())
+        CompletableFuture.supplyAsync(() -> Profiles.byName(server, name), Util.nonCriticalIoPool())
                 .whenCompleteAsync((found, error) -> {
                     if (error != null) {
                         logOnce("owner-lookup:" + name, "Could not look up {}, the owner of v1 blocks; asking again at their next load", name, error);
