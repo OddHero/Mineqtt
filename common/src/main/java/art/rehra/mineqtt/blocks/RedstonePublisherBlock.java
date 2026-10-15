@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks;
 
+import art.rehra.mineqtt.compat.Redstone;
 import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
 import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
 import com.mojang.serialization.MapCodec;
@@ -18,8 +19,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
-import net.minecraft.world.level.redstone.ExperimentalRedstoneUtils;
+//? if >=1.21.2 {
 import net.minecraft.world.level.redstone.Orientation;
+//?}
 import org.jetbrains.annotations.Nullable;
 
 /** The Redstone Input block: {@code powered} while it receives a signal, which its block entity reports. */
@@ -40,7 +42,11 @@ public class RedstonePublisherBlock extends BaseMqttBlock {
 
     /** The signal decides the block entity's state; a change of the {@code powered} property is an edge. */
     @Override
+    //? if >=1.21.2 {
     protected void neighborChanged(BlockState state, Level level, BlockPos pos, Block neighborBlock, @Nullable Orientation orientation, boolean movedByPiston) {
+    //?} else {
+    /*protected void neighborChanged(BlockState state, Level level, BlockPos pos, Block neighborBlock, BlockPos orientation, boolean movedByPiston) {
+    *///?}
         if (!level.isClientSide() && level.getBlockEntity(pos) instanceof PublisherBlockEntity input) {
             input.signalChanged(inputSignal(level, pos));
         }
@@ -70,19 +76,23 @@ public class RedstonePublisherBlock extends BaseMqttBlock {
 
 
 
+    //? if >=1.21.5 {
+    @Override
     protected void affectNeighborsAfterRemoval(BlockState state, ServerLevel level, BlockPos pos, boolean movedByPiston) {
         if (!movedByPiston) {
             this.updateNeighbors(level, pos, state);
         }
     }
+    //?} else {
+    /*@Override
+    protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
+        super.onRemove(state, level, pos, newState, movedByPiston);
+        if (!movedByPiston && !state.is(newState.getBlock())) this.updateNeighbors(level, pos, state);
+    }
+    *///?}
 
     protected void updateNeighbors(Level level, BlockPos pos, BlockState state) {
-        for (Direction direction : Direction.values()) {
-            BlockPos blockPos = pos.relative(direction);
-            Orientation orientation = ExperimentalRedstoneUtils.initialOrientation(level, direction, Direction.UP);
-            level.neighborChanged(blockPos, this, orientation);
-            level.updateNeighborsAtExceptFromFacing(blockPos, this, direction.getOpposite(), orientation);
-        }
+        Redstone.updateNeighbors(level, pos, this);
     }
 
     @Override

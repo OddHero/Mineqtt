@@ -608,7 +608,7 @@ public final class MineqttNetworking {
          */
         public record Choice(String from, String fromKind, String to, String toKind, String group, List<Mapping> mappings, boolean wired,
                              boolean isDefault) {
-            public static final StreamCodec<io.netty.buffer.ByteBuf, Choice> STREAM_CODEC = StreamCodec.composite(
+            public static final StreamCodec<io.netty.buffer.ByteBuf, Choice> STREAM_CODEC = art.rehra.mineqtt.compat.StreamCodecs.composite(
                     ByteBufCodecs.stringUtf8(DeviceLinks.MAX_PORT_CHARS), Choice::from,
                     ByteBufCodecs.stringUtf8(MAX_KIND_CHARS), Choice::fromKind,
                     ByteBufCodecs.stringUtf8(DeviceLinks.MAX_PORT_CHARS), Choice::to,
@@ -744,7 +744,7 @@ public final class MineqttNetworking {
         public static final int MAX_SUGGESTIONS = 32;
         public static final int MAX_NAME_BYTES = RoomRules.MAX_NAME_LENGTH * 4;
         public static final Type<RoomPromptPayload> TYPE = new Type<>(ROOM_PROMPT_ID);
-        public static final StreamCodec<RegistryFriendlyByteBuf, RoomPromptPayload> CODEC = StreamCodec.composite(
+        public static final StreamCodec<RegistryFriendlyByteBuf, RoomPromptPayload> CODEC = art.rehra.mineqtt.compat.StreamCodecs.composite(
                 ByteBufCodecs.VAR_INT, RoomPromptPayload::offer,
                 ByteBufCodecs.VAR_INT, RoomPromptPayload::sizeX,
                 ByteBufCodecs.VAR_INT, RoomPromptPayload::sizeY,
@@ -973,7 +973,7 @@ public final class MineqttNetworking {
                     if (ordinal < 0 || ordinal >= notices.length) throw new DecoderException("Unknown picker notice " + ordinal);
                     return notices[ordinal];
                 });
-        public static final StreamCodec<RegistryFriendlyByteBuf, TwinResultsPayload> CODEC = StreamCodec.composite(
+        public static final StreamCodec<RegistryFriendlyByteBuf, TwinResultsPayload> CODEC = art.rehra.mineqtt.compat.StreamCodecs.composite(
                 BlockPos.STREAM_CODEC, TwinResultsPayload::pos,
                 TwinPicker.SearchKind.STREAM_CODEC.cast(), TwinResultsPayload::kind,
                 ByteBufCodecs.stringUtf8(DeviceConfigPayload.MAX_KEY_CHARS), TwinResultsPayload::key,

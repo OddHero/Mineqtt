@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks;
 
+import art.rehra.mineqtt.compat.Redstone;
 import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
 import art.rehra.mineqtt.blocks.entities.RedstoneEmitterBlockEntity;
 import com.mojang.serialization.MapCodec;
@@ -15,8 +16,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
-import net.minecraft.world.level.redstone.ExperimentalRedstoneUtils;
-import net.minecraft.world.level.redstone.Orientation;
 import org.jetbrains.annotations.Nullable;
 
 /** The Redstone Output block. Its level is the {@code power} property, which its block entity sets. */
@@ -56,12 +55,7 @@ public class RedstoneEmitterBlock extends BaseMqttBlock {
     }
 
     public void updateNeighbors(Level level, BlockPos pos, BlockState state) {
-        for (Direction direction : Direction.values()) {
-            BlockPos blockPos = pos.relative(direction);
-            Orientation orientation = ExperimentalRedstoneUtils.initialOrientation(level, direction, Direction.UP);
-            level.neighborChanged(blockPos, this, orientation);
-            level.updateNeighborsAtExceptFromFacing(blockPos, this, direction.getOpposite(), orientation);
-        }
+        Redstone.updateNeighbors(level, pos, this);
     }
 
     @Override

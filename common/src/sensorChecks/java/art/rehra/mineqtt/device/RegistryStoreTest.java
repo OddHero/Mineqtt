@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.NbtTags;
+import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.flow.core.Endpoint;
 import art.rehra.mineqtt.flow.core.Mapping;
 import art.rehra.mineqtt.flow.core.Scope;
@@ -26,7 +28,6 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.util.Util;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
@@ -62,7 +63,7 @@ public final class RegistryStoreTest {
     private static final Identifier UNKNOWN = Identifier.fromNamespaceAndPath("othermod", "gadget");
     private static final UUID KITCHEN_OWNER = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
 
-    static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         Path root = Files.createTempDirectory("mineqtt-registry");
@@ -102,7 +103,7 @@ public final class RegistryStoreTest {
         check(store.save(fresh), "First save");
         byte[] firstFile = Files.readAllBytes(store.file());
         CompoundTag written = fresh.encode();
-        check(written.getIntOr("schema", -1) == DeviceRegistry.SCHEMA, "The schema version is written");
+        check(NbtTags.getIntOr(written, "schema", -1) == DeviceRegistry.SCHEMA, "The schema version is written");
 
         DeviceRegistry first = new RegistryStore(dir).load("ignored", new Random(1));
         check(first.encode().equals(written), "First read gives back what was written");
@@ -118,7 +119,7 @@ public final class RegistryStoreTest {
         DeviceGroup group = first.groupBySlug("downstairs");
         check(group != null && group.members().size() == 2 && group.state().get("state").getAsString().equals("ON"), "Groups persist with members and state");
         check(lamp.group().equals(group.id()), "Membership is restored on the device side");
-        check(first.inChunk(Level.OVERWORLD, ChunkPos.containing(new BlockPos(17, 64, -3))).contains(lamp), "The chunk index is rebuilt");
+        check(first.inChunk(Level.OVERWORLD, ChunkPositions.containing(new BlockPos(17, 64, -3))).contains(lamp), "The chunk index is rebuilt");
         check("abc123".equals(lamp.discoveryHash()) && "home_kitchen".equals(lamp.legacyUniqueId())
                 && "def456".equals(group.discoveryHash()) && "home_downstairs".equals(group.legacyUniqueId()),
                 "Discovery hashes and v1 unique_ids of devices and groups persist");
@@ -236,30 +237,42 @@ public final class RegistryStoreTest {
         DeviceRegistry registry = new DeviceRegistry("world_0002", UUID.randomUUID());
         populate(registry);
         CompoundTag tag = registry.encode();
-        ListTag devices = tag.getListOrEmpty("devices");
-        CompoundTag broken = devices.getCompoundOrEmpty(0).copy();
+        ListTag devices = NbtTags.getListOrEmpty(tag, "devices");
+        CompoundTag broken = NbtTags.getCompoundOrEmpty(devices, 0).copy();
         broken.remove("pos");
         devices.add(broken);
+        //? if >=1.21.5 {
         devices.add(StringTag.valueOf("not a device"));
-        CompoundTag sameSlug = devices.getCompoundOrEmpty(0).copy();
+        //?}
+        CompoundTag sameSlug = NbtTags.getCompoundOrEmpty(devices, 0).copy();
         sameSlug.remove("group");
-        sameSlug.store("id", UUIDUtil.CODEC, UUID.randomUUID());
-        sameSlug.store("pos", GlobalPos.CODEC, GlobalPos.of(Level.NETHER, new BlockPos(1, 2, 3)));
+        NbtTags.store(sameSlug, "id", UUIDUtil.CODEC, UUID.randomUUID());
+        NbtTags.store(sameSlug, "pos", GlobalPos.CODEC, GlobalPos.of(Level.NETHER, new BlockPos(1, 2, 3)));
         sameSlug.putString("legacyUniqueId", "kitchen/+");
         devices.add(sameSlug);
-        tag.getListOrEmpty("groups").getCompoundOrEmpty(0).putString("legacyUniqueId", "down#stairs");
-        tag.getListOrEmpty("ownerLiterals").add(StringTag.valueOf("not a literal set"));
-        ListTag wires = tag.getListOrEmpty("wires");
-        CompoundTag dangling = wires.getCompoundOrEmpty(0).copy();
-        dangling.store("id", UUIDUtil.CODEC, UUID.randomUUID());
-        dangling.getCompoundOrEmpty("to").store("node", UUIDUtil.CODEC, UUID.randomUUID());
+        NbtTags.getCompoundOrEmpty(NbtTags.getListOrEmpty(tag, "groups"), 0).putString("legacyUniqueId", "down#stairs");
+        //? if >=1.21.5 {
+        NbtTags.getListOrEmpty(tag, "ownerLiterals").add(StringTag.valueOf("not a literal set"));
+        //?}
+        ListTag wires = NbtTags.getListOrEmpty(tag, "wires");
+        CompoundTag dangling = NbtTags.getCompoundOrEmpty(wires, 0).copy();
+        NbtTags.store(dangling, "id", UUIDUtil.CODEC, UUID.randomUUID());
+        NbtTags.store(NbtTags.getCompoundOrEmpty(dangling, "to"), "node", UUIDUtil.CODEC, UUID.randomUUID());
         wires.add(dangling);
-        wires.add(wires.getCompoundOrEmpty(1).copy());
+        wires.add(NbtTags.getCompoundOrEmpty(wires, 1).copy());
+        //? if >=1.21.5 {
         wires.add(StringTag.valueOf("not a wire"));
+        //?}
+        // Before 1.21.5 a list holds one tag type, so the three garbage entries cannot be there.
+        //? if >=1.21.5 {
+        int reported = 9;
+        //?} else {
+        /*int reported = 6;
+        *///?}
         List<String> problems = new ArrayList<>();
         DeviceRegistry read = DeviceRegistry.decode(tag, problems::add);
         check(read.records().size() == 4, "Bad entries are skipped, the rest is read: " + read.records().size());
-        check(problems.size() == 9, "Each skipped or repaired entry is reported: " + problems);
+        check(problems.size() == reported, "Each skipped or repaired entry is reported: " + problems);
         check(read.wires().size() == 2, "A wire to a node that is gone, a duplicate and garbage are skipped; the good wires are read");
         check(read.ownerLiterals(KITCHEN_OWNER).size() == 2, "A bad literal set does not take the good ones down");
         DeviceRecord suffixed = read.bySlug(registry.records().iterator().next().slug() + "_2");
@@ -382,7 +395,7 @@ public final class RegistryStoreTest {
         marked.setBridgeBroadcastDiscovered(true);
         CompoundTag markedTag = marked.encode();
         DeviceRegistry reread = DeviceRegistry.decode(markedTag, RegistryStoreTest::noProblem);
-        check(markedTag.getBooleanOr("bridgeBroadcastDiscovered", false) && reread.bridgeBroadcastDiscovered() && !reread.isDirty(), "The mark persists");
+        check(NbtTags.getBooleanOr(markedTag, "bridgeBroadcastDiscovered", false) && reread.bridgeBroadcastDiscovered() && !reread.isDirty(), "The mark persists");
         reread.setBridgeBroadcastDiscovered(true);
         check(!reread.isDirty(), "Marking it again changes nothing");
         reread.setBridgeBroadcastDiscovered(false);
@@ -685,8 +698,8 @@ public final class RegistryStoreTest {
         plain.setLastState(JsonParser.parseString("{\"state\":\"ON\"}").getAsJsonObject());
         CompoundTag unbound = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, plain).getOrThrow();
         check(!unbound.contains("twin"), "An unbound record writes no twin key: " + unbound);
-        check(unbound.keySet().equals(Set.of("id", "type", "pos", "name", "slug", "owner", "lastState")),
-                "...and exactly the keys an M2 record writes: " + unbound.keySet());
+        check(NbtTags.keySet(unbound).equals(Set.of("id", "type", "pos", "name", "slug", "owner", "lastState")),
+                "...and exactly the keys an M2 record writes: " + NbtTags.keySet(unbound));
         DeviceRecord m2 = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, unbound).getOrThrow();
         check(m2.twin() == null && DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, m2).getOrThrow().equals(unbound),
                 "An M2 record reads unbound and saves byte-identical");
@@ -698,19 +711,19 @@ public final class RegistryStoreTest {
         DeviceRecord bound = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, unbound).getOrThrow();
         bound.setTwin(full);
         CompoundTag saved = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, bound).getOrThrow();
-        CompoundTag twin = saved.getCompound("twin").orElseThrow();
-        check(twin.keySet().equals(Set.of("source", "targets", "control", "invert", "min", "max", "decimals", "unavailable", "path", "refused")),
+        CompoundTag twin = NbtTags.getCompound(saved, "twin").orElseThrow();
+        check(NbtTags.keySet(twin).equals(Set.of("source", "targets", "control", "invert", "min", "max", "decimals", "unavailable", "path", "refused")),
                 "Every part of a binding is stored: " + twin);
-        check(twin.getStringOr("min", "").equals("-12.5") && twin.getStringOr("unavailable", "").equals("off")
-                && twin.getCompound("source").orElseThrow().getStringOr("entity", "").equals("input_number.volume"), "...in its plain form: " + twin);
+        check(NbtTags.getStringOr(twin, "min", "").equals("-12.5") && NbtTags.getStringOr(twin, "unavailable", "").equals("off")
+                && NbtTags.getStringOr(NbtTags.getCompound(twin, "source").orElseThrow(), "entity", "").equals("input_number.volume"), "...in its plain form: " + twin);
         DeviceRecord read = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, saved).getOrThrow();
         check(full.equals(read.twin()), "A binding round-trips: " + read.twin());
-        unbound.keySet().forEach(key -> check(saved.get(key).equals(unbound.get(key)), "Binding a record changes no other key: " + key));
+        NbtTags.keySet(unbound).forEach(key -> check(saved.get(key).equals(unbound.get(key)), "Binding a record changes no other key: " + key));
 
         DeviceRecord minimal = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, unbound).getOrThrow();
         minimal.setTwin(Binding.of(new Endpoint.HaEntityRef("switch.porch", "state")));
-        CompoundTag small = ((CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, minimal).getOrThrow()).getCompound("twin").orElseThrow();
-        check(small.keySet().equals(Set.of("source")), "Defaults are left out: " + small);
+        CompoundTag small = NbtTags.getCompound(((CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, minimal).getOrThrow()), "twin").orElseThrow();
+        check(NbtTags.keySet(small).equals(Set.of("source")), "Defaults are left out: " + small);
         Binding topic = new Binding(new Endpoint.TopicRef("zigbee2mqtt/porch", "state"), Map.of(), false, Binding.Settings.DEFAULT, null);
         minimal.setTwin(topic);
         check(topic.equals(DeviceRecord.CODEC.parse(NbtOps.INSTANCE, DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, minimal).getOrThrow()).getOrThrow().twin()),
@@ -720,7 +733,7 @@ public final class RegistryStoreTest {
                 "{source:{entity:\"light.kitchen\",topic:\"x\"}}", "{source:{topic:\"x\",path:\"[\"}}", "{}", "{source:{entity:\"light.kitchen\",port:\"state\"},decimals:9}")) {
             CompoundTag withBroken = unbound.copy();
             try {
-                withBroken.put("twin", net.minecraft.nbt.TagParser.parseCompoundFully(broken));
+                withBroken.put("twin", NbtTags.parseCompoundFully(broken));
             } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) {
                 throw new AssertionError(e);
             }
@@ -747,17 +760,17 @@ public final class RegistryStoreTest {
         plain.setOwner(KITCHEN_OWNER);
         plain.setDiscoveryHash("4f2a");
         CompoundTag before = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, plain).getOrThrow();
-        check(before.keySet().equals(Set.of("id", "type", "pos", "name", "slug", "owner", "discoveryHash")) && !plain.discoveryCleanup(),
-                "No pending cleanup writes no key: " + before.keySet());
+        check(NbtTags.keySet(before).equals(Set.of("id", "type", "pos", "name", "slug", "owner", "discoveryHash")) && !plain.discoveryCleanup(),
+                "No pending cleanup writes no key: " + NbtTags.keySet(before));
         DeviceRecord read = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, before).getOrThrow();
         check(!read.discoveryCleanup() && "4f2a".equals(read.discoveryHash()) && DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, read).getOrThrow().equals(before),
                 "A record from before M3-7b reads without a cleanup and saves byte-identical");
 
         read.setDiscoveryCleanup(true);
         CompoundTag marked = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, read).getOrThrow();
-        check(marked.getBooleanOr("discoveryCleanup", false) && marked.keySet().size() == before.keySet().size() + 1,
+        check(NbtTags.getBooleanOr(marked, "discoveryCleanup", false) && NbtTags.keySet(marked).size() == NbtTags.keySet(before).size() + 1,
                 "A pending cleanup is one flat key beside the hash: " + marked);
-        before.keySet().forEach(key -> check(marked.get(key).equals(before.get(key)), "Marking a record changes no other key: " + key));
+        NbtTags.keySet(before).forEach(key -> check(marked.get(key).equals(before.get(key)), "Marking a record changes no other key: " + key));
         DeviceRecord again = DeviceRecord.CODEC.parse(NbtOps.INSTANCE, marked).getOrThrow();
         check(again.discoveryCleanup() && "4f2a".equals(again.discoveryHash()), "A pending cleanup round-trips");
         again.setDiscoveryHash(null);
@@ -793,15 +806,15 @@ public final class RegistryStoreTest {
         for (String area : List.of("", "Kitchen")) {
             read.setDiscoveryArea(area);
             CompoundTag withArea = (CompoundTag) DeviceRecord.CODEC.encodeStart(NbtOps.INSTANCE, read).getOrThrow();
-            check(withArea.getStringOr("discoveryArea", "?").equals(area) && withArea.keySet().size() == before.keySet().size() + 1,
+            check(NbtTags.getStringOr(withArea, "discoveryArea", "?").equals(area) && NbtTags.keySet(withArea).size() == NbtTags.keySet(before).size() + 1,
                     "The area '" + area + "' is one flat key beside the hash: " + withArea);
-            before.keySet().forEach(key -> check(withArea.get(key).equals(before.get(key)), "The area changes no other key: " + key));
+            NbtTags.keySet(before).forEach(key -> check(withArea.get(key).equals(before.get(key)), "The area changes no other key: " + key));
             check(area.equals(DeviceRecord.CODEC.parse(NbtOps.INSTANCE, withArea).getOrThrow().discoveryArea()), "The area '" + area + "' round-trips");
         }
 
         DeviceRegistry registry = new DeviceRegistry("world_7f3a", UUID.randomUUID());
         CompoundTag empty = registry.encode();
-        check(empty.getListOrEmpty("rooms").isEmpty(), "A registry without rooms writes an empty list");
+        check(NbtTags.getListOrEmpty(empty, "rooms").isEmpty(), "A registry without rooms writes an empty list");
         Room kitchen = Room.between(UUID.fromString("00000000-0000-0000-0000-0000000000e1"), "Kitchen", Level.OVERWORLD, new BlockPos(5, 67, 5),
                 new BlockPos(0, 64, 0), KITCHEN_OWNER, false, 1_700_000_000_000L);
         Room shared = Room.between(UUID.fromString("00000000-0000-0000-0000-0000000000e2"), "Great Hall", Level.NETHER, new BlockPos(-8, 30, -8),
@@ -814,8 +827,8 @@ public final class RegistryStoreTest {
         registry.addRoom(shared);
         expectFailure(() -> registry.addRoom(kitchen), "A room id registered twice");
         CompoundTag encoded = registry.encode();
-        List<String> keys = List.copyOf(encoded.keySet());
-        check(encoded.getListOrEmpty("rooms").size() == 2, "Both rooms are written: " + keys);
+        List<String> keys = List.copyOf(NbtTags.keySet(encoded));
+        check(NbtTags.getListOrEmpty(encoded, "rooms").size() == 2, "Both rooms are written: " + keys);
         DeviceRegistry decoded = DeviceRegistry.decode(encoded, problem -> {
             throw new AssertionError("The rooms are valid: " + problem);
         });
@@ -834,36 +847,44 @@ public final class RegistryStoreTest {
         check(decoded.removeRoom(shared.id()) == null, "A room removed twice is gone once");
 
         // Bad entries are skipped and reported; the rest is read.
-        ListTag rooms = encoded.getListOrEmpty("rooms");
-        CompoundTag nameless = rooms.getCompoundOrEmpty(0).copy();
+        ListTag rooms = NbtTags.getListOrEmpty(encoded, "rooms");
+        CompoundTag nameless = NbtTags.getCompoundOrEmpty(rooms, 0).copy();
         nameless.remove("name");
-        nameless.store("id", UUIDUtil.CODEC, UUID.randomUUID());
-        CompoundTag blank = rooms.getCompoundOrEmpty(0).copy();
+        NbtTags.store(nameless, "id", UUIDUtil.CODEC, UUID.randomUUID());
+        CompoundTag blank = NbtTags.getCompoundOrEmpty(rooms, 0).copy();
         blank.putString("name", "   ");
-        blank.store("id", UUIDUtil.CODEC, UUID.randomUUID());
-        CompoundTag tooLong = rooms.getCompoundOrEmpty(0).copy();
+        NbtTags.store(blank, "id", UUIDUtil.CODEC, UUID.randomUUID());
+        CompoundTag tooLong = NbtTags.getCompoundOrEmpty(rooms, 0).copy();
         tooLong.putString("name", "x".repeat(33));
-        tooLong.store("id", UUIDUtil.CODEC, UUID.randomUUID());
-        CompoundTag swapped = rooms.getCompoundOrEmpty(0).copy();
+        NbtTags.store(tooLong, "id", UUIDUtil.CODEC, UUID.randomUUID());
+        CompoundTag swapped = NbtTags.getCompoundOrEmpty(rooms, 0).copy();
         UUID swappedId = UUID.randomUUID();
-        swapped.store("id", UUIDUtil.CODEC, swappedId);
-        swapped.store("min", BlockPos.CODEC, new BlockPos(9, 9, 9));
-        swapped.store("max", BlockPos.CODEC, new BlockPos(1, 1, 1));
+        NbtTags.store(swapped, "id", UUIDUtil.CODEC, swappedId);
+        NbtTags.store(swapped, "min", BlockPos.CODEC, new BlockPos(9, 9, 9));
+        NbtTags.store(swapped, "max", BlockPos.CODEC, new BlockPos(1, 1, 1));
         rooms.add(nameless);
         rooms.add(blank);
         rooms.add(tooLong);
-        rooms.add(rooms.getCompoundOrEmpty(1).copy());
+        rooms.add(NbtTags.getCompoundOrEmpty(rooms, 1).copy());
+        // Before 1.21.5 a list holds one tag type, so no garbage entry sits among the rooms.
+        //? if >=1.21.5 {
         rooms.add(StringTag.valueOf("not a room"));
+        //?}
         rooms.add(swapped);
         // A name today's text rules would clean is still read: a stricter sanitiser never loses a stored room.
-        CompoundTag oldName = rooms.getCompoundOrEmpty(0).copy();
+        CompoundTag oldName = NbtTags.getCompoundOrEmpty(rooms, 0).copy();
         UUID oldNameId = UUID.randomUUID();
-        oldName.store("id", UUIDUtil.CODEC, oldNameId);
+        NbtTags.store(oldName, "id", UUIDUtil.CODEC, oldNameId);
         oldName.putString("name", "OldDen");
         rooms.add(oldName);
         List<String> problems = new ArrayList<>();
         DeviceRegistry repaired = DeviceRegistry.decode(encoded, problems::add);
-        check(problems.size() == 5, "Each bad room is reported: " + problems);
+        //? if >=1.21.5 {
+        int badRooms = 5;
+        //?} else {
+        /*int badRooms = 4;
+        *///?}
+        check(problems.size() == badRooms, "Each bad room is reported: " + problems);
         check(repaired.rooms().size() == 4 && repaired.room(swappedId).min().equals(new BlockPos(1, 1, 1)) && repaired.room(oldNameId) != null,
                 "The good rooms are read, stored corners in the wrong order are put right, an old name is kept: " + repaired.rooms());
 
@@ -886,8 +907,8 @@ public final class RegistryStoreTest {
         Tag tag = WireCodecs.WIRE.encodeStart(NbtOps.INSTANCE, wire).getOrThrow();
         check(WireCodecs.WIRE.parse(NbtOps.INSTANCE, tag).getOrThrow().equals(wire), "A wire round-trips: " + tag);
         CompoundTag compound = (CompoundTag) tag;
-        check(compound.getCompoundOrEmpty("from").getStringOr("type", "").equals("port") && compound.getCompoundOrEmpty("to").getStringOr("type", "").equals("group_port")
-                && compound.getStringOr("mapping", "").equals("pulse_toggle") && compound.getStringOr("scope", "").equals("wireless") && !compound.contains("enabled"),
+        check(NbtTags.getStringOr(NbtTags.getCompoundOrEmpty(compound, "from"), "type", "").equals("port") && NbtTags.getStringOr(NbtTags.getCompoundOrEmpty(compound, "to"), "type", "").equals("group_port")
+                && NbtTags.getStringOr(compound, "mapping", "").equals("pulse_toggle") && NbtTags.getStringOr(compound, "scope", "").equals("wireless") && !compound.contains("enabled"),
                 "Endpoints are typed, enums are lower case, an enabled wire leaves the flag out: " + compound);
         Wire disabled = new Wire(wire.id(), wire.from(), wire.to(), Mapping.INVERT, Scope.WIRELESS, KITCHEN_OWNER, false);
         check(WireCodecs.WIRE.parse(NbtOps.INSTANCE, WireCodecs.WIRE.encodeStart(NbtOps.INSTANCE, disabled).getOrThrow()).getOrThrow().equals(disabled),

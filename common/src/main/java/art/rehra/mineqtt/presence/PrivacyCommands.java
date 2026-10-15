@@ -162,8 +162,13 @@ public final class PrivacyCommands {
 
     private static MutableComponent button(String key, Choice choice, ChatFormatting colour) {
         return Component.translatable(key).withStyle(style -> style.withColor(colour)
+                //? if >=1.21.5 {
                 .withClickEvent(new ClickEvent.RunCommand(SHARE_COMMAND + choice.word()))
                 .withHoverEvent(new HoverEvent.ShowText(Component.translatable(key + ".hover"))));
+                //?} else {
+                /*.withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, SHARE_COMMAND + choice.word()))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.translatable(key + ".hover"))));
+                *///?}
     }
 
     private static int list(CommandSourceStack source, MineqttRuntime runtime) {

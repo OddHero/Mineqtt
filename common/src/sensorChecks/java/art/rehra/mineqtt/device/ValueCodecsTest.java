@@ -63,7 +63,7 @@ public final class ValueCodecsTest {
         }
     }
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         Locale.setDefault(Locale.GERMANY);

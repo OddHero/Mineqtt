@@ -29,7 +29,7 @@ public final class ValueMapCheck {
             new JsonPrimitive("1e999999999"), new JsonPrimitive("0x10"), new JsonPrimitive(""), new JsonPrimitive("  "), new JsonPrimitive("21,5"),
             new JsonPrimitive("unavailable"), new JsonPrimitive("unknown"), JsonNull.INSTANCE, new JsonObject(), json("[1,2,3,4,5]"));
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         Locale.setDefault(Locale.GERMANY);
         bools();
         levels();

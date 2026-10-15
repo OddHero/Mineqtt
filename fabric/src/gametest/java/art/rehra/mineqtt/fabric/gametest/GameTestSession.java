@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.Interaction;
 import art.rehra.mineqtt.config.ConfigValidation;
 import art.rehra.mineqtt.config.MineQTTConfig;
@@ -20,7 +21,11 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.Window;
 import dev.architectury.networking.NetworkManager;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
+//? if >=26.2 {
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerConnection;
+//?} else {
+/*import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerConnection;
+*///?}
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -100,7 +105,11 @@ final class GameTestSession implements AutoCloseable {
     private final List<String> savedRawAllow;
     private @Nullable BrokerConfig broker;
     private @Nullable TestDedicatedServerContext server;
+    //? if >=26.2 {
     private @Nullable TestDedicatedServerConnection connection;
+    //?} else {
+    /*private @Nullable TestServerConnection connection;
+    *///?}
     private String playerName;
     private UUID playerId;
     // Raw Link topics outside the bridge that the suites' devices published retained levels to.
@@ -160,11 +169,11 @@ final class GameTestSession implements AutoCloseable {
 
         server = context.worldBuilder().createServer();
         connection = server.connect();
-        connection.waitForChunksRender();
+        waitForChunks();
         playerName = onClient(mc -> mc.player.getGameProfile().name());
         playerId = onClient(mc -> mc.player.getUUID());
         if (broker != null) {
-            server.waitFor(s -> MineqttRuntime.of(s).mqtt().state().isConnected(), CONNECT_TIMEOUT_TICKS);
+            serverWaitFor(s -> MineqttRuntime.of(s).mqtt().state().isConnected(), CONNECT_TIMEOUT_TICKS);
         }
         report.check(!onServer(s -> AclContext.of(player(s)).op()), "the joining player " + playerName + " is not an operator");
     }
@@ -290,7 +299,7 @@ final class GameTestSession implements AutoCloseable {
         if (server == null || connection == null) throw new IllegalStateException("No server to reconnect to");
         connection.close();
         connection = server.connect();
-        connection.waitForChunksRender();
+        waitForChunks();
     }
 
     /** The joined player on the server side; call it on the server thread. */
@@ -308,7 +317,7 @@ final class GameTestSession implements AutoCloseable {
     /** Sends a command as the player, as if typed into the chat. */
     void playerCommand(String command) {
         context.runOnClient(mc -> mc.player.connection.sendCommand(command));
-        connection.waitForServerboundPackets();
+        waitForServerbound();
     }
 
     /** The first message after {@code mark} (see {@link ChatLog#mark()}) that matches, or empty after the timeout. */
@@ -342,7 +351,7 @@ final class GameTestSession implements AutoCloseable {
 
     /** Waits until the condition holds on the server thread; fails the suite after the default timeout. */
     void awaitServer(Predicate<MinecraftServer> condition) {
-        server.waitFor(condition);
+        serverWaitFor(condition, ClientGameTestContext.DEFAULT_TIMEOUT);
     }
 
     // ===== Player and world =====
@@ -386,13 +395,17 @@ final class GameTestSession implements AutoCloseable {
             Vec3 middle = shape.isEmpty() ? Vec3.atCenterOf(pos) : shape.bounds().getCenter().add(Vec3.atLowerCornerOf(pos));
             mc.player.lookAt(EntityAnchorArgument.Anchor.EYES, middle);
         });
-        server.waitFor(s -> player(s).pick(C2SGuard.CONFIGURATOR_RANGE, 1.0F, false) instanceof BlockHitResult hit
-                && hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos));
+        serverWaitFor(s -> player(s).pick(C2SGuard.CONFIGURATOR_RANGE, 1.0F, false) instanceof BlockHitResult hit
+                && hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos), ClientGameTestContext.DEFAULT_TIMEOUT);
     }
 
     /** Looks straight up into the open sky, so the use key uses the held item instead of a block. */
     void aimAtSky() {
+        //? if >=26.1 {
         context.getInput().lookAt(0, -90);
+        //?} else {
+        /*context.runOnClient(mc -> mc.player.setXRot(-90));
+        *///?}
         context.waitFor(mc -> mc.hitResult == null || mc.hitResult.getType() == HitResult.Type.MISS);
     }
 
@@ -411,7 +424,7 @@ final class GameTestSession implements AutoCloseable {
         BlockPos pos = ground.above();
         aim(ground, Direction.UP);
         pressUse();
-        server.waitFor(s -> s.overworld().getBlockState(pos).is(block));
+        serverWaitFor(s -> s.overworld().getBlockState(pos).is(block), ClientGameTestContext.DEFAULT_TIMEOUT);
         context.waitFor(mc -> mc.level.getBlockState(pos).is(block));
         return pos;
     }
@@ -457,13 +470,13 @@ final class GameTestSession implements AutoCloseable {
     void sneakUse(@Nullable BlockPos pos) {
         context.getInput().holdKey(options -> options.keyShift);
         try {
-            server.waitFor(s -> player(s).isShiftKeyDown());
+            serverWaitFor(s -> player(s).isShiftKeyDown(), ClientGameTestContext.DEFAULT_TIMEOUT);
             if (pos != null) aim(pos);
             pressUse();
         } finally {
             context.getInput().releaseKey(options -> options.keyShift);
         }
-        server.waitFor(s -> !player(s).isShiftKeyDown());
+        serverWaitFor(s -> !player(s).isShiftKeyDown(), ClientGameTestContext.DEFAULT_TIMEOUT);
     }
 
     /** Uses the held item into the sky and waits for its screen. */
@@ -505,7 +518,7 @@ final class GameTestSession implements AutoCloseable {
      */
     void clickWidget(Predicate<AbstractWidget> which, String what) {
         double[] cursor = onClient(mc -> {
-            Screen screen = mc.gui.screen();
+            Screen screen = Screens.current();
             if (screen == null) throw new AssertionError("No screen is open to click " + what + " on");
             AbstractWidget widget = screen.children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
                     .filter(w -> w.visible && which.test(w)).findFirst()
@@ -525,7 +538,7 @@ final class GameTestSession implements AutoCloseable {
      */
     void scrollAt(Predicate<AbstractWidget> which, String what, double notches) {
         double[] cursor = onClient(mc -> {
-            Screen screen = mc.gui.screen();
+            Screen screen = Screens.current();
             if (screen == null) throw new AssertionError("No screen is open to scroll at " + what);
             AbstractWidget widget = screen.children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
                     .filter(w -> w.visible && which.test(w)).findFirst()
@@ -648,7 +661,7 @@ final class GameTestSession implements AutoCloseable {
      */
     void send(CustomPacketPayload payload) {
         context.runOnClient(mc -> NetworkManager.sendToServer(payload));
-        connection.waitForServerboundPackets();
+        waitForServerbound();
     }
 
     /** Presses the button labelled {@code label} on the open screen. */
@@ -660,7 +673,7 @@ final class GameTestSession implements AutoCloseable {
     void closeScreen() {
         context.getInput().pressKey(InputConstants.KEY_ESCAPE);
         context.waitForScreen(null);
-        server.waitFor(s -> player(s).containerMenu == player(s).inventoryMenu);
+        serverWaitFor(s -> player(s).containerMenu == player(s).inventoryMenu, ClientGameTestContext.DEFAULT_TIMEOUT);
     }
 
     /**
@@ -668,7 +681,11 @@ final class GameTestSession implements AutoCloseable {
      * the corner, so neither covers the screen.
      */
     Path screenshot(String name) {
+        //? if >=26.2 {
         context.runOnClient(mc -> mc.gui.toastManager().clear());
+        //?} else {
+        /*context.runOnClient(mc -> mc.getToastManager().clear());
+        *///?}
         context.getInput().setCursorPos(0, 0);
         context.waitTick();
         return context.takeScreenshot(name);
@@ -676,7 +693,41 @@ final class GameTestSession implements AutoCloseable {
 
     /** The open MineQTT screen; fails when none is open. */
     static TabbedMqttScreen openScreen(Minecraft mc) {
-        if (mc.gui.screen() instanceof TabbedMqttScreen screen) return screen;
-        throw new AssertionError("No MineQTT screen is open: " + mc.gui.screen());
+        if (Screens.current() instanceof TabbedMqttScreen screen) return screen;
+        throw new AssertionError("No MineQTT screen is open: " + Screens.current());
     }
+
+    // ===== The test API's waits =====
+    // Fabric's client game test API waits on the server and on the connection from 26.2 on; before, the session does.
+
+    private void waitForChunks() {
+        //? if >=26.2 {
+        connection.waitForChunksRender();
+        //?} else if >=26.1 {
+        /*connection.getClientLevel().waitForChunksRender();
+        *///?} else {
+        /*connection.getClientWorld().waitForChunksRender();
+        *///?}
+    }
+
+    private void waitForServerbound() {
+        //? if >=26.2 {
+        connection.waitForServerboundPackets();
+        //?} else {
+        /*// The client sends at the end of its tick and the server handles the packet in its next one.
+        context.waitTicks(2);
+        *///?}
+    }
+
+    private void serverWaitFor(Predicate<MinecraftServer> condition, int timeout) {
+        //? if >=26.2 {
+        server.waitFor(condition, timeout);
+        //?} else {
+        /*for (int ticks = 0; !server.computeOnServer(condition::test); ticks++) {
+            if (ticks >= timeout) throw new AssertionError("The server did not reach the awaited state within " + timeout + " ticks");
+            context.waitTick();
+        }
+        *///?}
+    }
+
 }

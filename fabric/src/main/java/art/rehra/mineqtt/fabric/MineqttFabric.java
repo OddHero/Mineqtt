@@ -5,6 +5,11 @@ import art.rehra.mineqtt.blocks.entities.MineqttBlockEntityTypes;
 import art.rehra.mineqtt.fabric.config.FabricConfigHandler;
 import art.rehra.mineqtt.fabric.integrations.FabricModLoaderUtils;
 import net.fabricmc.api.ModInitializer;
+//? if <26.1 {
+/*import art.rehra.mineqtt.runtime.ServerHooks;
+import net.fabricmc.fabric.api.event.lifecycle.v1.CommonLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
+*///?}
 import net.fabricmc.fabric.api.transfer.v1.item.ItemStorage;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -26,6 +31,12 @@ public final class MineqttFabric implements ModInitializer {
         MineQTT.init();
 
         closeItemStorage();
+
+        // Architectury has no chunk load or tags updated event before 26.1.
+        //? if <26.1 {
+        /*ServerChunkEvents.CHUNK_LOAD.register((level, chunk) -> ServerHooks.chunkLoaded(level, chunk.getPos()));
+        CommonLifecycleEvents.TAGS_LOADED.register((registries, client) -> ServerHooks.tagsUpdated(client));
+        *///?}
     }
 
     /**

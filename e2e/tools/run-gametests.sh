@@ -4,13 +4,13 @@
 #                                 without it MINEQTT_GAMETEST_SUITES as set, else every suite
 # MINEQTT_LANE is the bridge id of this run (default gametest), so runs of several lanes on one broker never read or
 # clear each other's topics; MINEQTT_E2E_BROKER (tcp:// or ws://) points the tests at a broker as for a plain
-# ./gradlew :fabric:runClientGameTest. The game tests compile before the lock is taken, so only the game window waits.
+# ./gradlew :fabric:26.2:runClientGameTest. The game tests compile before the lock is taken, so only the game window waits.
 # The lock is the directory ~/.mineqtt-gametest.lock ($USERPROFILE on Windows), made with an atomic mkdir: a run waits
 # up to MINEQTT_GAMETEST_LOCK_WAIT seconds (45 min) for it and breaks a lock older than 60 min (a run that was killed).
 # The exit status is Gradle's, 3 when the lock was not acquired in time.
 DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$DIR/../.." && pwd)
-REPORT="$ROOT/fabric/build/run/clientGameTest/mineqtt-gametest-report.txt"
+REPORT="$ROOT/fabric/versions/26.2/build/run/clientGameTest/mineqtt-gametest-report.txt"
 WAIT_SECONDS=${MINEQTT_GAMETEST_LOCK_WAIT:-2700}
 STALE_SECONDS=3600
 POLL_SECONDS=5
@@ -40,7 +40,7 @@ lock_field() {
 
 cd "$ROOT" || exit 1
 log "bridge $MINEQTT_GAMETEST_BRIDGE, suites ${MINEQTT_GAMETEST_SUITES:-all}, broker ${MINEQTT_E2E_BROKER:-none (MQTT disabled)}"
-./gradlew --console=plain :fabric:gametestClasses || exit $?
+./gradlew --console=plain :fabric:26.2:gametestClasses || exit $?
 
 TOKEN="$$ $(date +%s) $ROOT"
 release() {
@@ -106,7 +106,7 @@ date '+%Y-%m-%d %H:%M:%S' > "$LOCK/started"
 date +%s > "$LOCK/time"
 log "acquired $LOCK after $(($(date +%s) - start))s"
 
-./gradlew --console=plain :fabric:runClientGameTest &
+./gradlew --console=plain :fabric:26.2:runClientGameTest &
 gradle_pid=$!
 wait "$gradle_pid"
 status=$?

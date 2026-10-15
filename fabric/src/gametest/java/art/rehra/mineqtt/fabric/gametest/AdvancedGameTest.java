@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.RedstoneEmitterBlock;
@@ -249,7 +250,7 @@ public final class AdvancedGameTest implements FabricClientGameTest {
                 "the paper's name becomes the output's channel");
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().startsWith("Channel from the paper:") && line.text().contains(topic), ANSWER_TICKS).isPresent(),
                 "the action bar says where the channel resolved (messages: " + ChatLog.since(mark) + ")");
-        session.check(session.onClient(mc -> mc.gui.screen() == null), "the paper opens no screen");
+        session.check(session.onClient(mc -> Screens.current() == null), "the paper opens no screen");
         session.check(session.onServer(s -> session.player(s).getMainHandItem().is(Items.PAPER) && session.player(s).getMainHandItem().getCount() == 1),
                 "the paper is not consumed");
 
@@ -415,8 +416,8 @@ public final class AdvancedGameTest implements FabricClientGameTest {
     }
 
     private static TabbedMqttScreen screen(Minecraft mc) {
-        if (mc.gui.screen() instanceof TabbedMqttScreen screen) return screen;
-        throw new AssertionError("No MineQTT screen is open: " + mc.gui.screen());
+        if (Screens.current() instanceof TabbedMqttScreen screen) return screen;
+        throw new AssertionError("No MineQTT screen is open: " + Screens.current());
     }
 
     /** A UUID as an SNBT int array, the way block entity data stores it. */

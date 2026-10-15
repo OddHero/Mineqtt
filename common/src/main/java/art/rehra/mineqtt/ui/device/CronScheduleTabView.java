@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.device;
 
+import art.rehra.mineqtt.compat.Inputs;
 import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.ui.framework.GuiText;
 import art.rehra.mineqtt.ui.framework.MqttTabView;
@@ -15,7 +16,6 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.Nullable;
 
@@ -265,7 +265,7 @@ public class CronScheduleTabView implements MqttTabView {
                 commit();
                 return true;
             }
-            return box.keyPressed(new KeyEvent(keyCode, scanCode, modifiers)) || box.canConsumeInput();
+            return Inputs.keyPressed(box, keyCode, scanCode, modifiers) || box.canConsumeInput();
         }
         return false;
     }

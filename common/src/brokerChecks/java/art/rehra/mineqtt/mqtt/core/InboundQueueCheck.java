@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class InboundQueueCheck {
     private static final long MILLI = 1_000_000L;
 
-    static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) throws InterruptedException {
         fifoWithoutCoalescing();
         overflowDropsOldest();
         byteBudgetDropsOldest();

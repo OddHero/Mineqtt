@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.legacy;
 
+import art.rehra.mineqtt.compat.BlockRemoval;
 import art.rehra.mineqtt.device.DeviceLink;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.Containers;
@@ -20,7 +21,7 @@ import java.util.List;
  * v1 saved the slots as {@code Items} beside its other keys (topics, the relay's cached message, the dynamic publisher's
  * data type), which mean nothing any more; the first save writes the items as {@code legacyItems} alone.
  */
-public class DecommissionedBlockEntity extends BlockEntity {
+public class DecommissionedBlockEntity extends BlockEntity implements BlockRemoval.SideEffects {
     private List<ItemStackWithSlot> legacyItems = List.of();
 
     public DecommissionedBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState blockState) {
@@ -46,9 +47,14 @@ public class DecommissionedBlockEntity extends BlockEntity {
      * Broken by a player or an explosion: the legacy items drop where the block stood, as a container's contents would.
      * Vanilla drops contents only for a container, which this is not.
      */
+    //? if >=1.21.5 {
     @Override
     public void preRemoveSideEffects(BlockPos pos, BlockState state) {
         super.preRemoveSideEffects(pos, state);
+    //?} else {
+    /*@Override
+    public void preRemoveSideEffects(BlockPos pos, BlockState state) {
+    *///?}
         if (level == null) return;
         for (ItemStackWithSlot item : legacyItems) {
             Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), item.stack().copy());

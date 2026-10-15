@@ -59,7 +59,8 @@ public final class TimerWiringProbe {
             public void failed(Wire wire, FlowMessage message, RuntimeException e) {
                 throw new AssertionError("No delivery throws here", e);
             }
-        }, System::nanoTime);
+        // A frozen clock: the 2 ms drain budget must not cut a drain short on a busy machine (a parallel build).
+        }, () -> 0L);
         bus[0].emit(FlowMessage.Kind.EVENT, Endpoint.port(first.id(), DefaultWiring.FIRED), DefaultWiring.FIRED, Timers.fired(Timers.Source.SCHEDULE), 0);
         // A drain has a budget, as a server tick does; the chain goes on over the next ones until the bus cuts it.
         for (int tick = 0; tick < 100 && bus[0].hasQueued(); tick++) bus[0].drain();

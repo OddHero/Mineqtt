@@ -15,7 +15,7 @@ import java.util.Optional;
 public final class BrokerUriCheck {
     private static final BrokerSettings SETTINGS = BrokerSettings.defaults("mineqtt_world_7f3a", ProtocolVersion.MQTT_5);
 
-    static void main(String[] args) throws Exception {
+    public static void main(String[] args) throws Exception {
         schemes();
         hostForms();
         disabled();

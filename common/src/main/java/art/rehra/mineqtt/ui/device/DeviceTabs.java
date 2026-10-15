@@ -79,15 +79,16 @@ public final class DeviceTabs {
          */
         public static Optional<Widget> of(PortType kind) {
             return switch (kind) {
-                case PortType.Text _ -> Optional.of(TEXT_FIELD);
-                case PortType.Enum _ -> Optional.of(CYCLE);
-                case PortType.Bool _ -> Optional.of(TOGGLE);
-                case PortType.Level _ -> Optional.of(SLIDER);
+                case PortType.Text ignoredText -> Optional.of(TEXT_FIELD);
+                case PortType.Enum ignoredEnum -> Optional.of(CYCLE);
+                case PortType.Bool ignoredBool -> Optional.of(TOGGLE);
+                case PortType.Level ignoredLevel -> Optional.of(SLIDER);
                 case PortType.Number number -> !number.integral() ? Optional.empty()
                         : number.max() - number.min() > NUMBER_FIELD_STEPS ? Optional.of(NUMBER_FIELD) : Optional.of(SLIDER);
-                case PortType.Light _ -> Optional.of(LIGHT);
-                case PortType.Event _ -> Optional.of(PRESS);
-                case PortType.Color _, PortType.Json _ -> Optional.empty();
+                case PortType.Light ignoredLight -> Optional.of(LIGHT);
+                case PortType.Event ignoredEvent -> Optional.of(PRESS);
+                case PortType.Color ignoredColor -> Optional.empty();
+                case PortType.Json ignoredJson -> Optional.empty();
             };
         }
     }

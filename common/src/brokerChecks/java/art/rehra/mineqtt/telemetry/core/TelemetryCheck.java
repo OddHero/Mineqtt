@@ -24,7 +24,7 @@ import java.util.UUID;
 public final class TelemetryCheck {
     private static final long DAY = 24_000;
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         Locale.setDefault(Locale.GERMANY);
         payload();
         clock();

@@ -42,7 +42,7 @@ automation's traces (`trace <automation> [run_id|last]`; a run's trace shows the
 For the world twin (M4) it presses, sets and selects entities, reads an event entity's last event, manages areas and
 checks a dashboard's entities: see [World-twin fixture](#world-twin-fixture-m4).
 
-Game side: a dedicated server (`./gradlew :fabric:runServer` or `:neoforge:runServer`) with `broker` set to one of the
+Game side: a dedicated server (`./gradlew :fabric:26.2:runServer` or `:neoforge:26.2:runServer`) with `broker` set to one of the
 listeners, for example `tcp://localhost:1883`, or `mqtts://localhost:8883` with `tls.caFile` pointing at
 `e2e/certs/ca.crt`. RCON (`enable-rcon=true` in `server.properties`) makes the checklist scriptable.
 
@@ -206,7 +206,7 @@ What needs a game client is automated as Fabric client game tests (`fabric-clien
 `gametest` source set of `fabric/`, a separate test mod (`mineqtt-gametest`) that only this run loads:
 
 ```sh
-MINEQTT_E2E_BROKER=tcp://localhost:1883 ./gradlew :fabric:runClientGameTest   # from the repository root
+MINEQTT_E2E_BROKER=tcp://localhost:1883 ./gradlew :fabric:26.2:runClientGameTest   # from the repository root
 ```
 
 - A game window opens on the desktop and closes by itself after about a minute; the test API feeds it its own input.
@@ -220,8 +220,8 @@ MINEQTT_E2E_BROKER=tcp://localhost:1883 ./gradlew :fabric:runClientGameTest   # 
   bridge's `homeassistant/device/mineqtt_bridge_<worldUuid>/config` and one per device and group, because every fresh
   world has a new UUID) and the probes. Without the variable MQTT stays disabled, and the parts that need a broker are
   reported as `SKIP`, never as passed.
-- Results: every check is a `PASS`/`FAIL`/`SKIP` line in `fabric/build/run/clientGameTest/mineqtt-gametest-report.txt`
-  (the task prints the skips), and the screenshots are in `fabric/build/run/clientGameTest/screenshots/`. The run
+- Results: every check is a `PASS`/`FAIL`/`SKIP` line in `fabric/versions/26.2/build/run/clientGameTest/mineqtt-gametest-report.txt`
+  (the task prints the skips), and the screenshots are in `fabric/versions/26.2/build/run/clientGameTest/screenshots/`. The run
   directory is deleted at the start of every run.
 - `check` compiles the tests but never runs them: they need a desktop and take a minute.
 
@@ -242,7 +242,7 @@ MINEQTT_LANE=lane1 MINEQTT_E2E_BROKER=tcp://localhost:1883 sh e2e/tools/run-game
 - `e2e/tools/run-gametests.sh [suites]` runs one client at a time across every worktree of the machine: it compiles the
   tests, waits up to 45 minutes (`MINEQTT_GAMETEST_LOCK_WAIT` seconds) for the lock directory
   `~/.mineqtt-gametest.lock` (`%USERPROFILE%` on Windows; it holds owner, pid and start time), breaks a lock older than
-  60 minutes, exports `MINEQTT_GAMETEST_BRIDGE=${MINEQTT_LANE:-gametest}`, runs `:fabric:runClientGameTest`, prints
+  60 minutes, exports `MINEQTT_GAMETEST_BRIDGE=${MINEQTT_LANE:-gametest}`, runs `:fabric:26.2:runClientGameTest`, prints
   the report's `SUITE` and `FAIL` lines and frees the lock on every exit (an INT, TERM or HUP stops Gradle first). It exits with Gradle's status,
   3 when the lock was not acquired in time.
 
@@ -293,7 +293,7 @@ The exit quirk: after a passing run the dev client waits 15 s and then writes a 
 crash report and exits with -8, because two idle fixed pools of non-daemon threads keep the JVM alive. They exist before
 any server starts and match the `newFixedThreadPool` calls in the Architectury Transformer's dev runtime
 (`TinyRemapper`, `ReadClasspathProviderImpl`); MineQTT itself creates no executors. A failing test exits with 1 before
-that point. `:fabric:runClientGameTest` therefore accepts 0 and -8 and takes its verdict from the report.
+that point. `:fabric:26.2:runClientGameTest` therefore accepts 0 and -8 and takes its verdict from the report.
 
 ## Test lanes (Docker)
 
@@ -447,7 +447,7 @@ Usage (`<id>`: a short unique lowercase id, for example the worktree name):
 
 ```
 Test environment: your own Docker lane, on a remote Docker host when one is reachable and has room (else locally). From the repository root in Git Bash:
-  ./gradlew :fabric:assemble && sh e2e/lanes/lane.sh up <id>      # broker + Fabric 26.2 server, waits until MQTT is connected (~15-25 s)
+  ./gradlew :fabric:26.2:assemble && sh e2e/lanes/lane.sh up <id>      # broker + Fabric 26.2 server, waits until MQTT is connected (~15-25 s)
   sh e2e/lanes/lane.sh rcon <id> mineqtt status                    # any server command, no leading slash
   sh e2e/lanes/lane.sh pub <id> -t <topic> -m <payload>            # mosquitto_pub/_sub inside the lane broker
   (a JSON payload with commas started from a Windows program: pipe it, ... | lane.sh pub <id> -t <topic> -s, or Git Bash brace-expands it)
@@ -533,7 +533,7 @@ so raise neither limit without measuring again.
 - Client screenshots use software rendering (llvmpipe), so GPU-specific rendering bugs do not show. Treat a suite that
   fails only in Docker as a real race, as `GroupNameScreen` was.
 - **NeoForge stays on the host path**: there is no NeoForge lane server image and no NeoForge client game test
-  harness, so NeoForge is tested with `:neoforge:runServer` / `:neoforge:runClient` against the compose brokers above.
+  harness, so NeoForge is tested with `:neoforge:26.2:runServer` / `:neoforge:26.2:runClient` against the compose brokers above.
   The host path also stays the fallback when Docker Desktop is down.
 
 ## Checklist
@@ -552,8 +552,8 @@ so raise neither limit without measuring again.
 | 10 | Dedicated server with `ha.expose=OPT_IN` | New devices are not discovered until exposed. Migrated lamps are discovered (grandfathered). |
 | 11 | Unloaded chunk: command a lamp from HA, then load the chunk | The lamp applies the queued state. Sensors in unloaded chunks show unavailable, also after a crash (kill) and restart. |
 | 12 | Security: a non-op creative player picks a lamp with NBT whose raw topic is `zigbee2mqtt/x/set` and places it | The copy is a new device of the placer, whose raw link is resolved for them into `mineqtt/shared/zigbee2mqtt/x/set` (M2 F1; M1 disabled it), and the placer is told. Cyberdeck listen cannot see `homeassistant/#` payloads or other players' devices. Automated: `PlacementSecurityGameTest` (client game tests above). |
-| 13 | `./gradlew :common:verifyBrokerIntegration -PexternalBroker=tcp://localhost:1883`, and again with `-PexternalBroker=ws://localhost:9001/mqtt` | Every scenario passes for both `MQTT_5` and `MQTT_3_1_1` (only "Refused covering filter" is skipped: it needs the embedded broker's ACL). This is the only coverage of the MQTT 5 scenarios, including no-local and `DO_NOT_SEND`. |
-| 14 | **Same-server retained replay** (M2 plan D4): one dedicated server, a Redstone Input and a Redstone Output on one `mineqtt/shared/…` paper, their chunks far apart (400 blocks in the recorded run; a chunk near a force-loaded one stays in memory below full status, so its block entity is never unloaded, as 4 chunks apart showed). `/forceload remove` the output's chunk and wait until `devices list` shows it unloaded, power the input, `/forceload add`. Then the same across a restart: output unloaded, input powered, `stop`, start, let the input attach, then load the output's chunk. Also `./gradlew :common:verifyBrokerSmoke --args=localhost:1883` | The output comes back at `[power=15]` both times, from the broker's retained copy of the server's own level (nothing local reaches an unloaded output). The smoke probe reports "MQTT 5 own retained message on a no-local subscribe: yes". |
+| 13 | `./gradlew :common:26.2:verifyBrokerIntegration -PexternalBroker=tcp://localhost:1883`, and again with `-PexternalBroker=ws://localhost:9001/mqtt` | Every scenario passes for both `MQTT_5` and `MQTT_3_1_1` (only "Refused covering filter" is skipped: it needs the embedded broker's ACL). This is the only coverage of the MQTT 5 scenarios, including no-local and `DO_NOT_SEND`. |
+| 14 | **Same-server retained replay** (M2 plan D4): one dedicated server, a Redstone Input and a Redstone Output on one `mineqtt/shared/…` paper, their chunks far apart (400 blocks in the recorded run; a chunk near a force-loaded one stays in memory below full status, so its block entity is never unloaded, as 4 chunks apart showed). `/forceload remove` the output's chunk and wait until `devices list` shows it unloaded, power the input, `/forceload add`. Then the same across a restart: output unloaded, input powered, `stop`, start, let the input attach, then load the output's chunk. Also `./gradlew :common:26.2:verifyBrokerSmoke --args=localhost:1883` | The output comes back at `[power=15]` both times, from the broker's retained copy of the server's own level (nothing local reaches an unloaded output). The smoke probe reports "MQTT 5 own retained message on a no-local subscribe: yes". |
 | 15 | **All block entities** (M2 plan M2-3): on a fresh world of each loader's dev server (MQTT may be disabled), `sh e2e/tools/allblocks.sh place`, `stop`, start again, then `sh e2e/tools/allblocks.sh verify <run>/logs/latest.log`. Repeat for every new block entity type (add it to the script's table first). | Every one of the 19 block entities has its data back (device name, type-specific key or the named paper in slot 0), the humidity sensor is a Climate Sensor publishing its humidity, the Static Publisher a Redstone Input of rising edges, the Dynamic Publisher and Topic Relay keep only their slot paper as `legacyItems`, the v1 Light Remote is a Wall Switch with its slot paper as a legacy item, the Bridge Console keeps its facing and last tab, the Display Panel its facing, id and message, the four v1 timers are timer devices with their anvil names and v1 settings (`mineqtt.state`), the v1 Block Sensor is a Block Observer with its data mode as `payload` and the v1 Block Emitter a Block Placer with its slot paper as a legacy item, the seven devices placed as devices keep their ids and all sixteen are listed as loaded, and the log has no block entity load warning (`Skipping block entity with invalid type`, `Failed to create`/`load data for block entity`, ...). The script prints `allblocks: PASS`. |
 | 16 | **M1 world upgrade** (M2 plan M2-12): with a jar from before M2-12, `sh e2e/tools/buildm1.sh place` on a fresh world (Fabric dev server, MQTT on), stop, start again (the v1 output is adopted), `buildm1.sh capture`, stop; upgrade the jar and start; `sh e2e/tools/buildm1.sh check`; then a redstone block at the input, a Home Assistant `/set` to the lamp, and `/setblock <sensor> air destroy`. | Every device is version 3 with its slot items in `mineqtt.legacyItems` and no `Items`, `topic`, `ownerName`, `privateMode` or `lastTabId` beside it; the Raw Links are as captured (shared, private and grandfathered); the sensor's eggs are its `filter`. The output follows the input over the broker, the lamp follows Home Assistant, and the broken sensor drops its five stacks (`execute if entity @e[type=item,distance=..2]`). The script prints `buildm1: PASS`. |
 | 17 | **Ghost cleanup** (M2 plan M2-24, design §4.5), HA online, `ha.expose=ALL`: a lamp and a group of a second lamp discovered; then, retained by hand, a copy of the lamp's config under a new `mineqtt_<uuid32>` (new unique_ids, name "Ghost Lamp") whose `via_device` is this world's bridge (`mineqtt_bridge_<worldUuid32>` from `bridge/info`), the same with another bridge's `via_device`, and a config under another object id (`e2e_…`) naming this bridge. HA shows all of them. Restart the server; again with `/mineqtt reconnect`, and on a server paused while empty. | Within 5 s of each connect the log says "Clearing the Home Assistant discovery …/mineqtt_<ghost>/config" and then "Home Assistant ghost cleanup: N discovery configs looked at, 1 ghost found"; the ghost's retained config is gone and HA removed "Ghost Lamp". The lamp, the group, the other bridge's lamp, the foreign config and every other bridge's discovery stay, retained and in HA, and the lamp still follows HA. A ghost published while the server runs stays until the next connect. |
@@ -579,7 +579,7 @@ so raise neither limit without measuring again.
 | 37 | **Rooms and `suggested_area`** (M4-14), both versions, the world-twin fixture's areas (Kitchen missing) | A lamp placed in the room *Kitchen* lands in the area *Kitchen* (`ha.py area-of`); both versions create the missing area, and a room spelled `kitchen` reuses it. A device that existed before with an area keeps it; a device without an area stays without one on 2026.10.0 but takes the room's area on 2025.2.5. Hidden and exposed again, a device gets its old area back on 2026.10.0 and the current room's on 2025.2.5. The General tab's hint names the area Home Assistant was first told (a lamp created in *Kitchen*, hidden, its room renamed *Cookhouse*, exposed again: "Cookhouse *", the hint naming Kitchen), or says that it was first discovered without an area; it never claims what Home Assistant did, so it is honest on both versions. A group lands in its room's area and keeps it when a member leaves the room. |
 | 38 | **Broadcast text** (M4-22), both versions, `ha.expose` ALL. On Fabric the key needs a server restart (on a lane edit `config/mineqtt.json` with `lane.sh exec` and `docker restart` the server) | Default config: no *Broadcast* entity, and `pub <base>/<bridge>/bridge/request/broadcast -m Hi` answers `{"status":"error","error":"broadcast disabled"}` on `bridge/response/broadcast`. With `telemetry.allowBroadcast=true`: `text.<world>_broadcast` (configuration category, max 255, no state) is created without a warning; setting it to `§4Hi` followed by U+202E (`ha.py set-text`) logs `Broadcast text from <topic>: Hi` and `[MQTT] Hi` and answers `ok`; five sets within a second show three and answer `rate limited` twice; Home Assistant refuses a 256-character value, while one published by MQTT is shown whole. Turned off with Home Assistant online, Home Assistant logs `Removing component: text.<world>_broadcast` and the other bridge entities keep their entity ids; turned off while Home Assistant is stopped, the entity is gone after its next start (one create and remove pair) and a later restart creates nothing. `/mineqtt discovery clear` then `republish` with the key off sends no stub. |
 | 39 | **Area spelling** (M4-23), both versions, the catalog blueprint imported and the fixture's area *Living Room* holding a labelled entity | A room typed `living room` (and one typed `livingroom`) over a new exposed lamp sends `"sa":"Living Room"` and puts the lamp into *Living Room* (`ha.py area-of`); no second area appears (`ha.py areas`). With `twin.catalog` false the typed name goes out. |
-| 40 | **Upgrade 0.7.0 → 0.8.0** (M4-21), Fabric and NeoForge, a world and config made by the 0.7.0 jars of `tools/build07.sh`. Fabric: `sh tools/upgrade07.sh lane <id>` (up on the 0.7.0 jar with `blockPlacer.enabled=false` written into `mineqtt.json`, `place`, `lane.sh reload <id> --jar`, `verify`; `lane.sh down <id>` after). NeoForge: a NeoForge 26.2 dedicated server (installer `--install-server`, flat world, RCON, `pause-when-empty-seconds=0`) with the 0.7.0 NeoForge jar and Architectury in `mods/`; start, `MINEQTT_RCON_PORT=… MINEQTT_RCON_PASSWORD=… sh tools/upgrade07.sh place --config <server>/config/mineqtt.toml`, `stop`, swap in `neoforge/build/libs/MineQTT-neoforge-<version>.jar`, start, `… upgrade07.sh verify --config <server>/config/mineqtt.toml --log <server>/logs/latest.log`. For Home Assistant: `ha.expose` ALL (or OPT_IN), a `ha.py dump` before the jar swap and after | `upgrade07: PASS` on both loaders: the timers are devices with their anvil names, owner UUIDs, settings (the custom time exact) and counters (the interval counts on, the Alarm Clock keeps its day and does not fire again on the upgrade day), their slot papers are legacy items; the sensor and the emitter are a Block Observer (payload `block_id`) and a Block Placer on the same grandfathered topic for the same owner; the lamp keeps id, slug, name, Raw Link, access and light; the placer stays off (`mineqtt.json` as 0.7.0 left it, `mineqtt.toml` gains the new keys and keeps `enabled = false`); no block entity load warning. A Daylight Timer at sunrise saved in the 20 ticks before the day turns (the fixture saves it 10 ticks before) fires once more (known limitation, printed as a NOTE). After the upgrade the new devices appear (`ha.expose=ALL`) or wait for expose (`OPT_IN`), no ghost device stays, and every existing unique_id is unchanged. |
+| 40 | **Upgrade 0.7.0 → 0.8.0** (M4-21), Fabric and NeoForge, a world and config made by the 0.7.0 jars of `tools/build07.sh`. Fabric: `sh tools/upgrade07.sh lane <id>` (up on the 0.7.0 jar with `blockPlacer.enabled=false` written into `mineqtt.json`, `place`, `lane.sh reload <id> --jar`, `verify`; `lane.sh down <id>` after). NeoForge: a NeoForge 26.2 dedicated server (installer `--install-server`, flat world, RCON, `pause-when-empty-seconds=0`) with the 0.7.0 NeoForge jar and Architectury in `mods/`; start, `MINEQTT_RCON_PORT=… MINEQTT_RCON_PASSWORD=… sh tools/upgrade07.sh place --config <server>/config/mineqtt.toml`, `stop`, swap in `neoforge/versions/26.2/build/libs/MineQTT-neoforge-<version>+26.2.jar`, start, `… upgrade07.sh verify --config <server>/config/mineqtt.toml --log <server>/logs/latest.log`. For Home Assistant: `ha.expose` ALL (or OPT_IN), a `ha.py dump` before the jar swap and after | `upgrade07: PASS` on both loaders: the timers are devices with their anvil names, owner UUIDs, settings (the custom time exact) and counters (the interval counts on, the Alarm Clock keeps its day and does not fire again on the upgrade day), their slot papers are legacy items; the sensor and the emitter are a Block Observer (payload `block_id`) and a Block Placer on the same grandfathered topic for the same owner; the lamp keeps id, slug, name, Raw Link, access and light; the placer stays off (`mineqtt.json` as 0.7.0 left it, `mineqtt.toml` gains the new keys and keeps `enabled = false`); no block entity load warning. A Daylight Timer at sunrise saved in the 20 ticks before the day turns (the fixture saves it 10 ticks before) fires once more (known limitation, printed as a NOTE). After the upgrade the new devices appear (`ha.expose=ALL`) or wait for expose (`OPT_IN`), no ghost device stays, and every existing unique_id is unchanged. |
 
 ### Building a v1 world (items 5-7)
 
@@ -659,7 +659,7 @@ Notes:
   clears the hidden member's discovery once; Home Assistant itself then publishes an empty retained config to the topic
   of every device it removes (`async_remove_discovery_payload`), so with two instances on one broker each sees the other
   empties and warns. This is Home Assistant's behaviour, not a MineQTT bug.
-- Client game tests (`MINEQTT_E2E_BROKER=tcp://localhost:1883 ./gradlew :fabric:runClientGameTest`), with the four renamed blocks: 22 suites PASS, 931 checks, none skipped; the crash report is the known post-main shutdown watchdog.
+- Client game tests (`MINEQTT_E2E_BROKER=tcp://localhost:1883 ./gradlew :fabric:26.2:runClientGameTest`), with the four renamed blocks: 22 suites PASS, 931 checks, none skipped; the crash report is the known post-main shutdown watchdog.
 - Cleanup: `/mineqtt discovery clear` in both worlds (Home Assistant removed every test device), the retained
   `mineqtt/m227/#`, `mineqtt/m227v1_f29b/#`, `m227/#`, `minecraft-t227host/#` and `allblocks/#` topics cleared, both
   worlds deleted, `fabric/run` restored, both Home Assistant containers stopped.
@@ -797,7 +797,7 @@ imported from the tree. No client joined (no window may open on the test worksta
 | Client: colour picker | not run | No client; `mirror` covers it |
 | Client: targets | not run | No client; `bind` covers it |
 | Client: preset source | not run | No client; `mirror`'s preset step covers the source cycle, preset cycle, device name, control and the replace warning; item 31 sent brightness and colour to `fake_bulb.py` by command |
-| NeoForge panel | not run | Needs a desktop window (`:neoforge:runClient`); NeoForge's server side passed item 15 |
+| NeoForge panel | not run | Needs a desktop window (`:neoforge:26.2:runClient`); NeoForge's server side passed item 15 |
 
 ### M4 (version 0.8.0), Fabric and NeoForge dedicated servers, private Mosquitto 2, both HA versions one at a time
 

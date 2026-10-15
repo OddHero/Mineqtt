@@ -66,7 +66,7 @@ public final class DiscoveryPublisherCheck {
     private static final String PLAYER_ROOT = "mineqtt/world_7f3a/player";
     private static int nextX;
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         DeviceTypes.register(SmartLamp.TYPE);

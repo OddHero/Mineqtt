@@ -1,4 +1,4 @@
-"""Game-side E2E helper for a Fabric dev server (./gradlew :fabric:runServer) of this repository.
+"""Game-side E2E helper for a Fabric dev server (./gradlew :fabric:26.2:runServer) of this repository.
   game.py cfg key=value ...                 edit fabric/run/config/mineqtt.json (dotted keys, JSON or string values)
   game.py pub [-r] [-b broker] <topic> <payload>   publish QoS 1 via the e2e Mosquitto (broker: m2 | m15)
   game.py sub <seconds> <filter...>          print retained + live messages (retain flag, topic, payload)

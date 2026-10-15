@@ -5,6 +5,7 @@ import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.device.LinkSetting;
 import art.rehra.mineqtt.device.RawLinkSpec;
 import art.rehra.mineqtt.ui.framework.MqttTab;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -131,8 +132,9 @@ public class AdvancedTab extends MqttTab {
      * name (which commands can give), since filling a channel never removes the link.
      */
     public static Optional<String> paperChannel(ItemStack stack) {
-        if (!stack.is(Items.PAPER) || stack.getCustomName() == null) return Optional.empty();
-        String name = stack.getCustomName().getString().strip();
+        Component custom = stack.get(DataComponents.CUSTOM_NAME);
+        if (!stack.is(Items.PAPER) || custom == null) return Optional.empty();
+        String name = custom.getString().strip();
         return name.isEmpty() ? Optional.empty() : Optional.of(name);
     }
 

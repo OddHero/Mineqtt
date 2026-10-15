@@ -32,7 +32,7 @@ public final class BrokerSmokeCheck {
     private record Capabilities(boolean retainFlagAtQos0, boolean retainFlagAtQos1, boolean retainsWill,
                                 boolean mqtt5, boolean noLocal, boolean retainHandling, boolean ownRetainedOnNoLocal) {}
 
-    static void main(String[] args) throws Exception {
+    public static void main(String[] args) throws Exception {
         int separator = args.length == 1 ? args[0].lastIndexOf(':') : -1;
         if (args.length > 1 || (args.length == 1 && separator <= 0)) {
             throw new IllegalArgumentException("Usage: BrokerSmokeCheck [host:port]");

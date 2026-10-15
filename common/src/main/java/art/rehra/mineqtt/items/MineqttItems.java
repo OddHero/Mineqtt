@@ -82,7 +82,11 @@ public class MineqttItems {
     }
 
     public static Item.Properties baseProperties(String name) {
+        //? if >=1.21.2 {
         return new Item.Properties().setId(ResourceKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, name)));
+        //?} else {
+        /*return new Item.Properties(); // items know their id from 1.21.2 on
+        *///?}
     }
 
     // A decommissioned block's item: its tooltip says it is retired and what replaced it.

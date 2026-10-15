@@ -1,0 +1,247 @@
+// Shared setup for every Minecraft version node of common, fabric and neoforge.
+// Each branch's build.gradle applies this first. The node's Minecraft version is stonecutter.current.version.
+
+def loader = project.parent.name
+
+// Per-version dependency versions live in versions/<version>/gradle.properties.
+def versionProperties = new Properties()
+rootProject.file("versions/${stonecutter.current.project}/gradle.properties").withInputStream { versionProperties.load(it) }
+versionProperties.each { key, value -> project.ext.set(key, value) }
+
+// Minecraft is obfuscated up to 1.21.11 and unobfuscated from 26.1 on. Obfuscated versions need the remapping Loom,
+// Mojang's mappings and a remapped release jar; unobfuscated versions need none of that.
+def unobfuscated = stonecutter.eval(stonecutter.current.version, '>=26.1')
+def javaVersion = (project.java_version as String).toInteger()
+ext.unobfuscated = unobfuscated
+ext.javaVersion = javaVersion
+// Remapping Loom puts mod dependencies on mod* configurations; without remapping they are plain configurations.
+ext.modImplementation = unobfuscated ? 'implementation' : 'modImplementation'
+ext.modApi = unobfuscated ? 'api' : 'modApi'
+ext.modCompileOnly = unobfuscated ? 'compileOnly' : 'modCompileOnly'
+ext.modRuntimeOnly = unobfuscated ? 'runtimeOnly' : 'modRuntimeOnly'
+// A loader depends on the common node of the same version: in its remapped (named) form when Loom remaps.
+ext.commonNamed = { String path -> unobfuscated ? project.project(path) : project.dependencies.project(path: path, configuration: 'namedElements') }
+// The common node for the same Minecraft version, e.g. :common:26.2.
+ext.commonNode = ":common:${stonecutter.current.project}"
+
+// All nodes of one Minecraft version share the project name (e.g. "26.2"). Gradle identifies a project
+// dependency by group:name:version, so without a per-loader group :fabric:26.2 would resolve
+// :common:26.2 to itself. The publication below restores the plain group.
+group = "${rootProject.maven_group}.${loader}"
+// The Minecraft version is part of the version, so the jars of all versions can sit side by side.
+version = "${rootProject.mod_version}+${project.minecraft_version}"
+
+// loom.platform (neoforge/versions/<version>/gradle.properties) must be set before Loom is applied.
+apply plugin: unobfuscated ? 'dev.architectury.loom-no-remap' : 'dev.architectury.loom'
+apply plugin: 'architectury-plugin'
+apply plugin: 'maven-publish'
+// Only the loader jars bundle common. A shadow jar of common would just copy its whole classpath.
+if (loader in ['fabric', 'neoforge']) {
+    apply plugin: 'com.gradleup.shadow'
+}
+
+architectury {
+    minecraft = project.minecraft_version
+}
+
+base {
+    // Suffixed jar names, e.g. `MineQTT-fabric`.
+    archivesName = "$rootProject.archives_name-$loader"
+}
+
+repositories {
+    // Each mod comes only from its own Maven, so Gradle never asks Maven Central (or the others) for it.
+    def exclusive = { String repoName, String repoUrl, List<String> groups ->
+        exclusiveContent {
+            forRepository { maven { name = repoName; url = repoUrl } }
+            filter { groups.each { includeGroup(it) } }
+        }
+    }
+    exclusive('Terraformers', 'https://maven.terraformersmc.com/releases/', ['com.terraformersmc'])
+    exclusive('Shedaniel Maven', 'https://maven.shedaniel.me/', ['me.shedaniel', 'me.shedaniel.cloth'])
+    exclusive('DevAuth', 'https://pkgs.dev.azure.com/djtheredstoner/DevAuth/_packaging/public/maven/v1', ['me.djtheredstoner'])
+    exclusive('Flemmli97', 'https://maven.blazing-coop.net/releases', ['io.github.flemmli97'])
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:$project.minecraft_version"
+    if (!unobfuscated) {
+        // Mojang's names at development time; Loom remaps the release jar to the loader's runtime names.
+        mappings loom.officialMojangMappings()
+    }
+
+    // Netty comes from Minecraft, as in the shipped jars (which leave io/netty out). HiveMQ's own Netty 4.1
+    // netty-codec would otherwise shadow Minecraft's 4.2 netty-codec-base and break WebSocket connections in dev.
+    implementation("com.hivemq:hivemq-mqtt-client:$rootProject.hivemq_version") {
+        exclude group: 'io.netty'
+    }
+
+    if (loader in ['fabric', 'neoforge']) {
+        add(project.modRuntimeOnly, "me.djtheredstoner:DevAuth-${loader}:$rootProject.devauth_version")
+    }
+}
+
+if (loader in ['fabric', 'neoforge']) {
+    loom.runs {
+        configureEach {
+            generateRunConfig.set(true)
+            appendProjectPathToDisplayName.set(false)
+            ideConfigFolder.set(loader == 'fabric' ? 'Fabric' : 'NeoForge')
+        }
+
+        def mc = stonecutter.current.version
+        def standardClient = getByName('client')
+        standardClient.displayName.set("Client:${loader}:${mc}")
+        standardClient.systemProperties.put('devauth.enabled', 'false')
+
+        named('server') {
+            displayName.set("Server:${loader}:${mc}")
+            systemProperties.put('devauth.enabled', 'false')
+        }
+
+        register('clientDevMain') {
+            inherit(standardClient)
+            displayName.set("Client:${loader}:${mc}:Main")
+            systemProperties.put('devauth.enabled', 'true')
+            systemProperties.put('devauth.account', 'main')
+        }
+
+        register('clientDevAlt') {
+            inherit(standardClient)
+            displayName.set("Client:${loader}:${mc}:Alt")
+            systemProperties.put('devauth.enabled', 'true')
+            systemProperties.put('devauth.account', 'alt')
+        }
+    }
+
+    tasks.named('ideaSyncTask').configure {
+        doLast {
+            def runConfigsDir = rootProject.file('.idea/runConfigurations')
+            if (runConfigsDir.exists()) {
+                def oldModule = "${rootProject.name}.${loader}.${project.name}.main"
+                def newModule = "${rootProject.name}.${loader}.${project.name.replace('.', '_')}.main"
+                runConfigsDir.listFiles().each { file ->
+                    if (file.name.endsWith('.xml')) {
+                        def text = file.text
+                        if (text.contains(oldModule)) {
+                            file.text = text.replace(oldModule, newModule)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+java {
+    withSourcesJar()
+
+    // Java 21 for Minecraft 1.21.x, 25 for 26.x (versions/<version>/gradle.properties: java_version).
+    sourceCompatibility = JavaVersion.toVersion(javaVersion)
+    targetCompatibility = JavaVersion.toVersion(javaVersion)
+
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(javaVersion)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = 'UTF-8'
+    it.options.release = javaVersion
+    it.options.compilerArgs += ['-Xmaxerrs', '2000']
+}
+
+tasks.withType(AbstractArchiveTask).configureEach {
+    zip64 = true
+}
+
+// The release jar of a version bundles common and the HiveMQ client (relocated), but not Netty: Minecraft ships it.
+ext.configureReleaseShadow = { shadowTask ->
+    shadowTask.configure {
+        configurations = [project.configurations.shadowBundle]
+
+        relocate('com.hivemq', 'art.rehra.mineqtt.libs.hivemq')
+        relocate('io.reactivex', 'art.rehra.mineqtt.libs.reactivex')
+        relocate('org.reactivestreams', 'art.rehra.mineqtt.libs.reactivestreams')
+        relocate('org.jetbrains', 'art.rehra.mineqtt.libs.jetbrains')
+        relocate('org.jctools', 'art.rehra.mineqtt.libs.jctools')
+        relocate('org.intellij', 'art.rehra.mineqtt.libs.intellij')
+        relocate('javax.inject', 'art.rehra.mineqtt.libs.javax.inject')
+        relocate('dagger', 'art.rehra.mineqtt.libs.dagger')
+
+        exclude 'io/netty/**'
+        exclude 'META-INF/services/io.netty.**'
+        exclude 'META-INF/services/reactor.blockhound.integration.BlockHoundIntegration'
+
+        mergeServiceFiles()
+    }
+}
+
+if (loader in ['fabric', 'neoforge']) {
+    // The loader sources jar also carries common's sources, where nearly all code lives. They come from the common
+    // node's own sources jar: for an inactive version only that task knows to generate them first.
+    def commonSourcesJar = "${commonNode}:sourcesJar"
+    tasks.named('sourcesJar') {
+        dependsOn commonSourcesJar
+        from({ zipTree(project(commonNode).tasks.named('sourcesJar').get().archiveFile) }) {
+            exclude 'META-INF/MANIFEST.MF'
+        }
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
+
+    // The jar players install: the shadow jar (common bundled), remapped to the loader's runtime names when Loom
+    // remaps. Without remapping, the shadow jar itself is the release jar.
+    tasks.named('shadowJar') {
+        archiveClassifier = unobfuscated ? '' : 'dev-shadow'
+    }
+    if (!unobfuscated) {
+        tasks.named('remapJar') {
+            inputFile.set(tasks.named('shadowJar').flatMap { it.archiveFile })
+            dependsOn 'shadowJar'
+            archiveClassifier = ''
+        }
+    }
+    ext.releaseJarTask = tasks.named(unobfuscated ? 'shadowJar' : 'remapJar')
+    tasks.register('releaseJar') {
+        group = 'build'
+        description = 'Builds the jar to publish and install for this loader and Minecraft version.'
+        dependsOn releaseJarTask
+    }
+    tasks.named('assemble') { dependsOn 'releaseJar' }
+}
+
+// Configure Maven publishing.
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            groupId = rootProject.maven_group
+            artifactId = base.archivesName.get()
+            if (loader == 'common') {
+                from components.java
+            } else {
+                // The loader jar consumers need is the release jar (it bundles common).
+                // components.java would point Gradle consumers at the "-raw" jar, which lacks common.
+                artifact(releaseJarTask)
+                artifact(tasks.named('sourcesJar'))
+                // Without a component the POM lists no dependencies; name the mods this one requires at runtime.
+                pom.withXml {
+                    def dependencies = asNode().appendNode('dependencies')
+                    def add = { String group, String artifact, String version ->
+                        def dependency = dependencies.appendNode('dependency')
+                        dependency.appendNode('groupId', group)
+                        dependency.appendNode('artifactId', artifact)
+                        dependency.appendNode('version', version)
+                        dependency.appendNode('scope', 'runtime')
+                    }
+                    add('dev.architectury', "architectury-$loader", project.architectury_api_version)
+                    if (loader == 'fabric') {
+                        add('net.fabricmc.fabric-api', 'fabric-api', project.fabric_api_version)
+                    }
+                }
+            }
+        }
+    }
+
+    repositories {
+    }
+}

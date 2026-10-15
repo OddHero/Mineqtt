@@ -28,10 +28,10 @@
     "mineqtt.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=0.19.5",
-    "minecraft": "~26.2",
-    "java": ">=25",
-    "architectury": ">=21.1.9",
+    "fabricloader": ">=${fabric_loader_version}",
+    "minecraft": "${minecraft_range}",
+    "java": ">=${java_version}",
+    "architectury": ">=${architectury_api_version}",
     "fabric-api": "*"
   },
   "suggests": {

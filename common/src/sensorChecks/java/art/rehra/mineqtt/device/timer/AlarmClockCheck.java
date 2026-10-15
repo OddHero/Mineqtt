@@ -13,7 +13,7 @@ import java.util.Optional;
  * with the assertions the v1 block entity had.
  */
 public final class AlarmClockCheck {
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
 

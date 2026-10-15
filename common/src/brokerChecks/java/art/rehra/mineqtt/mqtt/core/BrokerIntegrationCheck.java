@@ -81,7 +81,7 @@ public final class BrokerIntegrationCheck {
             new NamedScenario("17 Ghost cleanup", BrokerIntegrationCheck::ghostCleanup),
             new NamedScenario("18 Statestream mirror", BrokerIntegrationCheck::statestreamMirror));
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         try {
             run(args);
         } catch (Throwable failure) {

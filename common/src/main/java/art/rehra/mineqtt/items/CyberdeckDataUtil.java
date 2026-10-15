@@ -32,6 +32,10 @@ public final class CyberdeckDataUtil {
         stack.remove(MineqttDataComponents.LISTENING.get());
         stack.remove(MineqttDataComponents.PRIVATE_MODE.get());
         ItemContainerContents contents = stack.remove(MineqttDataComponents.INVENTORY.get());
+        //? if >=26.1 {
         return contents == null ? List.of() : contents.nonEmptyItemCopyStream().toList();
+        //?} else {
+        /*return contents == null ? List.of() : contents.nonEmptyStream().map(net.minecraft.world.item.ItemStack::copy).toList();
+        *///?}
     }
 }

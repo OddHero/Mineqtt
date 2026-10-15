@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceRecord;
@@ -231,7 +232,12 @@ public final class ExplorerGameTest implements FabricClientGameTest {
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Used Explorer Lamp"), ANSWER_TICKS).isPresent(),
                 "and the action bar says so");
 
+        // clearParticles is private before 1.21.9; setting the level clears them too.
+        //? if >=1.21.9 {
         session.context().runOnClient(mc -> mc.particleEngine.clearParticles());
+        //?} else {
+        /*session.context().runOnClient(mc -> mc.particleEngine.setLevel(mc.level));
+        *///?}
         mark = ChatLog.mark();
         clickButton(session, "Locate");
         GlobalPos at = GlobalPos.of(Level.OVERWORLD, lamp);
@@ -244,7 +250,7 @@ public final class ExplorerGameTest implements FabricClientGameTest {
         clickButton(session, "Open");
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().contains("blocks away; its screen opens within 16"), ANSWER_TICKS).isPresent(),
                 "Open from 38 blocks away is refused with the distance");
-        session.check(session.onClient(mc -> mc.gui.screen() instanceof CyberdeckScreen), "and the explorer stays open");
+        session.check(session.onClient(mc -> Screens.current() instanceof CyberdeckScreen), "and the explorer stays open");
 
         UUID foreignId = deviceId(session, FOREIGN_LAMP);
         String foreignBefore = state(session, FOREIGN_LAMP);
@@ -269,7 +275,7 @@ public final class ExplorerGameTest implements FabricClientGameTest {
         awaitPage(session, answer -> answer.rows().stream().anyMatch(row -> row.id().equals(lampId)));
         select(session, lampId);
         clickButton(session, "Open");
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
                 && lamp.equals(menu.blockPos), ANSWER_TICKS), "Open within 16 blocks opens the lamp's screen");
         session.closeScreen();
     }
@@ -408,11 +414,11 @@ public final class ExplorerGameTest implements FabricClientGameTest {
 
     // The page the server sent last, whether or not the tab drew it yet.
     private static Optional<ExplorerPage> arrived(GameTestSession session) {
-        return session.onClient(mc -> mc.gui.screen() instanceof CyberdeckScreen screen ? ((CyberdeckMenu) screen.getMenu()).explorerPage() : Optional.empty());
+        return session.onClient(mc -> Screens.current() instanceof CyberdeckScreen screen ? ((CyberdeckMenu) screen.getMenu()).explorerPage() : Optional.empty());
     }
 
     private static Optional<DevicesTabView> view(Minecraft mc) {
-        return mc.gui.screen() instanceof CyberdeckScreen screen && screen.activeView().orElse(null) instanceof DevicesTabView view ? Optional.of(view) : Optional.empty();
+        return Screens.current() instanceof CyberdeckScreen screen && screen.activeView().orElse(null) instanceof DevicesTabView view ? Optional.of(view) : Optional.empty();
     }
 
     // Selects a device's row with a click on its name, and waits until its actions show.
@@ -441,7 +447,7 @@ public final class ExplorerGameTest implements FabricClientGameTest {
 
     // Whether a visible button of that label may be pressed; empty without one.
     private static Optional<Boolean> buttonState(Minecraft mc, String label) {
-        return mc.gui.screen() == null ? Optional.empty() : mc.gui.screen().children().stream().filter(Button.class::isInstance).map(Button.class::cast)
+        return Screens.current() == null ? Optional.empty() : Screens.current().children().stream().filter(Button.class::isInstance).map(Button.class::cast)
                 .filter(button -> button.visible && button.getMessage().getString().equals(label)).map(button -> button.active)
                 .reduce(Boolean::logicalOr);
     }
@@ -484,7 +490,7 @@ public final class ExplorerGameTest implements FabricClientGameTest {
     }
 
     private static boolean previousActive(Minecraft mc) {
-        return mc.gui.screen() != null && mc.gui.screen().children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
+        return Screens.current() != null && Screens.current().children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
                 .anyMatch(widget -> pageButton("<").test(widget) && widget.active);
     }
 
@@ -492,7 +498,7 @@ public final class ExplorerGameTest implements FabricClientGameTest {
     private static void gameMode(GameTestSession session, GameType mode) {
         session.consoleCommand("gamemode " + mode.getSerializedName() + " " + session.playerName());
         boolean mayBuild = mode != GameType.ADVENTURE && mode != GameType.SPECTATOR;
-        session.awaitServer(s -> session.player(s).gameMode() == mode);
+        session.awaitServer(s -> art.rehra.mineqtt.compat.Players.gameMode(session.player(s)) == mode);
         session.context().waitFor(mc -> mc.player.getAbilities().mayBuild == mayBuild);
     }
 

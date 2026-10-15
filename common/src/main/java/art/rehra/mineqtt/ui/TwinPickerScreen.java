@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.device.DeviceType;
 import art.rehra.mineqtt.device.DeviceTypes;
 import art.rehra.mineqtt.device.DeviceView;
@@ -22,8 +23,10 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
+//? if >=1.21.9 {
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+//?}
 import net.minecraft.nbt.StringTag;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
@@ -280,7 +283,7 @@ public class TwinPickerScreen extends Screen {
     public void tick() {
         // The device's screen closed underneath (out of reach, the device gone): nothing to bind any more.
         if (minecraft.player == null || minecraft.player.containerMenu != menu) {
-            minecraft.gui.setScreen(null);
+            Screens.open(null);
             return;
         }
         if (key.isEmpty()) return;
@@ -351,7 +354,7 @@ public class TwinPickerScreen extends Screen {
     /** Back to the device's screen; nothing changed unless a pick went out. */
     @Override
     public void onClose() {
-        minecraft.gui.setScreen(minecraft.player != null && minecraft.player.containerMenu == menu ? parent : null);
+        Screens.open(minecraft.player != null && minecraft.player.containerMenu == menu ? parent : null);
     }
 
     private void select(int index) {
@@ -500,15 +503,30 @@ public class TwinPickerScreen extends Screen {
     }
 
     @Override
+    //? if >=1.21.9 {
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         int row = rowAt(event.x(), event.y());
         if (event.button() == InputConstants.MOUSE_BUTTON_LEFT && row >= 0) {
+    //?} else {
+    /*public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        int row = rowAt(mouseX, mouseY);
+        if (button == InputConstants.MOUSE_BUTTON_LEFT && row >= 0) {
+            boolean doubleClick = doubleClicks.click(row);
+    *///?}
             select(row);
             if (doubleClick) bindSelected();
             return true;
         }
+        //? if >=1.21.9 {
         return super.mouseClicked(event, doubleClick);
+        //?} else {
+        /*return super.mouseClicked(mouseX, mouseY, button);
+        *///?}
     }
+
+    //? if <1.21.9 {
+    /*private final art.rehra.mineqtt.compat.DoubleClick doubleClicks = new art.rehra.mineqtt.compat.DoubleClick();
+    *///?}
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double dx, double dy) {
@@ -520,13 +538,22 @@ public class TwinPickerScreen extends Screen {
     }
 
     @Override
+    //? if >=1.21.9 {
     public boolean keyPressed(KeyEvent event) {
-        switch (event.key()) {
+        int keyCode = event.key();
+    //?} else {
+    /*public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    *///?}
+        switch (keyCode) {
             case InputConstants.KEY_UP -> select(selected - 1);
             case InputConstants.KEY_DOWN -> select(selected + 1);
             case InputConstants.KEY_RETURN, InputConstants.KEY_NUMPADENTER -> bindSelected();
             default -> {
+                //? if >=1.21.9 {
                 return super.keyPressed(event);
+                //?} else {
+                /*return super.keyPressed(keyCode, scanCode, modifiers);
+                *///?}
             }
         }
         return true;
@@ -539,6 +566,6 @@ public class TwinPickerScreen extends Screen {
 
     /** The picker for the device whose screen is open, if one shows (client, for tests). */
     public static Optional<TwinPickerScreen> open(Minecraft minecraft) {
-        return minecraft.gui.screen() instanceof TwinPickerScreen picker ? Optional.of(picker) : Optional.empty();
+        return Screens.current() instanceof TwinPickerScreen picker ? Optional.of(picker) : Optional.empty();
     }
 }

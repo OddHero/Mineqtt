@@ -45,7 +45,7 @@ public final class RoomsCheck {
     private static final Identifier LAMP = Identifier.fromNamespaceAndPath("mineqtt", "smart_lamp");
     private static int nextDevice;
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         MineQTTConfig.resetToDefaults();

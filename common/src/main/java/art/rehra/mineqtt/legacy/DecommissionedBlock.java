@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.legacy;
 
+import art.rehra.mineqtt.compat.BlockRemoval;
 import art.rehra.mineqtt.MineQTT;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.ChatFormatting;
@@ -46,7 +47,18 @@ public abstract class DecommissionedBlock extends BaseEntityBlock {
         super(properties);
     }
 
-    @Override
+    //? if >=26.3 {
+    /*// Blocks have no codec from 26.3 on; the stand-ins keep the codec fields of the versions before compiling.
+    protected static <B extends net.minecraft.world.level.block.Block> MapCodec<B> simpleCodec(java.util.function.Function<Properties, B> factory) {
+        return art.rehra.mineqtt.compat.BlockCodecs.simpleCodec(factory);
+    }
+
+    protected static <B extends net.minecraft.world.level.block.Block> com.mojang.serialization.codecs.RecordCodecBuilder<B, Properties> propertiesCodec() {
+        return art.rehra.mineqtt.compat.BlockCodecs.propertiesCodec();
+    }
+    *///?}
+
+    // Not @Override: blocks have no codec from 26.3 on.
     protected abstract MapCodec<? extends DecommissionedBlock> codec();
 
     /**
@@ -96,4 +108,16 @@ public abstract class DecommissionedBlock extends BaseEntityBlock {
     /** Where and at which of the player's ticks a player last used a decommissioned block. */
     private record Use(BlockPos pos, int tick) {
     }
+
+    //? if <1.21.5 {
+    /*// The block entity's removal side effects, which Minecraft calls itself from 1.21.5 on.
+    @Override
+    protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
+        if (!level.isClientSide() && !state.is(newState.getBlock()) && BlockRemoval.sideEffects()
+                && level.getBlockEntity(pos) instanceof BlockRemoval.SideEffects removed) {
+            removed.preRemoveSideEffects(pos, state);
+        }
+        super.onRemove(state, level, pos, newState, movedByPiston);
+    }
+    *///?}
 }

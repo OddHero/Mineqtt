@@ -2,15 +2,8 @@ package art.rehra.mineqtt.twin.core;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
-import com.google.gson.JsonParseException;
-import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
-import com.google.gson.Strictness;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonToken;
 
-import java.io.IOException;
-import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
@@ -218,14 +211,7 @@ public final class ValuePath {
     }
 
     private static Optional<JsonElement> strictJson(String text) {
-        try {
-            JsonReader reader = new JsonReader(new StringReader(text));
-            reader.setStrictness(Strictness.STRICT);
-            JsonElement json = JsonParser.parseReader(reader);
-            return reader.peek() == JsonToken.END_DOCUMENT ? Optional.of(json) : Optional.empty();
-        } catch (JsonParseException | IOException e) {
-            return Optional.empty();
-        }
+        return EntityDocuments.strictJson(text);
     }
 
     // A recursive-descent reader of the grammar; positions in messages count from 1.

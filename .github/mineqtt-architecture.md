@@ -1447,7 +1447,7 @@ in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wi
   the supported floor and current stable. Its README holds the checklist and the last recorded results, including the
   MQTT 5 integration run (`-PexternalBroker`). `ha.py dashboard-check docs/dashboards/mineqtt-world.yaml` holds the
   example dashboard to entities of MineQTT devices that are registered and enabled.
-- `:fabric:runClientGameTest` runs the Fabric client game tests (`fabric/src/gametest`): a real client joins an
+- `:fabric:26.2:runClientGameTest` runs the Fabric client game tests (`fabric/src/gametest`): a real client joins an
   in-process dedicated server as a non-op player. It opens a game window, so `check` only compiles them; how to run
   them, the suites (33 entrypoints since M4's `timers`, `world_devices`, `telemetry`, `privacy`, `rooms` and `explorer`; `TwinFixture` gives the twin suites a per-run
   statestream base) and the helpers are in `e2e/README.md`. `e2e/tools/run-gametests.sh [suites]` runs them one window at a

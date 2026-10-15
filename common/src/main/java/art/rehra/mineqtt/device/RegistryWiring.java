@@ -139,7 +139,8 @@ final class RegistryWiring implements MessageBus.Wiring {
         return switch (endpoint) {
             case Endpoint.PortRef port -> Optional.ofNullable(registry.record(port.node())).map(record -> DeviceTypes.get(record.type()));
             case Endpoint.GroupPortRef port -> Optional.ofNullable(registry.group(port.group())).map(DeviceGroup::memberType).map(DeviceTypes::get);
-            case Endpoint.TopicRef _, Endpoint.HaEntityRef _ -> Optional.empty();
+            case Endpoint.TopicRef ignoredTopicRef -> Optional.empty();
+            case Endpoint.HaEntityRef ignoredHaEntityRef -> Optional.empty();
         };
     }
 
@@ -148,7 +149,8 @@ final class RegistryWiring implements MessageBus.Wiring {
         return switch (endpoint) {
             case Endpoint.PortRef port -> port.port();
             case Endpoint.GroupPortRef port -> port.port();
-            case Endpoint.TopicRef _, Endpoint.HaEntityRef _ -> "";
+            case Endpoint.TopicRef ignoredTopicRef -> "";
+            case Endpoint.HaEntityRef ignoredHaEntityRef -> "";
         };
     }
 

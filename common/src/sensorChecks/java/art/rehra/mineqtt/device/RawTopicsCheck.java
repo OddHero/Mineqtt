@@ -22,7 +22,7 @@ public final class RawTopicsCheck {
     private static final TopicAcl DEDICATED = acl(DEFAULT_ALLOW, false);
     private static final TopicAcl INTEGRATED = acl(DEFAULT_ALLOW, true);
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         derivedTopics();
         ownerLiteralSet();
         privateMode();

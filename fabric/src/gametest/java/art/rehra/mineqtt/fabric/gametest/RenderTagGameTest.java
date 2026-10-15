@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.NbtTags;
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.RedstoneEmitterBlock;
 import art.rehra.mineqtt.blocks.RedstonePublisherBlock;
@@ -167,10 +169,10 @@ public final class RenderTagGameTest implements FabricClientGameTest {
     /** The server's update tag of the device holds the render compound alone; the lamp's holds its colour, brightness and on. */
     private static void updateTag(GameTestSession session, BlockPos pos) {
         CompoundTag tag = session.onServer(s -> s.overworld().getBlockEntity(pos).getUpdateTag(s.registryAccess()));
-        session.check(tag.keySet().equals(Set.of(RenderTag.KEY)), "the update tag at " + pos.toShortString() + " is render-only: " + tag);
+        session.check(NbtTags.keySet(tag).equals(Set.of(RenderTag.KEY)), "the update tag at " + pos.toShortString() + " is render-only: " + tag);
         boolean lamp = session.onServer(s -> s.overworld().getBlockState(pos).is(MineqttBlocks.RGB_LED_BLOCK.get()));
         Set<String> expected = lamp ? Set.of("rgb", "brightness", "on") : Set.of();
-        session.check(tag.getCompoundOrEmpty(RenderTag.KEY).keySet().equals(expected), "it renders " + expected + ": " + tag);
+        session.check(NbtTags.keySet(NbtTags.getCompoundOrEmpty(tag, RenderTag.KEY)).equals(expected), "it renders " + expected + ": " + tag);
     }
 
     /**
@@ -198,7 +200,7 @@ public final class RenderTagGameTest implements FabricClientGameTest {
     }
 
     private static boolean awaitView(GameTestSession session, Predicate<DeviceView> matches) {
-        return session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu().deviceView().filter(matches).isPresent(), ANSWER_TICKS);
+        return session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu().deviceView().filter(matches).isPresent(), ANSWER_TICKS);
     }
 
     // Whether the client's block entity at pos carries no owner, device identity, Raw Link or legacy items. A device that

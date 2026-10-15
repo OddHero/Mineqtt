@@ -42,7 +42,7 @@ public class HumiditySensorBlock extends LegacyConverterBlock {
         this.registerDefaultState(this.getStateDefinition().any().setValue(FACING, Direction.NORTH));
     }
 
-    @Override
+    // Not @Override: blocks have no codec from 26.3 on.
     protected MapCodec<HumiditySensorBlock> codec() {
         return CODEC;
     }

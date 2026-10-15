@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs inside the mineqtt-client container. The source tree lives at /work/src on the container filesystem.
 #   in-container.sh extract                 unpack /tmp/src.tar.gz (or /tmp/src.tar) into a fresh /work/src
-#   in-container.sh build                   ./gradlew build -x check (timed)
+#   in-container.sh build                   ./gradlew :fabric:26.2:build -x check (timed)
 #   in-container.sh warm                    fill the Gradle seed volume (run by run.sh --warm)
 #   in-container.sh test [Suite ...]        client game tests under Xvfb; with suite names, only those suites. The whole
 #                                           console goes to /work/console.log; with MQ_OUTPUT=filtered only the Gradle
@@ -13,7 +13,7 @@
 #   in-container.sh watchdog                the container's main process (see below)
 set -eu
 SRC=/work/src
-RUN_DIR=${MQ_RUN_DIR:-$SRC/fabric/build/run/clientGameTest}
+RUN_DIR=${MQ_RUN_DIR:-$SRC/fabric/versions/26.2/build/run/clientGameTest}
 cd /work 2>/dev/null || true   # absent only when shotmap is tried on the host (MQ_RUN_DIR)
 
 # Prints "<suite> <screenshot file name>" for each screenshot. The harness does not tag screenshots with their suite, so
@@ -68,13 +68,13 @@ case "${1:-}" in
   build)
     cd "$SRC"
     start=$(date +%s)
-    ./gradlew --no-daemon --console=plain build -x check
+    ./gradlew --no-daemon --console=plain :fabric:26.2:build -x check
     echo "BUILD_SECONDS $(( $(date +%s) - start ))"
     ;;
   warm)
     # Fills the writable seed mounted at /root/.gradle: dependencies, Minecraft, assets and the game test classpath.
     cd "$SRC"
-    ./gradlew --no-daemon --console=plain build -x check :fabric:compileGametestJava :fabric:downloadAssets
+    ./gradlew --no-daemon --console=plain :fabric:26.2:build -x check :fabric:26.2:compileGametestJava :fabric:26.2:downloadAssets
     ;;
   test)
     shift
@@ -101,12 +101,12 @@ case "${1:-}" in
     # The client's log goes to the console too (~0.5 MB for a full run): over a slow link only the lines that matter
     # cross it, the whole console stays in /work/console.log (collect returns it).
     if [ "${MQ_OUTPUT:-full}" = filtered ]; then
-      { timeout -k 30 "$limit" xvfb-run -a -s "-screen 0 1920x1080x24" ./gradlew --no-daemon --console=plain :fabric:runClientGameTest 2>&1 \
+      { timeout -k 30 "$limit" xvfb-run -a -s "-screen 0 1920x1080x24" ./gradlew --no-daemon --console=plain :fabric:26.2:runClientGameTest 2>&1 \
           || echo $? > /tmp/test.rc; } | tee /work/console.log \
         | grep --line-buffered -E '^> |BUILD (SUCCESSFUL|FAILED)|FAILURE:|What went wrong|error:|Client game test|\(MineQTT-GameTest\) (SUITE|FAIL)|Crash report saved|OutOfMemoryError|Terminating due to' \
         || true
     else
-      { timeout -k 30 "$limit" xvfb-run -a -s "-screen 0 1920x1080x24" ./gradlew --no-daemon --console=plain :fabric:runClientGameTest 2>&1 \
+      { timeout -k 30 "$limit" xvfb-run -a -s "-screen 0 1920x1080x24" ./gradlew --no-daemon --console=plain :fabric:26.2:runClientGameTest 2>&1 \
           || echo $? > /tmp/test.rc; } | tee /work/console.log
     fi
     rc=$(cat /tmp/test.rc 2>/dev/null || echo 0)

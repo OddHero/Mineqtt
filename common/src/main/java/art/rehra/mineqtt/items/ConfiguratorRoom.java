@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.items;
 
+import art.rehra.mineqtt.compat.Particles;
 import art.rehra.mineqtt.device.DeviceRegistry;
 import art.rehra.mineqtt.network.MineqttNetworking;
 import art.rehra.mineqtt.network.MineqttNetworking.RoomNamePayload;
@@ -292,13 +293,13 @@ public final class ConfiguratorRoom {
     private static void outline(ServerPlayer player, DeviceRegistry registry) {
         List<Box> boxes = boxes(player, registry);
         int budget = MAX_PARTICLES;
-        ServerLevel level = player.level();
+        ServerLevel level = (ServerLevel) player.level(); // a ServerPlayer's level is typed so from 1.21.6 on
         for (int i = 0; i < boxes.size() && budget > 0; i++) {
             Box box = boxes.get(i);
             List<double[]> points = edgePoints(box, budget / (boxes.size() - i));
-            DustParticleOptions dust = new DustParticleOptions(box.color(), 1.0F);
+            DustParticleOptions dust = Particles.dust(box.color(), 1.0F);
             for (double[] point : points) {
-                level.sendParticles(player, dust, true, false, point[0], point[1], point[2], 1, 0, 0, 0, 0);
+                Particles.sendTo(level, player, dust, true, false, point[0], point[1], point[2], 1, 0, 0, 0, 0);
             }
             budget -= points.size();
         }

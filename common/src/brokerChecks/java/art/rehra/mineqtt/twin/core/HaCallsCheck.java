@@ -60,7 +60,7 @@ public final class HaCallsCheck {
     private static final Set<String> UNREACHED = Set.of("cover.stop_cover");
     private static final Set<String> REACHED = new HashSet<>();
 
-    static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException {
         if (args.length != 1) throw new IllegalArgumentException("Usage: HaCallsCheck <docs/blueprints/automation/mineqtt>");
         Path blueprints = Path.of(args[0]);
         controlBlueprint(BlueprintFile.read(blueprints.resolve("mineqtt_control.yaml")));
@@ -432,7 +432,7 @@ public final class HaCallsCheck {
             expect("light", "state", on, Mirror.live(placeholder), "light.turn_on {}");
         }
         Outcome cleared = HaCalls.resolve("light", "state", toggle, Mirror.live(""));
-        check(cleared instanceof Refused(Reason _, String detail) && detail.contains("cleared"), "A cleared state is named: " + cleared);
+        check(cleared instanceof Refused(Reason ignoredReason, String detail) && detail.contains("cleared"), "A cleared state is named: " + cleared);
         fails(() -> new Mirror(Mirror.Freshness.NONE, "on"), "Nothing known has no state");
         check(!Mirror.NONE.known() && Mirror.retained("on").known() && !Mirror.live("unknown").known(), "Mirror.known");
 
@@ -697,11 +697,11 @@ public final class HaCallsCheck {
     // A value every in-port of this kind accepts.
     private static JsonElement sample(PortType kind) {
         return switch (kind) {
-            case PortType.Bool _ -> json("true");
-            case PortType.Light _ -> json("{\"state\":\"ON\",\"brightness\":100}");
+            case PortType.Bool ignoredBool -> json("true");
+            case PortType.Light ignoredLight -> json("{\"state\":\"ON\",\"brightness\":100}");
             case PortType.Event event -> new JsonPrimitive(event.types().getFirst());
             case PortType.Number number -> new JsonPrimitive(number.integral() ? 50 : 21.5);
-            case PortType.Text _ -> json("\"hello\"");
+            case PortType.Text ignoredText -> json("\"hello\"");
             default -> throw new AssertionError("No sample for " + kind.describe());
         };
     }

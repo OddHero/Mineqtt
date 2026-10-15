@@ -102,7 +102,7 @@ public class LightPicker {
     }
 
     /** Draws the labels and values beside the tracks and fades the sliders of the mode the light is not in. */
-    public void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+    public void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
         hue.setDimmed(kelvinMode);
         saturation.setDimmed(kelvinMode);
         kelvin.setDimmed(!kelvinMode);

@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
@@ -91,7 +92,7 @@ public final class MirrorNoLoopCheck {
     private static final TwinAdapter ADAPTER = TwinTestTypes.ADAPTER;
     private static final Binding SWITCH = TwinTestTypes.bound("switch.porch", true);
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         typeRules();
@@ -864,7 +865,8 @@ public final class MirrorNoLoopCheck {
             public void failed(Wire wire, FlowMessage message, RuntimeException e) {
                 throw new AssertionError("Delivery threw", e);
             }
-        }, System::nanoTime);
+        // A frozen clock: the 2 ms drain budget must not cut a drain short on a busy machine (a parallel build).
+        }, () -> 0L);
         Set<UUID> changed = DeviceRuntime.powerOnRecords(registry, bus, (source, key, value) -> bus.emit(FlowMessage.Kind.VALUE, source, key, value, 0),
                 (record, e) -> {
                     throw new AssertionError("Power-on threw", e);
@@ -1926,7 +1928,8 @@ public final class MirrorNoLoopCheck {
             public void failed(Wire wire, FlowMessage message, RuntimeException e) {
                 throw new AssertionError("Delivery threw", e);
             }
-        }, System::nanoTime);
+        // A frozen clock: the 2 ms drain budget must not cut a drain short on a busy machine (a parallel build).
+        }, () -> 0L);
         holder[0] = bus;
 
         int value = 1;
@@ -1966,8 +1969,8 @@ public final class MirrorNoLoopCheck {
     private static DeviceLink linkWithRaw() {
         DeviceLink link = new DeviceLink(TYPE);
         CompoundTag data = new CompoundTag();
-        data.store("id", UUIDUtil.CODEC, UUID.randomUUID());
-        data.store("raw", RawLink.CODEC, new RawLink("mineqtt/shared/porch", RawLinkSpec.Direction.IN, null, null, 0, null, null, false, null, 0, null,
+        NbtTags.store(data, "id", UUIDUtil.CODEC, UUID.randomUUID());
+        NbtTags.store(data, "raw", RawLink.CODEC, new RawLink("mineqtt/shared/porch", RawLinkSpec.Direction.IN, null, null, 0, null, null, false, null, 0, null,
                 RawLink.Edges.BOTH));
         CompoundTag tag = new CompoundTag();
         tag.put(DeviceLink.KEY, data);

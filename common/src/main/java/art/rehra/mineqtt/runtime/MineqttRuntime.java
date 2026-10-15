@@ -50,9 +50,7 @@ import net.minecraft.server.dedicated.DedicatedServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Util;
-import net.minecraft.world.clock.ClockState;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.gamerules.GameRules;
 
 import java.security.SecureRandom;
 import java.time.LocalDate;
@@ -219,7 +217,11 @@ public final class MineqttRuntime {
         mqtt.onConnected(this::connected);
         this.dedicated = server.isDedicatedServer();
         // Queued, never run in place: a wake from inside a slow tick's flush must not run the pump within it.
+        //? if >=1.21.2 {
         this.pump = new PausedServerPump(task -> server.schedule(server.wrapRunnable(task)), this::pausedPump,
+        //?} else {
+        /*this.pump = new PausedServerPump(task -> server.tell(new net.minecraft.server.TickTask(server.getTickCount(), task)), this::pausedPump,
+        *///?}
                 () -> paused(playersAtLastTick), this::pendingWork, log, PausedServerPump.PERIOD_MILLIS);
         mqtt.onInboundAvailable(pump::wake);
     }
@@ -387,7 +389,11 @@ public final class MineqttRuntime {
 
     /** {@code pause-when-empty-seconds} as {@code server.properties} sets it; 0 on any other server. */
     public int configuredPauseWhenEmptySeconds() {
+        //? if >=1.21.2 {
         return dedicated ? ((DedicatedServer) server).pauseWhenEmptySeconds() : 0;
+        //?} else {
+        /*return 0; // 1.21.2 brought pause-when-empty-seconds
+        *///?}
     }
 
     /**
@@ -447,9 +453,7 @@ public final class MineqttRuntime {
         pauseLogged = false;
         // Here, not in tickEnd, which a paused server's pump runs too without a tick. Block entities do not tick while
         // the ticks are frozen, so the timers hear a stop, a start or a new rate from here.
-        Optional<ClockState> overworld = WorldClock.overworldState(server);
-        if (clock.tick(server.getGlobalGameRules().get(GameRules.ADVANCE_TIME), overworld.map(ClockState::paused).orElse(false),
-                server.tickRateManager().isFrozen(), overworld.map(ClockState::rate).orElse(1f))) {
+        if (clock.tick(WorldClock.advances(server), WorldClock.paused(server), server.tickRateManager().isFrozen(), WorldClock.clockRate(server))) {
             devices.forEachAttached(TimerBlockEntity.class, TimerBlockEntity::clockChanged);
         }
         handleInbound();

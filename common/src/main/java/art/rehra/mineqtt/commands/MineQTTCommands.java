@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.commands;
 
+import art.rehra.mineqtt.compat.Profiles;
 import art.rehra.mineqtt.config.ConfigValidation;
 import art.rehra.mineqtt.config.HaExpose;
 import art.rehra.mineqtt.config.MineQTTConfig;
@@ -1349,7 +1350,7 @@ public class MineQTTCommands {
         if (room.serverMade()) return "the server's";
         ServerPlayer online = runtime.server().getPlayerList().getPlayer(room.owner());
         String name = online != null ? online.getGameProfile().name()
-                : runtime.server().services().nameToIdCache().get(room.owner()).map(NameAndId::name).orElse(room.owner().toString());
+                : Profiles.byId(runtime.server(), room.owner()).map(NameAndId::name).orElse(room.owner().toString());
         return name + "'s" + (room.forAll() ? ", for everyone" : "");
     }
 

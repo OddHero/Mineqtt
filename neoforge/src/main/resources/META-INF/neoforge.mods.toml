@@ -16,21 +16,21 @@ Interact with the Internet of Things through Minecraft.
 [[dependencies.mineqtt]]
 modId = "neoforge"
 type = "required"
-versionRange = "[26.2,)"
+versionRange = "${neoforge_range}"
 ordering = "NONE"
 side = "BOTH"
 
 [[dependencies.mineqtt]]
 modId = "minecraft"
 type = "required"
-versionRange = "[26.2,)"
+versionRange = "${minecraft_range}"
 ordering = "NONE"
 side = "BOTH"
 
 [[dependencies.mineqtt]]
 modId = "architectury"
 type = "required"
-versionRange = "[21.1.9,)"
+versionRange = "[${architectury_api_version},)"
 ordering = "AFTER"
 side = "BOTH"
 

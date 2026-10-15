@@ -1,4 +1,4 @@
-# Headless Linux environment for the MineQTT Fabric client game tests (:fabric:runClientGameTest).
+# Headless Linux environment for the MineQTT Fabric client game tests (:fabric:26.2:runClientGameTest).
 # Xvfb provides the X display, Mesa llvmpipe the OpenGL implementation (software rendering, no GPU needed).
 FROM eclipse-temurin:25-jdk
 

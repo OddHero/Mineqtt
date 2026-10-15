@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks.entities;
 
+import art.rehra.mineqtt.compat.BlockRemoval;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceLink;
 import art.rehra.mineqtt.device.RenderTag;
@@ -14,7 +15,6 @@ import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedScreenHost;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -51,7 +51,7 @@ import java.util.UUID;
  * {@link #preRemoveSideEffects} destroys (design §6.5). Clients get only what they draw ({@link RenderTag}, M2 plan D12),
  * never the owner, the Raw Link or the legacy items; a render update replaces nothing else ({@link #loadRender}).
  */
-public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHost, TabbedScreenHost {
+public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHost, TabbedScreenHost, BlockRemoval.SideEffects {
     /** How long after an edit its player counts as the one who made a change: 30 seconds. */
     public static final int EDITOR_NOTICE_TICKS = 30 * 20;
     // The red of a refused or paused binding's particles.
@@ -129,9 +129,14 @@ public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHos
      * Broken by a player or an explosion: the legacy items drop where the block stood, as a container's contents would,
      * and the device is destroyed.
      */
+    //? if >=1.21.5 {
     @Override
     public void preRemoveSideEffects(BlockPos pos, BlockState state) {
         super.preRemoveSideEffects(pos, state);
+    //?} else {
+    /*@Override
+    public void preRemoveSideEffects(BlockPos pos, BlockState state) {
+    *///?}
         if (level != null) {
             for (ItemStackWithSlot item : deviceLink().takeLegacyItems()) {
                 Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), item.stack().copy());
@@ -323,7 +328,7 @@ public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHos
                 if (time % 60 == 0) level.addParticle(ParticleTypes.SMOKE, at.x, at.y + 0.2, at.z, 0, 0.02, 0);
             }
             case PAUSED -> {
-                if (time % 100 == 0) level.addParticle(new DustParticleOptions(REFUSED_RED, 1.0f), at.x, at.y + 0.3, at.z, 0, 0, 0);
+                if (time % 100 == 0) level.addParticle(art.rehra.mineqtt.compat.Particles.dust(REFUSED_RED, 1.0f), at.x, at.y + 0.3, at.z, 0, 0, 0);
             }
             case NONE, REFUSED -> {
             }
@@ -340,6 +345,6 @@ public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHos
 
     /** Client: one red particle above {@code at}, as a binding becomes refused (D19). */
     protected static void refusedParticle(Level level, Vec3 at) {
-        level.addParticle(new DustParticleOptions(REFUSED_RED, 1.5f), at.x, at.y + 0.4, at.z, 0, 0.01, 0);
+        level.addParticle(art.rehra.mineqtt.compat.Particles.dust(REFUSED_RED, 1.5f), at.x, at.y + 0.4, at.z, 0, 0.01, 0);
     }
 }

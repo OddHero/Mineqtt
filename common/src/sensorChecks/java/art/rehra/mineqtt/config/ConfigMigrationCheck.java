@@ -33,7 +33,7 @@ public final class ConfigMigrationCheck {
     /** The zombie goal and item portal keys, removed in Milestone 2. */
     private static final List<String> REMOVED_KEYS = List.of("allowItemNetherPortalTeleport", "goalX", "goalY", "goalZ", "zombieGoalEnabled");
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         defaults();
         fabricV1DefaultFile();
         neoForgeV1TcpBroker();

@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.MineQTT;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
@@ -214,7 +215,7 @@ public final class RegistryStore {
         saveBlocked = path.getFileName() + " is of a newer schema";
         MineQTT.LOGGER.error("The MineQTT device registry {} was written by a newer MineQTT (schema {}, this one reads up to {}). It is "
                 + "left unchanged and nothing is saved until that version runs again; this run has no groups and no queued commands",
-                path, tag.getIntOr("schema", 0), DeviceRegistry.SCHEMA);
+                path, NbtTags.getIntOr(tag, "schema", 0), DeviceRegistry.SCHEMA);
         return DeviceRegistry.identityOf(tag).orElseGet(() -> new DeviceRegistry(generateBridgeId(levelName, random), UUID.randomUUID()));
     }
 

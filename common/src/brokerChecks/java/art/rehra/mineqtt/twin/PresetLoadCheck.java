@@ -48,7 +48,7 @@ public final class PresetLoadCheck {
             "mineqtt:zigbee2mqtt_switch");
     private static final UUID STEVE = UUID.fromString("00000000-0000-4000-8000-00000000000a");
 
-    static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException {
         Locale.setDefault(Locale.GERMANY);
         if (args.length != 1) throw new IllegalArgumentException("Usage: PresetLoadCheck <common/src/main/resources>");
         Map<String, BindingPreset> builtIns = builtIns(Path.of(args[0]));

@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.NbtTags;
+import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
 import art.rehra.mineqtt.client.RgbLedBlockColor;
@@ -146,8 +148,8 @@ public final class LampEffectsGameTest implements FabricClientGameTest {
     private static void effects(GameTestSession session, BlockPos lamp, String slug) {
         session.consoleCommand("mineqtt devices set " + slug + " {\"state\":\"ON\",\"brightness\":255,\"color\":{\"r\":255,\"g\":150,\"b\":40},\"effect\":\"candle\"}");
         session.check(session.awaitClient(mc -> mc.level.getBlockState(lamp).getValue(RgbLedBlock.LIGHT_LEVEL) == 15, ANSWER_TICKS), "the candle lamp is lit");
-        CompoundTag render = session.onServer(s -> s.overworld().getBlockEntity(lamp).getUpdateTag(s.registryAccess())).getCompoundOrEmpty(RenderTag.KEY);
-        session.check(render.getStringOr("effect", "").equals("candle"), "its update tag carries the effect: " + render);
+        CompoundTag render = NbtTags.getCompoundOrEmpty(session.onServer(s -> s.overworld().getBlockEntity(lamp).getUpdateTag(s.registryAccess())), RenderTag.KEY);
+        session.check(NbtTags.getStringOr(render, "effect", "").equals("candle"), "its update tag carries the effect: " + render);
         int full = 0xFF000000 | 0xFF9628;
         Set<Integer> flame = sampleTints(session, lamp, 60);
         Set<Integer> serverLevels = new HashSet<>();
@@ -191,9 +193,9 @@ public final class LampEffectsGameTest implements FabricClientGameTest {
         });
         session.context().waitTicks(SETTLE_TICKS);
         session.teleport(FAR);
-        long chunk = ChunkPos.pack(lamp);
+        long chunk = ChunkPositions.pack(lamp);
         boolean loadedNotTicking = session.await(() -> session.onServer(s -> s.overworld().getChunkSource().getChunkNow(ChunkPos.getX(chunk), ChunkPos.getZ(chunk)) != null
-                && !s.overworld().isPositionTickingWithEntitiesLoaded(chunk)), ANSWER_TICKS);
+                && !ChunkPositions.isEntityTicking(s.overworld(), lamp)), ANSWER_TICKS);
         session.check(loadedNotTicking && Boolean.TRUE.equals(session.device(lamp, DeviceLink::attached)),
                 "far away, the lamp's chunk is loaded and its device attached, but its blocks do not tick");
         if (loadedNotTicking) {

@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.device;
 
+import art.rehra.mineqtt.compat.Inputs;
 import art.rehra.mineqtt.device.DeviceLinks;
 import art.rehra.mineqtt.device.DeviceRuntime;
 import art.rehra.mineqtt.device.DeviceView;
@@ -23,7 +24,6 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
@@ -586,7 +586,7 @@ public class AdvancedTabView implements MqttTabView {
                 else commitPayload(field, field == onField ? LinkSetting.RAW_ON : LinkSetting.RAW_OFF);
                 return true;
             }
-            return field.keyPressed(new KeyEvent(keyCode, scanCode, modifiers)) || field.canConsumeInput();
+            return Inputs.keyPressed(field, keyCode, scanCode, modifiers) || field.canConsumeInput();
         }
         return false;
     }

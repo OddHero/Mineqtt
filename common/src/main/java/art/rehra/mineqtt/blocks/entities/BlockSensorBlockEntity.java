@@ -104,7 +104,7 @@ public class BlockSensorBlockEntity extends DeviceBlockEntity {
         // A container's level changes without its block state: it is read with every new state and a few times a second,
         // more often than the state is published.
         int signal = first || target != observed || level.getGameTime() % SIGNAL_TICKS == 0
-                ? target.hasAnalogOutputSignal() ? target.getAnalogOutputSignal(level, targetPos, facing.getOpposite()) : 0
+                ? target.hasAnalogOutputSignal() ? analogOutputSignal(level, target, targetPos, facing) : 0
                 : observation.signal();
         boolean changed = first
                 ? !observation.block().isEmpty() && BlockObserver.changedSince(observation.changeOn(), observation.block(), observation.properties(), target)
@@ -192,4 +192,14 @@ public class BlockSensorBlockEntity extends DeviceBlockEntity {
             }
         }
     }
+
+    // The comparator output of the observed block; from 1.21.9 on it knows the side it is read from.
+    private static int analogOutputSignal(ServerLevel level, BlockState target, BlockPos targetPos, Direction facing) {
+        //? if >=1.21.9 {
+        return target.getAnalogOutputSignal(level, targetPos, facing.getOpposite());
+        //?} else {
+        /*return target.getAnalogOutputSignal(level, targetPos);
+        *///?}
+    }
+
 }

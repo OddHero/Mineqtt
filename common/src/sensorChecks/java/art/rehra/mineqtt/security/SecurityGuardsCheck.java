@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.security;
 
+import art.rehra.mineqtt.compat.NbtTags;
+import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.commands.MineQTTCommands;
@@ -183,7 +185,7 @@ import java.util.function.Predicate;
 public final class SecurityGuardsCheck {
     private static final long SECOND = 1_000_000_000L;
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         DeviceTypes.registerBuiltIn();
@@ -891,9 +893,9 @@ public final class SecurityGuardsCheck {
         check(legacy.ownerResolved("Steve", steve) && steve.equals(legacy.getOwnerUuid()), "The resolved name fills the owner UUID");
         check(!legacy.ownerResolved("Steve", UUID.randomUUID()) && steve.equals(legacy.getOwnerUuid()), "Once only");
         CompoundTag saved = save(legacy);
-        check(saved.getIntArray("ownerUuid").map(UUIDUtil::uuidFromIntArray).filter(steve::equals).isPresent(),
+        check(NbtTags.getIntArray(saved, "ownerUuid").map(UUIDUtil::uuidFromIntArray).filter(steve::equals).isPresent(),
                 "The owner UUID is saved as an int array: " + saved);
-        check(saved.getStringOr("ownerName", "").equals("Steve"), "Next to the owner name v1 reads");
+        check(NbtTags.getStringOr(saved, "ownerName", "").equals("Steve"), "Next to the owner name v1 reads");
         check(steve.equals(load(saved).getOwnerUuid()), "And loads again");
 
         Slots placed = new Slots();
@@ -901,18 +903,29 @@ public final class SecurityGuardsCheck {
         check(steve.equals(load(save(placed)).getOwnerUuid()), "A placing player's UUID round-trips");
         placed.setOwner(null, "");
         CompoundTag nobody = save(placed);
-        check(!nobody.contains("ownerUuid") && nobody.getStringOr("ownerName", "x").isEmpty(), "A block nobody placed has no owner: " + nobody);
+        check(!nobody.contains("ownerUuid") && NbtTags.getStringOr(nobody, "ownerName", "x").isEmpty(), "A block nobody placed has no owner: " + nobody);
     }
 
     private static CompoundTag save(Slots block) {
+        // A block entity saves into a ValueOutput from 1.21.6 on, into a tag before.
+        //? if >=1.21.6 {
         TagValueOutput output = TagValueOutput.createWithoutContext(ProblemReporter.DISCARDING);
         block.saveAdditional(output);
         return output.buildResult();
+        //?} else {
+        /*CompoundTag tag = new CompoundTag();
+        block.saveAdditional(tag, RegistryAccess.EMPTY);
+        return tag;
+        *///?}
     }
 
     private static Slots load(CompoundTag tag) {
         Slots block = new Slots();
+        //? if >=1.21.6 {
         block.loadAdditional(TagValueInput.create(ProblemReporter.DISCARDING, RegistryAccess.EMPTY, tag));
+        //?} else {
+        /*block.loadAdditional(tag, RegistryAccess.EMPTY);
+        *///?}
         return block;
     }
 
@@ -1010,13 +1023,13 @@ public final class SecurityGuardsCheck {
 
         CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
         MineQTTCommands.register(dispatcher);
-        CommandSourceStack op = Commands.createCompilationContext(LevelBasedPermissionSet.GAMEMASTER);
-        CommandSourceStack holder = Commands.createCompilationContext(exposer);
-        List<CommandSourceStack> outsiders = List.of(Commands.createCompilationContext(PermissionSet.NO_PERMISSIONS),
-                Commands.createCompilationContext(LevelBasedPermissionSet.MODERATOR));
+        CommandSourceStack op = source(LevelBasedPermissionSet.GAMEMASTER);
+        CommandSourceStack holder = source(exposer);
+        List<CommandSourceStack> outsiders = List.of(source(PermissionSet.NO_PERMISSIONS),
+                source(LevelBasedPermissionSet.MODERATOR));
         for (String state : List.of("on", "off", "default")) {
             String command = "mineqtt devices expose lamp " + state;
-            check(parses(dispatcher, command, op) && parses(dispatcher, command, holder), "An op and a holder may run " + command);
+            check(parses(dispatcher, command, op) && (!SOURCES_HOLD_ATOMS || parses(dispatcher, command, holder)), "An op and a holder may run " + command);
             outsiders.forEach(source -> check(!parses(dispatcher, command, source), "Nobody else may run " + command));
         }
         check(!parses(dispatcher, "mineqtt devices expose lamp maybe", op), "Only on, off and default");
@@ -1038,10 +1051,11 @@ public final class SecurityGuardsCheck {
             check(!parses(dispatcher, command, holder), "mineqtt:ha.expose does not open " + command);
         }
         check(!parses(dispatcher, "mineqtt publish t x", op) && parses(dispatcher, "mineqtt publish t x",
-                Commands.createCompilationContext(LevelBasedPermissionSet.ADMIN)), "publish needs op level 3");
+                source(LevelBasedPermissionSet.ADMIN)), "publish needs op level 3");
         // A subcommand added later without its own op requirement would open to every holder of mineqtt:ha.expose; the
         // literals open to every player (M4 plan D14) are reached by everyone anyway.
         CommandNode<CommandSourceStack> root = dispatcher.getRoot().getChild("mineqtt");
+        if (!SOURCES_HOLD_ATOMS) return;
         for (CommandNode<CommandSourceStack> child : root.getChildren()) {
             check(child.canUse(holder) == (child.getName().equals("devices") || OPEN_LITERALS.contains(child.getName())),
                     "mineqtt:ha.expose reaches /mineqtt " + child.getName() + ": " + child.canUse(holder));
@@ -1049,6 +1063,23 @@ public final class SecurityGuardsCheck {
         for (CommandNode<CommandSourceStack> child : root.getChild("devices").getChildren()) {
             check(child.canUse(holder) == child.getName().equals("expose"), "mineqtt:ha.expose reaches devices " + child.getName() + ": " + child.canUse(holder));
         }
+    }
+
+    /**
+     * Whether a command source carries permission atoms such as {@code mineqtt:ha.expose}: from 1.21.11 on. Before, a
+     * source has an operator level only, so the checks of a source holding an atom are skipped there.
+     */
+    private static final boolean SOURCES_HOLD_ATOMS = /*$ permission_sets*/ true;
+
+    // A command source with these permissions; before 1.21.11 the operator level of a LevelBasedPermissionSet, else 0.
+    private static CommandSourceStack source(PermissionSet permissions) {
+        //? if >=1.21.11 {
+        return Commands.createCompilationContext(permissions);
+        //?} else {
+        /*int level = permissions instanceof LevelBasedPermissionSet levels ? levels.level() : 0;
+        return new CommandSourceStack(net.minecraft.commands.CommandSource.NULL, Vec3.ZERO, net.minecraft.world.phys.Vec2.ZERO, null, level, "",
+                Component.empty(), null, null);
+        *///?}
     }
 
     /** The literals under {@code /mineqtt} every player reaches (M4 plan D14); their leaves check ownership themselves. */
@@ -1063,11 +1094,11 @@ public final class SecurityGuardsCheck {
         CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
         MineQTTCommands.register(dispatcher);
         check(dispatcher.getRoot().getChildren().size() == 1, "MineQTT registers exactly one root literal: " + dispatcher.getRoot().getChildren().size());
-        CommandSourceStack nobody = Commands.createCompilationContext(PermissionSet.NO_PERMISSIONS);
-        CommandSourceStack moderator = Commands.createCompilationContext(LevelBasedPermissionSet.MODERATOR);
-        CommandSourceStack op = Commands.createCompilationContext(LevelBasedPermissionSet.GAMEMASTER);
-        CommandSourceStack admin = Commands.createCompilationContext(LevelBasedPermissionSet.ADMIN);
-        CommandSourceStack exposer = Commands.createCompilationContext(permission -> permission.equals(AclContext.HA_EXPOSE));
+        CommandSourceStack nobody = source(PermissionSet.NO_PERMISSIONS);
+        CommandSourceStack moderator = source(LevelBasedPermissionSet.MODERATOR);
+        CommandSourceStack op = source(LevelBasedPermissionSet.GAMEMASTER);
+        CommandSourceStack admin = source(LevelBasedPermissionSet.ADMIN);
+        CommandSourceStack exposer = source(permission -> permission.equals(AclContext.HA_EXPOSE));
         CommandNode<CommandSourceStack> root = dispatcher.getRoot().getChild("mineqtt");
         check(root != null && root.canUse(nobody) && root.getCommand() == null, "Every source reaches the /mineqtt root, which runs nothing itself");
         check(!parses(dispatcher, "mineqtt", nobody) && !parses(dispatcher, "mineqtt", op), "/mineqtt alone is an incomplete command");
@@ -1082,7 +1113,7 @@ public final class SecurityGuardsCheck {
             }
             check(open || child.canUse(op) == !name.equals("publish"), "Level 2 reaches /mineqtt " + name + " (publish needs level 3): " + child.canUse(op));
             check(child.canUse(admin), "Level 3 reaches /mineqtt " + name);
-            check(child.canUse(exposer) == (open || name.equals("devices")), "mineqtt:ha.expose reaches /mineqtt " + name + ": " + child.canUse(exposer));
+            check(!SOURCES_HOLD_ATOMS || child.canUse(exposer) == (open || name.equals("devices")), "mineqtt:ha.expose reaches /mineqtt " + name + ": " + child.canUse(exposer));
         }
         // Every subcommand of devices carries its own requirement too, so the devices literal is not the only gate.
         for (CommandNode<CommandSourceStack> child : root.getChild("devices").getChildren()) {
@@ -1097,9 +1128,11 @@ public final class SecurityGuardsCheck {
                 "An op tab-completes every level-2 child: " + opCompletions);
         Set<String> exposerCompletions = new TreeSet<>(openPresent);
         exposerCompletions.add("devices");
-        check(completions(dispatcher, "mineqtt ", exposer).equals(exposerCompletions), "mineqtt:ha.expose tab-completes devices: "
-                + completions(dispatcher, "mineqtt ", exposer));
-        check(completions(dispatcher, "mineqtt devices ", exposer).equals(Set.of("expose")), "and under it only expose");
+        if (SOURCES_HOLD_ATOMS) {
+            check(completions(dispatcher, "mineqtt ", exposer).equals(exposerCompletions), "mineqtt:ha.expose tab-completes devices: "
+                    + completions(dispatcher, "mineqtt ", exposer));
+            check(completions(dispatcher, "mineqtt devices ", exposer).equals(Set.of("expose")), "and under it only expose");
+        }
         check(!root.getChild("devices").canUse(nobody), "A level-0 source does not even reach devices");
         for (String command : List.of("mineqtt status", "mineqtt reconnect", "mineqtt devices list", "mineqtt devices expose lamp on", "mineqtt group list",
                 "mineqtt wires list", "mineqtt discovery republish", "mineqtt twin status", "mineqtt publish t x")) {
@@ -1144,7 +1177,7 @@ public final class SecurityGuardsCheck {
     private static void roomsCommand() {
         CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
         MineQTTCommands.register(dispatcher);
-        CommandSourceStack nobody = Commands.createCompilationContext(PermissionSet.NO_PERMISSIONS);
+        CommandSourceStack nobody = source(PermissionSet.NO_PERMISSIONS);
         CommandNode<CommandSourceStack> rooms = dispatcher.getRoot().getChild("mineqtt").getChild("rooms");
         check(rooms != null && rooms.canUse(nobody), "Every source reaches /mineqtt rooms");
         check(completions(dispatcher, "mineqtt rooms ", nobody).equals(Set.of("list", "info", "create", "rename", "resize", "remove", "switch")),
@@ -2056,7 +2089,7 @@ public final class SecurityGuardsCheck {
         check(largest.settings().min().toPlainString().equals("-123456789012345.123456"), "The largest number the tab takes is stored as it is");
         Binding exponent = BindingCodecs.CODEC.parse(NbtOps.INSTANCE, storedBinding("1E+2")).getOrThrow();
         check(BindingCodecs.CODEC.encodeStart(NbtOps.INSTANCE, exponent).getOrThrow() instanceof CompoundTag written
-                        && written.getStringOr("min", "").equals("100"), "A small exponent is written out plainly");
+                        && NbtTags.getStringOr(written, "min", "").equals("100"), "A small exponent is written out plainly");
         check(fails(() -> Binding.Settings.DEFAULT.withMin(new BigDecimal("1e2000000000")))
                         && fails(() -> Binding.Settings.DEFAULT.withMax(new BigDecimal("1e-2000000000"))),
                 "No binding holds a range number with more digits than the tab takes, however it was made");
@@ -2250,11 +2283,11 @@ public final class SecurityGuardsCheck {
 
         // Stored and copied.
         CompoundTag stored = (CompoundTag) BindingCodecs.CODEC.encodeStart(NbtOps.INSTANCE, controlled).getOrThrow();
-        check(stored.getCompound("preset").isPresent() && stored.getCompound("source").orElseThrow().getStringOr("topic", "").equals("zigbee2mqtt/Porch plug"),
+        check(NbtTags.getCompound(stored, "preset").isPresent() && NbtTags.getStringOr(NbtTags.getCompound(stored, "source").orElseThrow(), "topic", "").equals("zigbee2mqtt/Porch plug"),
                 "The preset is stored with the binding: " + stored);
         check(BindingCodecs.CODEC.parse(NbtOps.INSTANCE, stored).getOrThrow().equals(controlled), "...and read back equal");
         CompoundTag forged = stored.copy();
-        forged.getCompound("preset").orElseThrow().putString("kind", "person");
+        NbtTags.getCompound(forged, "preset").orElseThrow().putString("kind", "person");
         check(BindingCodecs.CODEC.parse(NbtOps.INSTANCE, forged).isError(), "A stored preset of a private kind fails to decode");
         check(!((CompoundTag) BindingCodecs.CODEC.encodeStart(NbtOps.INSTANCE, entity).getOrThrow()).contains("preset"), "An entity binding stores no preset");
         JsonObject state = new JsonObject();
@@ -2800,7 +2833,7 @@ public final class SecurityGuardsCheck {
      */
     private static void automationFaces() {
         // An item stack needs its item's default components, which a server binds when it loads its data packs.
-        Items.PAPER.builtInRegistryHolder().bindComponents(DataComponents.COMMON_ITEM_COMPONENTS);
+        CheckItems.bindCommonComponents(Items.PAPER);
         Slots slots = new Slots();
         List<Direction> sides = new ArrayList<>(Arrays.asList(Direction.values()));
         sides.add(null);

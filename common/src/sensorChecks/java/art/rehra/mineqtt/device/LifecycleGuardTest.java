@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.NbtTags;
+import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.blocks.Interaction;
 import art.rehra.mineqtt.blocks.LightRemoteBlock;
 import art.rehra.mineqtt.device.types.PresenceSensor;
@@ -79,7 +81,7 @@ public final class LifecycleGuardTest {
     private static final UUID OWNER = UUID.fromString("11111111-2222-4333-8444-555555555555");
     private static final UUID PLACER = UUID.fromString("99999999-8888-4777-8666-555555555555");
 
-    static void main(String[] args) throws ReflectiveOperationException {
+    public static void main(String[] args) throws ReflectiveOperationException {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         attachGuard();
@@ -198,8 +200,8 @@ public final class LifecycleGuardTest {
         TagValueOutput output = TagValueOutput.createWithoutContext(ProblemReporter.DISCARDING);
         link.save(output).putInt("power", 9);
         CompoundTag tag = output.buildResult();
-        CompoundTag data = tag.getCompound(DeviceLink.KEY).orElseThrow();
-        check(data.getIntOr("v", 0) == DeviceLink.VERSION && data.getStringOr("type", "").equals("mineqtt:test_output"), "Version and type are written");
+        CompoundTag data = NbtTags.getCompound(tag, DeviceLink.KEY).orElseThrow();
+        check(NbtTags.getIntOr(data, "v", 0) == DeviceLink.VERSION && NbtTags.getStringOr(data, "type", "").equals("mineqtt:test_output"), "Version and type are written");
 
         DeviceLink loaded = new DeviceLink(TYPE);
         Optional<ValueInput> compound = loaded.load(TagValueInput.create(ProblemReporter.DISCARDING, RegistryAccess.EMPTY, tag), false);
@@ -256,8 +258,8 @@ public final class LifecycleGuardTest {
     private static void claim() {
         DeviceLink link = new DeviceLink(TYPE);
         CompoundTag data = new CompoundTag();
-        data.store("id", UUIDUtil.CODEC, UUID.randomUUID());
-        data.store("raw", RawLink.CODEC, new RawLink("zigbee2mqtt/lock/set", RawLinkSpec.Direction.IN, null, null, 0, null,
+        NbtTags.store(data, "id", UUIDUtil.CODEC, UUID.randomUUID());
+        NbtTags.store(data, "raw", RawLink.CODEC, new RawLink("zigbee2mqtt/lock/set", RawLinkSpec.Direction.IN, null, null, 0, null,
                 new TopicAcl.Grandfather("zigbee2mqtt/lock/set", null), false, null, 0, null, RawLink.Edges.BOTH));
         CompoundTag tag = new CompoundTag();
         tag.put(DeviceLink.KEY, data);
@@ -452,7 +454,8 @@ public final class LifecycleGuardTest {
             public void failed(Wire failed, FlowMessage message, RuntimeException e) {
                 throw new AssertionError("No delivery throws here", e);
             }
-        }, System::nanoTime);
+        // A frozen clock: the 2 ms drain budget must not cut a drain short on a busy machine (a parallel build).
+        }, () -> 0L);
         boolean[] level = {false};
         // DeviceLink.publishState from neighborChanged: no extent of its own, only the bus's current root.
         Runnable neighborChanged = () -> {
@@ -552,9 +555,7 @@ public final class LifecycleGuardTest {
         check(Interaction.decide(false, Interaction.Held.NAMED_TAG, null) == Interaction.Outcome.SCREEN, "A block that is no device has no name to change");
 
         // An item stack needs its item's default components, which a server binds when it loads its data packs.
-        for (Item item : List.of(Items.STICK, Items.STONE, Items.LEVER, Items.PAPER, Items.NAME_TAG)) {
-            item.builtInRegistryHolder().bindComponents(DataComponents.COMMON_ITEM_COMPONENTS);
-        }
+        CheckItems.bindCommonComponents(Items.STICK, Items.STONE, Items.LEVER, Items.PAPER, Items.NAME_TAG);
         check(Interaction.Held.of(ItemStack.EMPTY) == Interaction.Held.OTHER &&Interaction.Held.of(new ItemStack(Items.STICK)) == Interaction.Held.OTHER,
                 "An empty hand and a stick count as nothing");
         check(Interaction.Held.of(new ItemStack(Items.STONE)) == Interaction.Held.PLACEABLE && Interaction.Held.of(new ItemStack(Items.LEVER)) == Interaction.Held.PLACEABLE,
@@ -696,14 +697,14 @@ public final class LifecycleGuardTest {
     private static DeviceLink linkWithCopiedData(boolean expose) {
         DeviceLink link = new DeviceLink(TYPE);
         CompoundTag data = new CompoundTag();
-        data.store("id", UUIDUtil.CODEC, UUID.randomUUID());
+        NbtTags.store(data, "id", UUIDUtil.CODEC, UUID.randomUUID());
         data.putString("name", "Copied Name");
         data.putString("slug", "copied_slug");
-        data.store("owner", UUIDUtil.CODEC, OWNER);
+        NbtTags.store(data, "owner", UUIDUtil.CODEC, OWNER);
         data.putString("ownerName", "Steve");
         data.putString("access", "private");
         data.putBoolean("expose", expose);
-        data.store("raw", RawLink.CODEC, new RawLink("zigbee2mqtt/garage/set", RawLinkSpec.Direction.IN, "OPEN", null, 0, null,
+        NbtTags.store(data, "raw", RawLink.CODEC, new RawLink("zigbee2mqtt/garage/set", RawLinkSpec.Direction.IN, "OPEN", null, 0, null,
                 new TopicAcl.Grandfather("zigbee2mqtt/garage/set", OWNER), false, null, 0, null, RawLink.Edges.BOTH));
         CompoundTag tag = new CompoundTag();
         tag.put(DeviceLink.KEY, data);

@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks.entities;
 
+import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
 import art.rehra.mineqtt.device.CommandReader;
 import art.rehra.mineqtt.device.CommandResult;
@@ -18,10 +19,8 @@ import art.rehra.mineqtt.legacy.LegacyNbtV1;
 import art.rehra.mineqtt.twin.core.TwinHealth;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
-import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -183,7 +182,7 @@ public class RgbLedBlockEntity extends DeviceBlockEntity {
      * simulation and the view distance, a fade would stand still at its start, so the block shows the light at once.
      */
     private void fadeTo(int ticks) {
-        if (ticks > 0 && level instanceof ServerLevel server && server.isPositionTickingWithEntitiesLoaded(ChunkPos.pack(worldPosition))) {
+        if (ticks > 0 && level instanceof ServerLevel server && ChunkPositions.isEntityTicking(server, worldPosition)) {
             transition = new LightTransition(shown, light, server.getGameTime(), ticks);
             lastStep = transition.start();
             shown = transition.at(lastStep);
@@ -299,7 +298,7 @@ public class RgbLedBlockEntity extends DeviceBlockEntity {
                 double offsetZ = (level.getRandom().nextDouble() - 0.5) * 0.3;
                 // Small upward velocity for a glow effect.
                 double velocityY = level.getRandom().nextDouble() * 0.02;
-                level.addParticle(new DustParticleOptions(color, 0.8f), bulb.x + offsetX, bulb.y + offsetY, bulb.z + offsetZ, 0, velocityY, 0);
+                level.addParticle(art.rehra.mineqtt.compat.Particles.dust(color, 0.8f), bulb.x + offsetX, bulb.y + offsetY, bulb.z + offsetZ, 0, velocityY, 0);
             }
         }
     }

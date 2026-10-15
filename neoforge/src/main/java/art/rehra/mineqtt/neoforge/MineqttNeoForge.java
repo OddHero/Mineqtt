@@ -13,7 +13,12 @@ import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.loading.FMLPaths;
 
 @Mod(MineQTT.MOD_ID)
+// NeoForge routes each event to its bus itself from 21.6 on; before, a subscriber names the mod bus.
+//? if >=1.21.6 {
 @EventBusSubscriber(modid = MineQTT.MOD_ID)
+//?} else {
+/*@EventBusSubscriber(modid = MineQTT.MOD_ID, bus = EventBusSubscriber.Bus.MOD)
+*///?}
 public final class MineqttNeoForge {
     private static NeoForgeConfigHandler configHandler;
 
@@ -29,7 +34,12 @@ public final class MineqttNeoForge {
         NeoForgeConfigHandler.migrateV1File(FMLPaths.CONFIGDIR.get().resolve(NeoForgeConfigHandler.FILE_NAME));
 
         // Register the config with NeoForge
+        // NeoForge 26.3 renamed COMMON, a config of each side that is not synced, to LOCAL.
+        //? if >=26.3 {
+        /*container.registerConfig(ModConfig.Type.LOCAL, NeoForgeConfigHandler.SPEC, NeoForgeConfigHandler.FILE_NAME);
+        *///?} else {
         container.registerConfig(ModConfig.Type.COMMON, NeoForgeConfigHandler.SPEC, NeoForgeConfigHandler.FILE_NAME);
+        //?}
 
         // Run our common setup
         MineQTT.init();

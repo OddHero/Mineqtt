@@ -19,7 +19,7 @@ import java.util.Optional;
  * JSON, plain text, the 64 KiB cap, invalid UTF-8, deep nesting).
  */
 public final class ValuePathCheck {
-    static void main(String[] args) {
+    public static void main(String[] args) {
         Locale.setDefault(Locale.GERMANY);
         grammar();
         refused();

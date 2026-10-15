@@ -1,5 +1,9 @@
 package art.rehra.mineqtt.legacy;
 
+import art.rehra.mineqtt.compat.NbtTags;
+import art.rehra.mineqtt.compat.BlockEntityStorage;
+import art.rehra.mineqtt.compat.ContainerItems;
+import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.blocks.HumiditySensorBlock;
 import art.rehra.mineqtt.blocks.StaticPublisherBlock;
 import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
@@ -66,7 +70,6 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.util.ProblemReporter;
-import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.ItemStackWithSlot;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EntityTypes;
@@ -74,7 +77,9 @@ import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+//? if >=1.21.9 {
 import net.minecraft.world.item.component.TypedEntityData;
+//?}
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntityTypes;
@@ -128,15 +133,13 @@ public final class LegacyNbtV1Test {
     // The UUID the M2 legacy layer resolved a legacy block's owner name to (F11).
     private static final UUID STEVE = UUID.fromString("8667ba71-b85a-4004-af54-457a9734eed7");
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         REGISTRIES = RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
         // Item stacks need their items' default components, which a server binds when it loads its data packs; the
         // common ones are enough for the items the slots hold here.
-        for (Item item : List.of(Items.PAPER, Items.STONE, Items.DIRT, Items.REDSTONE_LAMP)) {
-            item.builtInRegistryHolder().bindComponents(DataComponents.COMMON_ITEM_COMPONENTS);
-        }
+        CheckItems.bindCommonComponents(Items.PAPER, Items.STONE, Items.DIRT, Items.REDSTONE_LAMP);
         // A spawn egg's mob is its default entity data, as the captured M1 eggs have no components of their own.
         bindEgg(Items.ZOMBIE_SPAWN_EGG, EntityTypes.ZOMBIE);
         bindEgg(Items.PIG_SPAWN_EGG, EntityTypes.PIG);
@@ -208,7 +211,7 @@ public final class LegacyNbtV1Test {
         TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
         LegacyNbtV1.writeLamp(output, json);
         CompoundTag written = output.buildResult();
-        check(written.getIntOr("TargetGreen", -1) == 8 && written.getIntOr("Green", -1) == 6 && written.getByteOr("Lit", (byte) 0) == 1,
+        check(NbtTags.getIntOr(written, "TargetGreen", -1) == 8 && NbtTags.getIntOr(written, "Green", -1) == 6 && NbtTags.getByteOr(written, "Lit", (byte) 0) == 1,
                 "Written back with v1's keys: " + written);
         check(LegacyNbtV1.lampState(input(written)).equals(json), "A lamp saved before its adoption reads back the same");
     }
@@ -236,7 +239,7 @@ public final class LegacyNbtV1Test {
         // A lamp saved before effects existed (M1, M2 up to M2-25) has none.
         CompoundTag m1;
         try {
-            m1 = TagParser.parseCompoundFully("{state:{state:\"ON\",brightness:200,color_mode:\"rgb\",color:{r:255,g:120,b:0}}}");
+            m1 = NbtTags.parseCompoundFully("{state:{state:\"ON\",brightness:200,color_mode:\"rgb\",color:{r:255,g:120,b:0}}}");
         } catch (CommandSyntaxException e) {
             throw new AssertionError(e);
         }
@@ -328,8 +331,8 @@ public final class LegacyNbtV1Test {
 
         CompoundTag humidity = v1Climate(v1Device(paper("greenhouse"), paper("humidity"), paper("on"), ItemStack.EMPTY, "Steve", true),
                 "Humidity", 61.5, 200, 8_000L);
-        humidity.store("ownerUuid", UUIDUtil.CODEC, STEVE);
-        humidity.store("CustomName", ComponentSerialization.CODEC, Component.literal("Greenhouse Air"));
+        NbtTags.store(humidity, "ownerUuid", UUIDUtil.CODEC, STEVE);
+        NbtTags.store(humidity, "CustomName", ComponentSerialization.CODEC, Component.literal("Greenhouse Air"));
         CompoundTag converted = HumiditySensorBlock.toClimateSensor(humidity);
         check(converted.equals(humidity) && converted != humidity, "A v1 humidity sensor's data is the Climate Sensor's v1 data as it stands, copied");
         check(HumiditySensorBlock.toClimateSensor(humidity).equals(converted), "The converter is pure");
@@ -349,10 +352,10 @@ public final class LegacyNbtV1Test {
      */
     private static void staticPublishers() {
         CompoundTag bell = v1Static(v1Device(paper("home"), paper("doorbell"), paper("stray"), ItemStack.EMPTY, "Steve", false), "DING", true);
-        bell.store("ownerUuid", UUIDUtil.CODEC, STEVE);
-        bell.store("CustomName", ComponentSerialization.CODEC, Component.literal("Front Door"));
+        NbtTags.store(bell, "ownerUuid", UUIDUtil.CODEC, STEVE);
+        NbtTags.store(bell, "CustomName", ComponentSerialization.CODEC, Component.literal("Front Door"));
         CompoundTag converted = StaticPublisherBlock.toRedstoneInput(bell);
-        check(!converted.contains("wasPowered") && !converted.contains("lastPublishStatus") && converted.getStringOr("staticMessage", "").equals("DING"),
+        check(!converted.contains("wasPowered") && !converted.contains("lastPublishStatus") && NbtTags.getStringOr(converted, "staticMessage", "").equals("DING"),
                 "The converter keeps the message and drops v1's edge record and status line: " + converted);
         CompoundTag expected = bell.copy();
         expected.remove("wasPowered");
@@ -382,7 +385,7 @@ public final class LegacyNbtV1Test {
     private static void decommissioned() {
         CompoundTag relay = v1Relay(v1Device(paper("home/out"), paper("relay"), paper("stray"), ItemStack.EMPTY, "Steve", false),
                 "home/in", "last message");
-        relay.store("CustomName", ComponentSerialization.CODEC, Component.literal("Hall Relay"));
+        NbtTags.store(relay, "CustomName", ComponentSerialization.CODEC, Component.literal("Hall Relay"));
         retiredItems(relay, List.of(0, 1, 2), List.of("home/out", "relay", "stray"));
 
         CompoundTag dynamic = v1Dynamic(v1Device(ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY, "Alex", true),
@@ -408,7 +411,7 @@ public final class LegacyNbtV1Test {
                         && items.stream().allMatch(item -> item.stack().is(Items.PAPER) && item.stack().getCount() == 1),
                 "The v1 slots become legacy items in their slots, empty ones left out: " + items);
         CompoundTag saved = loaded.saveCustomOnly(REGISTRIES);
-        check(saved.keySet().equals(Set.of(DeviceLink.LEGACY_ITEMS)), "Saved, only legacyItems is left of the v1 keys " + v1.keySet() + ": " + saved.keySet());
+        check(NbtTags.keySet(saved).equals(Set.of(DeviceLink.LEGACY_ITEMS)), "Saved, only legacyItems is left of the v1 keys " + NbtTags.keySet(v1) + ": " + NbtTags.keySet(saved));
         List<ItemStackWithSlot> again = retired(saved).legacyItems();
         boolean same = again.size() == items.size();
         for (int i = 0; same && i < items.size(); i++) {
@@ -422,7 +425,7 @@ public final class LegacyNbtV1Test {
     private static DecommissionedBlockEntity retired(CompoundTag data) {
         DecommissionedBlockEntity blockEntity = new DecommissionedBlockEntity(BlockEntityTypes.DAYLIGHT_DETECTOR, BlockPos.ZERO,
                 Blocks.DAYLIGHT_DETECTOR.defaultBlockState());
-        blockEntity.loadCustomOnly(input(data));
+        BlockEntityStorage.loadCustomOnly(blockEntity, input(data));
         return blockEntity;
     }
 
@@ -679,7 +682,7 @@ public final class LegacyNbtV1Test {
         check(kept.counts(EntityTypes.ZOMBIE) && !kept.counts(EntityTypes.PIG), "and still counts only its mobs");
         TagValueOutput keptNbt = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
         keptNbt.store("state", Presence.CODEC, kept);
-        check(keptNbt.buildResult().getCompound("state").orElseThrow().getStringOr("filter", "").equals("zombie, othermod:wisp"),
+        check(NbtTags.getStringOr(NbtTags.getCompound(keptNbt.buildResult(), "state").orElseThrow(), "filter", "").equals("zombie, othermod:wisp"),
                 "and saves them again, so a reinstalled mod's mob counts once more");
 
         BlockPos sensor = new BlockPos(10, 64, -3);
@@ -754,7 +757,7 @@ public final class LegacyNbtV1Test {
     private static void twinKey() {
         CompoundTag data = new CompoundTag();
         data.putInt("v", DeviceLink.VERSION);
-        data.store("id", UUIDUtil.CODEC, UUID.fromString("00000000-0000-0000-0000-0000000000d1"));
+        NbtTags.store(data, "id", UUIDUtil.CODEC, UUID.fromString("00000000-0000-0000-0000-0000000000d1"));
         data.putString("type", TwinTestTypes.TYPE.id().toString());
         data.putString("name", "Porch Mirror");
         data.putString("slug", "porch_mirror");
@@ -765,7 +768,7 @@ public final class LegacyNbtV1Test {
 
         Binding binding = TwinTestTypes.bound("switch.porch", true).withTarget(TwinTestTypes.PRESSED, TwinAdapter.targetEnd("scene.movie"));
         CompoundTag bound = data.copy();
-        bound.store(DeviceLink.TWIN_KEY, BindingCodecs.CODEC, binding);
+        NbtTags.store(bound, DeviceLink.TWIN_KEY, BindingCodecs.CODEC, binding);
         check(binding.equals(linkLoad(TwinTestTypes.TYPE, bound).twin()), "A binding round-trips through the compound");
         check(linkSave(TwinTestTypes.TYPE, bound).equals(bound), "...and saves as it was read");
 
@@ -781,19 +784,19 @@ public final class LegacyNbtV1Test {
         Binding analog = new Binding(RedstoneOutput.TWIN.sourceEnd("light.porch"), Map.of(), true,
                 Binding.Settings.DEFAULT.withInvert(true).withMin(new BigDecimal("12.5")).withMax(new BigDecimal("200"))
                         .withPath(ValuePath.parse("attributes.brightness")).withUnavailable(Binding.Unavailable.OFF), null);
-        output.store(DeviceLink.TWIN_KEY, BindingCodecs.CODEC, analog);
+        NbtTags.store(output, DeviceLink.TWIN_KEY, BindingCodecs.CODEC, analog);
         check(analog.equals(linkLoad(RedstoneOutput.TYPE, output).twin()) && linkSave(RedstoneOutput.TYPE, output).equals(output),
                 "An analog Redstone Output's binding round-trips through the compound (M3-12)");
         CompoundTag plug = data.copy();
         plug.putString("type", SmartPlug.TYPE.id().toString());
         Binding plugged = new Binding(SmartPlug.TWIN.sourceEnd("switch.heater"), Map.of(), true, Binding.Settings.DEFAULT, null);
-        plug.store(DeviceLink.TWIN_KEY, BindingCodecs.CODEC, plugged);
+        NbtTags.store(plug, DeviceLink.TWIN_KEY, BindingCodecs.CODEC, plugged);
         check(plugged.equals(linkLoad(SmartPlug.TYPE, plug).twin()) && linkSave(SmartPlug.TYPE, plug).equals(plug),
                 "A Smart Plug's binding round-trips through the compound (M3-12)");
         CompoundTag lamp = data.copy();
         lamp.putString("type", SmartLamp.TYPE.id().toString());
         Binding mirrored = new Binding(SmartLamp.TWIN.sourceEnd("light.kitchen"), Map.of(), false, Binding.Settings.DEFAULT, null);
-        lamp.store(DeviceLink.TWIN_KEY, BindingCodecs.CODEC, mirrored);
+        NbtTags.store(lamp, DeviceLink.TWIN_KEY, BindingCodecs.CODEC, mirrored);
         check(mirrored.equals(linkLoad(SmartLamp.TYPE, lamp).twin()) && linkSave(SmartLamp.TYPE, lamp).equals(lamp),
                 "A Smart Lamp's binding round-trips through the compound (M3-8)");
         CompoundTag broken = data.copy();
@@ -815,13 +818,13 @@ public final class LegacyNbtV1Test {
     private static CompoundTag linkSave(art.rehra.mineqtt.device.DeviceType type, CompoundTag data) {
         TagValueOutput output = TagValueOutput.createWithoutContext(ProblemReporter.DISCARDING);
         linkLoad(type, data).save(output);
-        return output.buildResult().getCompound(DeviceLink.KEY).orElseThrow();
+        return NbtTags.getCompound(output.buildResult(), DeviceLink.KEY).orElseThrow();
     }
 
     private static CompoundTag fixture(String path) {
         try (InputStream in = LegacyNbtV1Test.class.getResourceAsStream(path)) {
             if (in == null) throw new AssertionError("Missing fixture " + path);
-            return TagParser.parseCompoundFully(new String(in.readAllBytes(), StandardCharsets.UTF_8).strip());
+            return NbtTags.parseCompoundFully(new String(in.readAllBytes(), StandardCharsets.UTF_8).strip());
         } catch (IOException | CommandSyntaxException e) {
             throw new AssertionError("Unreadable fixture " + path + ": " + e.getMessage(), e);
         }
@@ -954,15 +957,15 @@ public final class LegacyNbtV1Test {
         LightState blue = red.merge(JsonParser.parseString("{\"color\":{\"r\":0,\"g\":0,\"b\":255}}").getAsJsonObject());
         CompoundTag lamp = RenderTag.updateTag(RenderTag.lamp(red));
         CompoundTag nothing = RenderTag.updateTag(new CompoundTag());
-        check(lamp.keySet().equals(Set.of(RenderTag.KEY)) && nothing.keySet().equals(Set.of(RenderTag.KEY)),
+        check(NbtTags.keySet(lamp).equals(Set.of(RenderTag.KEY)) && NbtTags.keySet(nothing).equals(Set.of(RenderTag.KEY)),
                 "An update tag holds the render compound alone: " + lamp + ", " + nothing);
-        check(lamp.getCompoundOrEmpty(RenderTag.KEY).keySet().equals(Set.of("rgb", "brightness", "on")), "A lamp renders {rgb, brightness, on}: " + lamp);
-        check(nothing.getCompoundOrEmpty(RenderTag.KEY).isEmpty(), "The other devices render nothing: " + nothing);
+        check(NbtTags.keySet(NbtTags.getCompoundOrEmpty(lamp, RenderTag.KEY)).equals(Set.of("rgb", "brightness", "on")), "A lamp renders {rgb, brightness, on}: " + lamp);
+        check(NbtTags.getCompoundOrEmpty(nothing, RenderTag.KEY).isEmpty(), "The other devices render nothing: " + nothing);
         // M2-25: the effect, which the client animates, only while the lamp has one.
         LightState candle = red.merge(JsonParser.parseString("{\"effect\":\"candle\"}").getAsJsonObject());
         CompoundTag candleTag = RenderTag.updateTag(RenderTag.lamp(candle));
-        check(candleTag.getCompoundOrEmpty(RenderTag.KEY).keySet().equals(Set.of("rgb", "brightness", "on", "effect"))
-                && candleTag.getCompoundOrEmpty(RenderTag.KEY).getStringOr("effect", "").equals("candle"), "A lamp with an effect renders it too: " + candleTag);
+        check(NbtTags.keySet(NbtTags.getCompoundOrEmpty(candleTag, RenderTag.KEY)).equals(Set.of("rgb", "brightness", "on", "effect"))
+                && NbtTags.getStringOr(NbtTags.getCompoundOrEmpty(candleTag, RenderTag.KEY), "effect", "").equals("candle"), "A lamp with an effect renders it too: " + candleTag);
         check(RenderTag.lamp(input(candleTag)).equals(candle) && RenderTag.lamp(input(lamp)).effect() == ValueCodecs.LightEffect.NONE,
                 "The client reads the effect back, and none from a tag without one");
 
@@ -1036,7 +1039,7 @@ public final class LegacyNbtV1Test {
         }
         TagValueOutput disabled = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
         LegacyNbtV1.writeTimer(disabled, TimerKind.ALARM, Timers.Settings.DEFAULT.withEnabled(false), TimerState.NEW);
-        check(disabled.buildResult().getIntOr("alarmTime", 0) == -1, "A disabled alarm clock is one without an alarm, as v1 knew it");
+        check(NbtTags.getIntOr(disabled.buildResult(), "alarmTime", 0) == -1, "A disabled alarm clock is one without an alarm, as v1 knew it");
         CompoundTag noon = new CompoundTag();
         noon.putInt("triggerModeIndex", 1);
         check(LegacyNbtV1.timerState(input(noon), TimerKind.GAME_TIME).settings().equals(Timers.Settings.DEFAULT.withTriggerAt(Timers.TriggerAt.NOON).withTimeTicks(6000)),
@@ -1046,16 +1049,16 @@ public final class LegacyNbtV1Test {
     private static void panelTags() {
         DisplayPanel.Panel washer = new DisplayPanel.Panel("Washer done!", DyeColor.LIME, true, DisplayPanel.Size.AUTO, 15);
         CompoundTag plain = RenderTag.updateTag(RenderTag.panel(DisplayPanel.Render.of(washer, null, false)));
-        check(plain.getCompoundOrEmpty(RenderTag.KEY).keySet().equals(Set.of("lines", "layout", "color", "glow")), "An unbound panel renders its lines: " + plain);
+        check(NbtTags.keySet(NbtTags.getCompoundOrEmpty(plain, RenderTag.KEY)).equals(Set.of("lines", "layout", "color", "glow")), "An unbound panel renders its lines: " + plain);
         check(RenderTag.panel(input(plain)).equals(DisplayPanel.Render.of(washer, null, false)), "and reads them back");
         DisplayPanel.Render mirrored = DisplayPanel.Render.of(washer, "Laundry", true);
         CompoundTag titled = RenderTag.updateTag(RenderTag.panel(mirrored), TwinHealth.Hint.UNAVAILABLE);
-        check(titled.getCompoundOrEmpty(RenderTag.KEY).keySet().equals(Set.of("title", "lines", "layout", "color", "glow", "waiting", "twin"))
+        check(NbtTags.keySet(NbtTags.getCompoundOrEmpty(titled, RenderTag.KEY)).equals(Set.of("title", "lines", "layout", "color", "glow", "waiting", "twin"))
                 && RenderTag.panel(input(titled)).equals(mirrored) && RenderTag.twinHint(input(titled)) == TwinHealth.Hint.UNAVAILABLE,
                 "A mirrored panel adds its title, waiting while it waits, and the twin hint: " + titled);
         DisplayPanel.Render alarm = DisplayPanel.Render.of(new DisplayPanel.Panel("2026-10-11T07:30:00+00:00", DyeColor.CYAN, false, DisplayPanel.Size.MEDIUM, 15), null, false);
         CompoundTag time = RenderTag.updateTag(RenderTag.panel(alarm));
-        check(time.getCompoundOrEmpty(RenderTag.KEY).keySet().equals(Set.of("at", "size", "color", "glow")) && RenderTag.panel(input(time)).equals(alarm),
+        check(NbtTags.keySet(NbtTags.getCompoundOrEmpty(time, RenderTag.KEY)).equals(Set.of("at", "size", "color", "glow")) && RenderTag.panel(input(time)).equals(alarm),
                 "A point in time renders as epoch millis with the size setting: " + time);
         check(!plain.toString().contains("owner") && !titled.toString().contains("entity") && RenderTag.dispatch(input(plain)) == RenderTag.Data.RENDER,
                 "No owner and no entity reach a client; the update tag is a render update");
@@ -1100,7 +1103,7 @@ public final class LegacyNbtV1Test {
         output.putString("lastTabId", "settings");
         output.putString("ownerName", owner);
         output.putBoolean("privateMode", privateMode);
-        ContainerHelper.saveAllItems(output, NonNullList.of(ItemStack.EMPTY, base, sub, on, off));
+        ContainerItems.save(output, NonNullList.of(ItemStack.EMPTY, base, sub, on, off));
         return output.buildResult();
     }
 
@@ -1110,7 +1113,7 @@ public final class LegacyNbtV1Test {
      */
     private static CompoundTag v1Emitter(CompoundTag device) {
         CompoundTag emitter = device.copy();
-        emitter.putString("currentSubscribedTopic", device.getStringOr("topic", ""));
+        emitter.putString("currentSubscribedTopic", NbtTags.getStringOr(device, "topic", ""));
         return emitter;
     }
 
@@ -1120,7 +1123,7 @@ public final class LegacyNbtV1Test {
      */
     private static CompoundTag v1Plug(CompoundTag device, @Nullable UUID ownerUuid) {
         CompoundTag plug = v1Emitter(device);
-        if (ownerUuid != null) plug.store("ownerUuid", UUIDUtil.CODEC, ownerUuid);
+        if (ownerUuid != null) NbtTags.store(plug, "ownerUuid", UUIDUtil.CODEC, ownerUuid);
         return plug;
     }
 
@@ -1132,10 +1135,10 @@ public final class LegacyNbtV1Test {
     private static CompoundTag v1Motion(CompoundTag device, boolean motion, int lastCount) {
         CompoundTag sensor = device.copy();
         NonNullList<ItemStack> items = NonNullList.withSize(9, ItemStack.EMPTY);
-        ContainerHelper.loadAllItems(input(device), items);
+        ContainerItems.load(input(device), items);
         items.set(6, spawnEgg(Items.ZOMBIE_SPAWN_EGG, EntityTypes.ZOMBIE));
         TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
-        ContainerHelper.saveAllItems(output, items);
+        ContainerItems.save(output, items);
         sensor.merge(output.buildResult());
         sensor.putByte("MotionDetected", (byte) (motion ? 1 : 0));
         sensor.putLong("LastMotionTime", 1_759_917_600_000L);
@@ -1163,7 +1166,7 @@ public final class LegacyNbtV1Test {
         CompoundTag publisher = device.copy();
         publisher.putString("staticMessage", message);
         publisher.putBoolean("wasPowered", powered);
-        publisher.putString("lastPublishStatus", powered ? "Published to " + device.getStringOr("topic", "") : "");
+        publisher.putString("lastPublishStatus", powered ? "Published to " + NbtTags.getStringOr(device, "topic", "") : "");
         return publisher;
     }
 
@@ -1190,7 +1193,7 @@ public final class LegacyNbtV1Test {
     private static CompoundTag v1Dynamic(CompoundTag device, ItemStack base, ItemStack sub, int dataType) {
         CompoundTag publisher = device.copy();
         TagValueOutput slots = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, REGISTRIES);
-        ContainerHelper.saveAllItems(slots, NonNullList.of(ItemStack.EMPTY, base, sub));
+        ContainerItems.save(slots, NonNullList.of(ItemStack.EMPTY, base, sub));
         publisher.merge(slots.buildResult());
         publisher.putInt("dataType", dataType);
         publisher.putBoolean("wasPowered", false);
@@ -1206,7 +1209,7 @@ public final class LegacyNbtV1Test {
         output.putString("lastTabId", "rgb_status");
         output.putString("ownerName", "Steve");
         output.putBoolean("privateMode", false);
-        ContainerHelper.saveAllItems(output, NonNullList.of(ItemStack.EMPTY, base, ItemStack.EMPTY));
+        ContainerItems.save(output, NonNullList.of(ItemStack.EMPTY, base, ItemStack.EMPTY));
         output.putString("currentSubscribedTopic", topic);
         output.putInt("Red", red);
         output.putInt("Green", green);
@@ -1229,15 +1232,24 @@ public final class LegacyNbtV1Test {
         return stack;
     }
 
+    // Before 26.1 a spawn egg knows its mob without components.
     private static void bindEgg(Item egg, EntityType<?> type) {
+        //? if >=26.1 {
         egg.builtInRegistryHolder().bindComponents(DataComponentMap.builder().addAll(DataComponents.COMMON_ITEM_COMPONENTS)
                 .set(DataComponents.ENTITY_DATA, TypedEntityData.of(type, new CompoundTag())).build());
+        //?}
     }
 
     // A spawn egg as a server has it: its mob is the default entity data of the item.
     private static ItemStack spawnEgg(Item egg, EntityType<?> type) {
         ItemStack stack = new ItemStack(egg);
+        //? if >=1.21.9 {
         stack.set(DataComponents.ENTITY_DATA, TypedEntityData.of(type, new CompoundTag()));
+        //?} else {
+        /*CompoundTag data = new CompoundTag();
+        data.putString("id", EntityType.getKey(type).toString());
+        stack.set(DataComponents.ENTITY_DATA, net.minecraft.world.item.component.CustomData.of(data));
+        *///?}
         return stack;
     }
 

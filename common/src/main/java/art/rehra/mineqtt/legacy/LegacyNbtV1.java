@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.legacy;
 
+import art.rehra.mineqtt.compat.ContainerItems;
 import art.rehra.mineqtt.device.RawLink;
 import art.rehra.mineqtt.device.ValueCodecs;
 import art.rehra.mineqtt.device.types.BlockObserver;
@@ -14,7 +15,6 @@ import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.resources.Identifier;
-import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.ItemStackWithSlot;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EntityTypes;
@@ -107,7 +107,7 @@ public final class LegacyNbtV1 {
      */
     public static Snapshot read(ValueInput input) {
         NonNullList<ItemStack> items = NonNullList.withSize(V1_SLOTS, ItemStack.EMPTY);
-        ContainerHelper.loadAllItems(input, items);
+        ContainerItems.load(input, items);
         String ownerName = input.getStringOr(OWNER_NAME, "");
         boolean privateMode = input.getBooleanOr(PRIVATE_MODE, false);
         Optional<String> staticMessage = input.getString(STATIC_MESSAGE);
@@ -127,7 +127,8 @@ public final class LegacyNbtV1 {
 
     // The plain text of the anvil name; empty without one or for an unreadable one.
     private static String customName(ValueInput input) {
-        Component name = BlockEntity.parseCustomNameSafe(input, CUSTOM_NAME);
+        // As BlockEntity.parseCustomNameSafe reads it from 1.21.6 on.
+        Component name = input.read(CUSTOM_NAME, ComponentSerialization.CODEC).orElse(null);
         return name == null ? "" : name.getString();
     }
 
@@ -166,8 +167,15 @@ public final class LegacyNbtV1 {
         List<Identifier> filter = new ArrayList<>();
         for (ItemStackWithSlot item : items) {
             if (item.slot() < FIRST_EGG_SLOT || item.slot() >= FIRST_EGG_SLOT + EGG_SLOTS) continue;
-            if (!(item.stack().getItem() instanceof SpawnEggItem)) continue;
+            if (!(item.stack().getItem() instanceof SpawnEggItem egg)) continue;
+            //? if >=26.1 {
             EntityType<?> type = SpawnEggItem.getType(item.stack());
+            //?} else if >=1.21.9 || <1.21.4 {
+            /*EntityType<?> type = egg.getType(item.stack());
+            *///?} else {
+            /*// The registries only resolve the egg's entity data; entity types are built in.
+            EntityType<?> type = egg.getType(net.minecraft.core.RegistryAccess.fromRegistryOfRegistries(net.minecraft.core.registries.BuiltInRegistries.REGISTRY), item.stack());
+            *///?}
             if (type == null || type == EntityTypes.PLAYER) continue;
             Identifier id = EntityType.getKey(type);
             if (!filter.contains(id)) filter.add(id);

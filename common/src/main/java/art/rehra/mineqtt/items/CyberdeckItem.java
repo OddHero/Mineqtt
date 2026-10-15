@@ -49,7 +49,11 @@ public class CyberdeckItem extends Item {
     }
 
     @Override
+    //? if >=1.21.2 {
     public InteractionResult use(Level level, Player player, InteractionHand hand) {
+    //?} else {
+    /*public net.minecraft.world.InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
+    *///?}
         if (!level.isClientSide() && player instanceof ServerPlayer serverPlayer) {
             ItemStack stack = player.getItemInHand(hand);
             ConfiguratorMode mode = CyberdeckDataUtil.mode(stack);
@@ -67,7 +71,11 @@ public class CyberdeckItem extends Item {
                 openExplorer(serverPlayer);
             }
         }
+        //? if >=1.21.2 {
         return InteractionResult.SUCCESS;
+        //?} else {
+        /*return net.minecraft.world.InteractionResultHolder.sidedSuccess(player.getItemInHand(hand), level.isClientSide());
+        *///?}
     }
 
     /**
@@ -75,13 +83,27 @@ public class CyberdeckItem extends Item {
      * §7.2), the first tick it is carried.
      */
     @Override
+    //? if >=1.21.5 {
     public void inventoryTick(ItemStack stack, ServerLevel level, Entity entity, @Nullable EquipmentSlot slot) {
         super.inventoryTick(stack, level, entity, slot);
+    //?} else {
+    /*public void inventoryTick(ItemStack stack, Level world, Entity entity, int slotIndex, boolean selected) {
+        super.inventoryTick(stack, world, entity, slotIndex, selected);
+        if (!(world instanceof ServerLevel level)) return;
+    *///?}
         for (ItemStack item : CyberdeckDataUtil.stripDeprecated(stack)) {
             if (entity instanceof Player player) {
+                //? if >=26.3 {
+                /*player.getInventory().placeItemBackInInventory(item, net.minecraft.util.Prediction.SERVER_ONLY);
+                *///?} else {
                 player.getInventory().placeItemBackInInventory(item);
+                //?}
             } else {
+                //? if >=1.21.2 {
                 entity.spawnAtLocation(level, item);
+                //?} else {
+                /*entity.spawnAtLocation(item);
+                *///?}
             }
         }
     }

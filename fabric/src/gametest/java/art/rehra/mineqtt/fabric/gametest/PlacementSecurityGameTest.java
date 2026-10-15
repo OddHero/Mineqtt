@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.ItemBlockEntityData;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceLink;
@@ -92,8 +93,7 @@ public final class PlacementSecurityGameTest implements FabricClientGameTest {
         session.context().waitFor(mc -> mc.player.getMainHandItem().is(MineqttItems.RgbLedBlock.get()));
         String copied = session.onServer(s -> {
             ItemStack stack = session.player(s).getMainHandItem();
-            var data = stack.get(DataComponents.BLOCK_ENTITY_DATA);
-            return data == null ? "" : data.copyTagWithoutId().toString();
+            return ItemBlockEntityData.read(stack).map(Object::toString).orElse("");
         });
         session.check(copied.contains(RAW_TOPIC) && copied.contains(VICTIM_NAME),
                 "Ctrl + pick block copies the lamp with its raw topic and the other owner");

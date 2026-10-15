@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.ui.device;
 
+import art.rehra.mineqtt.compat.Inputs;
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.device.LinkSetting;
 import art.rehra.mineqtt.device.TwinView;
@@ -21,7 +23,6 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -208,7 +209,7 @@ public class TwinTabView implements MqttTabView {
         }
         askPresets(synced);
         cells.forEach(cell -> {
-            if (cell.shown) cell.render(g, mouseX, mouseY);
+            if (cell.shown) cell.draw(g, mouseX, mouseY);
         });
     }
 
@@ -264,8 +265,12 @@ public class TwinTabView implements MqttTabView {
      */
     private void openPickerLater(String key) {
         Minecraft minecraft = Minecraft.getInstance();
+        //? if >=1.21.2 {
         minecraft.schedule(() -> {
-            if (minecraft.gui.screen() == screen) minecraft.gui.setScreen(new TwinPickerScreen(screen, menu, tab, key));
+        //?} else {
+        /*minecraft.tell(() -> {
+        *///?}
+            if (Screens.current() == screen) Screens.open(new TwinPickerScreen(screen, menu, tab, key));
         });
     }
 
@@ -360,7 +365,7 @@ public class TwinTabView implements MqttTabView {
             }
         }
 
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
         }
     }
 
@@ -486,7 +491,7 @@ public class TwinTabView implements MqttTabView {
         }
 
         @Override
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
             GuiText.drawTruncated(g, line, x, y + TEXT_Y, width, MUTED_COLOR, mouseX, mouseY);
         }
     }
@@ -599,7 +604,7 @@ public class TwinTabView implements MqttTabView {
         }
 
         @Override
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
             field.setTextColor(field.getValue().strip().equals(syncedText) ? EditBox.DEFAULT_TEXT_COLOR : PREVIEW_COLOR);
         }
 
@@ -609,7 +614,7 @@ public class TwinTabView implements MqttTabView {
                 field.setFocused(false);
                 return true;
             }
-            return field.keyPressed(new KeyEvent(keyCode, scanCode, modifiers)) || field.canConsumeInput();
+            return Inputs.keyPressed(field, keyCode, scanCode, modifiers) || field.canConsumeInput();
         }
 
         // Sends what was typed, if it differs from what the server keeps; the field keeps it until the view answers.
@@ -818,7 +823,7 @@ public class TwinTabView implements MqttTabView {
         }
 
         @Override
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
             int textWidth = width - (resume != null && resume.visible ? resume.getWidth() + TwinTab.GAP : 0);
             Optional<DeviceMenu.Refusal> refusal = menu.refusal().filter(refused -> refused.key().startsWith(LinkSetting.TWIN_PREFIX));
             if (refusal.isPresent()) {

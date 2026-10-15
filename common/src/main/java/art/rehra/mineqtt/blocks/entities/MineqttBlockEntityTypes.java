@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks.entities;
 
+import art.rehra.mineqtt.compat.BlockEntityTypeFactory;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.device.timer.core.TimerKind;
@@ -98,6 +99,6 @@ public class MineqttBlockEntityTypes {
 
     private static <T extends BlockEntity> RegistrySupplier<BlockEntityType<T>> registerBlockEntity(String name, BlockEntityType.BlockEntitySupplier<T> factory,
                                                                                                     RegistrySupplier<Block> block) {
-        return BLOCK_ENTITIES.register(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, name), () -> new BlockEntityType<>(factory, Set.of(block.get())));
+        return BLOCK_ENTITIES.register(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, name), () -> BlockEntityTypeFactory.create(factory, Set.of(block.get())));
     }
 }

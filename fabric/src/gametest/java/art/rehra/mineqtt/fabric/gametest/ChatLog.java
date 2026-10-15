@@ -41,8 +41,9 @@ final class ChatLog {
     private static List<String> commands(Component message) {
         List<String> commands = new ArrayList<>();
         message.visit((style, text) -> {
-            if (style.getClickEvent() instanceof ClickEvent.RunCommand run && (commands.isEmpty() || !commands.getLast().equals(run.command()))) {
-                commands.add(run.command());
+            String run = art.rehra.mineqtt.compat.ClickEvents.runCommand(style.getClickEvent());
+            if (run != null && (commands.isEmpty() || !commands.getLast().equals(run))) {
+                commands.add(run);
             }
             return Optional.empty();
         }, Style.EMPTY);

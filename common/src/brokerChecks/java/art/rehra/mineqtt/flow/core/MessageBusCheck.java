@@ -32,7 +32,7 @@ public final class MessageBusCheck {
     private static final PortSpec EVENT = spec(PortType.event("press"), false);
     private static final JsonElement PRESS = json("{\"event_type\":\"press\"}");
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         fifo();
         hopCycle();
         diamond();

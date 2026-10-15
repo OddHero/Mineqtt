@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.Profiles;
+import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
@@ -266,7 +268,7 @@ public final class DeviceRuntime {
 
     private record ChunkRef(ResourceKey<Level> dimension, long chunk) {
         static ChunkRef of(GlobalPos pos) {
-            return new ChunkRef(pos.dimension(), ChunkPos.containing(pos.pos()).pack());
+            return new ChunkRef(pos.dimension(), ChunkPositions.pack(pos.pos()));
         }
     }
 
@@ -719,8 +721,8 @@ public final class DeviceRuntime {
             return RetryOutcome.GONE;
         }
         ServerLevel level = runtime.server().getLevel(pos.dimension());
-        ChunkPos chunkPos = ChunkPos.containing(pos.pos());
-        LevelChunk chunk = level == null ? null : level.getChunkSource().getChunkNow(chunkPos.x(), chunkPos.z());
+        ChunkPos chunkPos = ChunkPositions.containing(pos.pos());
+        LevelChunk chunk = level == null ? null : level.getChunkSource().getChunkNow(ChunkPositions.x(chunkPos), ChunkPositions.z(chunkPos));
         if (chunk == null) return RetryOutcome.NOT_LOADED;
         BlockEntity blockEntity = chunk.getBlockEntities().get(pos.pos());
         if (fault.stage() == Stage.PRUNE) {
@@ -867,7 +869,7 @@ public final class DeviceRuntime {
     /** A chunk reached FULL: its registry records are checked against its block entities on the next tick. */
     public void chunkLoaded(ServerLevel level, ChunkPos chunk) {
         if (stopping || registry.inChunk(level.dimension(), chunk).isEmpty()) return;
-        pruneQueue.add(new ChunkRef(level.dimension(), chunk.pack()));
+        pruneQueue.add(new ChunkRef(level.dimension(), ChunkPositions.pack(chunk)));
         runtime.workQueued();
     }
 
@@ -881,8 +883,8 @@ public final class DeviceRuntime {
         for (DeviceRecord record : List.copyOf(registry.records())) {
             ServerLevel level = runtime.server().getLevel(record.pos().dimension());
             if (level == null || attached.containsKey(record.id())) continue;
-            ChunkPos chunkPos = ChunkPos.containing(record.pos().pos());
-            LevelChunk chunk = level.getChunkSource().getChunkNow(chunkPos.x(), chunkPos.z());
+            ChunkPos chunkPos = ChunkPositions.containing(record.pos().pos());
+            LevelChunk chunk = level.getChunkSource().getChunkNow(ChunkPositions.x(chunkPos), ChunkPositions.z(chunkPos));
             if (chunk != null && pruneIfStale(record, chunk)) pruned++;
         }
         return pruned;
@@ -1045,7 +1047,11 @@ public final class DeviceRuntime {
         if (refusal == null) {
             List<ItemStack> items = device.ejectLegacyItems();
             int count = items.stream().mapToInt(ItemStack::getCount).sum();
+            //? if >=26.3 {
+            /*items.forEach(stack -> player.getInventory().placeItemBackInInventory(stack, net.minecraft.util.Prediction.SERVER_ONLY));
+            *///?} else {
             items.forEach(stack -> player.getInventory().placeItemBackInInventory(stack));
+            //?}
             player.sendSystemMessage(Component.translatable("mineqtt.device.eject.done", count), true);
             return;
         }
@@ -2011,7 +2017,7 @@ public final class DeviceRuntime {
                 join(group, record);
                 yield Configured.applied(record.name() + " joined " + group.name() + (inherits ? " and took over its state" : "") + dropIfEmptied(own));
             }
-            case GroupRules.Leave _ -> {
+            case GroupRules.Leave ignoredLeave -> {
                 if (own == null) yield Configured.unchanged(record.name() + " is in no group");
                 leave(record);
                 yield Configured.applied(record.name() + " left " + own.name() + dropIfEmptied(own));
@@ -2401,7 +2407,8 @@ public final class DeviceRuntime {
                     + "." + port.port();
             case Endpoint.GroupPortRef port -> "group." + Optional.ofNullable(registry.group(port.group())).map(DeviceGroup::slug).orElse(port.group().toString())
                     + "." + port.port();
-            case Endpoint.TopicRef _, Endpoint.HaEntityRef _ -> endpoint.describe();
+            case Endpoint.TopicRef ignoredTopicRef -> endpoint.describe();
+            case Endpoint.HaEntityRef ignoredHaEntityRef -> endpoint.describe();
         };
     }
 
@@ -2415,7 +2422,8 @@ public final class DeviceRuntime {
                     + "." + port.port();
             case Endpoint.GroupPortRef port -> Optional.ofNullable(registry.group(port.group())).map(DeviceGroup::name).orElse(port.group().toString())
                     + "." + port.port();
-            case Endpoint.TopicRef _, Endpoint.HaEntityRef _ -> endpoint.describe();
+            case Endpoint.TopicRef ignoredTopicRef -> endpoint.describe();
+            case Endpoint.HaEntityRef ignoredHaEntityRef -> endpoint.describe();
         };
     }
 
@@ -2895,8 +2903,8 @@ public final class DeviceRuntime {
     // True: attach now. False: drop it (removed, replaced, another server). Null: its chunk is not FULL yet.
     private @Nullable Boolean readyToAttach(BlockEntity blockEntity) {
         if (blockEntity.isRemoved() || !(blockEntity.getLevel() instanceof ServerLevel level) || level.getServer() != runtime.server()) return false;
-        ChunkPos chunkPos = ChunkPos.containing(blockEntity.getBlockPos());
-        LevelChunk chunk = level.getChunkSource().getChunkNow(chunkPos.x(), chunkPos.z());
+        ChunkPos chunkPos = ChunkPositions.containing(blockEntity.getBlockPos());
+        LevelChunk chunk = level.getChunkSource().getChunkNow(ChunkPositions.x(chunkPos), ChunkPositions.z(chunkPos));
         if (chunk == null) return null;
         return chunk.getBlockEntities().get(blockEntity.getBlockPos()) == blockEntity;
     }
@@ -3743,7 +3751,7 @@ public final class DeviceRuntime {
         waiting = new ArrayList<>();
         waiting.add(done);
         ownerLookupsByName.put(name, waiting);
-        CompletableFuture.supplyAsync(() -> server.services().nameToIdCache().get(name), Util.nonCriticalIoPool())
+        CompletableFuture.supplyAsync(() -> Profiles.byName(server, name), Util.nonCriticalIoPool())
                 .whenCompleteAsync((found, error) -> {
                     if (error != null) {
                         logOnce("owner-lookup:" + name, "Could not look up {}, the owner of v1 blocks; asking again at their next load", name, error);

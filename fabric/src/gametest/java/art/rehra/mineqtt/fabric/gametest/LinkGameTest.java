@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.RedstoneEmitterBlock;
 import art.rehra.mineqtt.blocks.RedstonePublisherBlock;
@@ -137,7 +138,7 @@ public final class LinkGameTest implements FabricClientGameTest {
         session.clickWidget(isButton("Link"), "the picker's Link button");
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Linked Garage Input.powered → Porch Lamp.state"), ANSWER_TICKS).isPresent(),
                 "Link wires them and the action bar names the ports (messages: " + ChatLog.since(mark) + ")");
-        session.check(session.awaitClient(mc -> mc.gui.screen() == null, ANSWER_TICKS), "the picker closes");
+        session.check(session.awaitClient(mc -> Screens.current() == null, ANSWER_TICKS), "the picker closes");
         List<Wire> wires = wires(session);
         session.check(wires.size() == 1 && wires.getFirst().mapping() == Mapping.FOLLOW && wires.getFirst().owner().equals(session.playerId())
                 && wires.getFirst().from().equals(Endpoint.port(id(session, INPUT), "powered")) && wires.getFirst().to().equals(Endpoint.port(id(session, LAMP), "state")),
@@ -197,7 +198,7 @@ public final class LinkGameTest implements FabricClientGameTest {
         session.check(groupState > 0 && firstGroup > 0 && choices.subList(firstGroup, choices.size()).stream().allMatch(choice -> choice.group().equals("Lamps")),
                 "the group Lamps is offered after the lamp's own ports (" + choices.size() + " choices)");
         for (int i = 0; i < groupState; i++) session.context().getInput().pressKey(InputConstants.KEY_DOWN);
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof LinkPickerScreen screen && screen.selected() == groupState, ANSWER_TICKS),
+        session.check(session.awaitClient(mc -> Screens.current() instanceof LinkPickerScreen screen && screen.selected() == groupState, ANSWER_TICKS),
                 "the arrow keys select the group's state");
         session.screenshot("link_picker_group");
         int mark = ChatLog.mark();
@@ -220,7 +221,7 @@ public final class LinkGameTest implements FabricClientGameTest {
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Stopped linking from Garage Input"), ANSWER_TICKS).isPresent(),
                 "a second click on the source stops linking (messages: " + ChatLog.since(mark) + ")");
         session.context().waitTicks(DROP_TICKS);
-        session.check(session.onClient(mc -> mc.gui.screen() == null), "and opens nothing");
+        session.check(session.onClient(mc -> Screens.current() == null), "and opens nothing");
 
         click(session, INPUT);
         mark = ChatLog.mark();
@@ -228,7 +229,7 @@ public final class LinkGameTest implements FabricClientGameTest {
         session.check(session.awaitChat(mark, line -> line.actionBar() && line.text().equals("Not changed: You may not configure this device"), ANSWER_TICKS).isPresent(),
                 "another owner's private output is refused (messages: " + ChatLog.since(mark) + ")");
         session.context().waitTicks(DROP_TICKS);
-        session.check(session.onClient(mc -> mc.gui.screen() == null), "and offers no picker");
+        session.check(session.onClient(mc -> Screens.current() == null), "and offers no picker");
         mark = ChatLog.mark();
         session.aimAtSky();
         session.pressUse();
@@ -296,7 +297,7 @@ public final class LinkGameTest implements FabricClientGameTest {
         UUID removed = links.rows().getFirst().wire();
         session.clickWidget(isButton("×"), "the first remove button");
         session.check(session.await(() -> session.onRuntime(runtime -> runtime.registry().wire(removed)) == null, ANSWER_TICKS), "the remove button removes the wire");
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
+        session.check(session.awaitClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
                 && menu.links().map(DeviceLinks::total).orElse(0) == 4, ANSWER_TICKS), "and the list shows the four left");
         session.closeScreen();
 
@@ -345,15 +346,15 @@ public final class LinkGameTest implements FabricClientGameTest {
     }
 
     private static boolean awaitPicker(GameTestSession session) {
-        return session.awaitClient(mc -> mc.gui.screen() instanceof LinkPickerScreen, ANSWER_TICKS);
+        return session.awaitClient(mc -> Screens.current() instanceof LinkPickerScreen, ANSWER_TICKS);
     }
 
     private static LinkPickerPayload picker(GameTestSession session) {
-        return session.onClient(mc -> ((LinkPickerScreen) mc.gui.screen()).picker());
+        return session.onClient(mc -> ((LinkPickerScreen) Screens.current()).picker());
     }
 
     private static int selected(GameTestSession session) {
-        return session.onClient(mc -> ((LinkPickerScreen) mc.gui.screen()).selected());
+        return session.onClient(mc -> ((LinkPickerScreen) Screens.current()).selected());
     }
 
     private static int indexOf(List<LinkPickerPayload.Choice> choices, Predicate<LinkPickerPayload.Choice> which) {
@@ -372,21 +373,21 @@ public final class LinkGameTest implements FabricClientGameTest {
     }
 
     private static Optional<DeviceLinks> menuLinks(GameTestSession session) {
-        return session.onClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
+        return session.onClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu menu
                 ? menu.links() : Optional.empty());
     }
 
     private static List<Button> removeButtons(Minecraft mc) {
-        return mc.gui.screen().children().stream().filter(Button.class::isInstance).map(Button.class::cast)
+        return Screens.current().children().stream().filter(Button.class::isInstance).map(Button.class::cast)
                 .filter(button -> button.visible && button.getMessage().getString().equals("×")).toList();
     }
 
     private static int visibleRemoveButtons(Minecraft mc) {
-        return mc.gui.screen() instanceof TabbedMqttScreen ? removeButtons(mc).size() : 0;
+        return Screens.current() instanceof TabbedMqttScreen ? removeButtons(mc).size() : 0;
     }
 
     private static boolean buttonShown(GameTestSession session, String label) {
-        return session.awaitClient(mc -> mc.gui.screen() != null && mc.gui.screen().children().stream().anyMatch(child -> child instanceof Button button
+        return session.awaitClient(mc -> Screens.current() != null && Screens.current().children().stream().anyMatch(child -> child instanceof Button button
                 && button.visible && button.getMessage().getString().equals(label)), ANSWER_TICKS);
     }
 

@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.runtime.WorldClock;
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
 import art.rehra.mineqtt.blocks.TimerBlock;
 import art.rehra.mineqtt.blocks.entities.TimerBlockEntity;
@@ -29,7 +31,6 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.ComparatorBlock;
-import net.minecraft.world.level.gamerules.GameRules;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -139,7 +140,7 @@ public final class TimersGameTest implements FabricClientGameTest {
     private static void standingClock(GameTestSession session) {
         List<BlockPos> dayTimers = List.of(DAYLIGHT, ALARM);
         // A test world starts with the day cycle off; this step runs it and leaves it off again.
-        session.check(!session.onServer(s -> s.getGlobalGameRules().get(GameRules.ADVANCE_TIME))
+        session.check(!session.onServer(WorldClock::advances)
                         && session.await(() -> dayTimers.stream().allMatch(timer -> nextFire(session, timer).isEmpty()), ANSWER_TICKS),
                 "the test world's clock stands, so the Daylight Timer and the Alarm Clock have no next fire");
         session.consoleCommand("gamerule advance_time true");
@@ -272,13 +273,13 @@ public final class TimersGameTest implements FabricClientGameTest {
         session.check(fired.from().equals(Timers.FIRED.type()) && fired.to().equals("state") && fired.isDefault() && fired.mappings().getFirst() == Mapping.PULSE_TOGGLE,
                 "a timer into a lamp: fired into state, toggling, first (" + fired + ")");
         session.clickWidget(isButton("Link"), "the picker's Link button");
-        session.check(session.awaitClient(mc -> mc.gui.screen() == null, ANSWER_TICKS), "the picker closes");
+        session.check(session.awaitClient(mc -> Screens.current() == null, ANSWER_TICKS), "the picker closes");
 
         LinkPickerPayload.Choice press = pick(session, SWITCH, ALARM);
         session.check(press.from().equals("press") && press.to().equals(Timers.TRIGGER.key()) && press.isDefault() && press.mappings().getFirst() == Mapping.FOLLOW,
                 "a Wall Switch into a timer: press into trigger first, not into its state (" + press + ")");
         session.clickWidget(isButton("Link"), "the picker's Link button");
-        session.check(session.awaitClient(mc -> mc.gui.screen() == null, ANSWER_TICKS), "the picker closes");
+        session.check(session.awaitClient(mc -> Screens.current() == null, ANSWER_TICKS), "the picker closes");
         session.hold(Items.AIR);
 
         boolean lit = lampLevel(session) > 0;
@@ -332,8 +333,8 @@ public final class TimersGameTest implements FabricClientGameTest {
                 "a click on " + sourceName + " picks it as the source");
         session.aim(target);
         session.pressUse();
-        session.check(session.awaitClient(mc -> mc.gui.screen() instanceof LinkPickerScreen, ANSWER_TICKS), "a click on the target opens the port picker");
-        return session.onClient(mc -> ((LinkPickerScreen) mc.gui.screen()).picker()).choices().getFirst();
+        session.check(session.awaitClient(mc -> Screens.current() instanceof LinkPickerScreen, ANSWER_TICKS), "a click on the target opens the port picker");
+        return session.onClient(mc -> ((LinkPickerScreen) Screens.current()).picker()).choices().getFirst();
     }
 
     private static Timers.Settings settings(GameTestSession session, BlockPos pos) {
@@ -370,12 +371,12 @@ public final class TimersGameTest implements FabricClientGameTest {
     }
 
     private static List<String> buttonLabels(Minecraft mc) {
-        return mc.gui.screen() == null ? List.of() : mc.gui.screen().children().stream().filter(Button.class::isInstance).map(Button.class::cast)
+        return Screens.current() == null ? List.of() : Screens.current().children().stream().filter(Button.class::isInstance).map(Button.class::cast)
                 .filter(button -> button.visible).map(button -> button.getMessage().getString()).toList();
     }
 
     private static Optional<AbstractWidget> widget(Minecraft mc, Predicate<AbstractWidget> which) {
-        return mc.gui.screen() == null ? Optional.empty() : mc.gui.screen().children().stream().filter(AbstractWidget.class::isInstance)
+        return Screens.current() == null ? Optional.empty() : Screens.current().children().stream().filter(AbstractWidget.class::isInstance)
                 .map(AbstractWidget.class::cast).filter(widget -> widget.visible && which.test(widget)).findFirst();
     }
 

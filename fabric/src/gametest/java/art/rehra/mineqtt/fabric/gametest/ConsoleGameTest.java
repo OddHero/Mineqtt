@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.TerminalBlock;
 import art.rehra.mineqtt.device.DeviceHost;
@@ -199,7 +200,7 @@ public final class ConsoleGameTest implements FabricClientGameTest {
     }
 
     private static boolean visible(Minecraft mc, Predicate<AbstractWidget> which) {
-        return mc.gui.screen() != null && mc.gui.screen().children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
+        return Screens.current() != null && Screens.current().children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
                 .anyMatch(widget -> widget.visible && which.test(widget));
     }
 

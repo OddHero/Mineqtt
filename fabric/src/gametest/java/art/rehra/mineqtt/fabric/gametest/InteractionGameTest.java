@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.SmartPlugBlock;
 import art.rehra.mineqtt.config.MineQTTConfig;
@@ -118,7 +119,7 @@ public final class InteractionGameTest implements FabricClientGameTest {
         session.aim(lamp);
         session.sneakUse();
         session.context().waitForScreen(TabbedMqttScreen.class);
-        session.check(session.onClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu
+        session.check(session.onClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu
                 && lamp.equals(screen.getMenu().blockPos)), "sneak + right-click opens the lamp's screen");
         session.check(light(session, lamp).on(), "without switching the lamp");
         session.closeScreen();
@@ -155,7 +156,7 @@ public final class InteractionGameTest implements FabricClientGameTest {
         session.aim(plug);
         session.sneakUse();
         session.context().waitForScreen(TabbedMqttScreen.class);
-        session.check(session.onClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu
+        session.check(session.onClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu
                 && plug.equals(screen.getMenu().blockPos)), "sneak + right-click opens the plug's screen");
         session.check(session.clickTab(ControlsTab.ID), "the plug's screen has a Controls tab");
         session.check(session.onClient(mc -> hasWidget(mc, Button.class, "Switch: OFF") && hasWidget(mc, IntSlider.class, "Level: 0")
@@ -245,7 +246,7 @@ public final class InteractionGameTest implements FabricClientGameTest {
      * renames the lamp and grants them nothing there, and the server drops a command they send from it without a word.
      */
     private static void spectator(GameTestSession session, BlockPos lamp) {
-        GameType mode = session.onServer(s -> session.player(s).gameMode());
+        GameType mode = session.onServer(s -> art.rehra.mineqtt.compat.Players.gameMode(session.player(s)));
         session.consoleCommand("gamemode spectator " + session.playerName());
         session.context().waitFor(mc -> mc.player.isSpectator());
         ItemStack tag = new ItemStack(Items.NAME_TAG);
@@ -261,7 +262,7 @@ public final class InteractionGameTest implements FabricClientGameTest {
         session.aim(lamp);
         session.pressUse();
         session.context().waitForScreen(TabbedMqttScreen.class);
-        session.check(session.onClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu
+        session.check(session.onClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu
                 && lamp.equals(screen.getMenu().blockPos)), "a spectator's right-click with a named name tag opens the lamp's screen");
         session.check(light(session, lamp).on() == on && "Kitchen Lamp".equals(session.device(lamp, DeviceLink::name)),
                 "and neither switches nor renames the lamp");
@@ -291,7 +292,7 @@ public final class InteractionGameTest implements FabricClientGameTest {
         session.aim(lamp);
         session.pressUse();
         session.context().waitForScreen(TabbedMqttScreen.class);
-        session.check(session.onClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && lamp.equals(screen.getMenu().blockPos)),
+        session.check(session.onClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && lamp.equals(screen.getMenu().blockPos)),
                 "with the Configurator in the off hand and nothing in the main hand a right-click opens the lamp's screen");
         session.check(light(session, lamp).on() == on, "without switching the lamp");
         session.closeScreen();
@@ -332,7 +333,7 @@ public final class InteractionGameTest implements FabricClientGameTest {
 
         openFar(session, CEILING_LAMP);
         double distance = session.onServer(s -> Math.sqrt(new AABB(CEILING_LAMP).distanceToSqr(session.player(s).getEyePosition())));
-        session.check(session.onClient(mc -> mc.gui.screen() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu
+        session.check(session.onClient(mc -> Screens.current() instanceof TabbedMqttScreen screen && screen.getMenu() instanceof DeviceMenu
                 && CEILING_LAMP.equals(screen.getMenu().blockPos)), "the Configurator opens the ceiling lamp's screen " + String.format(Locale.ROOT, "%.1f", distance) + " blocks away");
         session.check(session.screenView().map(view -> view.grants().configure()).orElse(false), "with the player's own grants");
         session.check(session.clickTab(ControlsTab.ID), "its Controls tab opens");
@@ -341,12 +342,12 @@ public final class InteractionGameTest implements FabricClientGameTest {
         session.screenshot("interaction_configurator_ceiling");
 
         session.consoleCommand("item replace entity " + session.playerName() + " weapon.mainhand with air");
-        session.check(session.awaitClient(mc -> mc.gui.screen() == null, ANSWER_TICKS), "the screen closes once the Configurator leaves the hand");
+        session.check(session.awaitClient(mc -> Screens.current() == null, ANSWER_TICKS), "the screen closes once the Configurator leaves the hand");
 
         session.hold(MineqttItems.Cyberdeck.get());
         openFar(session, CEILING_LAMP);
         session.teleport(BEYOND_RANGE);
-        session.check(session.awaitClient(mc -> mc.gui.screen() == null, ANSWER_TICKS), "and once the player is beyond its range");
+        session.check(session.awaitClient(mc -> Screens.current() == null, ANSWER_TICKS), "and once the player is beyond its range");
         session.teleport(STAND);
 
         session.consoleCommand("setblock " + FAR_CONSOLE.getX() + " " + FAR_CONSOLE.getY() + " " + FAR_CONSOLE.getZ() + " mineqtt:terminal_block");
@@ -377,7 +378,7 @@ public final class InteractionGameTest implements FabricClientGameTest {
         session.check(session.onServer(s -> !session.player(s).getMainHandItem().has(MineqttDataComponents.LISTENING.get())),
                 "the Configurator carries no listening flag");
         session.useHeldItem();
-        session.check(session.onClient(mc -> mc.gui.screen() instanceof CyberdeckScreen screen && ((CyberdeckMenu) screen.getMenu()).listening()),
+        session.check(session.onClient(mc -> Screens.current() instanceof CyberdeckScreen screen && ((CyberdeckMenu) screen.getMenu()).listening()),
                 "reopened, the explorer still listens, as the server says");
         session.check(session.clickTab(CyberdeckExplorerTab.ID) && session.onClient(InteractionGameTest::listenLabel).equals("Listen: ON"),
                 "and its button shows it");
@@ -416,22 +417,22 @@ public final class InteractionGameTest implements FabricClientGameTest {
     }
 
     private static boolean noScreen(GameTestSession session) {
-        return session.onClient(mc -> mc.gui.screen() == null);
+        return session.onClient(mc -> Screens.current() == null);
     }
 
     private static String listenLabel(Minecraft mc) {
-        return ((TabbedMqttScreen) mc.gui.screen()).children().stream()
+        return ((TabbedMqttScreen) Screens.current()).children().stream()
                 .filter(child -> child instanceof Button button && button.getMessage().getString().startsWith("Listen"))
                 .map(child -> ((Button) child).getMessage().getString()).findFirst().orElse("");
     }
 
     private static boolean hasWidget(Minecraft mc, Class<? extends AbstractWidget> kind, String label) {
-        return ((TabbedMqttScreen) mc.gui.screen()).children().stream()
+        return ((TabbedMqttScreen) Screens.current()).children().stream()
                 .anyMatch(child -> kind.isInstance(child) && ((AbstractWidget) child).getMessage().getString().equals(label));
     }
 
     private static List<String> widgetLabels(Minecraft mc) {
-        return ((TabbedMqttScreen) mc.gui.screen()).children().stream().filter(AbstractWidget.class::isInstance)
+        return ((TabbedMqttScreen) Screens.current()).children().stream().filter(AbstractWidget.class::isInstance)
                 .map(child -> ((AbstractWidget) child).getMessage().getString()).toList();
     }
 

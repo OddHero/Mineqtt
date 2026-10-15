@@ -9,9 +9,11 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+//? if >=1.21.9 {
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+//?}
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
@@ -54,9 +56,22 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     private int lastMouseX = Integer.MIN_VALUE, lastMouseY = Integer.MIN_VALUE;
 
     public TabbedMqttScreen(TabbedMqttMenu menu, Inventory playerInventory, Component title) {
+        //? if >=26.1 {
         super(menu, playerInventory, title, TabbedMqttMenu.GUI_WIDTH, menu.guiHeight());
+        //?} else {
+        /*super(menu, playerInventory, title);
+        this.imageWidth = TabbedMqttMenu.GUI_WIDTH;
+        this.imageHeight = menu.guiHeight();
+        *///?}
         this.inventoryLabelY = this.imageHeight - 94;
     }
+
+    //? if <26.1 {
+    /*// The panel is drawn in renderBackground, after the screen's own background.
+    @Override
+    protected void renderBg(GuiGraphicsExtractor g, float partialTick, int mouseX, int mouseY) {
+    }
+    *///?}
 
     /** The panel's left edge on the screen; the tab bar starts there too. */
     public int getLeftPos() {
@@ -270,10 +285,14 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     // ===== Input =====
 
     @Override
+    //? if >=1.21.9 {
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         double mouseX = event.x();
         double mouseY = event.y();
         int button = event.button();
+    //?} else {
+    /*public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    *///?}
         if (activeView != null && activeView.isModal()) {
             // Modal views handle everything themselves
             activeView.mouseClicked(mouseX, mouseY, button);
@@ -288,7 +307,11 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
             }
         }
         if (activeView != null && activeView.mouseClicked(mouseX, mouseY, button)) return true;
+        //? if >=1.21.9 {
         return super.mouseClicked(event, doubleClick);
+        //?} else {
+        /*return super.mouseClicked(mouseX, mouseY, button);
+        *///?}
     }
 
     private void playClickSound() {
@@ -298,16 +321,30 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     }
 
     @Override
+    //? if >=1.21.9 {
     public boolean mouseReleased(MouseButtonEvent event) {
         if (activeView != null && activeView.mouseReleased(event.x(), event.y(), event.button())) return true;
         return super.mouseReleased(event);
     }
+    //?} else {
+    /*public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (activeView != null && activeView.mouseReleased(mouseX, mouseY, button)) return true;
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+    *///?}
 
     @Override
+    //? if >=1.21.9 {
     public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
         if (activeView != null && activeView.mouseDragged(event.x(), event.y(), event.button(), dx, dy)) return true;
         return super.mouseDragged(event, dx, dy);
     }
+    //?} else {
+    /*public boolean mouseDragged(double mouseX, double mouseY, int button, double dx, double dy) {
+        if (activeView != null && activeView.mouseDragged(mouseX, mouseY, button, dx, dy)) return true;
+        return super.mouseDragged(mouseX, mouseY, button, dx, dy);
+    }
+    *///?}
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double dx, double dy) {
@@ -316,10 +353,18 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
     }
 
     @Override
+    //? if >=1.21.9 {
     public boolean keyPressed(KeyEvent event) {
         int keyCode = event.key();
+        //? if >=26.3 {
+        /*int scanCode = event.keycode();
+        *///?} else {
         int scanCode = event.scancode();
+        //?}
         int modifiers = event.modifiers();
+    //?} else {
+    /*public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    *///?}
         if (activeView != null && (activeView.isModal() || activeView.keyPressed(keyCode, scanCode, modifiers))) {
             if (activeView.isModal()) {
                 activeView.keyPressed(keyCode, scanCode, modifiers);
@@ -327,14 +372,25 @@ public class TabbedMqttScreen extends AbstractContainerScreen<TabbedMqttMenu> {
             }
             return true;
         }
+        //? if >=1.21.9 {
         return super.keyPressed(event);
+        //?} else {
+        /*return super.keyPressed(keyCode, scanCode, modifiers);
+        *///?}
     }
 
     @Override
+    //? if >=1.21.9 {
     public boolean charTyped(CharacterEvent event) {
         if (activeView != null && activeView.charTyped((char) event.codepoint(), 0)) return true;
         return super.charTyped(event);
     }
+    //?} else {
+    /*public boolean charTyped(char c, int modifiers) {
+        if (activeView != null && activeView.charTyped(c, modifiers)) return true;
+        return super.charTyped(c, modifiers);
+    }
+    *///?}
 
     @Override
     protected void slotClicked(net.minecraft.world.inventory.Slot slot,

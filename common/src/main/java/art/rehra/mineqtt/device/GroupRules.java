@@ -51,11 +51,11 @@ public final class GroupRules {
 
         private static int tag(Change change) {
             return switch (change) {
-                case Join _ -> 0;
-                case Leave _ -> 1;
-                case Create _ -> 2;
-                case Rename _ -> 3;
-                case ExposeMembers _ -> 4;
+                case Join ignoredJoin -> 0;
+                case Leave ignoredLeave -> 1;
+                case Create ignoredCreate -> 2;
+                case Rename ignoredRename -> 3;
+                case ExposeMembers ignoredExposeMembers -> 4;
             };
         }
 

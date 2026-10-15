@@ -11,7 +11,11 @@ import art.rehra.mineqtt.ui.framework.MineqttClientTabs;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
 import dev.architectury.registry.client.rendering.BlockEntityRendererRegistry;
 import net.fabricmc.api.ClientModInitializer;
+//? if >=26.1 {
 import net.fabricmc.fabric.api.client.rendering.v1.BlockColorRegistry;
+//?} else {
+/*import net.fabricmc.fabric.api.client.rendering.v1.ColorProviderRegistry;
+*///?}
 import net.minecraft.client.gui.screens.MenuScreens;
 
 import java.util.List;
@@ -29,7 +33,11 @@ public final class MineqttFabricClient implements ClientModInitializer {
         MineqttClientTabs.registerAll();
 
         // RGB LED block color handler
+        //? if >=26.1 {
         BlockColorRegistry.register(List.of(new RgbLedBlockColor()), MineqttBlocks.RGB_LED_BLOCK.get());
+        //?} else {
+        /*ColorProviderRegistry.BLOCK.register(new RgbLedBlockColor(), MineqttBlocks.RGB_LED_BLOCK.get());
+        *///?}
 
         // The Display Panel's text (M3 plan D18); NeoForge registers it in EntityRenderersEvent.RegisterRenderers.
         BlockEntityRendererRegistry.register(MineqttBlockEntityTypes.DISPLAY_PANEL.get(), DisplayPanelRenderer::new);

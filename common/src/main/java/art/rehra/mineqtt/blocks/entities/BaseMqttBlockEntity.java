@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks.entities;
 
+import art.rehra.mineqtt.compat.ContainerItems;
 import art.rehra.mineqtt.device.DeviceRuntime;
 import art.rehra.mineqtt.integrations.MineqttPermission;
 import art.rehra.mineqtt.legacy.LegacyNbtV1;
@@ -22,7 +23,6 @@ import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.WorldlyContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -183,7 +183,7 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
         output.putString("ownerName", this.ownerName);
         output.storeNullable("ownerUuid", UUIDUtil.CODEC, this.ownerUuid);
         output.putBoolean("privateMode", this.privateMode);
-        ContainerHelper.saveAllItems(output, this.items);
+        ContainerItems.save(output, this.items);
     }
 
     @Override
@@ -195,7 +195,7 @@ public abstract class BaseMqttBlockEntity extends BaseContainerBlockEntity imple
         this.ownerUuid = input.read("ownerUuid", UUIDUtil.CODEC).orElse(null);
         this.privateMode = input.getBooleanOr("privateMode", false);
         this.items = NonNullList.withSize(this.getContainerSize(), ItemStack.EMPTY);
-        ContainerHelper.loadAllItems(input, this.items);
+        ContainerItems.load(input, this.items);
     }
 
     @Override

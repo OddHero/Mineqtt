@@ -96,7 +96,11 @@ public class TemperatureSensorBlockEntity extends DeviceBlockEntity {
     private ClimateSensor.Environment environment(ServerLevel level) {
         BlockPos pos = worldPosition;
         Holder<Biome> biome = level.getBiome(pos);
+        //? if >=1.21.2 {
         Biome.Precipitation precipitation = biome.value().getPrecipitationAt(pos, level.getSeaLevel());
+        //?} else {
+        /*Biome.Precipitation precipitation = biome.value().getPrecipitationAt(pos);
+        *///?}
         int heat = 0;
         int cold = 0;
         BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();

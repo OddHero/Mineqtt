@@ -1,5 +1,7 @@
 package art.rehra.mineqtt.legacy;
 
+import art.rehra.mineqtt.compat.BlockRemoval;
+import art.rehra.mineqtt.compat.ItemBlockEntityData;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.device.DeviceRuntime;
 import art.rehra.mineqtt.items.DeviceBlockItem;
@@ -18,7 +20,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
-import net.minecraft.world.item.component.TypedEntityData;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
@@ -55,7 +56,18 @@ public abstract class LegacyConverterBlock extends BaseEntityBlock {
         this.successor = successor;
     }
 
-    @Override
+    //? if >=26.3 {
+    /*// Blocks have no codec from 26.3 on; the stand-ins keep the codec fields of the versions before compiling.
+    protected static <B extends net.minecraft.world.level.block.Block> MapCodec<B> simpleCodec(java.util.function.Function<Properties, B> factory) {
+        return art.rehra.mineqtt.compat.BlockCodecs.simpleCodec(factory);
+    }
+
+    protected static <B extends net.minecraft.world.level.block.Block> com.mojang.serialization.codecs.RecordCodecBuilder<B, Properties> propertiesCodec() {
+        return art.rehra.mineqtt.compat.BlockCodecs.propertiesCodec();
+    }
+    *///?}
+
+    // Not @Override: blocks have no codec from 26.3 on.
     protected abstract MapCodec<? extends LegacyConverterBlock> codec();
 
     /** The block it becomes. */
@@ -101,12 +113,20 @@ public abstract class LegacyConverterBlock extends BaseEntityBlock {
         BlockState state = level.getBlockState(pos);
         if (!(state.getBlock() instanceof LegacyConverterBlock converter) || level.getBlockEntity(pos) != legacy) return false;
         CompoundTag data = converter.convert(legacy.saveWithoutMetadata(level.registryAccess()));
+        //? if >=1.21.5 {
         level.setBlock(pos, converter.successorState(state), Block.UPDATE_ALL | Block.UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS);
+        //?} else {
+        /*BlockRemoval.withoutSideEffects(() -> level.setBlock(pos, converter.successorState(state), Block.UPDATE_ALL));
+        *///?}
         BlockEntity successor = level.getBlockEntity(pos);
         if (successor == null) throw new IllegalStateException(converter.successor() + " at " + pos.toShortString() + " has no block entity to take the data");
+        //? if >=1.21.6 {
         try (ProblemReporter.ScopedCollector problems = new ProblemReporter.ScopedCollector(successor.problemPath(), MineQTT.LOGGER)) {
             successor.loadWithComponents(TagValueInput.create(problems, level.registryAccess(), data));
         }
+        //?} else {
+        /*successor.loadWithComponents(data, level.registryAccess());
+        *///?}
         successor.setChanged();
         MineQTT.LOGGER.info("Converted the {} at {} in {} into {}", BuiltInRegistries.BLOCK.getKey(converter), pos.toShortString(),
                 level.dimension().identifier(), BuiltInRegistries.BLOCK.getKey(converter.successor()));
@@ -135,10 +155,21 @@ public abstract class LegacyConverterBlock extends BaseEntityBlock {
      */
     public ItemStack convertItem(ItemStack stack) {
         ItemStack converted = stack.transmuteCopy(successor());
-        TypedEntityData<BlockEntityType<?>> data = stack.get(DataComponents.BLOCK_ENTITY_DATA);
-        if (data != null) converted.set(DataComponents.BLOCK_ENTITY_DATA, TypedEntityData.of(successorType(), convert(data.copyTagWithoutId())));
+        ItemBlockEntityData.read(stack).ifPresent(data -> ItemBlockEntityData.set(converted, successorType(), convert(data)));
         return converted;
     }
+
+    //? if <1.21.5 {
+    /*// The block entity's removal side effects, which Minecraft calls itself from 1.21.5 on.
+    @Override
+    protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
+        if (!level.isClientSide() && !state.is(newState.getBlock()) && BlockRemoval.sideEffects()
+                && level.getBlockEntity(pos) instanceof BlockRemoval.SideEffects removed) {
+            removed.preRemoveSideEffects(pos, state);
+        }
+        super.onRemove(state, level, pos, newState, movedByPiston);
+    }
+    *///?}
 
     /**
      * The item of a {@link LegacyConverterBlock}: it becomes the successor's item in any inventory that ticks it. Placed
@@ -157,11 +188,27 @@ public abstract class LegacyConverterBlock extends BaseEntityBlock {
         }
 
         @Override
+        //? if >=1.21.5 {
         public void inventoryTick(ItemStack stack, ServerLevel level, Entity owner, @Nullable EquipmentSlot slot) {
             ItemStack converted = ((LegacyConverterBlock) getBlock()).convertItem(stack);
             if (slot != null && owner instanceof LivingEntity living && living.getItemBySlot(slot) == stack) {
                 living.setItemSlot(slot, converted);
             } else if (owner instanceof Player player) {
+        //?} else {
+        /*public void inventoryTick(ItemStack stack, Level level, Entity owner, int slotIndex, boolean selected) {
+            if (level.isClientSide()) return;
+            ItemStack converted = ((LegacyConverterBlock) getBlock()).convertItem(stack);
+            // Before 1.21.5 an item hears its inventory slot only; an armour or hand slot is found by looking.
+            EquipmentSlot slot = null;
+            if (owner instanceof LivingEntity living) {
+                for (EquipmentSlot each : EquipmentSlot.values()) {
+                    if (living.getItemBySlot(each) == stack) slot = each;
+                }
+            }
+            if (slot != null && owner instanceof LivingEntity living) {
+                living.setItemSlot(slot, converted);
+            } else if (owner instanceof Player player) {
+        *///?}
                 Inventory inventory = player.getInventory();
                 for (int i = 0; i < inventory.getContainerSize(); i++) {
                     if (inventory.getItem(i) == stack) {

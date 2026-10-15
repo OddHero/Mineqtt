@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.RedstoneEmitterBlock;
 import art.rehra.mineqtt.device.DeviceHost;
@@ -145,7 +146,7 @@ public final class DeviceConfigGameTest implements FabricClientGameTest {
 
     // The open screen's view, read on the client thread.
     private static @Nullable DeviceView view(Minecraft mc) {
-        return mc.gui.screen() instanceof TabbedMqttScreen screen ? screen.getMenu().deviceView().orElse(null) : null;
+        return Screens.current() instanceof TabbedMqttScreen screen ? screen.getMenu().deviceView().orElse(null) : null;
     }
 
     // Waits until the client sees the output emit that power.

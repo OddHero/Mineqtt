@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+MineQTT now builds for every Minecraft version from 1.21 to 26.3: one jar per loader for 1.21.1, 1.21.3, 1.21.4,
+1.21.5, 1.21.8, 1.21.10, 1.21.11, 26.1.2, 26.2 and 26.3, each also covering the patch releases next to it. The jars are
+named `MineQTT-<loader>-<mod version>+<minecraft>.jar`, and Modrinth gets one version per loader and Minecraft version.
+
+- **Minecraft 1.21.1:** an empty dedicated server never pauses on 1.21.1, so `server.keepTickingWhenEmpty` does
+  nothing there.
+- **Development:** the build is a Stonecutter multi-version project like minecraft-mod-template. Gradle tasks carry
+  the version, such as `:fabric:26.2:runClient` and `:fabric:26.2:runClientGameTest`, and `./gradlew build` builds
+  and checks every version. Minecraft up to 1.21.11 builds with Java 21, 26.x with Java 25. The client game tests
+  run from 1.21.4 on.
+- **Checks:** the message bus checks use a fixed clock, so their drain budget no longer fails on a busy machine.
+
 ## 0.8.0 (MineQTT 2, Milestone 4: the world twin)
 
 0.8.0 makes the Minecraft world itself a Home Assistant device and gives blocks real jobs in automations: the bridge

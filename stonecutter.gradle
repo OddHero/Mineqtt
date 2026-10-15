@@ -1,0 +1,207 @@
+plugins {
+    id 'dev.kikugie.stonecutter'
+    // Loaded once here so all version nodes share one copy of each plugin.
+    id 'dev.architectury.loom' apply false
+    id 'dev.architectury.loom-no-remap' apply false
+    id 'architectury-plugin' apply false
+    id 'com.gradleup.shadow' apply false
+    id 'com.modrinth.minotaur' apply false
+    id 'net.darkhax.curseforgegradle' apply false
+}
+
+// The version whose code is active in src/. The "Set active project to ..." tasks rewrite this line.
+stonecutter.active '26.2'
+
+stonecutter.parameters {
+    // In code, `/*$ minecraft*/ "26.2";` becomes the node's Minecraft version.
+    swaps.put('minecraft', "\"${current.version}\";")
+    // `/*$ permission_sets*/ true;`: whether the version has 1.21.11's permission sets, whose atoms a command source holds.
+    swaps.put('permission_sets', "${stonecutter.eval(current.version, '>=1.21.11')};")
+
+    // Renames between versions, written as the active version (26.2) has them. Each one is undone exactly when the active
+    // version switches back, so the other side's spelling must not occur in the 26.2 sources.
+    def before = { String version -> stonecutter.eval(current.version, "<$version") }
+    def from = { String version -> stonecutter.eval(current.version, ">=$version") }
+
+    // 26.1 renamed GuiGraphics to GuiGraphicsExtractor and some of its methods. The mod's GUI code names its instance g.
+    replacements.regex(before('26.1')) {
+        replace('\\bGuiGraphicsExtractor\\b', 'GuiGraphics', '\\bGuiGraphics\\b', 'GuiGraphicsExtractor')
+        replace('\\bg\\.text\\(', 'g.drawString(', '\\bg\\.drawString\\(', 'g.text(')
+        replace('\\bg\\.item\\(', 'g.renderItem(', '\\bg\\.renderItem\\(', 'g.item(')
+        // The screen and widget methods that draw, declared with (GuiGraphics g, ...) and called as super.x(g, ...).
+        [extractRenderState: 'render', extractBackground: 'renderBackground', extractLabels: 'renderLabels',
+         extractContents: 'renderContents', extractWidgetRenderState: 'renderWidget'].each { now, old ->
+            replace("\\b${now}\\(GuiGraphics(?:Extractor)? g,", "${old}(GuiGraphics g,", "\\b${old}\\(GuiGraphics(?:Extractor)? g,", "${now}(GuiGraphicsExtractor g,")
+            replace("\\bsuper\\.${now}\\(g,", "super.${old}(g,", "\\bsuper\\.${old}\\(g,", "super.${now}(g,")
+        }
+    }
+
+    // 1.21.2 brought net.minecraft.util.ARGB; before, compat.ARGB has the helpers the mod uses. Screen.getFont() is new
+    // in 1.21.2 too.
+    replacements.string(before('1.21.2')) {
+        replace('import net.minecraft.util.ARGB;', 'import art.rehra.mineqtt.compat.ARGB;')
+        replace('screen.getFont()', 'net.minecraft.client.Minecraft.getInstance().font')
+    }
+
+    // 1.21.6 saves block entities through ValueInput and ValueOutput; before, compat.storage stands in for them over the
+    // CompoundTag a block entity is handed, and ItemStackWithSlot too.
+    replacements.string(before('1.21.6')) {
+        ['ValueInput', 'ValueOutput', 'TagValueInput', 'TagValueOutput'].each {
+            replace("import net.minecraft.world.level.storage.${it};", "import art.rehra.mineqtt.compat.storage.${it};")
+        }
+        replace('import net.minecraft.util.ProblemReporter;', 'import art.rehra.mineqtt.compat.storage.ProblemReporter;')
+        replace('import net.minecraft.world.ItemStackWithSlot;', 'import art.rehra.mineqtt.compat.ItemStackWithSlot;')
+    }
+    replacements.regex(before('1.21.6')) {
+        // A command's permission predicate (Commands.hasPermission is new in 1.21.6) and the GUI's deferred tooltips.
+        replace('\\bCommands\\.hasPermission\\((Commands\\.LEVEL_\\w+)\\)', 'source -> source.hasPermission($1)',
+                'source -> source\\.hasPermission\\((Commands\\.LEVEL_\\w+)\\)', 'Commands.hasPermission($1)')
+        replace('\\bg\\.setTooltipForNextFrame\\(', 'g.renderTooltip(', '\\bg\\.renderTooltip\\(', 'g.setTooltipForNextFrame(')
+        def params = 'net.minecraft.nbt.CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries'
+        [save: ['ValueOutput', 'output'], load: ['ValueInput', 'input']].each { verb, typed ->
+            def (type, name) = typed
+            def wrap = "${type} ${name} = art.rehra.mineqtt.compat.storage.Tag${type}.wrap(tag, registries);"
+            replace("protected void ${verb}Additional\\(${type} ${name}\\) \\{(\\r?\\n)([ \\t]+)super\\.${verb}Additional\\(${name}\\);",
+                    "protected void ${verb}Additional(${params}) {\$1\$2super.${verb}Additional(tag, registries);\$1\$2${wrap}",
+                    "protected void ${verb}Additional\\(${java.util.regex.Pattern.quote(params)}\\) \\{(\\r?\\n)([ \\t]+)super\\.${verb}Additional\\(tag, registries\\);\\r?\\n[ \\t]+${java.util.regex.Pattern.quote(wrap)}",
+                    "protected void ${verb}Additional(${type} ${name}) {\$1\$2super.${verb}Additional(${name});")
+        }
+    }
+
+    // 1.21.9 made game profiles records and named a player by NameAndId; before, compat.NameAndId stands in for it.
+    replacements.string(before('1.21.9')) {
+        replace('EditBox.DEFAULT_HINT_STYLE', 'net.minecraft.ChatFormatting.DARK_GRAY')
+        replace('addFormatter(PasswordMask.FORMATTER)', 'setFormatter(PasswordMask.FORMATTER)')
+        replace(').pauseWhenEmptySeconds()', ').pauseWhileEmptySeconds()')
+        replace('getGameProfile().name()', 'getGameProfile().getName()')
+        replace('getGameProfile().id()', 'getGameProfile().getId()')
+        replace('net.minecraft.server.players.NameAndId', 'art.rehra.mineqtt.compat.NameAndId')
+    }
+
+    // 1.21.11 moved Util into net.minecraft.util and renamed ResourceLocation to Identifier (ResourceKey.location() to
+    // identifier()).
+    replacements.string(before('1.21.11')) {
+        replace('import net.minecraft.util.Util;', 'import net.minecraft.Util;')
+        replace('.identifier()', '.location()')
+        replace('isWithinBlockInteractionRange(', 'canInteractWithBlock(')
+    }
+    replacements.regex(before('1.21.11')) {
+        replace('\\bIdentifierArgument\\b', 'ResourceLocationArgument', '\\bResourceLocationArgument\\b', 'IdentifierArgument')
+        replace('\\bIdentifier\\b', 'ResourceLocation', '\\bResourceLocation\\b', 'Identifier')
+    }
+
+    // 1.21.11 replaced operator levels with permission sets; before, compat.permissions stands in for them.
+    replacements.string(before('1.21.11')) {
+        replace('import net.minecraft.server.permissions.', 'import art.rehra.mineqtt.compat.permissions.')
+    }
+    replacements.regex(before('1.21.11')) {
+        def receiver = '((?:[A-Za-z_]\\w*(?:\\([A-Za-z_]?\\w*\\))?\\.)*[A-Za-z_]\\w*(?:\\([A-Za-z_]?\\w*\\))?)'
+        def shim = 'art\\.rehra\\.mineqtt\\.compat\\.permissions\\.PermissionSet'
+        replace("\\b${receiver}\\.permissions\\(\\)", 'art.rehra.mineqtt.compat.permissions.PermissionSet.of($1)',
+                "${shim}\\.of\\(${receiver}\\)", '$1.permissions()')
+        replace("\\b${receiver}::getProfilePermissions\\b", 'art.rehra.mineqtt.compat.permissions.PermissionSet.profiles($1)',
+                "${shim}\\.profiles\\(${receiver}\\)", '$1::getProfilePermissions')
+        replace("\\b${receiver}\\.getProfilePermissions\\(", 'art.rehra.mineqtt.compat.permissions.PermissionSet.ofProfile($1, ',
+                "${shim}\\.ofProfile\\(${receiver}, ", '$1.getProfilePermissions(')
+    }
+
+    // 26.1 moved the camera render state and the light coordinates helper.
+    replacements.string(before('26.1')) {
+        replace('net.minecraft.client.renderer.state.level.CameraRenderState', 'net.minecraft.client.renderer.state.CameraRenderState')
+        replace('import net.minecraft.util.LightCoordsUtil;', 'import net.minecraft.client.renderer.LightTexture;')
+        replace('LightCoordsUtil.FULL_BRIGHT', 'LightTexture.FULL_BRIGHT')
+        replace('handleContainerInput(', 'handleInventoryMouseClick(')
+    }
+
+    // 26.1 renamed the container click types.
+    replacements.regex(before('26.1')) {
+        replace('\\bContainerInput\\b', 'ClickType', '\\bClickType\\b', 'ContainerInput')
+    }
+
+    // 26.2 moved the vanilla entity and block entity types into EntityTypes and BlockEntityTypes.
+    replacements.regex(before('26.2')) {
+        replace('\\bEntityTypes\\.([A-Z][A-Z0-9_]*)\\b', 'EntityType.$1', '\\bEntityType\\.([A-Z][A-Z0-9_]*)\\b', 'EntityTypes.$1')
+        replace('\\bBlockEntityTypes\\.([A-Z][A-Z0-9_]*)\\b', 'BlockEntityType.$1', '\\bBlockEntityType\\.([A-Z][A-Z0-9_]*)\\b', 'BlockEntityTypes.$1')
+        replace('import net\\.minecraft\\.world\\.entity\\.EntityTypes;', 'import net.minecraft.world.entity.EntityType; // EntityTypes',
+                'import net\\.minecraft\\.world\\.entity\\.EntityType; // EntityTypes', 'import net.minecraft.world.entity.EntityTypes;')
+        replace('import net\\.minecraft\\.world\\.level\\.block\\.entity\\.BlockEntityTypes;', 'import net.minecraft.world.level.block.entity.BlockEntityType; // BlockEntityTypes',
+                'import net\\.minecraft\\.world\\.level\\.block\\.entity\\.BlockEntityType; // BlockEntityTypes', 'import net.minecraft.world.level.block.entity.BlockEntityTypes;')
+    }
+
+    // 26.2 grouped the dyed blocks and items into colour collections: Blocks.WOOL.white() was Blocks.WHITE_WOOL.
+    def colors = ['white', 'orange', 'magenta', 'lightBlue', 'yellow', 'lime', 'pink', 'gray', 'lightGray', 'cyan', 'purple', 'blue',
+                  'brown', 'green', 'red', 'black']
+    def collections = [WOOL: 'WOOL', STAINED_GLASS: 'STAINED_GLASS', STAINED_GLASS_PANE: 'STAINED_GLASS_PANE', CONCRETE: 'CONCRETE',
+                       CONCRETE_POWDER: 'CONCRETE_POWDER', CARPET: 'CARPET', DYED_TERRACOTTA: 'TERRACOTTA', GLAZED_TERRACOTTA: 'GLAZED_TERRACOTTA',
+                       BED: 'BED', BANNER: 'BANNER', DYE: 'DYE']
+    replacements.regex(before('26.2')) {
+        collections.each { collection, suffix ->
+            colors.each { color ->
+                def old = color.replaceAll(/([A-Z])/, '_$1').toUpperCase() + '_' + suffix
+                replace("\\b(Blocks|Items)\\.${collection}\\.${color}\\(\\)", "\$1.${old}", "\\b(Blocks|Items)\\.${old}\\b", "\$1.${collection}.${color}()")
+            }
+        }
+    }
+
+    // 26.3 renamed the redstone wire and the advancement display's getters.
+    replacements.string(from('26.3')) {
+        replace('RedStoneWireBlock', 'RedstoneWireBlock')
+        replace('DisplayInfo::shouldAnnounceChat', 'DisplayInfo::announceToChat')
+        replace('DisplayInfo::isHidden', 'DisplayInfo::hidden')
+    }
+}
+
+// One folder with the release jar of every loader and Minecraft version: build/libs/.
+tasks.register('collectJars', Copy) {
+    group = 'build'
+    description = 'Builds the release jars of all loaders and Minecraft versions and copies them to build/libs.'
+
+    subprojects.findAll { it.parent?.name in ['fabric', 'neoforge'] }.each { node ->
+        // releaseJar is the shadow jar on unobfuscated versions and the remapped shadow jar on obfuscated ones.
+        dependsOn "${node.path}:releaseJar"
+        from(node.layout.buildDirectory.dir('libs')) {
+            include '*.jar'
+            exclude '*-raw.jar', '*-sources.jar', '*-dev-shadow.jar'
+        }
+    }
+    into layout.buildDirectory.dir('libs')
+}
+
+// Release notes of one version: the CHANGELOG.md section from its "## <version>" heading up to the next "## " heading.
+// CHANGELOG.md is wrapped at 120 columns; GitHub releases would show every line break, so wrapped lines are joined:
+// a line continues the one before unless it is blank, a heading or a new list item.
+ext.changelogFor = { String v ->
+    def lines = rootProject.file('CHANGELOG.md').readLines('UTF-8')
+    def heading = ~/^## ${java.util.regex.Pattern.quote(v)}(\s.*)?$/
+    def start = lines.findIndexOf { heading.matcher(it).matches() }
+    if (start < 0) {
+        throw new GradleException("CHANGELOG.md has no '## ${v}' section")
+    }
+    def end = lines.findIndexOf(start + 1) { it.startsWith('## ') }
+    def startsBlock = { String line -> line.isBlank() || line.startsWith('#') || line ==~ /^\s*([-*]|\d+\.)\s.*/ }
+    def out = []
+    lines.subList(start + 1, end < 0 ? lines.size() : end).each { line ->
+        if (!startsBlock(line) && out && !out.last().isBlank() && !out.last().startsWith('#')) {
+            out[-1] = out.last() + ' ' + line.trim()
+        } else {
+            out << line
+        }
+    }
+    out.join('\n').trim()
+}
+
+// Modrinth version type from the version: 1.2.3-alpha.1 is an alpha, 1.2.3-beta.1 or -rc.1 a beta, the rest releases.
+ext.modrinthVersionType = { String v ->
+    v.contains('-alpha') ? 'alpha' : (v.contains('-beta') || v.contains('-rc')) ? 'beta' : 'release'
+}
+
+// Writes the release notes of mod_version to build/release-notes.md (the body of the GitHub release).
+tasks.register('releaseNotes') {
+    def out = layout.buildDirectory.file('release-notes.md')
+    def notes = changelogFor(project.mod_version)
+    inputs.property('notes', notes)
+    outputs.file(out)
+    doLast {
+        out.get().asFile.setText(notes + '\n', 'UTF-8')
+    }
+}

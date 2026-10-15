@@ -14,7 +14,7 @@ import java.util.Optional;
  * values, its formatting is {@link GameClock}'s and its pulse is its kind's, with the assertions the v1 block entity had.
  */
 public final class GameTimeTimerCheck {
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
 

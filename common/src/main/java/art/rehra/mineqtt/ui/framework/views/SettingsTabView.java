@@ -12,7 +12,9 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
+//? if >=1.21.9 {
 import net.minecraft.client.input.InputWithModifiers;
+//?}
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
@@ -176,7 +178,12 @@ public class SettingsTabView implements MqttTabView {
         private ItemStack headFor(String name) {
             if (!name.equals(cachedOwner) || cachedHead.isEmpty()) {
                 ItemStack head = new ItemStack(Items.PLAYER_HEAD);
+                //? if >=1.21.9 {
                 head.set(DataComponents.PROFILE, ResolvableProfile.createUnresolved(name));
+                //?} else {
+                /*head.set(DataComponents.PROFILE, new ResolvableProfile(java.util.Optional.of(name), java.util.Optional.empty(),
+                        new com.mojang.authlib.properties.PropertyMap()));
+                *///?}
                 cachedHead = head;
                 cachedOwner = name;
             }
@@ -184,12 +191,23 @@ public class SettingsTabView implements MqttTabView {
         }
 
         @Override
+        //? if >=1.21.9 {
         public void onPress(InputWithModifiers input) {
+        //?} else {
+        /*public void onPress() {
+        *///?}
             onToggle.run();
         }
 
+        // A button draws its contents in renderContents from 1.21.11 on, before in renderWidget (a parameter not named g
+        // keeps that line out of the renderContents replacement).
         @Override
+        //? if >=1.21.11 {
         protected void extractContents(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
+        //?} else {
+        /*protected void renderWidget(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+            GuiGraphicsExtractor g = graphics;
+        *///?}
             boolean on = isOn.getAsBoolean();
             // Background: subtle dark slot-like frame regardless of state, for visual consistency.
             g.fill(getX() - 1, getY() - 1, getX() + width + 1, getY() + height + 1, 0xFF373737);
