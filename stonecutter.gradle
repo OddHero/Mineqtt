@@ -151,6 +151,20 @@ stonecutter.parameters {
     }
 }
 
+// Architectury's transform tasks (transformProductionFabric, transformProductionNeoForge) hand the transformer its
+// classpath through JVM system properties. Two of them running at once in one Gradle daemon read each other's
+// classpath, and a version node then fails on a type only its own Minecraft has. This service lets one run at a time.
+abstract class ArchitecturyTransformerLock implements org.gradle.api.services.BuildService<org.gradle.api.services.BuildServiceParameters.None> {}
+
+def architecturyTransformerLock = gradle.sharedServices.registerIfAbsent('architecturyTransformer', ArchitecturyTransformerLock) {
+    maxParallelUsages = 1
+}
+subprojects {
+    tasks.withType(dev.architectury.plugin.TransformingTask).configureEach {
+        usesService(architecturyTransformerLock)
+    }
+}
+
 // One folder with the release jar of every loader and Minecraft version: build/libs/.
 tasks.register('collectJars', Copy) {
     group = 'build'
