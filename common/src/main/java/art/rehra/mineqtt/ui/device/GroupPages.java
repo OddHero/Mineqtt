@@ -262,7 +262,7 @@ final class GroupPages {
     }
 
     /** Draws the page that shows. */
-    void render(GuiGraphicsExtractor g, DeviceView view, int mouseX, int mouseY) {
+    void draw(GuiGraphicsExtractor g, DeviceView view, int mouseX, int mouseY) {
         Optional<DeviceGroups> groups = menu.groups();
         if (groups.isPresent() && (groups.get() != synced || view != syncedView)) sync(groups.get(), view);
         if (page == Page.JOIN) {

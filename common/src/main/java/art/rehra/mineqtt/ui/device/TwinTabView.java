@@ -209,7 +209,7 @@ public class TwinTabView implements MqttTabView {
         }
         askPresets(synced);
         cells.forEach(cell -> {
-            if (cell.shown) cell.render(g, mouseX, mouseY);
+            if (cell.shown) cell.draw(g, mouseX, mouseY);
         });
     }
 
@@ -361,7 +361,7 @@ public class TwinTabView implements MqttTabView {
             }
         }
 
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
         }
     }
 
@@ -487,7 +487,7 @@ public class TwinTabView implements MqttTabView {
         }
 
         @Override
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
             GuiText.drawTruncated(g, line, x, y + TEXT_Y, width, MUTED_COLOR, mouseX, mouseY);
         }
     }
@@ -600,7 +600,7 @@ public class TwinTabView implements MqttTabView {
         }
 
         @Override
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
             field.setTextColor(field.getValue().strip().equals(syncedText) ? EditBox.DEFAULT_TEXT_COLOR : PREVIEW_COLOR);
         }
 
@@ -819,7 +819,7 @@ public class TwinTabView implements MqttTabView {
         }
 
         @Override
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
             int textWidth = width - (resume != null && resume.visible ? resume.getWidth() + TwinTab.GAP : 0);
             Optional<DeviceMenu.Refusal> refusal = menu.refusal().filter(refused -> refused.key().startsWith(LinkSetting.TWIN_PREFIX));
             if (refusal.isPresent()) {

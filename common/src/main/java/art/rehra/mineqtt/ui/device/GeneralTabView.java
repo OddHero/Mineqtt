@@ -246,7 +246,7 @@ public class GeneralTabView implements MqttTabView {
         DeviceView view = current.get();
         if (view != synced) sync(view);
         if (onGroupPages()) {
-            groupPages.render(g, view, mouseX, mouseY);
+            groupPages.draw(g, view, mouseX, mouseY);
             return;
         }
 

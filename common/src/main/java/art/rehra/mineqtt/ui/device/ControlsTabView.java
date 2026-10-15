@@ -133,7 +133,7 @@ public class ControlsTabView implements MqttTabView {
         long now = Util.getMillis();
         for (Row row : rows) {
             if (!row.held() && now >= row.localUntil) row.follow(syncedState);
-            row.render(g, mouseX, mouseY);
+            row.draw(g, mouseX, mouseY);
         }
         if (tab.statusLine() && !current.get().statusLine().isEmpty()) {
             int y = guiTop + FIRST_ROW_Y + (ControlsTab.MAX_ROWS - 1) * PITCH + 3;
@@ -240,7 +240,7 @@ public class ControlsTabView implements MqttTabView {
         void follow(JsonObject state) {
         }
 
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
         }
 
         boolean held() {
@@ -399,8 +399,8 @@ public class ControlsTabView implements MqttTabView {
         }
 
         @Override
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
-            picker.render(g, mouseX, mouseY);
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+            picker.draw(g, mouseX, mouseY);
         }
 
         @Override
@@ -469,7 +469,7 @@ public class ControlsTabView implements MqttTabView {
         }
 
         @Override
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
             boolean pending = !field.getValue().strip().equals(syncedText);
             field.setTextColor(pending ? PREVIEW_COLOR : EditBox.DEFAULT_TEXT_COLOR);
             set.active = pending;
@@ -556,7 +556,7 @@ public class ControlsTabView implements MqttTabView {
         }
 
         @Override
-        void render(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        void draw(GuiGraphicsExtractor g, int mouseX, int mouseY) {
             String typed = field.getValue().strip();
             boolean pending = !typed.equals(syncedText);
             boolean valid = control.typedNumber(typed).isPresent();
