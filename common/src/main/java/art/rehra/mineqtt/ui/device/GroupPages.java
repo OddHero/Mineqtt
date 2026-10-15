@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.device;
 
+import art.rehra.mineqtt.compat.Inputs;
 import art.rehra.mineqtt.device.DeviceConfig;
 import art.rehra.mineqtt.device.DeviceGroups;
 import art.rehra.mineqtt.device.DeviceRuntime;
@@ -17,7 +18,6 @@ import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.Nullable;
@@ -339,7 +339,7 @@ final class GroupPages {
             commitName();
             return true;
         }
-        return nameField.keyPressed(new KeyEvent(keyCode, scanCode, modifiers)) || nameField.canConsumeInput();
+        return Inputs.keyPressed(nameField, keyCode, scanCode, modifiers) || nameField.canConsumeInput();
     }
 
     /** The wheel scrolls the join page, a row a notch. */

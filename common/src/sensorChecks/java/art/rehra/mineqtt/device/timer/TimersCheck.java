@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device.timer;
 
+import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.blocks.entities.TimerBlockEntity;
 import art.rehra.mineqtt.device.Action;
 import art.rehra.mineqtt.device.DeviceLink;
@@ -72,7 +73,7 @@ public final class TimersCheck {
     private static final UUID STEVE = UUID.fromString("8667ba71-b85a-4004-af54-457a9734eed7");
     private static HolderLookup.Provider REGISTRIES;
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         kinds();
@@ -467,7 +468,7 @@ public final class TimersCheck {
      */
     private static void v1Data() {
         REGISTRIES = RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
-        Items.PAPER.builtInRegistryHolder().bindComponents(DataComponents.COMMON_ITEM_COMPONENTS);
+        CheckItems.bindCommonComponents(Items.PAPER);
         for (Era era : Era.values()) {
             // interval: 7 seconds, counted to 3, last fired at game time 400.
             CompoundTag interval = era.device(TimerKind.INTERVAL);

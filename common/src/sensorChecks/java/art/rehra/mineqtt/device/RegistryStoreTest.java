@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.flow.core.Endpoint;
 import art.rehra.mineqtt.flow.core.Mapping;
 import art.rehra.mineqtt.flow.core.Scope;
@@ -26,7 +27,6 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.util.Util;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
@@ -62,7 +62,7 @@ public final class RegistryStoreTest {
     private static final Identifier UNKNOWN = Identifier.fromNamespaceAndPath("othermod", "gadget");
     private static final UUID KITCHEN_OWNER = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
 
-    static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         Path root = Files.createTempDirectory("mineqtt-registry");
@@ -118,7 +118,7 @@ public final class RegistryStoreTest {
         DeviceGroup group = first.groupBySlug("downstairs");
         check(group != null && group.members().size() == 2 && group.state().get("state").getAsString().equals("ON"), "Groups persist with members and state");
         check(lamp.group().equals(group.id()), "Membership is restored on the device side");
-        check(first.inChunk(Level.OVERWORLD, ChunkPos.containing(new BlockPos(17, 64, -3))).contains(lamp), "The chunk index is rebuilt");
+        check(first.inChunk(Level.OVERWORLD, ChunkPositions.containing(new BlockPos(17, 64, -3))).contains(lamp), "The chunk index is rebuilt");
         check("abc123".equals(lamp.discoveryHash()) && "home_kitchen".equals(lamp.legacyUniqueId())
                 && "def456".equals(group.discoveryHash()) && "home_downstairs".equals(group.legacyUniqueId()),
                 "Discovery hashes and v1 unique_ids of devices and groups persist");

@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.device;
 
+import art.rehra.mineqtt.compat.Inputs;
 import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.device.LinkSetting;
 import art.rehra.mineqtt.ui.device.widgets.IntSlider;
@@ -21,7 +22,6 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
@@ -481,7 +481,7 @@ public class ControlsTabView implements MqttTabView {
                 commit();
                 return true;
             }
-            return field.keyPressed(new KeyEvent(keyCode, scanCode, modifiers)) || field.canConsumeInput();
+            return Inputs.keyPressed(field, keyCode, scanCode, modifiers) || field.canConsumeInput();
         }
 
         // The field keeps the sent text until the view that answers it, which it then follows.
@@ -570,7 +570,7 @@ public class ControlsTabView implements MqttTabView {
                 commit();
                 return true;
             }
-            return field.keyPressed(new KeyEvent(keyCode, scanCode, modifiers)) || field.canConsumeInput();
+            return Inputs.keyPressed(field, keyCode, scanCode, modifiers) || field.canConsumeInput();
         }
 
         // A number outside the bounds is not sent: the field stays red until the player fixes it.

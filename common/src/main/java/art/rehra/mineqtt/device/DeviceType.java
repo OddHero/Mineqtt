@@ -640,10 +640,17 @@ public final class DeviceType {
                             fail("device trigger " + entity.key() + " waits for " + trigger.attribute() + " " + trigger.subtype() + ", which event " + event.type() + " never carries");
                         }
                     }
-                    case HaEntity.Button _, HaEntity.Notify _ -> {
+                    case HaEntity.Button ignoredButton -> {
                         if (!actionKeys.contains(entity.key())) fail(entity.platform() + " " + entity.key() + " commands no declared action");
                     }
-                    case HaEntity.Switch<?> _, HaEntity.Light _ -> {
+                    case HaEntity.Notify ignoredNotify -> {
+                        if (!actionKeys.contains(entity.key())) fail(entity.platform() + " " + entity.key() + " commands no declared action");
+                    }
+                    case HaEntity.Switch<?> ignoredSwitch -> {
+                        // Home Assistant commands both with {"state": ...}, which may be TOGGLE: only the state action toggles.
+                        if (!actionKeys.contains(Action.STATE)) fail(entity.platform() + " " + entity.key() + " needs the state action");
+                    }
+                    case HaEntity.Light ignoredLight -> {
                         // Home Assistant commands both with {"state": ...}, which may be TOGGLE: only the state action toggles.
                         if (!actionKeys.contains(Action.STATE)) fail(entity.platform() + " " + entity.key() + " needs the state action");
                     }

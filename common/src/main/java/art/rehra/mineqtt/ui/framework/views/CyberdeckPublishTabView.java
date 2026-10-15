@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.framework.views;
 
+import art.rehra.mineqtt.compat.Inputs;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.network.MineqttNetworking;
 import art.rehra.mineqtt.ui.CyberdeckMenu;
@@ -12,8 +13,6 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.CharacterEvent;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 
@@ -98,16 +97,14 @@ public class CyberdeckPublishTabView implements MqttTabView {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        KeyEvent event = new KeyEvent(keyCode, scanCode, modifiers);
-        if (topicField.keyPressed(event) || topicField.canConsumeInput()) return true;
-        return payloadField.keyPressed(event) || payloadField.canConsumeInput();
+        if (Inputs.keyPressed(topicField, keyCode, scanCode, modifiers) || topicField.canConsumeInput()) return true;
+        return Inputs.keyPressed(payloadField, keyCode, scanCode, modifiers) || payloadField.canConsumeInput();
     }
 
     @Override
     public boolean charTyped(char c, int modifiers) {
-        CharacterEvent event = new CharacterEvent(c);
-        if (topicField.charTyped(event)) return true;
-        return payloadField.charTyped(event);
+        if (Inputs.charTyped(topicField, c, modifiers)) return true;
+        return Inputs.charTyped(payloadField, c, modifiers);
     }
 
     @Override

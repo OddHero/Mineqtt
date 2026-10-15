@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.config.ConfigValidation;
 import art.rehra.mineqtt.config.StaticDefaults;
 import art.rehra.mineqtt.flow.core.Endpoint;
@@ -146,7 +147,7 @@ public final class DeviceRegistry {
     /** The devices registered in one chunk. */
     public List<DeviceRecord> inChunk(ResourceKey<Level> dimension, ChunkPos chunk) {
         Map<Long, Set<DeviceRecord>> byChunk = chunks.get(dimension);
-        Set<DeviceRecord> inChunk = byChunk == null ? null : byChunk.get(chunk.pack());
+        Set<DeviceRecord> inChunk = byChunk == null ? null : byChunk.get(ChunkPositions.pack(chunk));
         return inChunk == null ? List.of() : List.copyOf(inChunk);
     }
 
@@ -350,7 +351,8 @@ public final class DeviceRegistry {
         return switch (endpoint) {
             case Endpoint.PortRef port -> port.node();
             case Endpoint.GroupPortRef port -> port.group();
-            case Endpoint.TopicRef _, Endpoint.HaEntityRef _ -> null;
+            case Endpoint.TopicRef ignoredTopicRef -> null;
+            case Endpoint.HaEntityRef ignoredHaEntityRef -> null;
         };
     }
 
@@ -359,7 +361,8 @@ public final class DeviceRegistry {
         return switch (endpoint) {
             case Endpoint.PortRef port -> records.containsKey(port.node());
             case Endpoint.GroupPortRef port -> groups.containsKey(port.group());
-            case Endpoint.TopicRef _, Endpoint.HaEntityRef _ -> false;
+            case Endpoint.TopicRef ignoredTopicRef -> false;
+            case Endpoint.HaEntityRef ignoredHaEntityRef -> false;
         };
     }
 
@@ -758,14 +761,14 @@ public final class DeviceRegistry {
     private void index(DeviceRecord record) {
         positions.put(record.pos(), record);
         chunks.computeIfAbsent(record.pos().dimension(), d -> new HashMap<>())
-                .computeIfAbsent(ChunkPos.pack(record.pos().pos()), c -> new LinkedHashSet<>()).add(record);
+                .computeIfAbsent(ChunkPositions.pack(record.pos().pos()), c -> new LinkedHashSet<>()).add(record);
     }
 
     private void unindex(DeviceRecord record) {
         positions.remove(record.pos());
         Map<Long, Set<DeviceRecord>> byChunk = chunks.get(record.pos().dimension());
         if (byChunk == null) return;
-        long chunk = ChunkPos.pack(record.pos().pos());
+        long chunk = ChunkPositions.pack(record.pos().pos());
         Set<DeviceRecord> inChunk = byChunk.get(chunk);
         if (inChunk != null && inChunk.remove(record) && inChunk.isEmpty()) byChunk.remove(chunk);
     }

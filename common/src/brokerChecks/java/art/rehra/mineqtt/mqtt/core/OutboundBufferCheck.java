@@ -21,7 +21,7 @@ public final class OutboundBufferCheck {
     private static final long MILLI = 1_000_000L;
     private static final long SECOND = 1_000 * MILLI;
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         stateCoalescingAndDedupe();
         refreshSkipsDedupe();
         edgesArePreserved();

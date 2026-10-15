@@ -83,7 +83,7 @@ public final class DeviceTypesCheck {
     private static final DeviceView.Ownership OWNED = new DeviceView.Ownership(DeviceView.Owner.KNOWN, false);
     private static final int JSON_FIELD_ALLOWANCE = 1024;
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         DeviceTypes.registerBuiltIn();
@@ -168,8 +168,10 @@ public final class DeviceTypesCheck {
                 case HaEntity.Event event -> event.eventTypes().forEach(eventType -> check(type.port(Port.Direction.OUT, eventType).isPresent(),
                         type + ": the Home Assistant event " + eventType + " has an event port"));
                 case HaEntity.DeviceTrigger trigger -> check(type.port(Port.Direction.OUT, trigger.event()).isPresent(), type + ": trigger " + trigger.key() + " has an event port");
-                case HaEntity.Button _, HaEntity.Notify _ -> check(type.action(entity.key()).isPresent(), type + ": " + entity.key() + " has its action");
-                case HaEntity.Switch<?> _, HaEntity.Light _ -> check(type.port(Port.Direction.IN, Action.STATE).isPresent(), type + ": " + entity.key() + " has a state in-port");
+                case HaEntity.Button ignoredButton -> check(type.action(entity.key()).isPresent(), type + ": " + entity.key() + " has its action");
+                case HaEntity.Notify ignoredNotify -> check(type.action(entity.key()).isPresent(), type + ": " + entity.key() + " has its action");
+                case HaEntity.Switch<?> ignoredSwitch -> check(type.port(Port.Direction.IN, Action.STATE).isPresent(), type + ": " + entity.key() + " has a state in-port");
+                case HaEntity.Light ignoredLight -> check(type.port(Port.Direction.IN, Action.STATE).isPresent(), type + ": " + entity.key() + " has a state in-port");
                 default -> {
                 }
             }
@@ -374,7 +376,7 @@ public final class DeviceTypesCheck {
                     refuses(setting, StringTag.valueOf("nope"), what + " unknown name");
                     refuses(setting, IntTag.valueOf(0), what + " as a number");
                 }
-                case PortType.Bool _ -> {
+                case PortType.Bool ignoredBool -> {
                     accepts(setting, ByteTag.valueOf(true), new JsonPrimitive(true), what);
                     refuses(setting, StringTag.valueOf("maybe"), what + " garbage");
                     refuses(setting, IntTag.valueOf(2), what + " 2");

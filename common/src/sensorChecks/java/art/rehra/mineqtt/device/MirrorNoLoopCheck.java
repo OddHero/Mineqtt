@@ -91,7 +91,7 @@ public final class MirrorNoLoopCheck {
     private static final TwinAdapter ADAPTER = TwinTestTypes.ADAPTER;
     private static final Binding SWITCH = TwinTestTypes.bound("switch.porch", true);
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         typeRules();

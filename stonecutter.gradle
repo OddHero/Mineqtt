@@ -21,6 +21,37 @@ stonecutter.parameters {
     def before = { String version -> stonecutter.eval(current.version, "<$version") }
     def from = { String version -> stonecutter.eval(current.version, ">=$version") }
 
+    // 26.1 renamed GuiGraphics to GuiGraphicsExtractor and some of its methods. The mod's GUI code names its instance g.
+    replacements.regex(before('26.1')) {
+        replace('\\bGuiGraphicsExtractor\\b', 'GuiGraphics', '\\bGuiGraphics\\b', 'GuiGraphicsExtractor')
+        replace('\\bg\\.text\\(', 'g.drawString(', '\\bg\\.drawString\\(', 'g.text(')
+        replace('\\bg\\.item\\(', 'g.renderItem(', '\\bg\\.renderItem\\(', 'g.item(')
+        // The screen and widget methods that draw, declared with (GuiGraphics g, ...) and called as super.x(g, ...).
+        [extractRenderState: 'render', extractBackground: 'renderBackground', extractLabels: 'renderLabels',
+         extractContents: 'renderContents', extractWidgetRenderState: 'renderWidget'].each { now, old ->
+            replace("\\b${now}\\(GuiGraphics(?:Extractor)? g,", "${old}(GuiGraphics g,", "\\b${old}\\(GuiGraphics(?:Extractor)? g,", "${now}(GuiGraphicsExtractor g,")
+            replace("\\bsuper\\.${now}\\(g,", "super.${old}(g,", "\\bsuper\\.${old}\\(g,", "super.${now}(g,")
+        }
+    }
+
+    // 1.21.11 moved Util into net.minecraft.util.
+    replacements.string(before('1.21.11')) {
+        replace('import net.minecraft.util.Util;', 'import net.minecraft.Util;')
+    }
+
+    // 26.1 moved the camera render state and the light coordinates helper.
+    replacements.string(before('26.1')) {
+        replace('net.minecraft.client.renderer.state.level.CameraRenderState', 'net.minecraft.client.renderer.state.CameraRenderState')
+        replace('import net.minecraft.util.LightCoordsUtil;', 'import net.minecraft.client.renderer.LightTexture;')
+        replace('LightCoordsUtil.FULL_BRIGHT', 'LightTexture.FULL_BRIGHT')
+        replace('handleContainerInput(', 'handleInventoryMouseClick(')
+    }
+
+    // 26.1 renamed the container click types.
+    replacements.regex(before('26.1')) {
+        replace('\\bContainerInput\\b', 'ClickType', '\\bClickType\\b', 'ContainerInput')
+    }
+
     // 26.2 moved the vanilla entity and block entity types into EntityTypes and BlockEntityTypes.
     replacements.regex(before('26.2')) {
         replace('\\bEntityTypes\\.([A-Z][A-Z0-9_]*)\\b', 'EntityType.$1', '\\bEntityType\\.([A-Z][A-Z0-9_]*)\\b', 'EntityTypes.$1')

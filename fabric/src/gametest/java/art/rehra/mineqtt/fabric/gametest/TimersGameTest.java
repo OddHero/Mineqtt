@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.runtime.WorldClock;
 import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
 import art.rehra.mineqtt.blocks.TimerBlock;
@@ -30,7 +31,6 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.ComparatorBlock;
-import net.minecraft.world.level.gamerules.GameRules;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -140,7 +140,7 @@ public final class TimersGameTest implements FabricClientGameTest {
     private static void standingClock(GameTestSession session) {
         List<BlockPos> dayTimers = List.of(DAYLIGHT, ALARM);
         // A test world starts with the day cycle off; this step runs it and leaves it off again.
-        session.check(!session.onServer(s -> s.getGlobalGameRules().get(GameRules.ADVANCE_TIME))
+        session.check(!session.onServer(WorldClock::advances)
                         && session.await(() -> dayTimers.stream().allMatch(timer -> nextFire(session, timer).isEmpty()), ANSWER_TICKS),
                 "the test world's clock stands, so the Daylight Timer and the Alarm Clock have no next fire");
         session.consoleCommand("gamerule advance_time true");

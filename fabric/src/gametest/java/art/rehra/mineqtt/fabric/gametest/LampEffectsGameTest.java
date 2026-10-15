@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
 import art.rehra.mineqtt.client.RgbLedBlockColor;
@@ -191,7 +192,7 @@ public final class LampEffectsGameTest implements FabricClientGameTest {
         });
         session.context().waitTicks(SETTLE_TICKS);
         session.teleport(FAR);
-        long chunk = ChunkPos.pack(lamp);
+        long chunk = ChunkPositions.pack(lamp);
         boolean loadedNotTicking = session.await(() -> session.onServer(s -> s.overworld().getChunkSource().getChunkNow(ChunkPos.getX(chunk), ChunkPos.getZ(chunk)) != null
                 && !s.overworld().isPositionTickingWithEntitiesLoaded(chunk)), ANSWER_TICKS);
         session.check(loadedNotTicking && Boolean.TRUE.equals(session.device(lamp, DeviceLink::attached)),

@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.device;
 
+import art.rehra.mineqtt.compat.Inputs;
 import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.device.LinkSetting;
@@ -22,7 +23,6 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -610,7 +610,7 @@ public class TwinTabView implements MqttTabView {
                 field.setFocused(false);
                 return true;
             }
-            return field.keyPressed(new KeyEvent(keyCode, scanCode, modifiers)) || field.canConsumeInput();
+            return Inputs.keyPressed(field, keyCode, scanCode, modifiers) || field.canConsumeInput();
         }
 
         // Sends what was typed, if it differs from what the server keeps; the field keeps it until the view answers.

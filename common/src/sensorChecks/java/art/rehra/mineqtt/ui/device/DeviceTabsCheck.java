@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.device;
 
+import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.device.Access;
 import art.rehra.mineqtt.device.Action;
@@ -90,7 +91,7 @@ public final class DeviceTabsCheck {
     private static final DeviceView.Grants CONFIGURE_ONLY = new DeviceView.Grants(false, true, false, false);
     private static final DeviceView.Grants USE_AND_CONFIGURE = new DeviceView.Grants(true, true, false, false);
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         DeviceTypes.registerBuiltIn();
@@ -499,8 +500,7 @@ public final class DeviceTabsCheck {
      */
     private static void paperChannels() {
         // An item stack needs its item's default components, which a server binds when it loads its data packs.
-        Items.PAPER.builtInRegistryHolder().bindComponents(DataComponents.COMMON_ITEM_COMPONENTS);
-        Items.STONE.builtInRegistryHolder().bindComponents(DataComponents.COMMON_ITEM_COMPONENTS);
+        CheckItems.bindCommonComponents(Items.PAPER, Items.STONE);
         ItemStack paper = new ItemStack(Items.PAPER);
         paper.set(DataComponents.CUSTOM_NAME, Component.literal("garage/door"));
         ItemStack namedStone = new ItemStack(Items.STONE);

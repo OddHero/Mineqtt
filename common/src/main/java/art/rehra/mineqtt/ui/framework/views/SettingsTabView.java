@@ -12,7 +12,9 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
+//? if >=1.21.9 {
 import net.minecraft.client.input.InputWithModifiers;
+//?}
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
@@ -184,7 +186,11 @@ public class SettingsTabView implements MqttTabView {
         }
 
         @Override
+        //? if >=1.21.9 {
         public void onPress(InputWithModifiers input) {
+        //?} else {
+        /*public void onPress() {
+        *///?}
             onToggle.run();
         }
 

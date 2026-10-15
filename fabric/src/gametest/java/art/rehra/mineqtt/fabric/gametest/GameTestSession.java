@@ -401,7 +401,11 @@ final class GameTestSession implements AutoCloseable {
 
     /** Looks straight up into the open sky, so the use key uses the held item instead of a block. */
     void aimAtSky() {
+        //? if >=26.1 {
         context.getInput().lookAt(0, -90);
+        //?} else {
+        /*context.runOnClient(mc -> mc.player.setXRot(-90));
+        *///?}
         context.waitFor(mc -> mc.hitResult == null || mc.hitResult.getType() == HitResult.Type.MISS);
     }
 

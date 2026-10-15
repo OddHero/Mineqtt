@@ -255,8 +255,8 @@ public final class HaCalls {
         if (port.isEmpty()) return new Refused(Reason.NO_SUCH_PORT, domain + " has no " + inPort + " input");
         PortType kind = port.get().kind();
         return switch (kind) {
-            case PortType.Bool _ -> switchState(spec, value, mirror, new JsonObject());
-            case PortType.Light _ -> light(spec, value, mirror);
+            case PortType.Bool ignoredBool -> switchState(spec, value, mirror, new JsonObject());
+            case PortType.Light ignoredLight -> light(spec, value, mirror);
             case PortType.Event event -> event(spec, event, value);
             case PortType.Number number -> number(spec, inPort, number, value);
             case PortType.Text text -> text(spec, inPort, text, value);

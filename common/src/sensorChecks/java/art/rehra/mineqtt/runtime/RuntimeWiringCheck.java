@@ -72,7 +72,7 @@ public final class RuntimeWiringCheck {
     private static final Slf4jMqttLog LOG = new Slf4jMqttLog(LoggerFactory.getLogger("mineqtt-check"));
     private static final String BRIDGE = "world_7f3a";
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         DeviceTypes.registerBuiltIn();

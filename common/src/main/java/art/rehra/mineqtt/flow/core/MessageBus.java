@@ -486,7 +486,8 @@ public final class MessageBus {
         return switch (endpoint) {
             case Endpoint.PortRef port -> port.node().equals(node);
             case Endpoint.GroupPortRef port -> port.group().equals(node);
-            case Endpoint.TopicRef _, Endpoint.HaEntityRef _ -> false;
+            case Endpoint.TopicRef ignoredTopicRef -> false;
+            case Endpoint.HaEntityRef ignoredHaEntityRef -> false;
         };
     }
 }

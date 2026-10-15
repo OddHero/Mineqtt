@@ -40,7 +40,7 @@ public final class StatestreamParseCheck {
     private static final String CAPTURE = "/statestream/capture-2026.10.0.txt";
     private static long clock;
 
-    static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException {
         topics();
         stateValues();
         timestamps();

@@ -21,7 +21,12 @@ import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 
 import java.util.List;
 
+// NeoForge routes each event to its bus itself from 21.6 on; before, a subscriber names the mod bus.
+//? if >=1.21.6 {
 @EventBusSubscriber(modid = MineQTT.MOD_ID, value = Dist.CLIENT)
+//?} else {
+/*@EventBusSubscriber(modid = MineQTT.MOD_ID, value = Dist.CLIENT, bus = EventBusSubscriber.Bus.MOD)
+*///?}
 public class MineqttNeoForgeClient {
 
     @SubscribeEvent
@@ -39,9 +44,15 @@ public class MineqttNeoForgeClient {
     }
 
     @SubscribeEvent
+    //? if >=26.1 {
     public static void registerBlockColors(RegisterColorHandlersEvent.BlockTintSources event) {
         event.register(List.of(new RgbLedBlockColor()), MineqttBlocks.RGB_LED_BLOCK.get());
     }
+    //?} else {
+    /*public static void registerBlockColors(RegisterColorHandlersEvent.Block event) {
+        event.register(new RgbLedBlockColor(), MineqttBlocks.RGB_LED_BLOCK.get());
+    }
+    *///?}
 
     /**
      * The Display Panel's text (M3 plan D18), as the Fabric client registers it through Architectury. NeoForge's own event

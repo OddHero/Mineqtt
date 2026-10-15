@@ -53,7 +53,7 @@ public final class RawLinkRetainCheck {
     private static RawLinkSpec INPUT;
     private static RawLinkSpec SENSOR;
 
-    static void main(String[] args) throws CommandSyntaxException {
+    public static void main(String[] args) throws CommandSyntaxException {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         registries = RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);

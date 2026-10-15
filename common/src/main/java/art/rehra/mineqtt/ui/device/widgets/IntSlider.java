@@ -1,8 +1,10 @@
 package art.rehra.mineqtt.ui.device.widgets;
 
 import net.minecraft.client.gui.components.AbstractSliderButton;
+//? if >=1.21.9 {
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+//?}
 import net.minecraft.network.chat.Component;
 
 import java.util.function.IntConsumer;
@@ -75,25 +77,47 @@ public class IntSlider extends AbstractSliderButton {
     }
 
     @Override
+    //? if >=1.21.9 {
     public void onClick(MouseButtonEvent event, boolean doubleClick) {
         held = true;
         super.onClick(event, doubleClick);
     }
+    //?} else {
+    /*public void onClick(double mouseX, double mouseY) {
+        held = true;
+        super.onClick(mouseX, mouseY);
+    }
+    *///?}
 
     @Override
+    //? if >=1.21.9 {
     public void onRelease(MouseButtonEvent event) {
         super.onRelease(event);
+    //?} else {
+    /*public void onRelease(double mouseX, double mouseY) {
+        super.onRelease(mouseX, mouseY);
+    *///?}
         release();
     }
 
     @Override
+    //? if >=1.21.9 {
     public boolean keyPressed(KeyEvent event) {
-        if (canChangeValue && (event.isLeft() || event.isRight())) {
+        boolean left = event.isLeft(), right = event.isRight();
+    //?} else {
+    /*public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        boolean left = keyCode == InputConstants.KEY_LEFT, right = keyCode == InputConstants.KEY_RIGHT;
+    *///?}
+        if (canChangeValue && (left || right)) {
             // One step per key, not the vanilla pixel.
-            setValue(fraction(snap(number + (event.isLeft() ? -step : step))));
+            setValue(fraction(snap(number + (left ? -step : step))));
             return true;
         }
+        //? if >=1.21.9 {
         return super.keyPressed(event);
+        //?} else {
+        /*return super.keyPressed(keyCode, scanCode, modifiers);
+        *///?}
     }
 
     private int snap(int number) {

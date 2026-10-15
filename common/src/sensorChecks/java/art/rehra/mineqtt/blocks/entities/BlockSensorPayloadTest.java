@@ -38,7 +38,7 @@ import java.util.Optional;
 public final class BlockSensorPayloadTest {
     private static final BlockPos POS = new BlockPos(-5, 64, 12);
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         payloads();

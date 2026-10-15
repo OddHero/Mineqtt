@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks.entities;
 
+import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.PlacerRules;
 import art.rehra.mineqtt.device.RawLinkSpec;
@@ -48,11 +49,11 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class BlockEmitterPayloadTest {
     private static final Set<Block> PLACEABLE = new HashSet<>();
 
-    static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         // Item stacks need their items' default components, which a server binds when it loads its data packs.
-        for (Item item : List.of(Items.WOOL.white(), Items.GLASS, Items.STONE)) item.builtInRegistryHolder().bindComponents(DataComponents.COMMON_ITEM_COMPONENTS);
+        CheckItems.bindCommonComponents(Items.WOOL.white(), Items.GLASS, Items.STONE);
         PLACEABLE.addAll(resolveTag("mineqtt", "placeable"));
         allowlist();
         accepted();

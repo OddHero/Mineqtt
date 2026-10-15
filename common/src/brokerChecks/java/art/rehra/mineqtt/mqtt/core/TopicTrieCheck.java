@@ -4,7 +4,7 @@ import java.util.List;
 
 /** Spec matching of {@link TopicTrie} and the filter algebra of {@link TopicFilters} that the ACL builds on. */
 public final class TopicTrieCheck {
-    static void main(String[] args) {
+    public static void main(String[] args) {
         singleLevelWildcard();
         multiLevelWildcard();
         dollarTopics();

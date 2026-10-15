@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.blocks.Interaction;
 import art.rehra.mineqtt.blocks.LightRemoteBlock;
 import art.rehra.mineqtt.device.types.PresenceSensor;
@@ -79,7 +80,7 @@ public final class LifecycleGuardTest {
     private static final UUID OWNER = UUID.fromString("11111111-2222-4333-8444-555555555555");
     private static final UUID PLACER = UUID.fromString("99999999-8888-4777-8666-555555555555");
 
-    static void main(String[] args) throws ReflectiveOperationException {
+    public static void main(String[] args) throws ReflectiveOperationException {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         attachGuard();
@@ -553,9 +554,7 @@ public final class LifecycleGuardTest {
         check(Interaction.decide(false, Interaction.Held.NAMED_TAG, null) == Interaction.Outcome.SCREEN, "A block that is no device has no name to change");
 
         // An item stack needs its item's default components, which a server binds when it loads its data packs.
-        for (Item item : List.of(Items.STICK, Items.STONE, Items.LEVER, Items.PAPER, Items.NAME_TAG)) {
-            item.builtInRegistryHolder().bindComponents(DataComponents.COMMON_ITEM_COMPONENTS);
-        }
+        CheckItems.bindCommonComponents(Items.STICK, Items.STONE, Items.LEVER, Items.PAPER, Items.NAME_TAG);
         check(Interaction.Held.of(ItemStack.EMPTY) == Interaction.Held.OTHER &&Interaction.Held.of(new ItemStack(Items.STICK)) == Interaction.Held.OTHER,
                 "An empty hand and a stick count as nothing");
         check(Interaction.Held.of(new ItemStack(Items.STONE)) == Interaction.Held.PLACEABLE && Interaction.Held.of(new ItemStack(Items.LEVER)) == Interaction.Held.PLACEABLE,

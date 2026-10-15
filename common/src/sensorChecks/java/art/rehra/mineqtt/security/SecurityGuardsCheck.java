@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.security;
 
+import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.commands.MineQTTCommands;
@@ -183,7 +184,7 @@ import java.util.function.Predicate;
 public final class SecurityGuardsCheck {
     private static final long SECOND = 1_000_000_000L;
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         DeviceTypes.registerBuiltIn();
@@ -2800,7 +2801,7 @@ public final class SecurityGuardsCheck {
      */
     private static void automationFaces() {
         // An item stack needs its item's default components, which a server binds when it loads its data packs.
-        Items.PAPER.builtInRegistryHolder().bindComponents(DataComponents.COMMON_ITEM_COMPONENTS);
+        CheckItems.bindCommonComponents(Items.PAPER);
         Slots slots = new Slots();
         List<Direction> sides = new ArrayList<>(Arrays.asList(Direction.values()));
         sides.add(null);

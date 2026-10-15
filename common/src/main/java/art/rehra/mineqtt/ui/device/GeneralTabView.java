@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.device;
 
+import art.rehra.mineqtt.compat.Inputs;
 import art.rehra.mineqtt.device.DeviceView;
 import art.rehra.mineqtt.network.MineqttNetworking.DeviceConfigPayload;
 import art.rehra.mineqtt.ui.framework.GuiText;
@@ -15,7 +16,6 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Util;
@@ -355,7 +355,7 @@ public class GeneralTabView implements MqttTabView {
             commitName();
             return true;
         }
-        return nameField.keyPressed(new KeyEvent(keyCode, scanCode, modifiers)) || nameField.canConsumeInput();
+        return Inputs.keyPressed(nameField, keyCode, scanCode, modifiers) || nameField.canConsumeInput();
     }
 
     @Override

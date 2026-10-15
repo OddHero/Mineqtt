@@ -118,7 +118,7 @@ public final class RecipesGameTest implements FabricClientGameTest {
                 }
                 Optional<RecipeHolder<CraftingRecipe>> match = s.getRecipeManager().getRecipeFor(RecipeType.CRAFTING, input, s.overworld());
                 Optional<Identifier> picked = match.map(picks -> picks.id().identifier());
-                Identifier made = match.map(picks -> BuiltInRegistries.ITEM.getKey(picks.value().assemble(input).getItem())).orElse(null);
+                Identifier made = match.map(picks -> BuiltInRegistries.ITEM.getKey(assemble(picks.value(), input, s).getItem())).orElse(null);
                 boolean ok = picked.equals(Optional.of(holder.id().identifier())) && made != null && Catalog.find(made).filter(Catalog.Entry::craftable).isPresent();
                 lines.add((ok ? "PASS " : "FAIL ") + holder.id().identifier() + " is picked for its own ingredients (" + picked.orElse(null) + ") and makes " + made);
             }
@@ -138,7 +138,7 @@ public final class RecipesGameTest implements FabricClientGameTest {
             for (RecipeHolder<?> holder : modRecipes(s)) {
                 if (!(holder.value() instanceof CraftingRecipe crafting)) continue;
                 CraftingInput input = input(crafting);
-                Identifier made = input == null ? null : BuiltInRegistries.ITEM.getKey(crafting.assemble(input).getItem());
+                Identifier made = input == null ? null : BuiltInRegistries.ITEM.getKey(assemble(crafting, input, s).getItem());
                 if (unreleased.contains(made)) found.add(holder.id().identifier() + " makes " + made);
                 crafting.placementInfo().ingredients().forEach(ingredient -> ingredient.items()
                         .map(item -> BuiltInRegistries.ITEM.getKey(item.value())).filter(unreleased::contains)
@@ -248,4 +248,14 @@ public final class RecipesGameTest implements FabricClientGameTest {
     private static Identifier mineqtt(String path) {
         return Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, path);
     }
+
+    // The recipe's result; before 26.1 assembling takes the registries.
+    private static ItemStack assemble(CraftingRecipe recipe, CraftingInput input, MinecraftServer server) {
+        //? if >=26.1 {
+        return recipe.assemble(input);
+        //?} else {
+        /*return recipe.assemble(input, server.registryAccess());
+        *///?}
+    }
+
 }

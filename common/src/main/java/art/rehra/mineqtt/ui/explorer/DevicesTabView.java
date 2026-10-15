@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.explorer;
 
+import art.rehra.mineqtt.compat.Inputs;
 import art.rehra.mineqtt.network.MineqttNetworking.ExplorerActionPayload;
 import art.rehra.mineqtt.network.MineqttNetworking.ExplorerQueryPayload;
 import art.rehra.mineqtt.network.MineqttNetworking.PrivacyChoicePayload;
@@ -21,8 +22,6 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.CharacterEvent;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
@@ -613,12 +612,12 @@ public class DevicesTabView implements MqttTabView {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == InputConstants.KEY_ESCAPE || !search.isFocused()) return false;
-        return search.keyPressed(new KeyEvent(keyCode, scanCode, modifiers)) || search.canConsumeInput();
+        return Inputs.keyPressed(search, keyCode, scanCode, modifiers) || search.canConsumeInput();
     }
 
     @Override
     public boolean charTyped(char c, int modifiers) {
-        return search.isFocused() && search.charTyped(new CharacterEvent(c));
+        return search.isFocused() && Inputs.charTyped(search, c, modifiers);
     }
 
     // The wheel scrolls the list, an entry a notch.

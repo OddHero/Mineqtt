@@ -166,8 +166,12 @@ public final class LegacyNbtV1 {
         List<Identifier> filter = new ArrayList<>();
         for (ItemStackWithSlot item : items) {
             if (item.slot() < FIRST_EGG_SLOT || item.slot() >= FIRST_EGG_SLOT + EGG_SLOTS) continue;
-            if (!(item.stack().getItem() instanceof SpawnEggItem)) continue;
+            if (!(item.stack().getItem() instanceof SpawnEggItem egg)) continue;
+            //? if >=26.1 {
             EntityType<?> type = SpawnEggItem.getType(item.stack());
+            //?} else {
+            /*EntityType<?> type = egg.getType(item.stack());
+            *///?}
             if (type == null || type == EntityTypes.PLAYER) continue;
             Identifier id = EntityType.getKey(type);
             if (!filter.contains(id)) filter.add(id);

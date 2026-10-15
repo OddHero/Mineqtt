@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.legacy;
 
+import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.blocks.HumiditySensorBlock;
 import art.rehra.mineqtt.blocks.StaticPublisherBlock;
 import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
@@ -128,15 +129,13 @@ public final class LegacyNbtV1Test {
     // The UUID the M2 legacy layer resolved a legacy block's owner name to (F11).
     private static final UUID STEVE = UUID.fromString("8667ba71-b85a-4004-af54-457a9734eed7");
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         REGISTRIES = RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
         // Item stacks need their items' default components, which a server binds when it loads its data packs; the
         // common ones are enough for the items the slots hold here.
-        for (Item item : List.of(Items.PAPER, Items.STONE, Items.DIRT, Items.REDSTONE_LAMP)) {
-            item.builtInRegistryHolder().bindComponents(DataComponents.COMMON_ITEM_COMPONENTS);
-        }
+        CheckItems.bindCommonComponents(Items.PAPER, Items.STONE, Items.DIRT, Items.REDSTONE_LAMP);
         // A spawn egg's mob is its default entity data, as the captured M1 eggs have no components of their own.
         bindEgg(Items.ZOMBIE_SPAWN_EGG, EntityTypes.ZOMBIE);
         bindEgg(Items.PIG_SPAWN_EGG, EntityTypes.PIG);
@@ -1229,9 +1228,12 @@ public final class LegacyNbtV1Test {
         return stack;
     }
 
+    // Before 26.1 a spawn egg knows its mob without components.
     private static void bindEgg(Item egg, EntityType<?> type) {
+        //? if >=26.1 {
         egg.builtInRegistryHolder().bindComponents(DataComponentMap.builder().addAll(DataComponents.COMMON_ITEM_COMPONENTS)
                 .set(DataComponents.ENTITY_DATA, TypedEntityData.of(type, new CompoundTag())).build());
+        //?}
     }
 
     // A spawn egg as a server has it: its mob is the default entity data of the item.

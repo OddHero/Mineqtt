@@ -50,9 +50,10 @@ final class WireCodecs {
 
     private static DataResult<String> type(Endpoint endpoint) {
         return switch (endpoint) {
-            case Endpoint.PortRef _ -> DataResult.success(PORT);
-            case Endpoint.GroupPortRef _ -> DataResult.success(GROUP_PORT);
-            case Endpoint.TopicRef _, Endpoint.HaEntityRef _ -> derived("endpoint " + endpoint.describe());
+            case Endpoint.PortRef ignoredPortRef -> DataResult.success(PORT);
+            case Endpoint.GroupPortRef ignoredGroupPortRef -> DataResult.success(GROUP_PORT);
+            case Endpoint.TopicRef ignoredTopicRef -> derived("endpoint " + endpoint.describe());
+            case Endpoint.HaEntityRef ignoredHaEntityRef -> derived("endpoint " + endpoint.describe());
         };
     }
 

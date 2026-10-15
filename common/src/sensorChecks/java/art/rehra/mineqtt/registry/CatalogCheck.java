@@ -69,7 +69,7 @@ public final class CatalogCheck {
     private static Path resources;
     private static RegistryOps<JsonElement> ops;
 
-    static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException {
         if (args.length != 1) throw new IllegalArgumentException("Usage: CatalogCheck <resources folder>");
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();

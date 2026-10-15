@@ -47,17 +47,17 @@ public final class Coerce {
      */
     public static boolean compatible(PortType from, PortType to, boolean toggles) {
         return switch (to) {
-            case PortType.Text _ -> !(from instanceof PortType.Event);
-            case PortType.Bool _ -> from instanceof PortType.Bool || from instanceof PortType.Level || from instanceof PortType.Text
+            case PortType.Text ignoredText -> !(from instanceof PortType.Event);
+            case PortType.Bool ignoredBool -> from instanceof PortType.Bool || from instanceof PortType.Level || from instanceof PortType.Text
                     || from instanceof PortType.Color || from instanceof PortType.Event && toggles;
-            case PortType.Level _ -> from instanceof PortType.Bool || from instanceof PortType.Level || from instanceof PortType.Number;
-            case PortType.Number _ -> from instanceof PortType.Number;
+            case PortType.Level ignoredLevel -> from instanceof PortType.Bool || from instanceof PortType.Level || from instanceof PortType.Number;
+            case PortType.Number ignoredNumber -> from instanceof PortType.Number;
             case PortType.Enum target -> from instanceof PortType.Enum source
                     && source.values().stream().allMatch(value -> target.values().stream().anyMatch(value::equalsIgnoreCase));
-            case PortType.Color _ -> from instanceof PortType.Color;
-            case PortType.Light _ -> from instanceof PortType.Light;
-            case PortType.Json _ -> from instanceof PortType.Json;
-            case PortType.Event _ -> from instanceof PortType.Event;
+            case PortType.Color ignoredColor -> from instanceof PortType.Color;
+            case PortType.Light ignoredLight -> from instanceof PortType.Light;
+            case PortType.Json ignoredJson -> from instanceof PortType.Json;
+            case PortType.Event ignoredEvent -> from instanceof PortType.Event;
         };
     }
 
@@ -69,13 +69,13 @@ public final class Coerce {
         if (!compatible(from, to, toggles) || from.problem(value).isPresent()) return Optional.empty();
         return switch (to) {
             case PortType.Text text -> Optional.of(new JsonPrimitive(sanitize(text(value), text.maxLength())));
-            case PortType.Bool _ -> switch (from) {
-                case PortType.Level _ -> Optional.of(new JsonPrimitive(decimal(value).orElseThrow().signum() > 0));
-                case PortType.Color _ -> Optional.of(new JsonPrimitive(rgb(value).orElseThrow() != 0));
-                case PortType.Event _ -> Optional.of(new JsonPrimitive(TOGGLE));
+            case PortType.Bool ignoredBool -> switch (from) {
+                case PortType.Level ignoredLevel -> Optional.of(new JsonPrimitive(decimal(value).orElseThrow().signum() > 0));
+                case PortType.Color ignoredColor -> Optional.of(new JsonPrimitive(rgb(value).orElseThrow() != 0));
+                case PortType.Event ignoredEvent -> Optional.of(new JsonPrimitive(TOGGLE));
                 default -> bool(value).map(JsonPrimitive::new);
             };
-            case PortType.Level _ -> from instanceof PortType.Bool
+            case PortType.Level ignoredLevel -> from instanceof PortType.Bool
                     ? Optional.of(new JsonPrimitive(bool(value).orElseThrow() ? PortType.MAX_LEVEL : 0))
                     : Optional.of(new JsonPrimitive(fit(decimal(value).orElseThrow(), 0, PortType.MAX_LEVEL, true)));
             case PortType.Number number -> Optional.of(new JsonPrimitive(fit(decimal(value).orElseThrow(), number.min(), number.max(), number.integral())));
@@ -83,8 +83,10 @@ public final class Coerce {
                 String name = value.getAsString();
                 yield target.values().stream().filter(name::equalsIgnoreCase).findFirst().map(JsonPrimitive::new);
             }
-            case PortType.Event _ -> Optional.of(new JsonPrimitive(PRESS));
-            case PortType.Color _, PortType.Light _, PortType.Json _ -> Optional.of(value.deepCopy());
+            case PortType.Event ignoredEvent -> Optional.of(new JsonPrimitive(PRESS));
+            case PortType.Color ignoredColor -> Optional.of(value.deepCopy());
+            case PortType.Light ignoredLight -> Optional.of(value.deepCopy());
+            case PortType.Json ignoredJson -> Optional.of(value.deepCopy());
         };
     }
 

@@ -13,8 +13,10 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
+//? if >=1.21.9 {
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+//?}
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 
@@ -208,15 +210,30 @@ public class LinkPickerScreen extends Screen {
     }
 
     @Override
+    //? if >=1.21.9 {
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         int row = rowAt(event.x(), event.y());
         if (event.button() == InputConstants.MOUSE_BUTTON_LEFT && row >= 0) {
+    //?} else {
+    /*public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        int row = rowAt(mouseX, mouseY);
+        if (button == InputConstants.MOUSE_BUTTON_LEFT && row >= 0) {
+            boolean doubleClick = doubleClicks.click(row);
+    *///?}
             select(row);
             if (doubleClick) confirm();
             return true;
         }
+        //? if >=1.21.9 {
         return super.mouseClicked(event, doubleClick);
+        //?} else {
+        /*return super.mouseClicked(mouseX, mouseY, button);
+        *///?}
     }
+
+    //? if <1.21.9 {
+    /*private final art.rehra.mineqtt.compat.DoubleClick doubleClicks = new art.rehra.mineqtt.compat.DoubleClick();
+    *///?}
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double dx, double dy) {
@@ -228,13 +245,22 @@ public class LinkPickerScreen extends Screen {
     }
 
     @Override
+    //? if >=1.21.9 {
     public boolean keyPressed(KeyEvent event) {
-        switch (event.key()) {
+        int keyCode = event.key();
+    //?} else {
+    /*public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    *///?}
+        switch (keyCode) {
             case InputConstants.KEY_UP -> select(selected - 1);
             case InputConstants.KEY_DOWN -> select(selected + 1);
             case InputConstants.KEY_RETURN, InputConstants.KEY_NUMPADENTER -> confirm();
             default -> {
+                //? if >=1.21.9 {
                 return super.keyPressed(event);
+                //?} else {
+                /*return super.keyPressed(keyCode, scanCode, modifiers);
+                *///?}
             }
         }
         return true;

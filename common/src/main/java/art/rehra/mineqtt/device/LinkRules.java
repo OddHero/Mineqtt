@@ -101,7 +101,9 @@ public final class LinkRules {
                     DeviceGroup group = registry.group(port.group());
                     if (group != null) devices.addAll(group.members());
                 }
-                case Endpoint.TopicRef _, Endpoint.HaEntityRef _ -> {
+                case Endpoint.TopicRef ignoredTopicRef -> {
+                }
+                case Endpoint.HaEntityRef ignoredHaEntityRef -> {
                 }
             }
         }

@@ -21,7 +21,7 @@ public final class TopicAclCheck {
     private static final Subject OP = new Subject(ALEX, true, false);
     private static final Subject ADMIN = new Subject(ALEX, true, true);
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         TopicAcl acl = new TopicAcl(rules(withDefaults("zigbee2mqtt/+/set"), false, false));
         validation(acl);
         hardDeny(acl);

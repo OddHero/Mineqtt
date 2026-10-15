@@ -13,7 +13,12 @@ import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.loading.FMLPaths;
 
 @Mod(MineQTT.MOD_ID)
+// NeoForge routes each event to its bus itself from 21.6 on; before, a subscriber names the mod bus.
+//? if >=1.21.6 {
 @EventBusSubscriber(modid = MineQTT.MOD_ID)
+//?} else {
+/*@EventBusSubscriber(modid = MineQTT.MOD_ID, bus = EventBusSubscriber.Bus.MOD)
+*///?}
 public final class MineqttNeoForge {
     private static NeoForgeConfigHandler configHandler;
 
