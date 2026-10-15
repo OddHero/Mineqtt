@@ -87,12 +87,20 @@ public class TimerBlock extends BaseMqttBlock {
     }
 
     /** A timer broken during its pulse no longer powers what it powered. */
+    //? if >=1.21.5 {
     @Override
     protected void affectNeighborsAfterRemoval(BlockState state, ServerLevel level, BlockPos pos, boolean movedByPiston) {
         if (!movedByPiston) {
             this.updateNeighbors(level, pos, state);
         }
     }
+    //?} else {
+    /*@Override
+    protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
+        super.onRemove(state, level, pos, newState, movedByPiston);
+        if (!movedByPiston && !state.is(newState.getBlock())) this.updateNeighbors(level, pos, state);
+    }
+    *///?}
 
     @Override
     public @Nullable BlockEntity newBlockEntity(BlockPos pos, BlockState state) {

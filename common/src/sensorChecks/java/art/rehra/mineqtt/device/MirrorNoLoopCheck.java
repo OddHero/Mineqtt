@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
@@ -1968,8 +1969,8 @@ public final class MirrorNoLoopCheck {
     private static DeviceLink linkWithRaw() {
         DeviceLink link = new DeviceLink(TYPE);
         CompoundTag data = new CompoundTag();
-        data.store("id", UUIDUtil.CODEC, UUID.randomUUID());
-        data.store("raw", RawLink.CODEC, new RawLink("mineqtt/shared/porch", RawLinkSpec.Direction.IN, null, null, 0, null, null, false, null, 0, null,
+        NbtTags.store(data, "id", UUIDUtil.CODEC, UUID.randomUUID());
+        NbtTags.store(data, "raw", RawLink.CODEC, new RawLink("mineqtt/shared/porch", RawLinkSpec.Direction.IN, null, null, 0, null, null, false, null, 0, null,
                 RawLink.Edges.BOTH));
         CompoundTag tag = new CompoundTag();
         tag.put(DeviceLink.KEY, data);

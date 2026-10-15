@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.integrations.MineqttPermission;
@@ -68,7 +69,7 @@ public final class OwnerUuidGameTest implements FabricClientGameTest {
         session.check(session.playerId().equals(session.device(TIMER_V1, link -> link.owner())), "the v1 owner name resolves to the player's UUID at the attach");
         session.check(session.onServer(s -> DeviceAccess.isOwner(session.player(s), s.overworld().getBlockEntity(TIMER_V1))), "the player owns the v1 timer by UUID");
         CompoundTag saved = session.onServer(s -> s.overworld().getBlockEntity(TIMER_V1).saveWithoutMetadata(s.registryAccess()));
-        session.check(saved.getCompound("mineqtt").map(data -> data.contains("owner")).orElse(false) && !saved.contains("intervalValue"),
+        session.check(NbtTags.getCompound(saved, "mineqtt").map(data -> data.contains("owner")).orElse(false) && !saved.contains("intervalValue"),
                 "the owner UUID is saved in the device's compound, the v1 keys are gone (" + saved + ")");
 
         // A private device of the main account: the alt may neither use nor configure it.

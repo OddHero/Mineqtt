@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.device.DeviceLink;
@@ -98,7 +99,7 @@ public final class DecommissionedGameTest implements FabricClientGameTest {
         session.check(session.onServer(s -> legacyItems(s, DYNAMIC).size() == 1), "the Dynamic Publisher keeps its slot paper");
         // Vanilla adds the block entity's own (empty) components to every save.
         CompoundTag saved = session.onServer(s -> s.overworld().getBlockEntity(RELAY).saveWithoutMetadata(s.registryAccess()));
-        session.check(saved.keySet().equals(Set.of(DeviceLink.LEGACY_ITEMS, "components")) && saved.getCompoundOrEmpty("components").isEmpty(),
+        session.check(NbtTags.keySet(saved).equals(Set.of(DeviceLink.LEGACY_ITEMS, "components")) && NbtTags.getCompoundOrEmpty(saved, "components").isEmpty(),
                 "saved, nothing but its legacy items is left of the v1 data (" + saved + ")");
         session.check(session.onServer(s -> s.overworld().getBlockState(DYNAMIC).is(MineqttBlocks.DYNAMIC_PUBLISHER_BLOCK.get())
                 && s.overworld().getBlockState(DYNAMIC).getValue(BlockStateProperties.POWERED)),

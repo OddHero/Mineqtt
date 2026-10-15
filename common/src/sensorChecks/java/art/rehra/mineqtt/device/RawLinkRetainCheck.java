@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.blocks.entities.PublisherBlockEntity;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
@@ -118,7 +119,7 @@ public final class RawLinkRetainCheck {
 
     /** A link M1 saved carries no retain key, so a Redstone Input of an M1 world publishes retained from now on. */
     private static void m1Data() throws CommandSyntaxException {
-        CompoundTag saved = TagParser.parseCompoundFully(M1_PUBLISHER);
+        CompoundTag saved = NbtTags.parseCompoundFully(M1_PUBLISHER);
         DeviceLink link = new DeviceLink(RedstoneInput.TYPE);
         int signal = PublisherBlockEntity.loadInput(link, TagValueInput.create(ProblemReporter.DISCARDING, registries, saved), false);
         RawLink raw = link.raw();
@@ -205,7 +206,7 @@ public final class RawLinkRetainCheck {
 
         CompoundTag bothTag = encode(both);
         CompoundTag risingTag = encode(rising);
-        check(!bothTag.contains("edges") && risingTag.getStringOr("edges", "").equals("rising") && decode(risingTag).equals(rising),
+        check(!bothTag.contains("edges") && NbtTags.getStringOr(risingTag, "edges", "").equals("rising") && decode(risingTag).equals(rising),
                 "Both edges save no key; rising edges save theirs and round-trip: " + risingTag);
         CompoundTag unknown = risingTag.copy();
         unknown.putString("edges", "falling");

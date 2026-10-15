@@ -104,7 +104,7 @@ public final class AdventureGameTest implements FabricClientGameTest {
             session.awaitServer(s -> s.overworld().getBlockEntity(device) instanceof DeviceHost host && host.deviceLink().attached());
         }
         session.hold(Items.AIR);
-        GameType mode = session.onServer(s -> session.player(s).gameMode());
+        GameType mode = session.onServer(s -> art.rehra.mineqtt.compat.Players.gameMode(session.player(s)));
         session.check(mode == GameType.SURVIVAL, "the player starts in survival mode (" + mode + ")");
 
         console(session, console, true);
@@ -389,7 +389,7 @@ public final class AdventureGameTest implements FabricClientGameTest {
     private static void gameMode(GameTestSession session, GameType mode) {
         session.consoleCommand("gamemode " + mode.getSerializedName() + " " + session.playerName());
         boolean mayBuild = mode != GameType.ADVENTURE && mode != GameType.SPECTATOR;
-        session.awaitServer(s -> session.player(s).gameMode() == mode);
+        session.awaitServer(s -> art.rehra.mineqtt.compat.Players.gameMode(session.player(s)) == mode);
         session.context().waitFor(mc -> mc.player.getAbilities().mayBuild == mayBuild);
     }
 

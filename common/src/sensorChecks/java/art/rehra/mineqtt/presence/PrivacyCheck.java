@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.presence;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.config.TelemetryPlayers;
 import art.rehra.mineqtt.device.DeviceRegistry;
 import art.rehra.mineqtt.mqtt.core.TopicAcl;
@@ -193,12 +194,12 @@ public final class PrivacyCheck {
         PlayerEntry entry = new PlayerEntry(STEVE, Consent.FULL, true, "Steve", Optional.of("player_steve"), DAY);
         Tag tag = PlayerEntry.CODEC.encodeStart(NbtOps.INSTANCE, entry).getOrThrow();
         check(PlayerEntry.CODEC.parse(NbtOps.INSTANCE, tag).getOrThrow().equals(entry), "An entry reads back as written");
-        check(((CompoundTag) tag).getStringOr("consent", "").equals("full"), "The consent is stored by its name");
+        check(NbtTags.getStringOr(((CompoundTag) tag), "consent", "").equals("full"), "The consent is stored by its name");
         Tag bare = PlayerEntry.CODEC.encodeStart(NbtOps.INSTANCE, PlayerEntry.of(ALEX)).getOrThrow();
-        check(((CompoundTag) bare).keySet().equals(java.util.Set.of("uuid")),
-                "A bare entry stores only its UUID, the defaults are left out: " + ((CompoundTag) bare).keySet());
+        check(NbtTags.keySet(((CompoundTag) bare)).equals(java.util.Set.of("uuid")),
+                "A bare entry stores only its UUID, the defaults are left out: " + NbtTags.keySet(((CompoundTag) bare)));
         CompoundTag minimal = new CompoundTag();
-        minimal.store("uuid", net.minecraft.core.UUIDUtil.CODEC, ALEX);
+        NbtTags.store(minimal, "uuid", net.minecraft.core.UUIDUtil.CODEC, ALEX);
         check(PlayerEntry.CODEC.parse(NbtOps.INSTANCE, minimal).getOrThrow().equals(PlayerEntry.of(ALEX)), "Only the UUID is required; the rest defaults");
         CompoundTag unknown = minimal.copy();
         unknown.putString("consent", "everything");
@@ -227,15 +228,21 @@ public final class PrivacyCheck {
 
         // A damaged list: garbage, a duplicate and a slug taken twice are reported; the rest survives.
         CompoundTag tag = read.encode();
-        ListTag players = tag.getListOrEmpty("players");
+        ListTag players = NbtTags.getListOrEmpty(tag, "players");
+        // Before 1.21.5 a list holds one tag type, so no garbage entry sits among the compounds.
+        //? if >=1.21.5 {
         players.add(net.minecraft.nbt.StringTag.valueOf("not a player"));
-        players.add(players.getCompoundOrEmpty(0).copy());
-        CompoundTag sameSlug = players.getCompoundOrEmpty(0).copy();
-        sameSlug.store("uuid", net.minecraft.core.UUIDUtil.CODEC, ALEX);
+        int bad = 3;
+        //?} else {
+        /*int bad = 2;
+        *///?}
+        players.add(NbtTags.getCompoundOrEmpty(players, 0).copy());
+        CompoundTag sameSlug = NbtTags.getCompoundOrEmpty(players, 0).copy();
+        NbtTags.store(sameSlug, "uuid", net.minecraft.core.UUIDUtil.CODEC, ALEX);
         players.add(sameSlug);
         List<String> problems = new ArrayList<>();
         DeviceRegistry repaired = DeviceRegistry.decode(tag, problems::add);
-        check(problems.size() == 3, "Each bad player entry is reported: " + problems);
+        check(problems.size() == bad, "Each bad player entry is reported: " + problems);
         check(repaired.players().size() == 2 && repaired.player(ALEX).orElseThrow().slug().isEmpty()
                 && repaired.player(STEVE).orElseThrow().slug().equals(Optional.of("player_steve")), "The first holder keeps the slug, the second loses it");
     }
@@ -259,8 +266,9 @@ public final class PrivacyCheck {
     private static List<String> commands(Component line) {
         List<String> commands = new ArrayList<>();
         line.visit((style, text) -> {
-            if (style.getClickEvent() instanceof ClickEvent.RunCommand run && (commands.isEmpty() || !commands.getLast().equals(run.command()))) {
-                commands.add(run.command());
+            String run = art.rehra.mineqtt.compat.ClickEvents.runCommand(style.getClickEvent());
+            if (run != null && (commands.isEmpty() || !commands.getLast().equals(run))) {
+                commands.add(run);
             }
             return Optional.empty();
         }, net.minecraft.network.chat.Style.EMPTY);

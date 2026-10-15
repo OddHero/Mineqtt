@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.compat;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 
 /** Chunk positions and their packed long form, which 26.1 renamed ({@code containing}, {@code pack}, {@code x()}). */
@@ -47,6 +48,15 @@ public final class ChunkPositions {
         return chunk.z();
         //?} else {
         /*return chunk.z;
+        *///?}
+    }
+
+    /** Whether the chunk that holds the block ticks its entities. */
+    public static boolean isEntityTicking(ServerLevel level, BlockPos pos) {
+        //? if >=1.21.5 {
+        return level.isPositionTickingWithEntitiesLoaded(pack(pos));
+        //?} else {
+        /*return level.isPositionEntityTicking(pos);
         *///?}
     }
 }

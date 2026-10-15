@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.legacy;
 
+import art.rehra.mineqtt.compat.BlockRemoval;
 import art.rehra.mineqtt.MineQTT;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.ChatFormatting;
@@ -107,4 +108,16 @@ public abstract class DecommissionedBlock extends BaseEntityBlock {
     /** Where and at which of the player's ticks a player last used a decommissioned block. */
     private record Use(BlockPos pos, int tick) {
     }
+
+    //? if <1.21.5 {
+    /*// The block entity's removal side effects, which Minecraft calls itself from 1.21.5 on.
+    @Override
+    protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
+        if (!level.isClientSide() && !state.is(newState.getBlock()) && BlockRemoval.sideEffects()
+                && level.getBlockEntity(pos) instanceof BlockRemoval.SideEffects removed) {
+            removed.preRemoveSideEffects(pos, state);
+        }
+        super.onRemove(state, level, pos, newState, movedByPiston);
+    }
+    *///?}
 }

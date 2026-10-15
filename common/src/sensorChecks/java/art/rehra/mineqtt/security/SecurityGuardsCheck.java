@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.security;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
@@ -892,9 +893,9 @@ public final class SecurityGuardsCheck {
         check(legacy.ownerResolved("Steve", steve) && steve.equals(legacy.getOwnerUuid()), "The resolved name fills the owner UUID");
         check(!legacy.ownerResolved("Steve", UUID.randomUUID()) && steve.equals(legacy.getOwnerUuid()), "Once only");
         CompoundTag saved = save(legacy);
-        check(saved.getIntArray("ownerUuid").map(UUIDUtil::uuidFromIntArray).filter(steve::equals).isPresent(),
+        check(NbtTags.getIntArray(saved, "ownerUuid").map(UUIDUtil::uuidFromIntArray).filter(steve::equals).isPresent(),
                 "The owner UUID is saved as an int array: " + saved);
-        check(saved.getStringOr("ownerName", "").equals("Steve"), "Next to the owner name v1 reads");
+        check(NbtTags.getStringOr(saved, "ownerName", "").equals("Steve"), "Next to the owner name v1 reads");
         check(steve.equals(load(saved).getOwnerUuid()), "And loads again");
 
         Slots placed = new Slots();
@@ -902,7 +903,7 @@ public final class SecurityGuardsCheck {
         check(steve.equals(load(save(placed)).getOwnerUuid()), "A placing player's UUID round-trips");
         placed.setOwner(null, "");
         CompoundTag nobody = save(placed);
-        check(!nobody.contains("ownerUuid") && nobody.getStringOr("ownerName", "x").isEmpty(), "A block nobody placed has no owner: " + nobody);
+        check(!nobody.contains("ownerUuid") && NbtTags.getStringOr(nobody, "ownerName", "x").isEmpty(), "A block nobody placed has no owner: " + nobody);
     }
 
     private static CompoundTag save(Slots block) {
@@ -2088,7 +2089,7 @@ public final class SecurityGuardsCheck {
         check(largest.settings().min().toPlainString().equals("-123456789012345.123456"), "The largest number the tab takes is stored as it is");
         Binding exponent = BindingCodecs.CODEC.parse(NbtOps.INSTANCE, storedBinding("1E+2")).getOrThrow();
         check(BindingCodecs.CODEC.encodeStart(NbtOps.INSTANCE, exponent).getOrThrow() instanceof CompoundTag written
-                        && written.getStringOr("min", "").equals("100"), "A small exponent is written out plainly");
+                        && NbtTags.getStringOr(written, "min", "").equals("100"), "A small exponent is written out plainly");
         check(fails(() -> Binding.Settings.DEFAULT.withMin(new BigDecimal("1e2000000000")))
                         && fails(() -> Binding.Settings.DEFAULT.withMax(new BigDecimal("1e-2000000000"))),
                 "No binding holds a range number with more digits than the tab takes, however it was made");
@@ -2282,11 +2283,11 @@ public final class SecurityGuardsCheck {
 
         // Stored and copied.
         CompoundTag stored = (CompoundTag) BindingCodecs.CODEC.encodeStart(NbtOps.INSTANCE, controlled).getOrThrow();
-        check(stored.getCompound("preset").isPresent() && stored.getCompound("source").orElseThrow().getStringOr("topic", "").equals("zigbee2mqtt/Porch plug"),
+        check(NbtTags.getCompound(stored, "preset").isPresent() && NbtTags.getStringOr(NbtTags.getCompound(stored, "source").orElseThrow(), "topic", "").equals("zigbee2mqtt/Porch plug"),
                 "The preset is stored with the binding: " + stored);
         check(BindingCodecs.CODEC.parse(NbtOps.INSTANCE, stored).getOrThrow().equals(controlled), "...and read back equal");
         CompoundTag forged = stored.copy();
-        forged.getCompound("preset").orElseThrow().putString("kind", "person");
+        NbtTags.getCompound(forged, "preset").orElseThrow().putString("kind", "person");
         check(BindingCodecs.CODEC.parse(NbtOps.INSTANCE, forged).isError(), "A stored preset of a private kind fails to decode");
         check(!((CompoundTag) BindingCodecs.CODEC.encodeStart(NbtOps.INSTANCE, entity).getOrThrow()).contains("preset"), "An entity binding stores no preset");
         JsonObject state = new JsonObject();

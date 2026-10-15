@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.RgbLedBlock;
 import art.rehra.mineqtt.device.DeviceHost;
@@ -109,7 +110,7 @@ public final class LampMountGameTest implements FabricClientGameTest {
         saved.forEach((entry, expected) -> {
             BlockState state = session.onServer(s -> {
                 try {
-                    return BlockState.CODEC.parse(NbtOps.INSTANCE, TagParser.parseCompoundFully(entry)).getOrThrow();
+                    return BlockState.CODEC.parse(NbtOps.INSTANCE, NbtTags.parseCompoundFully(entry)).getOrThrow();
                 } catch (CommandSyntaxException e) {
                     throw new IllegalStateException(e);
                 }

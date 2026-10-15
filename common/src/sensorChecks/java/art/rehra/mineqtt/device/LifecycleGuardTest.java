@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.blocks.Interaction;
 import art.rehra.mineqtt.blocks.LightRemoteBlock;
@@ -199,8 +200,8 @@ public final class LifecycleGuardTest {
         TagValueOutput output = TagValueOutput.createWithoutContext(ProblemReporter.DISCARDING);
         link.save(output).putInt("power", 9);
         CompoundTag tag = output.buildResult();
-        CompoundTag data = tag.getCompound(DeviceLink.KEY).orElseThrow();
-        check(data.getIntOr("v", 0) == DeviceLink.VERSION && data.getStringOr("type", "").equals("mineqtt:test_output"), "Version and type are written");
+        CompoundTag data = NbtTags.getCompound(tag, DeviceLink.KEY).orElseThrow();
+        check(NbtTags.getIntOr(data, "v", 0) == DeviceLink.VERSION && NbtTags.getStringOr(data, "type", "").equals("mineqtt:test_output"), "Version and type are written");
 
         DeviceLink loaded = new DeviceLink(TYPE);
         Optional<ValueInput> compound = loaded.load(TagValueInput.create(ProblemReporter.DISCARDING, RegistryAccess.EMPTY, tag), false);
@@ -257,8 +258,8 @@ public final class LifecycleGuardTest {
     private static void claim() {
         DeviceLink link = new DeviceLink(TYPE);
         CompoundTag data = new CompoundTag();
-        data.store("id", UUIDUtil.CODEC, UUID.randomUUID());
-        data.store("raw", RawLink.CODEC, new RawLink("zigbee2mqtt/lock/set", RawLinkSpec.Direction.IN, null, null, 0, null,
+        NbtTags.store(data, "id", UUIDUtil.CODEC, UUID.randomUUID());
+        NbtTags.store(data, "raw", RawLink.CODEC, new RawLink("zigbee2mqtt/lock/set", RawLinkSpec.Direction.IN, null, null, 0, null,
                 new TopicAcl.Grandfather("zigbee2mqtt/lock/set", null), false, null, 0, null, RawLink.Edges.BOTH));
         CompoundTag tag = new CompoundTag();
         tag.put(DeviceLink.KEY, data);
@@ -696,14 +697,14 @@ public final class LifecycleGuardTest {
     private static DeviceLink linkWithCopiedData(boolean expose) {
         DeviceLink link = new DeviceLink(TYPE);
         CompoundTag data = new CompoundTag();
-        data.store("id", UUIDUtil.CODEC, UUID.randomUUID());
+        NbtTags.store(data, "id", UUIDUtil.CODEC, UUID.randomUUID());
         data.putString("name", "Copied Name");
         data.putString("slug", "copied_slug");
-        data.store("owner", UUIDUtil.CODEC, OWNER);
+        NbtTags.store(data, "owner", UUIDUtil.CODEC, OWNER);
         data.putString("ownerName", "Steve");
         data.putString("access", "private");
         data.putBoolean("expose", expose);
-        data.store("raw", RawLink.CODEC, new RawLink("zigbee2mqtt/garage/set", RawLinkSpec.Direction.IN, "OPEN", null, 0, null,
+        NbtTags.store(data, "raw", RawLink.CODEC, new RawLink("zigbee2mqtt/garage/set", RawLinkSpec.Direction.IN, "OPEN", null, 0, null,
                 new TopicAcl.Grandfather("zigbee2mqtt/garage/set", OWNER), false, null, 0, null, RawLink.Edges.BOTH));
         CompoundTag tag = new CompoundTag();
         tag.put(DeviceLink.KEY, data);

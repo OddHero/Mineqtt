@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.legacy;
 
+import art.rehra.mineqtt.compat.BlockRemoval;
 import art.rehra.mineqtt.compat.ItemBlockEntityData;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.device.DeviceRuntime;
@@ -112,7 +113,11 @@ public abstract class LegacyConverterBlock extends BaseEntityBlock {
         BlockState state = level.getBlockState(pos);
         if (!(state.getBlock() instanceof LegacyConverterBlock converter) || level.getBlockEntity(pos) != legacy) return false;
         CompoundTag data = converter.convert(legacy.saveWithoutMetadata(level.registryAccess()));
+        //? if >=1.21.5 {
         level.setBlock(pos, converter.successorState(state), Block.UPDATE_ALL | Block.UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS);
+        //?} else {
+        /*BlockRemoval.withoutSideEffects(() -> level.setBlock(pos, converter.successorState(state), Block.UPDATE_ALL));
+        *///?}
         BlockEntity successor = level.getBlockEntity(pos);
         if (successor == null) throw new IllegalStateException(converter.successor() + " at " + pos.toShortString() + " has no block entity to take the data");
         //? if >=1.21.6 {
@@ -154,6 +159,18 @@ public abstract class LegacyConverterBlock extends BaseEntityBlock {
         return converted;
     }
 
+    //? if <1.21.5 {
+    /*// The block entity's removal side effects, which Minecraft calls itself from 1.21.5 on.
+    @Override
+    protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
+        if (!level.isClientSide() && !state.is(newState.getBlock()) && BlockRemoval.sideEffects()
+                && level.getBlockEntity(pos) instanceof BlockRemoval.SideEffects removed) {
+            removed.preRemoveSideEffects(pos, state);
+        }
+        super.onRemove(state, level, pos, newState, movedByPiston);
+    }
+    *///?}
+
     /**
      * The item of a {@link LegacyConverterBlock}: it becomes the successor's item in any inventory that ticks it. Placed
      * before that, it is the successor placed ({@link #setPlacedBy}), so the successor's device limit applies to it.
@@ -171,11 +188,27 @@ public abstract class LegacyConverterBlock extends BaseEntityBlock {
         }
 
         @Override
+        //? if >=1.21.5 {
         public void inventoryTick(ItemStack stack, ServerLevel level, Entity owner, @Nullable EquipmentSlot slot) {
             ItemStack converted = ((LegacyConverterBlock) getBlock()).convertItem(stack);
             if (slot != null && owner instanceof LivingEntity living && living.getItemBySlot(slot) == stack) {
                 living.setItemSlot(slot, converted);
             } else if (owner instanceof Player player) {
+        //?} else {
+        /*public void inventoryTick(ItemStack stack, Level level, Entity owner, int slotIndex, boolean selected) {
+            if (level.isClientSide()) return;
+            ItemStack converted = ((LegacyConverterBlock) getBlock()).convertItem(stack);
+            // Before 1.21.5 an item hears its inventory slot only; an armour or hand slot is found by looking.
+            EquipmentSlot slot = null;
+            if (owner instanceof LivingEntity living) {
+                for (EquipmentSlot each : EquipmentSlot.values()) {
+                    if (living.getItemBySlot(each) == stack) slot = each;
+                }
+            }
+            if (slot != null && owner instanceof LivingEntity living) {
+                living.setItemSlot(slot, converted);
+            } else if (owner instanceof Player player) {
+        *///?}
                 Inventory inventory = player.getInventory();
                 for (int i = 0; i < inventory.getContainerSize(); i++) {
                     if (inventory.getItem(i) == stack) {

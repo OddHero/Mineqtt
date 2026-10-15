@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.blocks.entities;
 
+import art.rehra.mineqtt.compat.BlockRemoval;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceLink;
 import art.rehra.mineqtt.device.RenderTag;
@@ -51,7 +52,7 @@ import java.util.UUID;
  * {@link #preRemoveSideEffects} destroys (design §6.5). Clients get only what they draw ({@link RenderTag}, M2 plan D12),
  * never the owner, the Raw Link or the legacy items; a render update replaces nothing else ({@link #loadRender}).
  */
-public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHost, TabbedScreenHost {
+public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHost, TabbedScreenHost, BlockRemoval.SideEffects {
     /** How long after an edit its player counts as the one who made a change: 30 seconds. */
     public static final int EDITOR_NOTICE_TICKS = 30 * 20;
     // The red of a refused or paused binding's particles.
@@ -129,9 +130,14 @@ public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHos
      * Broken by a player or an explosion: the legacy items drop where the block stood, as a container's contents would,
      * and the device is destroyed.
      */
+    //? if >=1.21.5 {
     @Override
     public void preRemoveSideEffects(BlockPos pos, BlockState state) {
         super.preRemoveSideEffects(pos, state);
+    //?} else {
+    /*@Override
+    public void preRemoveSideEffects(BlockPos pos, BlockState state) {
+    *///?}
         if (level != null) {
             for (ItemStackWithSlot item : deviceLink().takeLegacyItems()) {
                 Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), item.stack().copy());

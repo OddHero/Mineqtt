@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.fabric.gametest;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.compat.ItemBlockEntityData;
 import art.rehra.mineqtt.blocks.MineqttBlocks;
 import art.rehra.mineqtt.blocks.TemperatureSensorBlock;
@@ -215,7 +216,7 @@ public final class ClimateGameTest implements FabricClientGameTest {
 
     private static CompoundTag parse(String snbt) {
         try {
-            return TagParser.parseCompoundFully(snbt);
+            return NbtTags.parseCompoundFully(snbt);
         } catch (CommandSyntaxException e) {
             throw new IllegalArgumentException("Not SNBT: " + snbt, e);
         }

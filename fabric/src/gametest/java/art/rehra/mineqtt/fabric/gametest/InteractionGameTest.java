@@ -246,7 +246,7 @@ public final class InteractionGameTest implements FabricClientGameTest {
      * renames the lamp and grants them nothing there, and the server drops a command they send from it without a word.
      */
     private static void spectator(GameTestSession session, BlockPos lamp) {
-        GameType mode = session.onServer(s -> session.player(s).gameMode());
+        GameType mode = session.onServer(s -> art.rehra.mineqtt.compat.Players.gameMode(session.player(s)));
         session.consoleCommand("gamemode spectator " + session.playerName());
         session.context().waitFor(mc -> mc.player.isSpectator());
         ItemStack tag = new ItemStack(Items.NAME_TAG);

@@ -183,7 +183,7 @@ public class RgbLedBlockEntity extends DeviceBlockEntity {
      * simulation and the view distance, a fade would stand still at its start, so the block shows the light at once.
      */
     private void fadeTo(int ticks) {
-        if (ticks > 0 && level instanceof ServerLevel server && server.isPositionTickingWithEntitiesLoaded(ChunkPositions.pack(worldPosition))) {
+        if (ticks > 0 && level instanceof ServerLevel server && ChunkPositions.isEntityTicking(server, worldPosition)) {
             transition = new LightTransition(shown, light, server.getGameTime(), ticks);
             lastStep = transition.start();
             shown = transition.at(lastStep);

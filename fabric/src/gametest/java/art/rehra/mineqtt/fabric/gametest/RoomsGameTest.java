@@ -220,7 +220,7 @@ public final class RoomsGameTest implements FabricClientGameTest {
             MineQTTConfig.roomsMaxSize = maxSize;
         }
 
-        GameType before = session.onServer(s -> session.player(s).gameMode());
+        GameType before = session.onServer(s -> art.rehra.mineqtt.compat.Players.gameMode(session.player(s)));
         gameMode(session, GameType.ADVENTURE);
         try {
             mark = ChatLog.mark();
@@ -390,7 +390,7 @@ public final class RoomsGameTest implements FabricClientGameTest {
     private static void gameMode(GameTestSession session, GameType mode) {
         session.consoleCommand("gamemode " + mode.getSerializedName() + " " + session.playerName());
         boolean mayBuild = mode != GameType.ADVENTURE && mode != GameType.SPECTATOR;
-        session.awaitServer(s -> session.player(s).gameMode() == mode);
+        session.awaitServer(s -> art.rehra.mineqtt.compat.Players.gameMode(session.player(s)) == mode);
         session.context().waitFor(mc -> mc.player.getAbilities().mayBuild == mayBuild);
     }
 

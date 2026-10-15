@@ -51,6 +51,17 @@ processResources {
     }
 }
 
+tasks.matching { it.name == 'processSensorChecksResources' }.configureEach {
+    inputs.property('minecraftVersion', mc)
+    doFirst { delete destinationDir }
+    if (stonecutter.eval(mc, '<1.21.5')) {
+        // Before 1.21.5, text components in NBT are JSON strings: a plain name is the quoted JSON string.
+        filesMatching('m1/*.snbt') {
+            filter { String line -> line.replaceAll(/("minecraft:custom_name": )"([^"\\]*)"/, '$1\'"$2"\'') }
+        }
+    }
+}
+
 // The checks bootstrap Minecraft or start brokers and wait with timeouts; with every version building at once, too many of
 // them side by side starve each other. At most two check JVMs run at a time across all nodes.
 def checkSlots = gradle.sharedServices.registerIfAbsent('mineqttCheckSlots', BuildService) {

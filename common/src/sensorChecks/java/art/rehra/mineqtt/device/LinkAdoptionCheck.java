@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.compat.BlockEntityStorage;
 import art.rehra.mineqtt.CheckItems;
 import art.rehra.mineqtt.blocks.entities.BlockEmitterBlockEntity;
@@ -112,14 +113,14 @@ public final class LinkAdoptionCheck {
 
         TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
         link.save(output);
-        CompoundTag data = output.buildResult().getCompound(DeviceLink.KEY).orElseThrow();
-        check(data.getIntOr("v", 0) == DeviceLink.VERSION && data.getStringOr("type", "").equals("mineqtt:smart_lamp"), "Saved as v2 data");
-        check(data.read("owner", UUIDUtil.CODEC).equals(Optional.of(STEVE)) && data.getStringOr("ownerName", "").equals("Steve"), "Owner and name are saved");
-        CompoundTag rawTag = data.getCompound("raw").orElseThrow();
-        check(rawTag.getStringOr("topic", "").equals(topic) && rawTag.getStringOr("dir", "").equals("in") && rawTag.getBooleanOr("stateEcho", false),
+        CompoundTag data = NbtTags.getCompound(output.buildResult(), DeviceLink.KEY).orElseThrow();
+        check(NbtTags.getIntOr(data, "v", 0) == DeviceLink.VERSION && NbtTags.getStringOr(data, "type", "").equals("mineqtt:smart_lamp"), "Saved as v2 data");
+        check(NbtTags.read(data, "owner", UUIDUtil.CODEC).equals(Optional.of(STEVE)) && NbtTags.getStringOr(data, "ownerName", "").equals("Steve"), "Owner and name are saved");
+        CompoundTag rawTag = NbtTags.getCompound(data, "raw").orElseThrow();
+        check(NbtTags.getStringOr(rawTag, "topic", "").equals(topic) && NbtTags.getStringOr(rawTag, "dir", "").equals("in") && NbtTags.getBooleanOr(rawTag, "stateEcho", false),
                 "The Raw Link is saved with its echo: " + rawTag);
-        CompoundTag grandfather = rawTag.getCompound("grandfathered").orElseThrow();
-        check(grandfather.getStringOr("topic", "").equals(topic) && grandfather.read("owner", UUIDUtil.CODEC).equals(Optional.of(STEVE)),
+        CompoundTag grandfather = NbtTags.getCompound(rawTag, "grandfathered").orElseThrow();
+        check(NbtTags.getStringOr(grandfather, "topic", "").equals(topic) && NbtTags.read(grandfather, "owner", UUIDUtil.CODEC).equals(Optional.of(STEVE)),
                 "The grandfather flag is saved with its owner: " + grandfather);
 
         CompoundTag saved = output.buildResult();
@@ -238,7 +239,7 @@ public final class LinkAdoptionCheck {
         TagValueOutput saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
         RedstoneEmitterBlockEntity.saveOutput(link, output, saved);
         CompoundTag savedTag = saved.buildResult();
-        check(savedTag.keySet().equals(Set.of(DeviceLink.KEY)) && savedTag.getCompound(DeviceLink.KEY).orElseThrow().contains(DeviceLink.LEGACY_ITEMS),
+        check(NbtTags.keySet(savedTag).equals(Set.of(DeviceLink.KEY)) && NbtTags.getCompound(savedTag, DeviceLink.KEY).orElseThrow().contains(DeviceLink.LEGACY_ITEMS),
                 "Adopted, its slots are legacy items in the compound and no v1 key is left: " + savedTag);
         DeviceLink reloaded = new DeviceLink(RedstoneOutput.TYPE);
         Output reread = RedstoneEmitterBlockEntity.loadOutput(reloaded, input(registries, savedTag), 0);
@@ -305,11 +306,11 @@ public final class LinkAdoptionCheck {
         TagValueOutput saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
         SmartPlugBlockEntity.savePlug(link, plug, saved);
         CompoundTag savedTag = saved.buildResult();
-        CompoundTag compound = savedTag.getCompound(DeviceLink.KEY).orElseThrow();
-        check(savedTag.keySet().equals(Set.of(DeviceLink.KEY)) && compound.contains(DeviceLink.LEGACY_ITEMS)
-                        && compound.getStringOr("type", "").equals("mineqtt:smart_plug"),
+        CompoundTag compound = NbtTags.getCompound(savedTag, DeviceLink.KEY).orElseThrow();
+        check(NbtTags.keySet(savedTag).equals(Set.of(DeviceLink.KEY)) && compound.contains(DeviceLink.LEGACY_ITEMS)
+                        && NbtTags.getStringOr(compound, "type", "").equals("mineqtt:smart_plug"),
                 "Adopted, it is v2 data with its slots as legacy items and no v1 key is left: " + savedTag);
-        check(compound.getCompound("state").orElseThrow().getIntOr("power", 0) == SmartPlug.ON_POWER, "Its power is saved (v1 kept none): " + compound);
+        check(NbtTags.getIntOr(NbtTags.getCompound(compound, "state").orElseThrow(), "power", 0) == SmartPlug.ON_POWER, "Its power is saved (v1 kept none): " + compound);
         DeviceLink reloaded = new DeviceLink(SmartPlug.TYPE);
         Plug reread = SmartPlugBlockEntity.loadPlug(reloaded, input(registries, savedTag), 0);
         check(!reloaded.awaitingAdoption() && raw.equals(reloaded.raw()) && plug.equals(reread) && Objects.equals(reloaded.owner(), ownerUuid),
@@ -373,9 +374,9 @@ public final class LinkAdoptionCheck {
         TagValueOutput saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
         TemperatureSensorBlockEntity.saveSensor(link, climate, saved);
         CompoundTag savedTag = saved.buildResult();
-        CompoundTag compound = savedTag.getCompound(DeviceLink.KEY).orElseThrow();
-        check(savedTag.keySet().equals(Set.of(DeviceLink.KEY)) && compound.getStringOr("type", "").equals("mineqtt:climate_sensor")
-                        && compound.getCompound("state").orElseThrow().getStringOr("raw_value", "temperature").equals(expected.rawValue().getSerializedName()),
+        CompoundTag compound = NbtTags.getCompound(savedTag, DeviceLink.KEY).orElseThrow();
+        check(NbtTags.keySet(savedTag).equals(Set.of(DeviceLink.KEY)) && NbtTags.getStringOr(compound, "type", "").equals("mineqtt:climate_sensor")
+                        && NbtTags.getStringOr(NbtTags.getCompound(compound, "state").orElseThrow(), "raw_value", "temperature").equals(expected.rawValue().getSerializedName()),
                 "Adopted, it is v2 data with its Raw Link reading and no v1 key is left: " + savedTag);
         DeviceLink reloaded = new DeviceLink(ClimateSensor.TYPE);
         Climate adopted = TemperatureSensorBlockEntity.loadSensor(reloaded, input(registries, savedTag));
@@ -414,8 +415,8 @@ public final class LinkAdoptionCheck {
         TagValueOutput saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
         BlockSensorBlockEntity.saveObserver(link, observation, saved);
         CompoundTag savedTag = saved.buildResult();
-        check(!LegacyNbtV1.hasSensorKeys(input(registries, savedTag)) && savedTag.keySet().equals(Set.of(DeviceLink.KEY))
-                        && savedTag.getCompound(DeviceLink.KEY).orElseThrow().getCompound("state").orElseThrow().getStringOr("payload", BlockObserver.Payload.FULL.getSerializedName())
+        check(!LegacyNbtV1.hasSensorKeys(input(registries, savedTag)) && NbtTags.keySet(savedTag).equals(Set.of(DeviceLink.KEY))
+                        && NbtTags.getStringOr(NbtTags.getCompound(NbtTags.getCompound(savedTag, DeviceLink.KEY).orElseThrow(), "state").orElseThrow(), "payload", BlockObserver.Payload.FULL.getSerializedName())
                         .equals(payload.getSerializedName()),
                 "Adopted, it is v2 data with its payload and no v1 key is left: " + savedTag);
         DeviceLink reloaded = new DeviceLink(BlockObserver.TYPE);
@@ -455,7 +456,7 @@ public final class LinkAdoptionCheck {
         TagValueOutput saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
         BlockEmitterBlockEntity.savePlacer(link, settings, placed, saved);
         CompoundTag savedTag = saved.buildResult();
-        check(!LegacyNbtV1.hasSubscribedKeys(input(registries, savedTag)) && savedTag.keySet().equals(Set.of(DeviceLink.KEY)),
+        check(!LegacyNbtV1.hasSubscribedKeys(input(registries, savedTag)) && NbtTags.keySet(savedTag).equals(Set.of(DeviceLink.KEY)),
                 "Adopted, it writes no v1 key: " + savedTag);
         DeviceLink reloaded = new DeviceLink(BlockPlacer.TYPE);
         BlockEmitterBlockEntity.Loaded reread = BlockEmitterBlockEntity.loadPlacer(reloaded, input(registries, savedTag));
@@ -537,8 +538,8 @@ public final class LinkAdoptionCheck {
         TagValueOutput saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
         PublisherBlockEntity.saveInput(link, 0, saved);
         CompoundTag savedTag = saved.buildResult();
-        CompoundTag savedRaw = savedTag.getCompound(DeviceLink.KEY).orElseThrow().getCompound("raw").orElseThrow();
-        check(savedTag.keySet().equals(Set.of(DeviceLink.KEY)) && savedRaw.getStringOr("edges", "").equals("rising") && savedRaw.contains("retain"),
+        CompoundTag savedRaw = NbtTags.getCompound(NbtTags.getCompound(savedTag, DeviceLink.KEY).orElseThrow(), "raw").orElseThrow();
+        check(NbtTags.keySet(savedTag).equals(Set.of(DeviceLink.KEY)) && NbtTags.getStringOr(savedRaw, "edges", "").equals("rising") && savedRaw.contains("retain"),
                 "Adopted, it is v2 data whose link stores its edges and its retain: " + savedTag);
         DeviceLink reloaded = new DeviceLink(RedstoneInput.TYPE);
         PublisherBlockEntity.loadInput(reloaded, input(registries, savedTag), false);
@@ -576,7 +577,7 @@ public final class LinkAdoptionCheck {
         TagValueOutput saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
         LightRemoteBlockEntity.saveSwitch(link, saved);
         CompoundTag savedTag = saved.buildResult();
-        check(savedTag.keySet().equals(Set.of(DeviceLink.KEY)) && !savedTag.getCompound(DeviceLink.KEY).orElseThrow().contains("raw"),
+        check(NbtTags.keySet(savedTag).equals(Set.of(DeviceLink.KEY)) && !NbtTags.getCompound(savedTag, DeviceLink.KEY).orElseThrow().contains("raw"),
                 "Adopted, it is v2 data without a Raw Link: " + savedTag);
         DeviceLink reloaded = new DeviceLink(WallSwitch.TYPE);
         LightRemoteBlockEntity.loadSwitch(reloaded, input(registries, savedTag));
@@ -730,7 +731,7 @@ public final class LinkAdoptionCheck {
         check(ejected.stream().mapToInt(ItemStack::getCount).sum() == 16 && presence.link.legacyItems().isEmpty()
                 && presence.ejectLegacyItems().isEmpty(), "Eject hands out every legacy item once: " + ejected);
         CompoundTag ejectedSave = presence.saveCustomOnly(registries);
-        check(!ejectedSave.getCompound(DeviceLink.KEY).orElseThrow().contains(DeviceLink.LEGACY_ITEMS)
+        check(!NbtTags.getCompound(ejectedSave, DeviceLink.KEY).orElseThrow().contains(DeviceLink.LEGACY_ITEMS)
                 && presence.presence.filter().size() == 2, "An ejected sensor saves no legacy items and keeps its filter: " + ejectedSave);
     }
 
@@ -744,18 +745,18 @@ public final class LinkAdoptionCheck {
         T device = fresh.get();
         BlockEntityStorage.loadCustomOnly(device, input(registries, m1));
         DeviceLink link = device.deviceLink();
-        CompoundTag m1Compound = m1.getCompound(DeviceLink.KEY).orElseThrow();
-        String name = m1Compound.getStringOr("slug", "?");
+        CompoundTag m1Compound = NbtTags.getCompound(m1, DeviceLink.KEY).orElseThrow();
+        String name = NbtTags.getStringOr(m1Compound, "slug", "?");
         check(!link.awaitingAdoption() && link.loadedVersion() == DeviceLink.VERSION_M1, name + ": M1 data is v2 data of version 2");
         check(sameItems(link.legacyItems(), m1, registries), name + ": every slot item is a legacy item: " + link.legacyItems());
-        check(link.privateMode() == m1.getBooleanOr("privateMode", false) && link.lastTab().equals(m1.getStringOr("lastTabId", "")),
+        check(link.privateMode() == NbtTags.getBooleanOr(m1, "privateMode", false) && link.lastTab().equals(NbtTags.getStringOr(m1, "lastTabId", "")),
                 name + ": private mode and last tab move into the link");
         CompoundTag saved = device.saveCustomOnly(registries);
         for (String key : List.of("Items", "topic", "ownerName", "ownerUuid", "privateMode", "lastTabId")) {
             check(!saved.contains(key), name + ": no " + key + " beside the compound any more: " + saved);
         }
-        CompoundTag compound = saved.getCompound(DeviceLink.KEY).orElseThrow();
-        check(compound.getIntOr("v", 0) == DeviceLink.VERSION, name + ": saved as version " + DeviceLink.VERSION);
+        CompoundTag compound = NbtTags.getCompound(saved, DeviceLink.KEY).orElseThrow();
+        check(NbtTags.getIntOr(compound, "v", 0) == DeviceLink.VERSION, name + ": saved as version " + DeviceLink.VERSION);
         for (String key : List.of("id", "type", "name", "slug", "owner", "ownerName", "access", "expose", "raw")) {
             check(Objects.equals(compound.get(key), m1Compound.get(key)), name + ": " + key + " is unchanged: " + compound.get(key) + " was " + m1Compound.get(key));
         }

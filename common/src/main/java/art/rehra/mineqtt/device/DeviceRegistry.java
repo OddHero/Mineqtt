@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.NbtTags;
 import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.config.ConfigValidation;
 import art.rehra.mineqtt.config.StaticDefaults;
@@ -594,7 +595,7 @@ public final class DeviceRegistry {
         for (DeviceGroup group : groups.values()) {
             CompoundTag encoded = (CompoundTag) DeviceGroup.CODEC.encodeStart(NbtOps.INSTANCE, group).getOrThrow();
             Set<UUID> kept = members.get(group.id());
-            if (kept != null) encoded.store("members", UUIDUtil.CODEC_LINKED_SET, kept);
+            if (kept != null) NbtTags.store(encoded, "members", UUIDUtil.CODEC_LINKED_SET, kept);
             groupList.add(encoded);
         }
         ListTag wireList = encodeAll(WireCodecs.WIRE, wires.values());
@@ -608,7 +609,7 @@ public final class DeviceRegistry {
         CompoundTag tag = new CompoundTag();
         tag.putInt("schema", SCHEMA);
         tag.putString("bridgeId", generatedBridgeId);
-        tag.store("worldUuid", UUIDUtil.CODEC, worldUuid);
+        NbtTags.store(tag, "worldUuid", UUIDUtil.CODEC, worldUuid);
         tag.put("devices", devices);
         tag.put("groups", groupList);
         tag.put("wires", wireList);
@@ -634,12 +635,12 @@ public final class DeviceRegistry {
      * @throws IllegalArgumentException when the tag is not a registry at all, or is of a newer schema
      */
     public static DeviceRegistry decode(CompoundTag tag, Consumer<String> problems) {
-        int schema = tag.getInt("schema").orElseThrow(() -> new IllegalArgumentException("No schema version"));
+        int schema = NbtTags.getInt(tag, "schema").orElseThrow(() -> new IllegalArgumentException("No schema version"));
         if (schema < 1 || schema > SCHEMA) throw new IllegalArgumentException("Unsupported schema version " + schema + " (this MineQTT reads up to " + SCHEMA + ")");
-        String bridgeId = tag.getString("bridgeId").orElseThrow(() -> new IllegalArgumentException("No bridge id"));
-        UUID worldUuid = tag.read("worldUuid", UUIDUtil.CODEC).orElseThrow(() -> new IllegalArgumentException("No world UUID"));
+        String bridgeId = NbtTags.getString(tag, "bridgeId").orElseThrow(() -> new IllegalArgumentException("No bridge id"));
+        UUID worldUuid = NbtTags.read(tag, "worldUuid", UUIDUtil.CODEC).orElseThrow(() -> new IllegalArgumentException("No world UUID"));
         DeviceRegistry registry = new DeviceRegistry(bridgeId, worldUuid);
-        for (DeviceRecord record : decodeAll(DeviceRecord.CODEC, tag.getListOrEmpty("devices"), "device", problems)) {
+        for (DeviceRecord record : decodeAll(DeviceRecord.CODEC, NbtTags.getListOrEmpty(tag, "devices"), "device", problems)) {
             if (registry.records.containsKey(record.id()) || registry.positions.containsKey(record.pos())) {
                 problems.accept("Skipped device " + record.id() + ": its id or position is registered twice");
                 continue;
@@ -655,7 +656,7 @@ public final class DeviceRegistry {
             }
             registry.add(record);
         }
-        for (DeviceGroup group : decodeAll(DeviceGroup.CODEC, tag.getListOrEmpty("groups"), "group", problems)) {
+        for (DeviceGroup group : decodeAll(DeviceGroup.CODEC, NbtTags.getListOrEmpty(tag, "groups"), "group", problems)) {
             if (registry.groups.containsKey(group.id())) {
                 problems.accept("Skipped group " + group.id() + ": registered twice");
                 continue;
@@ -674,7 +675,7 @@ public final class DeviceRegistry {
         }
         registry.repairMemberships(problems);
         // Optional: a registry M1 saved has no wires.
-        for (Wire wire : decodeAll(WireCodecs.WIRE, tag.getListOrEmpty("wires"), "wire", problems)) {
+        for (Wire wire : decodeAll(WireCodecs.WIRE, NbtTags.getListOrEmpty(tag, "wires"), "wire", problems)) {
             if (registry.wires.containsKey(wire.id())) {
                 problems.accept("Skipped wire " + wire.id() + ": registered twice");
             } else if (!registry.holds(wire.from()) || !registry.holds(wire.to())) {
@@ -684,7 +685,7 @@ public final class DeviceRegistry {
             }
         }
         // Optional: a registry before M4 has no rooms. Their size is not judged again, so a lowered rooms.maxSize keeps them.
-        for (Room room : decodeAll(Room.CODEC, tag.getListOrEmpty("rooms"), "room", problems)) {
+        for (Room room : decodeAll(Room.CODEC, NbtTags.getListOrEmpty(tag, "rooms"), "room", problems)) {
             if (registry.rooms.containsKey(room.id())) {
                 problems.accept("Skipped room " + room.id() + ": registered twice");
             } else if (registry.rooms.size() >= StaticDefaults.MAX_ROOMS_PER_WORLD) {
@@ -695,17 +696,17 @@ public final class DeviceRegistry {
         }
         registry.roomIndex = new RoomIndex(registry.rooms.values());
         // Optional: a registry M1 saved has no literal sets.
-        for (OwnerLiterals owner : decodeAll(OwnerLiterals.CODEC, tag.getListOrEmpty("ownerLiterals"), "owner literal set", problems)) {
+        for (OwnerLiterals owner : decodeAll(OwnerLiterals.CODEC, NbtTags.getListOrEmpty(tag, "ownerLiterals"), "owner literal set", problems)) {
             owner.literals().forEach(literal -> registry.addOwnerLiteral(owner.owner(), literal));
         }
-        for (Tag id : tag.getListOrEmpty("legacyDiscoveryMigrated")) {
-            id.asString().filter(text -> !text.isEmpty()).ifPresent(registry.legacyDiscoveryMigrated::add);
+        for (Tag id : NbtTags.getListOrEmpty(tag, "legacyDiscoveryMigrated")) {
+            NbtTags.asString(id).filter(text -> !text.isEmpty()).ifPresent(registry.legacyDiscoveryMigrated::add);
         }
-        registry.legacyImportDone = tag.getBooleanOr("legacyImportDone", false);
-        registry.v1StatusCleared = tag.getBooleanOr("v1StatusCleared", false);
-        registry.bridgeBroadcastDiscovered = tag.getBooleanOr("bridgeBroadcastDiscovered", false);
+        registry.legacyImportDone = NbtTags.getBooleanOr(tag, "legacyImportDone", false);
+        registry.v1StatusCleared = NbtTags.getBooleanOr(tag, "v1StatusCleared", false);
+        registry.bridgeBroadcastDiscovered = NbtTags.getBooleanOr(tag, "bridgeBroadcastDiscovered", false);
         // Optional: a registry before M4 has no player entries, so every consent reads as unset.
-        for (PlayerEntry entry : decodeAll(PlayerEntry.CODEC, tag.getListOrEmpty("players"), "player entry", problems)) {
+        for (PlayerEntry entry : decodeAll(PlayerEntry.CODEC, NbtTags.getListOrEmpty(tag, "players"), "player entry", problems)) {
             if (registry.players.containsKey(entry.uuid())) {
                 problems.accept("Skipped player entry " + entry.uuid() + ": stored twice");
                 continue;
@@ -722,7 +723,7 @@ public final class DeviceRegistry {
 
     /** Whether {@code tag} was written by a newer MineQTT, whose layout this one cannot read. */
     public static boolean isNewerSchema(CompoundTag tag) {
-        return tag.getIntOr("schema", 0) > SCHEMA;
+        return NbtTags.getIntOr(tag, "schema", 0) > SCHEMA;
     }
 
     /**
@@ -730,8 +731,8 @@ public final class DeviceRegistry {
      * the tag holds no valid identity.
      */
     public static Optional<DeviceRegistry> identityOf(CompoundTag tag) {
-        Optional<String> bridgeId = tag.getString("bridgeId").filter(id -> !id.isEmpty() && ConfigValidation.isValidBridgeId(id));
-        Optional<UUID> worldUuid = tag.read("worldUuid", UUIDUtil.CODEC);
+        Optional<String> bridgeId = NbtTags.getString(tag, "bridgeId").filter(id -> !id.isEmpty() && ConfigValidation.isValidBridgeId(id));
+        Optional<UUID> worldUuid = NbtTags.read(tag, "worldUuid", UUIDUtil.CODEC);
         return bridgeId.isPresent() && worldUuid.isPresent() ? Optional.of(new DeviceRegistry(bridgeId.get(), worldUuid.get())) : Optional.empty();
     }
 
