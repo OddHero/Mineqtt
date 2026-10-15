@@ -6,7 +6,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
-import com.google.gson.Strictness;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 
@@ -194,12 +193,21 @@ public final class EntityDocuments {
         return strictJson(text).orElseGet(() -> new JsonPrimitive(text));
     }
 
-    /** {@code text} as strict JSON (RFC 8259: no NaN, no comments, no single quotes, nothing after the value); empty otherwise. */
+    /**
+     * {@code text} as strict JSON (RFC 8259: no NaN, no comments, no single quotes, nothing after the value); empty otherwise.
+     * Gson 2.11 (Minecraft 1.21.4) added Strictness; before it, {@code JsonParser} makes every reader lenient, so the
+     * element adapter reads instead.
+     */
     public static Optional<JsonElement> strictJson(String text) {
         try {
             JsonReader reader = new JsonReader(new StringReader(text));
-            reader.setStrictness(Strictness.STRICT);
+            //? if >=1.21.4 {
+            reader.setStrictness(com.google.gson.Strictness.STRICT);
             JsonElement json = JsonParser.parseReader(reader);
+            //?} else {
+            /*reader.setLenient(false);
+            JsonElement json = com.google.gson.internal.bind.TypeAdapters.JSON_ELEMENT.read(reader);
+            *///?}
             return reader.peek() == JsonToken.END_DOCUMENT ? Optional.of(json) : Optional.empty();
         } catch (JsonParseException | IOException | IllegalStateException e) {
             return Optional.empty();

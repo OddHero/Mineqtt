@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.ui.explorer;
 
+import art.rehra.mineqtt.compat.Particles;
 import art.rehra.mineqtt.blocks.entities.DeviceBlockEntity;
 import art.rehra.mineqtt.device.DeviceRecord;
 import art.rehra.mineqtt.device.DeviceRuntime;
@@ -278,7 +279,7 @@ public final class ExplorerActions {
     private static void mark(ServerPlayer player, BlockPos pos) {
         ServerLevel level = (ServerLevel) player.level(); // a ServerPlayer's level is typed so from 1.21.6 on
         for (int step = 0; step <= COLUMN_HEIGHT * 2; step++) {
-            level.sendParticles(player, ParticleTypes.END_ROD, true, true, pos.getX() + 0.5, pos.getY() + 1.0 + step * 0.5, pos.getZ() + 0.5,
+            Particles.sendTo(level, player, ParticleTypes.END_ROD, true, true, pos.getX() + 0.5, pos.getY() + 1.0 + step * 0.5, pos.getZ() + 0.5,
                     1, 0, 0, 0, 0);
         }
     }

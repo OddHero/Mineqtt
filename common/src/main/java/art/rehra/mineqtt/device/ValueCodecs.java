@@ -5,12 +5,7 @@ import art.rehra.mineqtt.flow.core.Colors;
 import art.rehra.mineqtt.flow.core.PortType;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParseException;
-import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
-import com.google.gson.Strictness;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonToken;
 import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
@@ -24,8 +19,6 @@ import com.mojang.serialization.RecordBuilder;
 import net.minecraft.util.StringRepresentable;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
-import java.io.StringReader;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -635,14 +628,7 @@ public final class ValueCodecs {
 
     /** A strict JSON document, nothing after it; empty for anything else. */
     static Optional<JsonElement> strictJson(String text) {
-        try {
-            JsonReader reader = new JsonReader(new StringReader(text));
-            reader.setStrictness(Strictness.STRICT);
-            JsonElement json = JsonParser.parseReader(reader);
-            return reader.peek() == JsonToken.END_DOCUMENT ? Optional.of(json) : Optional.empty();
-        } catch (JsonParseException | IOException e) {
-            return Optional.empty();
-        }
+        return art.rehra.mineqtt.twin.core.EntityDocuments.strictJson(text);
     }
 
     private static JsonObject command(String key, JsonElement value) {

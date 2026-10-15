@@ -15,7 +15,6 @@ import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedScreenHost;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -329,7 +328,7 @@ public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHos
                 if (time % 60 == 0) level.addParticle(ParticleTypes.SMOKE, at.x, at.y + 0.2, at.z, 0, 0.02, 0);
             }
             case PAUSED -> {
-                if (time % 100 == 0) level.addParticle(new DustParticleOptions(REFUSED_RED, 1.0f), at.x, at.y + 0.3, at.z, 0, 0, 0);
+                if (time % 100 == 0) level.addParticle(art.rehra.mineqtt.compat.Particles.dust(REFUSED_RED, 1.0f), at.x, at.y + 0.3, at.z, 0, 0, 0);
             }
             case NONE, REFUSED -> {
             }
@@ -346,6 +345,6 @@ public abstract class DeviceBlockEntity extends BlockEntity implements DeviceHos
 
     /** Client: one red particle above {@code at}, as a binding becomes refused (D19). */
     protected static void refusedParticle(Level level, Vec3 at) {
-        level.addParticle(new DustParticleOptions(REFUSED_RED, 1.5f), at.x, at.y + 0.4, at.z, 0, 0.01, 0);
+        level.addParticle(art.rehra.mineqtt.compat.Particles.dust(REFUSED_RED, 1.5f), at.x, at.y + 0.4, at.z, 0, 0.01, 0);
     }
 }
