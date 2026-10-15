@@ -194,8 +194,15 @@ public class SettingsTabView implements MqttTabView {
             onToggle.run();
         }
 
+        // A button draws its contents in renderContents from 1.21.11 on, before in renderWidget (a parameter not named g
+        // keeps that line out of the renderContents replacement).
         @Override
+        //? if >=1.21.11 {
         protected void extractContents(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
+        //?} else {
+        /*protected void renderWidget(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+            GuiGraphicsExtractor g = graphics;
+        *///?}
             boolean on = isOn.getAsBoolean();
             // Background: subtle dark slot-like frame regardless of state, for visual consistency.
             g.fill(getX() - 1, getY() - 1, getX() + width + 1, getY() + height + 1, 0xFF373737);

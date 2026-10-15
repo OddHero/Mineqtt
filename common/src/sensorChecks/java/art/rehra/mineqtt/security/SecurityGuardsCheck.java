@@ -1011,13 +1011,13 @@ public final class SecurityGuardsCheck {
 
         CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
         MineQTTCommands.register(dispatcher);
-        CommandSourceStack op = Commands.createCompilationContext(LevelBasedPermissionSet.GAMEMASTER);
-        CommandSourceStack holder = Commands.createCompilationContext(exposer);
-        List<CommandSourceStack> outsiders = List.of(Commands.createCompilationContext(PermissionSet.NO_PERMISSIONS),
-                Commands.createCompilationContext(LevelBasedPermissionSet.MODERATOR));
+        CommandSourceStack op = source(LevelBasedPermissionSet.GAMEMASTER);
+        CommandSourceStack holder = source(exposer);
+        List<CommandSourceStack> outsiders = List.of(source(PermissionSet.NO_PERMISSIONS),
+                source(LevelBasedPermissionSet.MODERATOR));
         for (String state : List.of("on", "off", "default")) {
             String command = "mineqtt devices expose lamp " + state;
-            check(parses(dispatcher, command, op) && parses(dispatcher, command, holder), "An op and a holder may run " + command);
+            check(parses(dispatcher, command, op) && (!SOURCES_HOLD_ATOMS || parses(dispatcher, command, holder)), "An op and a holder may run " + command);
             outsiders.forEach(source -> check(!parses(dispatcher, command, source), "Nobody else may run " + command));
         }
         check(!parses(dispatcher, "mineqtt devices expose lamp maybe", op), "Only on, off and default");
@@ -1039,10 +1039,11 @@ public final class SecurityGuardsCheck {
             check(!parses(dispatcher, command, holder), "mineqtt:ha.expose does not open " + command);
         }
         check(!parses(dispatcher, "mineqtt publish t x", op) && parses(dispatcher, "mineqtt publish t x",
-                Commands.createCompilationContext(LevelBasedPermissionSet.ADMIN)), "publish needs op level 3");
+                source(LevelBasedPermissionSet.ADMIN)), "publish needs op level 3");
         // A subcommand added later without its own op requirement would open to every holder of mineqtt:ha.expose; the
         // literals open to every player (M4 plan D14) are reached by everyone anyway.
         CommandNode<CommandSourceStack> root = dispatcher.getRoot().getChild("mineqtt");
+        if (!SOURCES_HOLD_ATOMS) return;
         for (CommandNode<CommandSourceStack> child : root.getChildren()) {
             check(child.canUse(holder) == (child.getName().equals("devices") || OPEN_LITERALS.contains(child.getName())),
                     "mineqtt:ha.expose reaches /mineqtt " + child.getName() + ": " + child.canUse(holder));
@@ -1050,6 +1051,23 @@ public final class SecurityGuardsCheck {
         for (CommandNode<CommandSourceStack> child : root.getChild("devices").getChildren()) {
             check(child.canUse(holder) == child.getName().equals("expose"), "mineqtt:ha.expose reaches devices " + child.getName() + ": " + child.canUse(holder));
         }
+    }
+
+    /**
+     * Whether a command source carries permission atoms such as {@code mineqtt:ha.expose}: from 1.21.11 on. Before, a
+     * source has an operator level only, so the checks of a source holding an atom are skipped there.
+     */
+    private static final boolean SOURCES_HOLD_ATOMS = /*$ permission_sets*/ true;
+
+    // A command source with these permissions; before 1.21.11 the operator level of a LevelBasedPermissionSet, else 0.
+    private static CommandSourceStack source(PermissionSet permissions) {
+        //? if >=1.21.11 {
+        return Commands.createCompilationContext(permissions);
+        //?} else {
+        /*int level = permissions instanceof LevelBasedPermissionSet levels ? levels.level() : 0;
+        return new CommandSourceStack(net.minecraft.commands.CommandSource.NULL, Vec3.ZERO, net.minecraft.world.phys.Vec2.ZERO, null, level, "",
+                Component.empty(), null, null);
+        *///?}
     }
 
     /** The literals under {@code /mineqtt} every player reaches (M4 plan D14); their leaves check ownership themselves. */
@@ -1064,11 +1082,11 @@ public final class SecurityGuardsCheck {
         CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
         MineQTTCommands.register(dispatcher);
         check(dispatcher.getRoot().getChildren().size() == 1, "MineQTT registers exactly one root literal: " + dispatcher.getRoot().getChildren().size());
-        CommandSourceStack nobody = Commands.createCompilationContext(PermissionSet.NO_PERMISSIONS);
-        CommandSourceStack moderator = Commands.createCompilationContext(LevelBasedPermissionSet.MODERATOR);
-        CommandSourceStack op = Commands.createCompilationContext(LevelBasedPermissionSet.GAMEMASTER);
-        CommandSourceStack admin = Commands.createCompilationContext(LevelBasedPermissionSet.ADMIN);
-        CommandSourceStack exposer = Commands.createCompilationContext(permission -> permission.equals(AclContext.HA_EXPOSE));
+        CommandSourceStack nobody = source(PermissionSet.NO_PERMISSIONS);
+        CommandSourceStack moderator = source(LevelBasedPermissionSet.MODERATOR);
+        CommandSourceStack op = source(LevelBasedPermissionSet.GAMEMASTER);
+        CommandSourceStack admin = source(LevelBasedPermissionSet.ADMIN);
+        CommandSourceStack exposer = source(permission -> permission.equals(AclContext.HA_EXPOSE));
         CommandNode<CommandSourceStack> root = dispatcher.getRoot().getChild("mineqtt");
         check(root != null && root.canUse(nobody) && root.getCommand() == null, "Every source reaches the /mineqtt root, which runs nothing itself");
         check(!parses(dispatcher, "mineqtt", nobody) && !parses(dispatcher, "mineqtt", op), "/mineqtt alone is an incomplete command");
@@ -1083,7 +1101,7 @@ public final class SecurityGuardsCheck {
             }
             check(open || child.canUse(op) == !name.equals("publish"), "Level 2 reaches /mineqtt " + name + " (publish needs level 3): " + child.canUse(op));
             check(child.canUse(admin), "Level 3 reaches /mineqtt " + name);
-            check(child.canUse(exposer) == (open || name.equals("devices")), "mineqtt:ha.expose reaches /mineqtt " + name + ": " + child.canUse(exposer));
+            check(!SOURCES_HOLD_ATOMS || child.canUse(exposer) == (open || name.equals("devices")), "mineqtt:ha.expose reaches /mineqtt " + name + ": " + child.canUse(exposer));
         }
         // Every subcommand of devices carries its own requirement too, so the devices literal is not the only gate.
         for (CommandNode<CommandSourceStack> child : root.getChild("devices").getChildren()) {
@@ -1098,9 +1116,11 @@ public final class SecurityGuardsCheck {
                 "An op tab-completes every level-2 child: " + opCompletions);
         Set<String> exposerCompletions = new TreeSet<>(openPresent);
         exposerCompletions.add("devices");
-        check(completions(dispatcher, "mineqtt ", exposer).equals(exposerCompletions), "mineqtt:ha.expose tab-completes devices: "
-                + completions(dispatcher, "mineqtt ", exposer));
-        check(completions(dispatcher, "mineqtt devices ", exposer).equals(Set.of("expose")), "and under it only expose");
+        if (SOURCES_HOLD_ATOMS) {
+            check(completions(dispatcher, "mineqtt ", exposer).equals(exposerCompletions), "mineqtt:ha.expose tab-completes devices: "
+                    + completions(dispatcher, "mineqtt ", exposer));
+            check(completions(dispatcher, "mineqtt devices ", exposer).equals(Set.of("expose")), "and under it only expose");
+        }
         check(!root.getChild("devices").canUse(nobody), "A level-0 source does not even reach devices");
         for (String command : List.of("mineqtt status", "mineqtt reconnect", "mineqtt devices list", "mineqtt devices expose lamp on", "mineqtt group list",
                 "mineqtt wires list", "mineqtt discovery republish", "mineqtt twin status", "mineqtt publish t x")) {
@@ -1145,7 +1165,7 @@ public final class SecurityGuardsCheck {
     private static void roomsCommand() {
         CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
         MineQTTCommands.register(dispatcher);
-        CommandSourceStack nobody = Commands.createCompilationContext(PermissionSet.NO_PERMISSIONS);
+        CommandSourceStack nobody = source(PermissionSet.NO_PERMISSIONS);
         CommandNode<CommandSourceStack> rooms = dispatcher.getRoot().getChild("mineqtt").getChild("rooms");
         check(rooms != null && rooms.canUse(nobody), "Every source reaches /mineqtt rooms");
         check(completions(dispatcher, "mineqtt rooms ", nobody).equals(Set.of("list", "info", "create", "rename", "resize", "remove", "switch")),

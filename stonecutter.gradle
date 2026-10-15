@@ -15,6 +15,8 @@ stonecutter.active '26.2'
 stonecutter.parameters {
     // In code, `/*$ minecraft*/ "26.2";` becomes the node's Minecraft version.
     swaps.put('minecraft', "\"${current.version}\";")
+    // `/*$ permission_sets*/ true;`: whether the version has 1.21.11's permission sets, whose atoms a command source holds.
+    swaps.put('permission_sets', "${stonecutter.eval(current.version, '>=1.21.11')};")
 
     // Renames between versions, written as the active version (26.2) has them. Each one is undone exactly when the active
     // version switches back, so the other side's spelling must not occur in the 26.2 sources.
@@ -34,9 +36,38 @@ stonecutter.parameters {
         }
     }
 
-    // 1.21.11 moved Util into net.minecraft.util.
+    // 1.21.9 made game profiles records and named a player by NameAndId; before, compat.NameAndId stands in for it.
+    replacements.string(before('1.21.9')) {
+        replace('getGameProfile().name()', 'getGameProfile().getName()')
+        replace('getGameProfile().id()', 'getGameProfile().getId()')
+        replace('net.minecraft.server.players.NameAndId', 'art.rehra.mineqtt.compat.NameAndId')
+    }
+
+    // 1.21.11 moved Util into net.minecraft.util and renamed ResourceLocation to Identifier (ResourceKey.location() to
+    // identifier()).
     replacements.string(before('1.21.11')) {
         replace('import net.minecraft.util.Util;', 'import net.minecraft.Util;')
+        replace('.identifier()', '.location()')
+        replace('isWithinBlockInteractionRange(', 'canInteractWithBlock(')
+    }
+    replacements.regex(before('1.21.11')) {
+        replace('\\bIdentifierArgument\\b', 'ResourceLocationArgument', '\\bResourceLocationArgument\\b', 'IdentifierArgument')
+        replace('\\bIdentifier\\b', 'ResourceLocation', '\\bResourceLocation\\b', 'Identifier')
+    }
+
+    // 1.21.11 replaced operator levels with permission sets; before, compat.permissions stands in for them.
+    replacements.string(before('1.21.11')) {
+        replace('import net.minecraft.server.permissions.', 'import art.rehra.mineqtt.compat.permissions.')
+    }
+    replacements.regex(before('1.21.11')) {
+        def receiver = '((?:[A-Za-z_]\\w*(?:\\([A-Za-z_]?\\w*\\))?\\.)*[A-Za-z_]\\w*(?:\\([A-Za-z_]?\\w*\\))?)'
+        def shim = 'art\\.rehra\\.mineqtt\\.compat\\.permissions\\.PermissionSet'
+        replace("\\b${receiver}\\.permissions\\(\\)", 'art.rehra.mineqtt.compat.permissions.PermissionSet.of($1)',
+                "${shim}\\.of\\(${receiver}\\)", '$1.permissions()')
+        replace("\\b${receiver}::getProfilePermissions\\b", 'art.rehra.mineqtt.compat.permissions.PermissionSet.profiles($1)',
+                "${shim}\\.profiles\\(${receiver}\\)", '$1::getProfilePermissions')
+        replace("\\b${receiver}\\.getProfilePermissions\\(", 'art.rehra.mineqtt.compat.permissions.PermissionSet.ofProfile($1, ',
+                "${shim}\\.ofProfile\\(${receiver}, ", '$1.getProfilePermissions(')
     }
 
     // 26.1 moved the camera render state and the light coordinates helper.

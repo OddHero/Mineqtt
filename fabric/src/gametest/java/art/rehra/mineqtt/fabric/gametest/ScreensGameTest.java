@@ -104,7 +104,11 @@ public final class ScreensGameTest implements FabricClientGameTest {
             Category category = session.onClient(mc -> {
                 ClothConfigScreen config = configScreen(mc);
                 config.selectedCategoryIndex = index;
+                //? if >=1.21.11 {
                 config.init(config.width, config.height);
+                //?} else {
+                /*config.init(mc, config.width, config.height);
+                *///?}
                 Component selected = config.getSelectedCategory();
                 return new Category(selected.getString(), config.getCategorizedEntries().get(selected).size());
             });

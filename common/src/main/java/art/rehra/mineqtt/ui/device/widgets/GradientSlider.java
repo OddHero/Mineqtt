@@ -57,6 +57,8 @@ public class GradientSlider extends IntSlider {
         float handleAlpha = dimmed && !held() ? 0.45f : 1f;
         g.blitSprite(RenderPipelines.GUI_TEXTURED, isHoveredOrFocused() && active ? HANDLE_HIGHLIGHTED : HANDLE,
                 getX() + (int) (value * (getWidth() - HANDLE_W)), getY(), HANDLE_W, getHeight(), ARGB.white(handleAlpha * alpha));
+        //? if >=1.21.11 {
         handleCursor(g);
+        //?}
     }
 }

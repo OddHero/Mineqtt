@@ -108,11 +108,25 @@ public class IntSlider extends AbstractSliderButton {
     /*public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         boolean left = keyCode == InputConstants.KEY_LEFT, right = keyCode == InputConstants.KEY_RIGHT;
     *///?}
+        // Before 1.21.11 the slider's own state and setter are private: a focused slider always takes the keys.
+        //? if >=1.21.11 {
         if (canChangeValue && (left || right)) {
             // One step per key, not the vanilla pixel.
             setValue(fraction(snap(number + (left ? -step : step))));
             return true;
         }
+        //?} else {
+        /*if (left || right) {
+            // One step per key, not the vanilla pixel.
+            double next = fraction(snap(number + (left ? -step : step)));
+            if (next != value) {
+                value = next;
+                applyValue();
+                updateMessage();
+            }
+            return true;
+        }
+        *///?}
         //? if >=1.21.9 {
         return super.keyPressed(event);
         //?} else {
