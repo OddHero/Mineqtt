@@ -230,7 +230,8 @@ server must both run 0.8.0.
 public server: a block can *mirror* an entity (the Home Assistant twin), a Redstone Input or a Wall Switch can
 *trigger* one, and a new Display Panel shows any value. It is for Minecraft 26.2 on Fabric and NeoForge and replaces
 0.6.0. Worlds and config files of 0.6.0 load unchanged: apart from the breaking changes below, nothing behaves
-differently until you bind a block. The setup is in the README, [Mirror your house](README.md#mirror-your-house).
+differently until you bind a block. The setup is in the wiki:
+[Mirror Your House](https://github.com/OddHero/Mineqtt/wiki/Mirror-Your-House).
 Read **Breaking changes** before you update a server.
 
 ### For players
@@ -288,7 +289,8 @@ Read **Breaking changes** before you update a server.
 ### For server admins
 
 - **The Home Assistant setup** takes `mqtt_statestream` (base `ha_statestream`, attributes and timestamps on, a tight
-  `include:` list), two labels and two automation blueprints, all in the README:
+  `include:` list), two labels and two automation blueprints, all in the wiki's
+  [Mirror Your House](https://github.com/OddHero/Mineqtt/wiki/Mirror-Your-House#set-up-home-assistant):
   - *MineQTT catalog* (`docs/blueprints/automation/mineqtt/mineqtt_catalog.yaml`) publishes the entities you label
     *MineQTT read* or *MineQTT control* (or whose device you label) with fresh snapshots. Minecraft shows only those,
     corrects stale retained values after a Home Assistant restart, and warns about mirrored entities missing from the
@@ -325,7 +327,8 @@ Read **Breaking changes** before you update a server.
   the rate allows, so Home Assistant ends as the world left it), a player's click, a toggle and a press are refused,
   counted per device (`devices info`, the status line, the Twin tab) and logged once per burst. A device the world makes send, or try to send, more than 8 requests in
   10 s has its control paused until a player resumes it. Delayed redstone (repeaters, observers) starts a new world
-  chain: it is bounded by the rates and ended by the pause, as the README explains.
+  chain: it is bounded by the rates and ended by the pause, as the wiki explains
+  ([Delayed redstone](https://github.com/OddHero/Mineqtt/wiki/Control-from-Minecraft#delayed-redstone)).
 - **MQTT device presets**: ten built-ins (`mineqtt:zigbee2mqtt_light`, `zigbee2mqtt_switch`, `zigbee2mqtt_sensor`,
   `zigbee2mqtt_contact`, `tasmota_power`, `shelly_gen2_switch`, `esphome_light`, `esphome_sensor`, `generic_topic`,
   `generic_switch`), and datapacks add their own under `data/<namespace>/mineqtt/binding_presets/`; a bad file is
@@ -336,7 +339,8 @@ Read **Breaking changes** before you update a server.
   for the owner at every send, and commands carry typed values only.
 - **Broker ACL.** On a broker shared with other clients, only MineQTT's user should publish
   `mineqtt/+/bridge/ha_request` and `ha_sync`, only Home Assistant's user `mineqtt/+/bridge/ha_response`, statestream
-  and the catalog's `ha_statestream/_mineqtt/#`. The README has the lines.
+  and the catalog's `ha_statestream/_mineqtt/#`. The wiki has the lines
+  ([Broker Setup](https://github.com/OddHero/Mineqtt/wiki/Broker-Setup#home-assistant-twin-topics)).
 - **Inbound size.** MineQTT now takes inbound messages up to 256 KiB (0.6.0: 64 KiB) for the catalog's per-domain lists,
   and tells an MQTT 5 broker that maximum packet size; every other subscription keeps its own smaller cap (mirrors
   64 KiB, commands and Raw Links 16 KiB).
@@ -456,7 +460,8 @@ keeps its id, so v1 worlds load and upgrade in place; read **Breaking changes** 
 - **Commands** (`/mineqtt`, op level 2 unless noted): `status`, `reconnect`, `devices …` (list, info, rename, set,
   setting, raw, action, expose, access, claim, retry, eject, remove, prune), `group …`, `wires …`, `discovery …` and
   `publish` (op level 3). Every screen action has a command twin.
-- **Broker ACL**: the README has a Mosquitto ACL for the MineQTT user. Retained messages on `mineqtt/shared/#` and on
+- **Broker ACL**: the wiki's [Broker Setup](https://github.com/OddHero/Mineqtt/wiki/Broker-Setup) has a Mosquitto
+  ACL for the MineQTT user. Retained messages on `mineqtt/shared/#` and on
   raw-link topics need write-with-retain for every server that shares them.
 - **Migration notes**: v1 lamps keep their Home Assistant entities and devices (entity id, history, area, device
   automations), also in chunks nobody visits and when Home Assistant is offline during the upgrade; lamps that shared
@@ -483,9 +488,10 @@ keeps its id, so v1 worlds load and upgrade in place; read **Breaking changes** 
 - **Removed**: the zombie goal and item portal features, `/mineqtt setgoal` and `/mineqtt enablegoal`, and their
   config keys (ignored when read).
 - **New block names in payloads**: a Block Sensor in name mode and its full-data `name` publish the new display names
-  (`Smart Lamp` instead of `RGB LED Subscriber`, and so on, see the README's "Upgrading from v1"), and a Block Emitter
+  (`Smart Lamp` instead of `RGB LED Subscriber`, and so on, see the wiki's
+  [Upgrading from v1](https://github.com/OddHero/Mineqtt/wiki/Upgrading-from-v1#renamed-blocks)), and a Block Emitter
   no longer finds a MineQTT block by its old name. Block ids are unaffected.
 - **Owners**: a v1 owner name is resolved to the player's UUID; a player who only shares the name is no owner.
 - **Worlds of v2 test builds**: a raw link saved with `retain=false` by such a build becomes retained, and a test build
-  that already migrated v1 lamps left an empty "MineQTT RGB LED" device per lamp in Home Assistant (see the README,
-  "Upgrading from v1").
+  that already migrated v1 lamps left an empty "MineQTT RGB LED" device per lamp in Home Assistant (see the wiki,
+  [Upgrading from v1](https://github.com/OddHero/Mineqtt/wiki/Upgrading-from-v1#worlds-an-earlier-v2-test-build-migrated)).

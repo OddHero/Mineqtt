@@ -59,7 +59,7 @@ services:
       ha-config-init:
         condition: service_completed_successfully
 
-  # The oldest Home Assistant MineQTT supports (README "Home Assistant"). Older releases ignore the lamp's
+  # The oldest Home Assistant MineQTT supports (wiki, "Home Assistant"). Older releases ignore the lamp's
   # color_temp_kelvin/min_kelvin/max_kelvin discovery keys and treat colour temperature as mireds. Mounts as above,
   # with the legacy-syntax template light and lock of packages/2025.2.
   homeassistant-floor:

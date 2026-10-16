@@ -10,7 +10,8 @@ mounts it read-only into both test instances at `/config/blueprints/automation/m
 | `mineqtt_catalog.yaml` | Publishes the entities labelled *MineQTT read* or *MineQTT control* (or of devices with those labels) as a retained catalog under the `mqtt_statestream` base topic, one list per domain with whitelisted attributes and a status, with fresh snapshots, so Minecraft knows which entities it may show and their current values. Runs at Home Assistant's start, on registry changes, every 10 minutes and when a MineQTT server asks (`ha_sync`). | Written (M3-11), released with MineQTT 0.7.0 |
 
 Both need Home Assistant 2025.2.0 or newer, the MQTT integration, and `mqtt_statestream` with the base topic
-`ha_statestream` (the MineQTT README has the setup).
+`ha_statestream` (the setup is in the wiki's
+[Mirror Your House](https://github.com/OddHero/Mineqtt/wiki/Mirror-Your-House#set-up-home-assistant)).
 
 In the end-to-end environment a blueprint becomes an automation without the UI:
 
