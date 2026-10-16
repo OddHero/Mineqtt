@@ -138,7 +138,10 @@ jar {
 
 configureReleaseShadow(tasks.named('shadowJar'))
 
-def gameVersions = (project.game_versions as String).split(',') as List
+// The Minecraft versions the jar is listed for. Named apart from the modrinth extension's gameVersions: inside that block
+// "gameVersions = gameVersions" assigned the extension's empty list to itself, and Modrinth then got only this node's
+// own version.
+def releaseGameVersions = (project.game_versions as String).split(',') as List
 
 modrinth {
     // MODRINTH_TOKEN must be set (the release workflow passes the repository secret); keep it private.
@@ -151,7 +154,7 @@ modrinth {
     versionType = rootProject.modrinthVersionType(rootProject.mod_version.toString())
     changelog = rootProject.changelogFor(rootProject.mod_version.toString())
     uploadFile = releaseJarTask
-    gameVersions = gameVersions
+    gameVersions = releaseGameVersions
     loaders = ["fabric"]
     dependencies {
         required.project "fabric-api"
@@ -172,7 +175,7 @@ tasks.register('publishCurseForge', net.darkhax.curseforgegradle.TaskPublishCurs
 
     def mainFile = upload(projectId, releaseJarTask)
     mainFile.changelog = 'See Description.'
-    gameVersions.each { mainFile.addGameVersion(it) }
+    releaseGameVersions.each { mainFile.addGameVersion(it) }
     mainFile.addModLoader('Fabric')
     mainFile.releaseType = 'release'
 }
