@@ -16,6 +16,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
+import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import org.jetbrains.annotations.Nullable;
@@ -60,6 +61,12 @@ public abstract class DecommissionedBlock extends BaseEntityBlock {
 
     // Not @Override: blocks have no codec from 26.3 on.
     protected abstract MapCodec<? extends DecommissionedBlock> codec();
+
+    /** Drawn by its block model. Up to 1.21.3 a block entity's block is invisible by default (RenderShape.INVISIBLE). */
+    @Override
+    protected RenderShape getRenderShape(BlockState state) {
+        return RenderShape.MODEL;
+    }
 
     /**
      * The tooltip of a decommissioned block's item, a default component: that it is retired and gives its parts back

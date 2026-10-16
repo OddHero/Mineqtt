@@ -107,7 +107,9 @@ public final class CatalogCheck {
             String path = entry.id().getPath();
             Path itemModel = assets.resolve("items/" + path + ".json");
             if (expect(Files.isRegularFile(itemModel), entry.id() + " has no item model definition items/" + path + ".json")) {
-                models(read(itemModel), "items/" + path + ".json");
+                JsonElement definition = read(itemModel);
+                models(definition, "items/" + path + ".json");
+                legacyItemModel(assets, path, definition);
             }
             expect(lang.has("item.mineqtt." + path), entry.id() + " has no lang key item.mineqtt." + path);
             if (entry.kind() == Catalog.Kind.BLOCK) {
@@ -144,6 +146,25 @@ public final class CatalogCheck {
             String path = key.substring(key.lastIndexOf('.') + 1);
             expect(isEntry(path, kind), "Lang key " + key + " names no " + (kind == null ? "" : "block ") + "Catalog entry");
         }
+    }
+
+    /**
+     * Up to 1.21.3 the game draws an item from its model models/item/&lt;id&gt;, not from the item model definition in
+     * items/: the legacy model must exist and show what the definition shows. A definition that names a block model
+     * needs a legacy model with that block model as its parent; a flat item/generated one would draw the block's texture
+     * as a sprite in the inventory.
+     */
+    private static void legacyItemModel(Path assets, String path, JsonElement definition) throws IOException {
+        String legacyFile = "models/item/" + path + ".json";
+        if (!expect(Files.isRegularFile(assets.resolve(legacyFile)), "mineqtt:" + path + " has no legacy item model " + legacyFile)) return;
+        model(NAMESPACE + ":item/" + path, legacyFile, new HashSet<>());
+        JsonObject model = definition.getAsJsonObject().getAsJsonObject("model");
+        if (model == null || !"minecraft:model".equals(model.get("type").getAsString())) return;
+        String shown = model.get("model").getAsString();
+        if (!shown.startsWith(NAMESPACE + ":block/")) return;
+        JsonObject legacy = read(assets.resolve(legacyFile)).getAsJsonObject();
+        String parent = legacy.has("parent") ? legacy.get("parent").getAsString() : null;
+        expect(shown.equals(parent), legacyFile + " must have the parent " + shown + " (as items/" + path + ".json shows it), has " + parent);
     }
 
     private static void everyFileIsAnEntry(Path folder, Catalog.Kind kind, String what) throws IOException {

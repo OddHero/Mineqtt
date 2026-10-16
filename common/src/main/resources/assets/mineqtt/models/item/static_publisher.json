@@ -1,6 +1,3 @@
 {
-  "parent": "item/generated",
-  "textures": {
-    "layer0": "mineqtt:block/static_publisher"
-  }
+  "parent": "mineqtt:block/static_publisher_on"
 }

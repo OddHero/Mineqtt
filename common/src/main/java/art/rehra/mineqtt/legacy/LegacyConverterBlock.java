@@ -23,6 +23,7 @@ import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
@@ -69,6 +70,12 @@ public abstract class LegacyConverterBlock extends BaseEntityBlock {
 
     // Not @Override: blocks have no codec from 26.3 on.
     protected abstract MapCodec<? extends LegacyConverterBlock> codec();
+
+    /** Drawn by its block model. Up to 1.21.3 a block entity's block is invisible by default (RenderShape.INVISIBLE). */
+    @Override
+    protected RenderShape getRenderShape(BlockState state) {
+        return RenderShape.MODEL;
+    }
 
     /** The block it becomes. */
     public Block successor() {

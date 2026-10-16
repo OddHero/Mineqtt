@@ -1,6 +1,3 @@
 {
-  "parent": "item/generated",
-  "textures": {
-    "layer0": "mineqtt:block/block_sensor_front"
-  }
+  "parent": "mineqtt:block/block_sensor_block"
 }
