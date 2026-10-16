@@ -65,10 +65,20 @@ public final class BroadcastText {
 
     /** The text without formatting codes, control characters and bidirectional controls, whitespace collapsed, cut. */
     public static String clean(String text) {
-        StringBuilder out = new StringBuilder(Math.min(text.length(), 4 * MAX_LENGTH));
+        return clean(text, MAX_LENGTH);
+    }
+
+    /**
+     * {@link #clean(String)} cut to {@code maxLength} characters (code points) instead, e.g. a Speaker's announcement.
+     *
+     * @throws IllegalArgumentException for a length that is not positive
+     */
+    public static String clean(String text, int maxLength) {
+        if (maxLength <= 0) throw new IllegalArgumentException("The length must be positive: " + maxLength);
+        StringBuilder out = new StringBuilder(Math.min(text.length(), 4 * maxLength));
         int length = 0;
         boolean space = false;
-        for (int i = 0; i < text.length() && length < MAX_LENGTH; ) {
+        for (int i = 0; i < text.length() && length < maxLength; ) {
             int cp = text.codePointAt(i);
             i += Character.charCount(cp);
             if (cp == SECTION_SIGN) {
@@ -84,7 +94,7 @@ public final class BroadcastText {
             if (Character.isISOControl(cp)) continue;
             if (space) {
                 // A space that only the cut would follow is left out.
-                if (length + 1 >= MAX_LENGTH) break;
+                if (length + 1 >= maxLength) break;
                 out.append(' ');
                 length++;
                 space = false;

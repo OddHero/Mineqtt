@@ -23,6 +23,7 @@ import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
 import art.rehra.mineqtt.device.timer.core.TimerKind;
@@ -99,6 +100,7 @@ public final class DiscoveryGoldenTest {
         containerObserver();
         entityObserver();
         vibrationSensor();
+        speaker();
         wallSwitch();
         displayPanel();
         everyEntityKind();
@@ -500,6 +502,42 @@ public final class DiscoveryGoldenTest {
     }
 
     /**
+     * The Speaker against its golden file: the siren as the primary entity on the device's /set topic with the fixed
+     * tones, duration and volume, its state template giving Home Assistant only state, tone and volume level; the
+     * announcement as a notify entity on /set/announce, never retained and always discovered whatever the server's key;
+     * tone, volume, duration and range as config entities, the time left, the last announcement and the last result.
+     */
+    private static void speaker() throws IOException {
+        UUID speakerId = UUID.fromString("5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b");
+        DeviceRecord speaker = new DeviceRecord(speakerId, Speaker.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(16, 64, 0)), "Hall Speaker",
+                "hall_speaker");
+        JsonObject config = DiscoveryPublisher.deviceConfig(Speaker.TYPE, speaker, TOPICS, IDENTITY);
+        assertGolden("speaker", config);
+        JsonObject components = config.getAsJsonObject("cmps");
+        check(components.keySet().equals(Set.of("siren", "announce", "tone", "volume", "duration", "range", "duration_left", "last_announcement",
+                "last_result", "location")), "Speaker entities: " + components.keySet());
+        JsonObject siren = components.getAsJsonObject("siren");
+        expect(siren, "p", "siren");
+        expect(siren, "command_topic", "mineqtt/world_7f3a/hall_speaker/set");
+        expect(siren, "state_topic", "mineqtt/world_7f3a/hall_speaker");
+        check(siren.get("name").isJsonNull() && siren.get("support_duration").getAsBoolean() && siren.get("support_volume_set").getAsBoolean()
+                        && !siren.get("retain").getAsBoolean() && siren.getAsJsonArray("available_tones").toString().equals("[\"alarm\",\"chime\",\"doorbell\",\"beep\",\"bell\"]"),
+                "The siren is the primary entity with the fixed tones, duration and volume, never retained: " + siren);
+        check(siren.get("state_value_template").getAsString().equals(
+                        "{{ {'state': value_json.state, 'tone': value_json.tone, 'volume_level': (value_json.volume / 100) | round(2)} | tojson }}"),
+                "The siren reads only state, tone and volume level, which Home Assistant's turn-on schema takes: " + siren.get("state_value_template"));
+        JsonObject announce = components.getAsJsonObject("announce");
+        expect(announce, "p", "notify");
+        expect(announce, "command_topic", "mineqtt/world_7f3a/hall_speaker/set/announce");
+        check(!announce.get("retain").getAsBoolean() && !announce.has("state_topic"), "The notify entity sends, never retained, and reads nothing");
+        boolean allowed = art.rehra.mineqtt.config.MineQTTConfig.speakerAllowAnnouncements;
+        art.rehra.mineqtt.config.MineQTTConfig.speakerAllowAnnouncements = !allowed;
+        check(DiscoveryPublisher.deviceConfig(Speaker.TYPE, speaker, TOPICS, IDENTITY).equals(config),
+                "The discovery does not depend on speaker.allowAnnouncements, so it never changes with the key");
+        art.rehra.mineqtt.config.MineQTTConfig.speakerAllowAnnouncements = allowed;
+    }
+
+    /**
      * The Block Placer (M4 plan D12) against its golden file, with #mineqtt:placeable bound to wool, glass and TNT as a
      * datapack might: the block select offers the tag's blocks without TNT, sorted, and its value template strips the
      * properties so its state is always an option; place and clear are buttons, placed a binary sensor, the last result a
@@ -625,6 +663,7 @@ public final class DiscoveryGoldenTest {
                 .entity(Ha.button("trigger_now"))
                 .entity(Ha.text("label", label))
                 .entity(Ha.notify("message"))
+                .entity(Ha.siren("siren", powered, mode, power))
                 .entity(Ha.deviceTrigger("button_short_press", "left", "press", "button"))
                 // Every command and event entity has its declaration (M2-4): no discovery key depends on them.
                 .action(Action.state()).action(Action.press("trigger_now")).action(new Action("message", PortType.text(255), false))
@@ -672,6 +711,13 @@ public final class DiscoveryGoldenTest {
         expect(components.getAsJsonObject("label"), "command_topic", state + "/set/label");
         check(components.getAsJsonObject("label").get("max").getAsInt() == 255, "Text length");
         expect(components.getAsJsonObject("message"), "command_topic", state + "/set/message");
+        JsonObject siren = components.getAsJsonObject("siren");
+        expect(siren, "p", "siren");
+        expect(siren, "command_topic", state + "/set");
+        expect(siren, "state_topic", state);
+        expect(siren, "state_value_template", "{{ {'state': value_json.powered, 'tone': value_json.mode, 'volume_level': (value_json.power / 100) | round(2)} | tojson }}");
+        check(siren.getAsJsonArray("available_tones").toString().equals("[\"switch\",\"level\"]") && siren.get("support_duration").getAsBoolean()
+                && siren.get("support_volume_set").getAsBoolean() && !siren.get("retain").getAsBoolean(), "A siren offers its tone field's names, duration and volume");
 
         JsonObject trigger = components.getAsJsonObject("button_short_press_left");
         expect(trigger, "p", "device_automation");
@@ -689,7 +735,7 @@ public final class DiscoveryGoldenTest {
         check(config.getAsJsonObject("dev").get("via_device").getAsString().equals(IDENTITY.bridgeObjectId()), "Every device is behind the bridge");
 
         JsonObject group = DiscoveryPublisher.groupConfig(type, new DeviceGroup(UUID.randomUUID(), "G", "g"), TOPICS, IDENTITY).getAsJsonObject("cmps");
-        check(group.keySet().equals(Set.of("output", "power_level", "mode", "trigger_now", "label", "message")),
+        check(group.keySet().equals(Set.of("output", "power_level", "mode", "trigger_now", "label", "message", "siren")),
                 "A group gets only command entities, no sensors, events or triggers: " + group.keySet());
     }
 

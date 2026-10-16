@@ -147,7 +147,17 @@ crash never survives.
   `state` is its on/off field out and its switch-state action in). `build()` refuses an HA event or device trigger
   without its `EventSpec` (a trigger that reads an event attribute also needs it, with its subtype among the attribute's
   values; one without an attribute, `Ha.deviceTrigger(type, subtype, event)`, fires on every event of its type, payload
-  the event type and template `{{ value_json.event_type }}`), a button or notify without its `Action`, and a switch or light without a `state` in-port.
+  the event type and template `{{ value_json.event_type }}`), a button or notify without its `Action`, a switch, light
+  or siren without a `state` in-port, a siren whose read-only state field is undeclared or whose `available_tones` its
+  tone field's enum does not take, and a `withoutControl(key)` of no declared action. `HaEntity.Siren(meta, state, tone,
+  volume, tones)` (`Ha.siren`, platform `siren`): `fields()` are only the tone and the volume it commands; the state is a
+  separate member, so a read-only `ON`/`OFF` field passes the "command entity over a read-only field" rule. Its component
+  has `command_topic` `/set` (Home Assistant sends `{"state":"ON","tone":…,"duration":…,"volume_level":…}` without a
+  command template, `{"state":"OFF"}` off), `available_tones`, `support_duration` and `support_volume_set` true, and a
+  `state_value_template` that renders `{'state','tone','volume_level'}` as JSON: Home Assistant validates every key of a
+  JSON siren state besides `state` against its turn-on schema, so the device's whole state would be refused.
+  `DeviceType.hasControl(key)` is false for an action declared `withoutControl` (the Speaker's `announce`):
+  `ControlsTab.controls` leaves it out, its in-port stays for wires, Home Assistant and commands.
   A device may only publish declared events (`DeviceType.eventProblem`; `publishEvent` throws otherwise). Settings and
   `LinkSetting`s (name, expose, access, Raw Link channel/topic/retain/QoS/payloads, with design §8.5's bounds) parse a
   client's NBT strictly through the kind: out of range is refused, while HA's `/set` stays lenient (clamped).
@@ -709,6 +719,53 @@ crash never survives.
   publishes or logs the entity; no name, UUID, position or distance leaves the server (as the Entity Observer reports
   `minecraft:player`, this is no personal data and `PrivacyPolicy.report` is unchanged). Checked by
   `verifyVibrationSensor`.
+- **Speaker.** `device/types/Speaker` (`mineqtt:speaker`, a new device: `noV1Topic`, block `speaker` without a facing,
+  no Raw Link, no events, `UNAVAILABLE`: a siren command to an unloaded Speaker is dropped, never queued, state at most
+  once a second, `deadband(duration_left, 10)`). Fields: `state` (`ON`/`OFF`, read-only, a BOOL out-port), the settings
+  `tone` (`Tone`: `alarm`, `chime` (default), `doorbell`, `beep`, `bell`), `volume` (0-100 %, default 100), `duration`
+  (1-600 s, default 30) and `range` (1-48 blocks, default 16), `duration_left` (whole seconds rounded up, 0 while off),
+  `last_announcement`, `last_result` and `location`. Actions: `Action.state()` (`use`: a right-click toggles) and
+  `announce` (`PortType.text(120)`, `withoutControl`), so the Controls tab has five rows: state, tone, volume, duration,
+  range. Each `Tone` is a fixed pattern of `Note(at, Instrument, note)` repeating every `period` ticks (alarm: bit notes
+  18 and 13 every 5 ticks; chime: three chime notes 5 ticks apart every 40; doorbell: bell 16 then 12 every 40; beep: pling
+  every 20; bell: the village bell every 30), pitch `2^((note-12)/12)` as a note block's; no two notes of a pattern, its
+  repeat included, are closer than `MIN_SOUND_GAP_TICKS` 5, and `SpeakerBlockEntity` also skips any note within 5 ticks of
+  the last sound, so fast ON/OFF toggling never plays more than four sounds a second. Sounds go through
+  `ServerLevel.playSound(null, …, SoundEvent, SoundSource.RECORDS, volume, pitch)` at the block centre
+  (`SpeakerBlockEntity.soundEvent`: `NOTE_BLOCK_BIT/CHIME/BELL/PLING` and `BELL_BLOCK`, all variable-range): the server
+  sends them to the players within `16 × max(1, volume)`, under each client's Jukebox/Note Blocks slider; no game event
+  is emitted, so a Vibration Sensor does not hear its Speaker. `Speaker.soundVolume(volume, range) = volume/100 ×
+  range/16`, with `range` the effective range `min(range, speaker.maxRange)` (default 32, at most 48 = volume 3), so full
+  volume is heard exactly to the range and volume 0 plays nothing. Commands (`applyCommand`): `state` ON/OFF/TOGGLE or a
+  boolean (`Speaker.switchTo`); ON starts a run of the command's `duration`, else the setting, clamped to 1-600 s
+  (`runTicks`); ON while sounding restarts the countdown, not the pattern; a command's `tone` and `volume` (Home
+  Assistant's `volume_level` 0-1 wins, `volumePercent`) become the settings, so HA's siren attributes, select and number
+  agree; `duration` with ON is that run's length, without it the setting. A rising redstone signal (`neighborChanged` →
+  `signalChanged(level.hasNeighborSignal)`) starts a run of the setting's length; the falling edge does nothing; the first
+  reading after a load or placement only learns the signal, so a powered Speaker does not sound again when its chunk loads.
+  The run (on, ticks left, pattern tick, last sound) lives only in the block entity: `setRemoved` (unload, replace, break)
+  stops it, a load starts off, a placed copy is off, and the type's `powerOn` writes an unloaded record's state as OFF
+  with no time left. The ticker runs only on the server and only plays while on; `duration_left` calls `stateChanged`
+  each second, which the deadband publishes every 10 s (wires see every second); the end of a run publishes OFF.
+  **Announcements**: the HA `notify` entity `announce` (`/set/announce`, never retained, no state topic) is always
+  discovered (stable discovery, as the Block Placer's buttons whatever `blockPlacer.enabled`); `onCommand`'s
+  `plainValue` may hand it a number or a boolean, which `Speaker.announcementText` takes as its text, while an object or
+  array is refused (`refused: an announcement is text`). `Speaker.Announcer` judges in order: `speaker.allowAnnouncements`
+  (default off, read at each announcement, so NeoForge applies it live) → `BroadcastText.clean(text, 120)` (the bridge's
+  broadcast cleaner: `§` codes, ISO and bidi controls removed, whitespace collapsed, cut by code points) → empty refused →
+  a `TokenBucket` of 2 refilled at 0.5/s per Speaker (not saved); refusals by the key or for empty text take no token.
+  An accepted text goes to every `ServerPlayer` in the Speaker's level within the effective range of the block centre as
+  `Component.translatableWithFallback("mineqtt.speaker.announcement", "[%s] %s", literal(name) dark aqua, literal(text))`
+  via `sendSystemMessage(message, overlay)`, the action bar unless `speaker.announceInChat`; it is never a command, a
+  JSON component or a click/hover event. The log line names the Speaker, the source and the text, never a recipient; the
+  state carries the text (`last_announcement`, which nearby players saw anyway) and `last_result` (`announced` or the
+  refusal), never who or how many got it, as that would tell where players are. A refusal publishes the state itself and
+  answers REJECTED. Claims: the Speaker plays and announces to everyone within its capped range like a note block or a
+  bell; no claim check (sound and text cross a claim line within at most 48 blocks; the op key gates the text).
+  Discovery: the siren (primary, `name` null), the notify *Announcement*, config select *Tone*, numbers *Volume* (slider,
+  %), *Duration* (s) and *Range* (blocks), *Time left* (`device_class: duration`), *Last announcement* (unknown before
+  the first), the diagnostic *Last result* and the disabled location. Checked by `verifySpeaker`; the golden file is
+  `golden/speaker.json`.
 - **Rooms** (M4-14, plan D11; `rooms/`). `Room(id, name, dimension, min, max, owner, forAll, created)`; the codec
   normalises the corners. `RoomRules` (pure): names (sanitised, 1-32 code points, unique per owner ignoring case),
   size (each axis `max - min + 1 <= rooms.maxSize`), counts (`limits.maxRoomsPerPlayer`, ops exempt; 512 per world for

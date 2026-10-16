@@ -20,6 +20,7 @@ import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.WallSwitch;
 import art.rehra.mineqtt.flow.core.Mapping;
@@ -489,7 +490,8 @@ public final class RuntimeWiringCheck {
 
     /**
      * M4-2: the same resolutions on the four shipped timers, from and to every shipped type. A press fires a timer, a
-     * timer fires the next, a lever and a presence sensor arm one, a timer toggles a lamp, an output and a plug; nothing
+     * timer fires the next, a lever and a presence sensor arm one, a timer toggles a lamp, an output, a plug and a
+     * Speaker's siren; nothing
      * else wires to or from a timer by default.
      */
     private static void shippedTimerWiring() {
@@ -499,7 +501,8 @@ public final class RuntimeWiringCheck {
         DefaultWiring.Pair presence = new DefaultWiring.Pair("occupancy", "state", Mapping.FOLLOW);
         DefaultWiring.Pair toggle = new DefaultWiring.Pair("fired", "state", Mapping.PULSE_TOGGLE);
         Map<DeviceType, DefaultWiring.Pair> into = Map.of(WallSwitch.TYPE, trigger, RedstoneInput.TYPE, arm, PresenceSensor.TYPE, presence);
-        Map<DeviceType, DefaultWiring.Pair> from = Map.of(SmartLamp.TYPE, toggle, RedstoneOutput.TYPE, toggle, SmartPlug.TYPE, toggle);
+        // A Speaker's state is a switch state too: a timer toggles its siren as it does a lamp.
+        Map<DeviceType, DefaultWiring.Pair> from = Map.of(SmartLamp.TYPE, toggle, RedstoneOutput.TYPE, toggle, SmartPlug.TYPE, toggle, Speaker.TYPE, toggle);
         for (DeviceType timer : Timers.all()) {
             for (DeviceType other : DeviceTypes.all()) {
                 Optional<DefaultWiring.Pair> in = Timers.all().contains(other) ? Optional.of(chain) : Optional.ofNullable(into.get(other));

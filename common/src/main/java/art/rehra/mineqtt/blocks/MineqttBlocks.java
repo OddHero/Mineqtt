@@ -38,6 +38,7 @@ public class MineqttBlocks {
     public static RegistrySupplier<Block> CONTAINER_OBSERVER;
     public static RegistrySupplier<Block> ENTITY_OBSERVER;
     public static RegistrySupplier<Block> VIBRATION_SENSOR;
+    public static RegistrySupplier<Block> SPEAKER;
     public static void init() {
         MineQTT.LOGGER.info("Registering MineQTT Blocks");
         // Register blocks here
@@ -64,6 +65,7 @@ public class MineqttBlocks {
         CONTAINER_OBSERVER = registerBlock("container_observer", () -> new ContainerObserverBlock(baseProperties("container_observer").requiresCorrectToolForDrops().strength(3.5f)));
         ENTITY_OBSERVER = registerBlock("entity_observer", () -> new EntityObserverBlock(baseProperties("entity_observer").requiresCorrectToolForDrops().strength(3.5f)));
         VIBRATION_SENSOR = registerBlock("vibration_sensor", () -> new VibrationSensorBlock(baseProperties("vibration_sensor").requiresCorrectToolForDrops().strength(3.5f)));
+        SPEAKER = registerBlock("speaker", () -> new SpeakerBlock(baseProperties("speaker").requiresCorrectToolForDrops().strength(3.5f)));
         BLOCKS.register();
 
         // Register interaction events after blocks are initialized

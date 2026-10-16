@@ -43,6 +43,7 @@ public class MineqttItems {
     public static RegistrySupplier<Item> NetworkChip;
     public static RegistrySupplier<Item> EntityObserver;
     public static RegistrySupplier<Item> VibrationSensor;
+    public static RegistrySupplier<Item> Speaker;
     public static void init(){
         MineQTT.LOGGER.info("Registering MineQTT Items");
         Cyberdeck = registerItem("cyberdeck", () -> new CyberdeckItem(baseProperties("cyberdeck")));
@@ -80,6 +81,7 @@ public class MineqttItems {
         NetworkChip = registerItem("network_chip", () -> new Item(baseProperties("network_chip")));
         EntityObserver = registerItem("entity_observer", () -> new DeviceBlockItem(MineqttBlocks.ENTITY_OBSERVER.get(), baseProperties("entity_observer")));
         VibrationSensor = registerItem("vibration_sensor", () -> new DeviceBlockItem(MineqttBlocks.VIBRATION_SENSOR.get(), baseProperties("vibration_sensor")));
+        Speaker = registerItem("speaker", () -> new DeviceBlockItem(MineqttBlocks.SPEAKER.get(), baseProperties("speaker")));
         ITEMS.register();
     }
 

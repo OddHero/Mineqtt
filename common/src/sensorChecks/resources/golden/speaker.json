@@ -1,0 +1,148 @@
+{
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/hall_speaker/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "cmps": {
+    "announce": {
+      "command_topic": "mineqtt/world_7f3a/hall_speaker/set/announce",
+      "name": "Announcement",
+      "p": "notify",
+      "retain": false,
+      "unique_id": "mineqtt_5e6f7a8b9c0d4e1f8a2b3c4d5e6f7a8b_announce"
+    },
+    "duration": {
+      "command_topic": "mineqtt/world_7f3a/hall_speaker/set/duration",
+      "entity_category": "config",
+      "max": 600,
+      "min": 1,
+      "name": "Duration",
+      "p": "number",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_speaker",
+      "step": 1,
+      "unique_id": "mineqtt_5e6f7a8b9c0d4e1f8a2b3c4d5e6f7a8b_duration",
+      "unit_of_measurement": "s",
+      "value_template": "{{ value_json.duration }}"
+    },
+    "duration_left": {
+      "device_class": "duration",
+      "name": "Time left",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_speaker",
+      "unique_id": "mineqtt_5e6f7a8b9c0d4e1f8a2b3c4d5e6f7a8b_duration_left",
+      "unit_of_measurement": "s",
+      "value_template": "{{ value_json.duration_left }}"
+    },
+    "last_announcement": {
+      "name": "Last announcement",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_speaker",
+      "unique_id": "mineqtt_5e6f7a8b9c0d4e1f8a2b3c4d5e6f7a8b_last_announcement",
+      "value_template": "{{ value_json.last_announcement if value_json.last_announcement else None }}"
+    },
+    "last_result": {
+      "entity_category": "diagnostic",
+      "name": "Last result",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_speaker",
+      "unique_id": "mineqtt_5e6f7a8b9c0d4e1f8a2b3c4d5e6f7a8b_last_result",
+      "value_template": "{{ value_json.last_result }}"
+    },
+    "location": {
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Location",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_speaker",
+      "unique_id": "mineqtt_5e6f7a8b9c0d4e1f8a2b3c4d5e6f7a8b_location",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}"
+    },
+    "range": {
+      "command_topic": "mineqtt/world_7f3a/hall_speaker/set/range",
+      "entity_category": "config",
+      "max": 48,
+      "min": 1,
+      "name": "Range",
+      "p": "number",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_speaker",
+      "step": 1,
+      "unique_id": "mineqtt_5e6f7a8b9c0d4e1f8a2b3c4d5e6f7a8b_range",
+      "unit_of_measurement": "blocks",
+      "value_template": "{{ value_json.range }}"
+    },
+    "siren": {
+      "available_tones": [
+        "alarm",
+        "chime",
+        "doorbell",
+        "beep",
+        "bell"
+      ],
+      "command_topic": "mineqtt/world_7f3a/hall_speaker/set",
+      "name": null,
+      "p": "siren",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_speaker",
+      "state_value_template": "{{ {'state': value_json.state, 'tone': value_json.tone, 'volume_level': (value_json.volume / 100) | round(2)} | tojson }}",
+      "support_duration": true,
+      "support_volume_set": true,
+      "unique_id": "mineqtt_5e6f7a8b9c0d4e1f8a2b3c4d5e6f7a8b_siren"
+    },
+    "tone": {
+      "command_topic": "mineqtt/world_7f3a/hall_speaker/set/tone",
+      "entity_category": "config",
+      "name": "Tone",
+      "options": [
+        "alarm",
+        "chime",
+        "doorbell",
+        "beep",
+        "bell"
+      ],
+      "p": "select",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_speaker",
+      "unique_id": "mineqtt_5e6f7a8b9c0d4e1f8a2b3c4d5e6f7a8b_tone",
+      "value_template": "{{ value_json.tone }}"
+    },
+    "volume": {
+      "command_topic": "mineqtt/world_7f3a/hall_speaker/set/volume",
+      "entity_category": "config",
+      "max": 100,
+      "min": 0,
+      "mode": "slider",
+      "name": "Volume",
+      "p": "number",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_speaker",
+      "step": 1,
+      "unique_id": "mineqtt_5e6f7a8b9c0d4e1f8a2b3c4d5e6f7a8b_volume",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value_json.volume }}"
+    }
+  },
+  "dev": {
+    "ids": [
+      "mineqtt_5e6f7a8b9c0d4e1f8a2b3c4d5e6f7a8b"
+    ],
+    "mdl": "Speaker",
+    "mdl_id": "mineqtt:speaker",
+    "mf": "MineQTT",
+    "name": "Hall Speaker",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "qos": 1
+}

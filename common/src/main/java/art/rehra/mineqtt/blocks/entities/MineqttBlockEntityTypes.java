@@ -43,6 +43,7 @@ public class MineqttBlockEntityTypes {
     public static RegistrySupplier<BlockEntityType<ContainerObserverBlockEntity>> CONTAINER_OBSERVER;
     public static RegistrySupplier<BlockEntityType<EntityObserverBlockEntity>> ENTITY_OBSERVER;
     public static RegistrySupplier<BlockEntityType<VibrationSensorBlockEntity>> VIBRATION_SENSOR;
+    public static RegistrySupplier<BlockEntityType<SpeakerBlockEntity>> SPEAKER;
 
     /**
      * Registers every block entity type (M2 plan D13). {@code MineQTT.init()} calls it after {@code MineqttBlocks.init()}:
@@ -77,6 +78,7 @@ public class MineqttBlockEntityTypes {
         CONTAINER_OBSERVER = registerBlockEntity("container_observer", ContainerObserverBlockEntity::new, MineqttBlocks.CONTAINER_OBSERVER);
         ENTITY_OBSERVER = registerBlockEntity("entity_observer", EntityObserverBlockEntity::new, MineqttBlocks.ENTITY_OBSERVER);
         VIBRATION_SENSOR = registerBlockEntity("vibration_sensor", VibrationSensorBlockEntity::new, MineqttBlocks.VIBRATION_SENSOR);
+        SPEAKER = registerBlockEntity("speaker", SpeakerBlockEntity::new, MineqttBlocks.SPEAKER);
         BLOCK_ENTITIES.register();
     }
 
@@ -96,7 +98,7 @@ public class MineqttBlockEntityTypes {
                 SMART_PLUG_BLOCK_ENTITY.get(), TEMPERATURE_SENSOR_BLOCK.get(), LIGHT_REMOTE_BLOCK.get(), DYNAMIC_PUBLISHER_BLOCK.get(), TOPIC_RELAY_BLOCK.get(), TERMINAL_BLOCK.get(),
                 DISPLAY_PANEL.get(), INTERVAL_TIMER_BLOCK.get(), GAME_TIME_TIMER_BLOCK.get(), ALARM_CLOCK_BLOCK.get(), CRON_TIMER_BLOCK.get(),
                 BLOCK_SENSOR_BLOCK.get(), BLOCK_EMITTER_BLOCK.get(), CONTAINER_OBSERVER.get(),
-                ENTITY_OBSERVER.get(), VIBRATION_SENSOR.get());
+                ENTITY_OBSERVER.get(), VIBRATION_SENSOR.get(), SPEAKER.get());
         List<BlockEntityType<?>> slotted = new ArrayList<>();
         for (RegistrySupplier<BlockEntityType<?>> type : BLOCK_ENTITIES) {
             if (!noSlots.contains(type.get())) slotted.add(type.get());

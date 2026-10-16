@@ -22,6 +22,7 @@
     "mineqtt:display_panel",
     "mineqtt:container_observer",
     "mineqtt:entity_observer",
-    "mineqtt:vibration_sensor"
+    "mineqtt:vibration_sensor",
+    "mineqtt:speaker"
   ]
 }

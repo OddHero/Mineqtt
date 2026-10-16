@@ -305,6 +305,28 @@ public class MineQTTConfigScreen {
                 .setSaveConsumer(value -> MineQTTConfig.entityObserverExportEntityData = value)
                 .build());
 
+        worldCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.speaker_allow_announcements"),
+                        MineQTTConfig.speakerAllowAnnouncements)
+                .setDefaultValue(StaticDefaults.DEFAULT_SPEAKER_ALLOW_ANNOUNCEMENTS)
+                .setTooltip(Component.translatable("config.mineqtt.speaker_allow_announcements.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.speakerAllowAnnouncements = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.speaker_announce_in_chat"),
+                        MineQTTConfig.speakerAnnounceInChat)
+                .setDefaultValue(StaticDefaults.DEFAULT_SPEAKER_ANNOUNCE_IN_CHAT)
+                .setTooltip(Component.translatable("config.mineqtt.speaker_announce_in_chat.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.speakerAnnounceInChat = value)
+                .build());
+
+        worldCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.speaker_max_range"), MineQTTConfig.speakerMaxRange)
+                .setDefaultValue(StaticDefaults.DEFAULT_SPEAKER_MAX_RANGE)
+                .setTooltip(Component.translatable("config.mineqtt.speaker_max_range.tooltip"))
+                .setMin(StaticDefaults.MIN_SPEAKER_MAX_RANGE)
+                .setMax(StaticDefaults.MAX_SPEAKER_MAX_RANGE)
+                .setSaveConsumer(value -> MineQTTConfig.speakerMaxRange = value)
+                .build());
+
         worldCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.rooms_max_size"), MineQTTConfig.roomsMaxSize)
                 .setDefaultValue(StaticDefaults.DEFAULT_ROOMS_MAX_SIZE)
                 .setTooltip(Component.translatable("config.mineqtt.rooms_max_size.tooltip"))

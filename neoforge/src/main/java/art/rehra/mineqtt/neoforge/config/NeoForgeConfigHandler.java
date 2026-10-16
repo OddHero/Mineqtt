@@ -72,6 +72,9 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     public static final ModConfigSpec.BooleanValue BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA;
 
     public static final ModConfigSpec.BooleanValue ENTITY_OBSERVER_EXPORT_ENTITY_DATA;
+    public static final ModConfigSpec.BooleanValue SPEAKER_ALLOW_ANNOUNCEMENTS;
+    public static final ModConfigSpec.BooleanValue SPEAKER_ANNOUNCE_IN_CHAT;
+    public static final ModConfigSpec.IntValue SPEAKER_MAX_RANGE;
 
     public static final ModConfigSpec.IntValue LIMITS_MAX_DEVICES_PER_PLAYER;
     public static final ModConfigSpec.IntValue LIMITS_MAX_WIRES_PER_PLAYER;
@@ -243,6 +246,26 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                         "observer's claim (or anywhere without a claim mod), without any UUID but the entity's own; never in Home Assistant.")
                 .translation("config.mineqtt.entity_observer_export_entity_data")
                 .define("exportEntityData", StaticDefaults.DEFAULT_ENTITY_OBSERVER_EXPORT_ENTITY_DATA);
+
+        BUILDER.pop();
+
+        BUILDER.comment("Speaker").translation("config.mineqtt.section.speaker").push("speaker");
+
+        SPEAKER_ALLOW_ANNOUNCEMENTS = BUILDER
+                .comment("Show Speaker announcements (Home Assistant's notify, wires, commands) to the players near a Speaker, as plain text",
+                        "behind the Speaker's name: cleaned, at most 120 characters, rate-limited per Speaker. Off by default.")
+                .translation("config.mineqtt.speaker_allow_announcements")
+                .define("allowAnnouncements", StaticDefaults.DEFAULT_SPEAKER_ALLOW_ANNOUNCEMENTS);
+
+        SPEAKER_ANNOUNCE_IN_CHAT = BUILDER
+                .comment("Show announcements in the chat instead of the action bar.")
+                .translation("config.mineqtt.speaker_announce_in_chat")
+                .define("announceInChat", StaticDefaults.DEFAULT_SPEAKER_ANNOUNCE_IN_CHAT);
+
+        SPEAKER_MAX_RANGE = BUILDER
+                .comment("The farthest a Speaker carries its sound and its announcements, in blocks, whatever its own range says.")
+                .translation("config.mineqtt.speaker_max_range")
+                .defineInRange("maxRange", StaticDefaults.DEFAULT_SPEAKER_MAX_RANGE, StaticDefaults.MIN_SPEAKER_MAX_RANGE, StaticDefaults.MAX_SPEAKER_MAX_RANGE);
 
         BUILDER.pop();
 
@@ -454,6 +477,9 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         MineQTTConfig.blockPlacerContainerUnlocks = BLOCK_PLACER_CONTAINER_UNLOCKS.get();
         MineQTTConfig.blockObserverExportBlockEntityData = BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA.get();
         MineQTTConfig.entityObserverExportEntityData = ENTITY_OBSERVER_EXPORT_ENTITY_DATA.get();
+        MineQTTConfig.speakerAllowAnnouncements = SPEAKER_ALLOW_ANNOUNCEMENTS.get();
+        MineQTTConfig.speakerAnnounceInChat = SPEAKER_ANNOUNCE_IN_CHAT.get();
+        MineQTTConfig.speakerMaxRange = SPEAKER_MAX_RANGE.get();
         MineQTTConfig.limitsMaxDevicesPerPlayer = LIMITS_MAX_DEVICES_PER_PLAYER.get();
         MineQTTConfig.limitsMaxWiresPerPlayer = LIMITS_MAX_WIRES_PER_PLAYER.get();
         MineQTTConfig.limitsMaxRoomsPerPlayer = LIMITS_MAX_ROOMS_PER_PLAYER.get();
@@ -592,6 +618,9 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         sink.put(BLOCK_PLACER_CONTAINER_UNLOCKS, MineQTTConfig.blockPlacerContainerUnlocks);
         sink.put(BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA, MineQTTConfig.blockObserverExportBlockEntityData);
         sink.put(ENTITY_OBSERVER_EXPORT_ENTITY_DATA, MineQTTConfig.entityObserverExportEntityData);
+        sink.put(SPEAKER_ALLOW_ANNOUNCEMENTS, MineQTTConfig.speakerAllowAnnouncements);
+        sink.put(SPEAKER_ANNOUNCE_IN_CHAT, MineQTTConfig.speakerAnnounceInChat);
+        sink.put(SPEAKER_MAX_RANGE, MineQTTConfig.speakerMaxRange);
         sink.put(LIMITS_MAX_DEVICES_PER_PLAYER, MineQTTConfig.limitsMaxDevicesPerPlayer);
         sink.put(LIMITS_MAX_WIRES_PER_PLAYER, MineQTTConfig.limitsMaxWiresPerPlayer);
         sink.put(LIMITS_MAX_ROOMS_PER_PLAYER, MineQTTConfig.limitsMaxRoomsPerPlayer);

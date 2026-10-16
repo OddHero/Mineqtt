@@ -42,6 +42,7 @@ public final class DeviceType {
     private final List<Action> actions;
     private final List<EventSpec> events;
     private final @Nullable String use;
+    private final Set<String> withoutControl;
     private final List<Port> ports;
     private final @Nullable RawLinkSpec rawLink;
     private final boolean groupable;
@@ -65,6 +66,7 @@ public final class DeviceType {
         this.actions = List.copyOf(builder.actions);
         this.events = List.copyOf(builder.events);
         this.use = builder.use;
+        this.withoutControl = Set.copyOf(builder.withoutControl);
         this.ports = derivePorts(fields, settings, actions, events);
         this.rawLink = builder.rawLink;
         this.groupable = builder.groupable;
@@ -146,6 +148,14 @@ public final class DeviceType {
      */
     public Optional<Action> use() {
         return use == null ? Optional.empty() : action(use);
+    }
+
+    /**
+     * Whether the Controls tab offers a control for the action {@code key}: every action has one but those declared
+     * {@link Builder#withoutControl}, which Home Assistant, wires and commands still reach.
+     */
+    public boolean hasControl(String key) {
+        return !withoutControl.contains(key);
     }
 
     public List<EventSpec> events() {
@@ -439,6 +449,7 @@ public final class DeviceType {
         private final List<Action> actions = new ArrayList<>();
         private final List<EventSpec> events = new ArrayList<>();
         private @Nullable String use;
+        private final Set<String> withoutControl = new HashSet<>();
         private @Nullable RawLinkSpec rawLink;
         private boolean groupable;
         private boolean remote;
@@ -499,6 +510,15 @@ public final class DeviceType {
          */
         public Builder use(String actionKey) {
             this.use = actionKey;
+            return this;
+        }
+
+        /**
+         * An action the Controls tab offers no control for, e.g. the Speaker's announcement, whose text Home Assistant
+         * and wires send: its in-port stays, so wires, Home Assistant and commands reach it.
+         */
+        public Builder withoutControl(String actionKey) {
+            this.withoutControl.add(actionKey);
             return this;
         }
 
@@ -570,8 +590,10 @@ public final class DeviceType {
          *                               over an undeclared field, a command entity over a read-only field, a writable
          *                               field nothing can command, a groupable type that is not an actuator, a Home
          *                               Assistant event or device trigger without its declared event, a button or
-         *                               notify without its declared action, a switch or light without a {@code state}
-         *                               in-port, an action that shadows a writable field, two ports of one key and
+         *                               notify without its declared action, a switch, light or siren without a
+         *                               {@code state} in-port, a siren whose state field is undeclared or whose tones
+         *                               its tone field does not take, a hidden control of no declared action, an
+         *                               action that shadows a writable field, two ports of one key and
          *                               direction, a field named like a link setting, a writable inline field that
          *                               is no light, a use that is no declared action that toggles or fires, a
          *                               minimum interval on a bus-only event, or a twin adapter that does not fit the
@@ -599,6 +621,9 @@ public final class DeviceType {
                 Optional<Action> used = actions.stream().filter(action -> action.key().equals(use)).findFirst();
                 if (used.isEmpty()) fail("is used by hand with " + use + ", which is no declared action");
                 if (used.get().handValue().isEmpty()) fail("is used by hand with " + use + ", which neither toggles nor fires");
+            }
+            for (String key : withoutControl) {
+                if (!actionKeys.contains(key)) fail("hides the control of " + key + ", which is no declared action");
             }
             Set<String> eventTypes = new HashSet<>();
             Set<String> busOnly = new HashSet<>();
@@ -656,6 +681,15 @@ public final class DeviceType {
                     case HaEntity.Light ignoredLight -> {
                         // Home Assistant commands both with {"state": ...}, which may be TOGGLE: only the state action toggles.
                         if (!actionKeys.contains(Action.STATE)) fail(entity.platform() + " " + entity.key() + " needs the state action");
+                    }
+                    case HaEntity.Siren siren -> {
+                        // Turned on and off with {"state": ...} as a switch; its state is a field it reads but never commands.
+                        if (!actionKeys.contains(Action.STATE)) fail(entity.platform() + " " + entity.key() + " needs the state action");
+                        if (!fields.contains(siren.state())) fail("siren " + entity.key() + " reads undeclared field " + siren.state().key());
+                        if (!siren.state().access().readable()) fail("siren " + entity.key() + " reads write-only field " + siren.state().key());
+                        if (!(siren.tone().kind() instanceof PortType.Enum tones) || !tones.values().equals(siren.tones())) {
+                            fail("siren " + entity.key() + " offers tones its field " + siren.tone().key() + " does not take");
+                        }
                     }
                     case HaEntity.Select select -> {
                         // Runtime options are names the field must take as they are (M4 plan §3.2).

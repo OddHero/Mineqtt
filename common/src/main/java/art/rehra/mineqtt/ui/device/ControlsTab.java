@@ -40,7 +40,8 @@ public class ControlsTab extends MqttTab {
 
     /**
      * The controls of a device of {@code type}, in the order the tab shows them: actions, commands, settings, without the
-     * {@code state} action when the type's switch reads a writable BOOL field ({@link #collapsesState}). A type the tab
+     * {@code state} action when the type's switch reads a writable BOOL field ({@link #collapsesState}) and without the
+     * actions the type offers no control for ({@link DeviceType#hasControl}). A type the tab
      * cannot show is refused, so {@code verifyDeviceTabs} fails for it rather than its screen: more controls than its
      * {@value #MAX_ROWS} rows hold, or than its first {@value #MAX_ROWS} - 1 when it has a status line (it does not scroll
      * yet).
@@ -48,7 +49,8 @@ public class ControlsTab extends MqttTab {
     public static List<DeviceTabs.Control> controls(DeviceType type) {
         boolean collapse = collapsesState(type);
         List<Port> in = type.ports().stream().filter(port -> port.direction() == Port.Direction.IN)
-                .filter(port -> !(collapse && port.origin() == Port.Origin.ACTION && port.key().equals(Action.STATE))).toList();
+                .filter(port -> !(collapse && port.origin() == Port.Origin.ACTION && port.key().equals(Action.STATE)))
+                .filter(port -> port.origin() != Port.Origin.ACTION || type.hasControl(port.key())).toList();
         List<DeviceTabs.Control> controls = Stream.of(Port.Origin.ACTION, Port.Origin.FIELD, Port.Origin.SETTING)
                 .flatMap(origin -> in.stream().filter(port -> port.origin() == origin))
                 .map(DeviceTabs.Control::of).toList();

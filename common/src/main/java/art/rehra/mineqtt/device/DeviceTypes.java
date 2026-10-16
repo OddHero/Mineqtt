@@ -11,6 +11,7 @@ import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
 import art.rehra.mineqtt.device.types.WallSwitch;
@@ -53,6 +54,7 @@ public final class DeviceTypes {
         register(ContainerObserver.TYPE);
         register(EntityObserver.TYPE);
         register(VibrationSensor.TYPE);
+        register(Speaker.TYPE);
     }
 
     public static synchronized @Nullable DeviceType get(Identifier id) {

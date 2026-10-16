@@ -25,7 +25,7 @@ import java.util.regex.PatternSyntaxException;
  */
 public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, HaEntity.Switch, HaEntity.Number,
         HaEntity.BinarySensor, HaEntity.Sensor, HaEntity.Select, HaEntity.Event, HaEntity.Button, HaEntity.Text,
-        HaEntity.Notify, HaEntity.DeviceTrigger {
+        HaEntity.Notify, HaEntity.Siren, HaEntity.DeviceTrigger {
 
     /** Home Assistant's {@code entity_category}. */
     enum Category {
@@ -623,6 +623,46 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
         @Override
         public List<Field<?>> fields() {
             return List.of();
+        }
+
+        @Override
+        public boolean commands() {
+            return true;
+        }
+    }
+
+    /**
+     * A siren (Home Assistant's MQTT {@code siren}, from 2022.3): on and off with the type's {@code state} action, a fixed
+     * list of tones, a duration and a volume. Home Assistant commands it on the device's {@code /set} topic with
+     * {@code {"state":"ON","tone":"chime","duration":5,"volume_level":0.5}} (only what the call sets besides the state)
+     * and {@code {"state":"OFF"}}, and reads its state, tone and volume level from the state.
+     *
+     * @param state  the read-only on/off field ({@code ON}/{@code OFF}) Home Assistant reads as the siren's state; it is no
+     *               field the siren commands, so it is not among {@link #fields()}
+     * @param tone   the writable tone field, one of {@code tones}
+     * @param volume the writable volume field in percent (0 to 100), which Home Assistant reads as a level of 0 to 1
+     * @param tones  Home Assistant's {@code available_tones}, fixed
+     */
+    record Siren(Meta meta, Field<?> state, Field<?> tone, Field<Integer> volume, List<String> tones) implements HaEntity<Siren> {
+        public Siren {
+            tones = List.copyOf(tones);
+            if (tones.isEmpty()) throw new IllegalArgumentException("Siren " + meta.key() + " needs tones");
+        }
+
+        @Override
+        public Siren withMeta(Meta meta) {
+            return new Siren(meta, state, tone, volume, tones);
+        }
+
+        @Override
+        public String platform() {
+            return "siren";
+        }
+
+        /** The tone and the volume, which a command may set; the state is read through {@link #state()}. */
+        @Override
+        public List<Field<?>> fields() {
+            return List.of(tone, volume);
         }
 
         @Override

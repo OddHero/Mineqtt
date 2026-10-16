@@ -111,6 +111,20 @@ public final class StaticDefaults {
      */
     public static final boolean DEFAULT_ENTITY_OBSERVER_EXPORT_ENTITY_DATA = true;
 
+    // Speaker
+    /**
+     * Whether a Speaker shows announcements (Home Assistant's notify, a wire, a command) to the players near it. Off, as
+     * the bridge's broadcast text: text from outside the game reaches players only when an admin lets it.
+     */
+    public static final boolean DEFAULT_SPEAKER_ALLOW_ANNOUNCEMENTS = false;
+    /** Announcements go to the chat instead of the action bar. Off: the action bar is the less intrusive place. */
+    public static final boolean DEFAULT_SPEAKER_ANNOUNCE_IN_CHAT = false;
+    /** The farthest, in blocks, a Speaker carries its sound and its announcements, whatever its own range says. */
+    public static final int DEFAULT_SPEAKER_MAX_RANGE = 32;
+    public static final int MIN_SPEAKER_MAX_RANGE = 1;
+    /** Three times vanilla's 16 blocks: a sound of volume 3. */
+    public static final int MAX_SPEAKER_MAX_RANGE = 48;
+
     // Rooms (D11)
     /** The longest side of a room, in blocks, within the two bounds below. */
     public static final int DEFAULT_ROOMS_MAX_SIZE = 128;

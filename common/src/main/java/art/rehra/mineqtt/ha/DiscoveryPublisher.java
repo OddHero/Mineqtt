@@ -561,6 +561,17 @@ public final class DiscoveryPublisher {
                 if (text.pattern() != null) component.addProperty("pattern", text.pattern());
             }
             case HaEntity.Notify notify -> component.addProperty("command_topic", topics.set(notify.key()));
+            case HaEntity.Siren siren -> {
+                // Home Assistant sends {"state":"ON",...} without a command template, and reads a JSON state whose keys
+                // besides state must be turn-on parameters only, so the template picks state, tone and volume level.
+                component.addProperty("state_topic", topics.state());
+                component.addProperty("command_topic", topics.set());
+                component.addProperty("state_value_template", "{{ {'state': " + jsonPath(siren.state().key()) + ", 'tone': "
+                        + jsonPath(siren.tone().key()) + ", 'volume_level': (" + jsonPath(siren.volume().key()) + " / 100) | round(2)} | tojson }}");
+                component.add("available_tones", strings(siren.tones()));
+                component.addProperty("support_duration", true);
+                component.addProperty("support_volume_set", true);
+            }
             case HaEntity.DeviceTrigger trigger -> {
                 component.addProperty("automation_type", "trigger");
                 component.addProperty("topic", topics.action());

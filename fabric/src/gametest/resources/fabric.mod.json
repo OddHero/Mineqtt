@@ -42,7 +42,8 @@
       "art.rehra.mineqtt.fabric.gametest.RoomsGameTest",
       "art.rehra.mineqtt.fabric.gametest.ExplorerGameTest",
       "art.rehra.mineqtt.fabric.gametest.EntityObserverGameTest",
-      "art.rehra.mineqtt.fabric.gametest.VibrationSensorGameTest"
+      "art.rehra.mineqtt.fabric.gametest.VibrationSensorGameTest",
+      "art.rehra.mineqtt.fabric.gametest.SpeakerGameTest"
     ]
   },
   "depends": {

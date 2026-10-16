@@ -73,6 +73,15 @@ public final class Ha {
     }
 
     /**
+     * A siren over an on/off {@code state} field, a tone enum field and a volume field in percent; its tones are the
+     * serialized names of the tone field's enum.
+     */
+    public static <E extends Enum<E> & StringRepresentable> HaEntity.Siren siren(String key, Field<?> state, Field<E> tone, Field<Integer> volume) {
+        List<String> tones = Arrays.stream(tone.defaultValue().getDeclaringClass().getEnumConstants()).map(StringRepresentable::getSerializedName).toList();
+        return new HaEntity.Siren(HaEntity.Meta.of(key), state, tone, volume, tones);
+    }
+
+    /**
      * A device trigger keyed {@code <type>_<subtype>}, fired by the declared event {@code event} whose attribute
      * {@code attribute} is the subtype.
      */

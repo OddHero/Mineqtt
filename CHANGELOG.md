@@ -15,6 +15,29 @@
   two vibrations a second and sends each kind at most once a second; a comparator reads the last frequency while it
   reports a vibration, and its Raw Link sends each frequency. A player's vibration is anonymous: never their name, UUID,
   position or distance. Crafted from smooth stone, a sculk sensor and the Network Chip.
+- **Speaker** (new block): Home Assistant's voice in the world. Its siren plays one of five tones (*alarm*, *chime*,
+  *doorbell*, *beep*, *bell*, made of note block sounds and the village bell) at the block until its duration ends (30 s
+  by default, 10 min at most) or it is turned off. Home Assistant sees it as a siren with those tones, a duration and a
+  volume, and turns it on with a tone, a duration and a volume as any siren; *Tone*, *Volume*, *Duration* and *Range* are
+  its settings, *Time left* counts down. *Range* (16 blocks by default, 48 at most) is how far it carries at full volume.
+  A right-click switches it, a rising redstone signal starts it for its duration, and a wire switches it (a Redstone Input
+  or a Vibration Sensor's *vibration* on its *state*); its *state* switches lamps and outputs in turn. It plays at most
+  four sounds a second, under each player's Jukebox/Note Blocks volume, and stops when its chunk unloads.
+  **Announcements:** Home Assistant's notify entity *Announcement* (and wires and commands) shows a short text to the
+  players within its range, in the action bar behind the Speaker's name, only while the server allows it (see
+  `speaker.allowAnnouncements` below). The text is plain: formatting codes and control characters are removed, it is cut
+  to 120 characters, and each Speaker shows two at once, then one every two seconds; *Last announcement* and *Last result*
+  say what came of it. Showcase: the Vibration Sensor hears an intruder, Home Assistant sounds the Speaker's alarm and
+  flashes the lights. Crafted from smooth stone, a note block and the Network Chip.
+
+### For server admins
+
+- **`speaker.allowAnnouncements`** (new, default off): whether Speakers show announcements to players. Off, every
+  announcement is refused and says so in the Speaker's *Last result*; the notify entity stays in Home Assistant either
+  way, so discovery never changes with the key.
+- **`speaker.announceInChat`** (new, default off): announcements in the chat instead of the action bar.
+- **`speaker.maxRange`** (new, 1 to 48, default 32): the farthest any Speaker carries its sound and its announcements,
+  whatever its own *Range* says.
 
 ## 0.10.0 (the Container Observer and the Entity Observer)
 

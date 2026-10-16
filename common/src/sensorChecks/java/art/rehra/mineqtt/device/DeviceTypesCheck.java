@@ -11,6 +11,7 @@ import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
 import art.rehra.mineqtt.device.types.WallSwitch;
@@ -94,9 +95,9 @@ public final class DeviceTypesCheck {
         List<DeviceType> types = DeviceTypes.all();
         check(types.equals(List.of(SmartLamp.TYPE, RedstoneOutput.TYPE, RedstoneInput.TYPE, PresenceSensor.TYPE, SmartPlug.TYPE, ClimateSensor.TYPE,
                 WallSwitch.TYPE, DisplayPanel.TYPE, Timers.INTERVAL_TIMER, Timers.DAYLIGHT_TIMER, Timers.ALARM_CLOCK, Timers.CRON_TIMER,
-                BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE, EntityObserver.TYPE, VibrationSensor.TYPE)),
-                "The seventeen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10), the "
-                        + "Container Observer, the Entity Observer and the Vibration Sensor: " + types);
+                BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE, EntityObserver.TYPE, VibrationSensor.TYPE, Speaker.TYPE)),
+                "The eighteen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10), the "
+                        + "Container Observer, the Entity Observer, the Vibration Sensor and the Speaker: " + types);
         int ports = 0;
         for (DeviceType type : types) {
             declaration(type);
@@ -177,6 +178,8 @@ public final class DeviceTypesCheck {
                 case HaEntity.Notify ignoredNotify -> check(type.action(entity.key()).isPresent(), type + ": " + entity.key() + " has its action");
                 case HaEntity.Switch<?> ignoredSwitch -> check(type.port(Port.Direction.IN, Action.STATE).isPresent(), type + ": " + entity.key() + " has a state in-port");
                 case HaEntity.Light ignoredLight -> check(type.port(Port.Direction.IN, Action.STATE).isPresent(), type + ": " + entity.key() + " has a state in-port");
+                case HaEntity.Siren siren -> check(type.port(Port.Direction.IN, Action.STATE).isPresent() && type.port(Port.Direction.OUT, siren.state().key()).isPresent(),
+                        type + ": " + entity.key() + " has a state in-port and reads a state out-port");
                 default -> {
                 }
             }
@@ -305,6 +308,7 @@ public final class DeviceTypesCheck {
                 "changed names the entity, at most twice a second");
         check(settingKeys(EntityObserver.TYPE.settings()).equals(List.of("detect", "range", "payload")), "Entity Observer settings: detect, range and payload");
         vibrationSensor();
+        speaker();
         for (DeviceType type : DeviceTypes.all()) {
             check(type.editsWorld() == (type == BlockPlacer.TYPE), type + ": only the Block Placer edits the world (D12)");
         }
@@ -361,6 +365,33 @@ public final class DeviceTypesCheck {
                 "The Vibration Sensor's Raw Link is an output of events, never retained");
     }
 
+    /**
+     * The Speaker: its siren's state and settings out, its four settings, the toggling state and the announcement in; no
+     * events, no Raw Link, unavailable while unloaded, and a right-click switches it. The announcement has no control.
+     */
+    private static void speaker() {
+        String tones = "enum alarm|chime|doorbell|beep|bell";
+        expectPorts(Speaker.TYPE, List.of(
+                "OUT state bool FIELD", "OUT tone " + tones + " FIELD", "OUT volume number 0..100 % FIELD", "OUT duration number 1..600 s FIELD",
+                "OUT duration_left number 0..600 s FIELD", "OUT range number 1..48 blocks FIELD", "OUT last_announcement text 256 FIELD",
+                "OUT last_result text 256 FIELD", "OUT location json FIELD",
+                "IN tone " + tones + " SETTING", "IN volume number 0..100 % SETTING", "IN duration number 1..600 s SETTING", "IN range number 1..48 blocks SETTING",
+                "IN state bool ACTION toggles", "IN announce text 120 ACTION"));
+        check(Speaker.TYPE.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !Speaker.TYPE.groupable() && Speaker.TYPE.use().map(Action::key).equals(Optional.of(Action.STATE))
+                        && Speaker.TYPE.minInterval().equals(Duration.ofSeconds(1)) && Speaker.TYPE.events().isEmpty() && Speaker.TYPE.noV1Topic()
+                        && Speaker.TYPE.rawLink().isEmpty() && Speaker.TYPE.status().isEmpty() && Speaker.TYPE.deadbands().equals(Map.of("duration_left", 10.0)),
+                "The Speaker is an actuator without v1 data: unavailable (never queued) while unloaded, used by hand, no events, no Raw Link, its "
+                        + "countdown published every ten seconds");
+        check(!Speaker.TYPE.hasControl(Speaker.ANNOUNCE) && Speaker.TYPE.hasControl(Action.STATE), "The announcement has no control; the state has one");
+        check(settingKeys(Speaker.TYPE.settings()).equals(List.of("tone", "volume", "duration", "range")), "Speaker settings: tone, volume, duration and range");
+        HaEntity.Siren siren = (HaEntity.Siren) Speaker.TYPE.entities().getFirst();
+        check(siren.meta().name() == null && siren.tones().equals(List.of("alarm", "chime", "doorbell", "beep", "bell")) && siren.state() == Speaker.STATE
+                        && siren.fields().equals(List.of(Speaker.TONE, Speaker.VOLUME)) && siren.commands(),
+                "The siren is the primary entity over the fixed tones, reading the state and commanding tone and volume");
+        check(Speaker.TYPE.entities().stream().anyMatch(entity -> entity instanceof HaEntity.Notify notify && notify.key().equals(Speaker.ANNOUNCE)),
+                "The announcement is a notify entity, always declared");
+    }
+
     private static void expectPorts(DeviceType type, List<String> expected) {
         List<String> actual = type.ports().stream().map(port -> port.direction() + " " + port.key() + " " + port.kind().describe() + " " + port.origin()
                 + (port.toggles() ? " toggles" : "")).toList();
@@ -396,6 +427,21 @@ public final class DeviceTypesCheck {
                 "A bus-only event keeps its flag through attributes and is an out-port like any event");
         failsToBuild(base("c").entity(Ha.button("trigger_now")), "no declared action", "A button without its action");
         failsToBuild(base("d").entity(Ha.notify("message")), "no declared action", "A notify without its action");
+        failsToBuild(base("d2").withoutControl("message"), "no declared action", "A hidden control of no declared action");
+        // A siren is turned on and off with {"state": ...} and reads a state field it never commands.
+        Field<Speaker.Tone> tone = Field.enumOf("tone", Speaker.Tone.class, Access.READ_WRITE);
+        Field<Integer> volume = Field.intRange("volume", 0, 100, Access.READ_WRITE);
+        Field<Boolean> sounding = Field.bool("sounding", Access.READ);
+        failsToBuild(DeviceType.builder(id("d3")).model("D3").field(sounding).field(tone).field(volume).entity(Ha.siren("s", sounding, tone, volume)), "state action",
+                "A siren without a state in-port");
+        failsToBuild(DeviceType.builder(id("d4")).model("D4").field(tone).field(volume).action(Action.state()).entity(Ha.siren("s", sounding, tone, volume)),
+                "undeclared field", "A siren over an undeclared state field");
+        failsToBuild(DeviceType.builder(id("d5")).model("D5").field(sounding).field(tone).field(volume).action(Action.state())
+                        .entity(new HaEntity.Siren(Ha.siren("s", sounding, tone, volume).meta(), sounding, tone, volume, List.of("alarm", "horn"))),
+                "does not take", "A siren offering tones its field does not take");
+        check(DeviceType.builder(id("d6")).model("D6").field(sounding).field(tone).field(volume).action(Action.state())
+                        .entity(Ha.siren("s", sounding, tone, volume)).build().entities().size() == 1,
+                "A siren over a read-only state, a tone and a volume with the state action builds");
         failsToBuild(DeviceType.builder(id("e")).model("E").field(power).entity(Ha.switchOf("s", power).on(15).off(0)), "state action",
                 "A switch without a state in-port");
         failsToBuild(DeviceType.builder(id("f")).model("F").field(SmartLamp.LIGHT).entity(Ha.light("l", SmartLamp.LIGHT)), "state action",
@@ -1072,9 +1118,9 @@ public final class DeviceTypesCheck {
             check(timer.events().stream().allMatch(EventSpec::throttled) && timer.noV1Topic() && timer.status().isPresent(),
                     timer + ": the timers throttle fired, adopt no v1 topic and have a status line");
         }
-        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 5,
-                "The M3 types, the timers, the observer, the placer, the Container Observer, the Entity Observer and the Vibration Sensor are "
-                        + "every built-in type");
+        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 6,
+                "The M3 types, the timers, the observer, the placer, the Container Observer, the Entity Observer, the Vibration Sensor and the "
+                        + "Speaker are every built-in type");
         for (DeviceType type : List.of(BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE)) {
             // Of the world devices only the Block Observer's changed (M4-9, D12) throttles; the observer and the placer adopt their
             // v1 topic, and the Container Observer, which has no v1 block, takes none (it has no Raw Link). The Entity Observer,

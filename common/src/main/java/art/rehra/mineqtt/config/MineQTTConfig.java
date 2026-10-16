@@ -57,6 +57,9 @@ public class MineQTTConfig {
     public static boolean blockPlacerContainerUnlocks;
     public static boolean blockObserverExportBlockEntityData;
     public static boolean entityObserverExportEntityData;
+    public static boolean speakerAllowAnnouncements;
+    public static boolean speakerAnnounceInChat;
+    public static int speakerMaxRange;
     public static int roomsMaxSize;
     public static int limitsMaxRoomsPerPlayer;
 
@@ -113,6 +116,9 @@ public class MineQTTConfig {
         blockPlacerContainerUnlocks = StaticDefaults.DEFAULT_BLOCK_PLACER_CONTAINER_UNLOCKS;
         blockObserverExportBlockEntityData = StaticDefaults.DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA;
         entityObserverExportEntityData = StaticDefaults.DEFAULT_ENTITY_OBSERVER_EXPORT_ENTITY_DATA;
+        speakerAllowAnnouncements = StaticDefaults.DEFAULT_SPEAKER_ALLOW_ANNOUNCEMENTS;
+        speakerAnnounceInChat = StaticDefaults.DEFAULT_SPEAKER_ANNOUNCE_IN_CHAT;
+        speakerMaxRange = StaticDefaults.DEFAULT_SPEAKER_MAX_RANGE;
         roomsMaxSize = StaticDefaults.DEFAULT_ROOMS_MAX_SIZE;
         limitsMaxRoomsPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_ROOMS_PER_PLAYER;
         twinStatestreamBase = StaticDefaults.DEFAULT_TWIN_STATESTREAM_BASE;
@@ -258,8 +264,8 @@ public class MineQTTConfig {
     }
 
     /**
-     * The {@code telemetry.*}, {@code blockPlacer.*}, {@code blockObserver.*} and {@code rooms.*} keys and
-     * {@code limits.maxRoomsPerPlayer} (M4 plan D16). A number out of its range falls back to its default.
+     * The {@code telemetry.*}, {@code blockPlacer.*}, {@code blockObserver.*}, {@code speaker.*} and {@code rooms.*} keys
+     * and {@code limits.maxRoomsPerPlayer} (M4 plan D16). A number out of its range falls back to its default.
      */
     private static void sanitizeWorld(List<String> problems) {
         if (!ConfigValidation.isValidTelemetryIntervalSeconds(telemetryIntervalSeconds)) {
@@ -279,6 +285,11 @@ public class MineQTTConfig {
             telemetryForgetAfterDays = StaticDefaults.DEFAULT_TELEMETRY_FORGET_AFTER_DAYS;
         }
         if (blockPlacerPlayersMayConfigure == null) blockPlacerPlayersMayConfigure = StaticDefaults.DEFAULT_BLOCK_PLACER_PLAYERS_MAY_CONFIGURE;
+        if (!ConfigValidation.isValidSpeakerMaxRange(speakerMaxRange)) {
+            problems.add("speaker.maxRange: " + speakerMaxRange + " is outside " + StaticDefaults.MIN_SPEAKER_MAX_RANGE + "-" + StaticDefaults.MAX_SPEAKER_MAX_RANGE
+                    + ", using " + StaticDefaults.DEFAULT_SPEAKER_MAX_RANGE);
+            speakerMaxRange = StaticDefaults.DEFAULT_SPEAKER_MAX_RANGE;
+        }
         if (!ConfigValidation.isValidRoomsMaxSize(roomsMaxSize)) {
             problems.add("rooms.maxSize: " + roomsMaxSize + " is outside " + StaticDefaults.MIN_ROOMS_MAX_SIZE + "-" + StaticDefaults.MAX_ROOMS_MAX_SIZE
                     + ", using " + StaticDefaults.DEFAULT_ROOMS_MAX_SIZE);

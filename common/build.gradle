@@ -170,6 +170,13 @@ tasks.register('verifyVibrationSensor', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.device.VibrationSensorCheck'
 }
+// The Speaker's rules: the tones and their patterns, volume and range under the server's cap, the duration, the
+// announcement gate (key, cleaning, length, rate), the settings a command changes, the switch and the saved form.
+tasks.register('verifySpeaker', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.SpeakerCheck'
+}
 // Config v2 defaults, v1 migration, the JSON form and credential masking; plain Java, no game bootstrap needed.
 tasks.register('verifyConfigMigration', JavaExec) {
     dependsOn sensorChecksClasses
@@ -526,6 +533,7 @@ tasks.named('check') {
     dependsOn tasks.named('verifyRooms')
     dependsOn tasks.named('verifyEntityObserver')
     dependsOn tasks.named('verifyVibrationSensor')
+    dependsOn tasks.named('verifySpeaker')
     // The Minecraft-free checks (brokerChecks and the isolation of the cores) are the same for every Minecraft version and
     // start brokers on fixed ports, so only the active version's check runs them.
     if (stonecutter.current.isActive) {

@@ -88,6 +88,7 @@ public final class Catalog {
             // Controls and displays
             block("light_remote_block", Status.CRAFTABLE),
             block("display_panel", Status.CRAFTABLE),
+            block("speaker", Status.CRAFTABLE),
             // Automation
             block("alarm_clock", Status.CRAFTABLE),
             block("game_time_timer", Status.CRAFTABLE),

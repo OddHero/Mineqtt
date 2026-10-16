@@ -185,6 +185,11 @@ public final class ConfigValidation {
         return value >= 0 && value <= StaticDefaults.MAX_TELEMETRY_FORGET_AFTER_DAYS;
     }
 
+    /** {@value StaticDefaults#MIN_SPEAKER_MAX_RANGE} to {@value StaticDefaults#MAX_SPEAKER_MAX_RANGE} blocks. */
+    public static boolean isValidSpeakerMaxRange(int value) {
+        return value >= StaticDefaults.MIN_SPEAKER_MAX_RANGE && value <= StaticDefaults.MAX_SPEAKER_MAX_RANGE;
+    }
+
     public static boolean isValidRoomsMaxSize(int value) {
         return value >= StaticDefaults.MIN_ROOMS_MAX_SIZE && value <= StaticDefaults.MAX_ROOMS_MAX_SIZE;
     }

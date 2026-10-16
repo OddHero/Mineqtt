@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "B": "minecraft:note_block",
+    "N": "mineqtt:network_chip",
+    "S": "minecraft:smooth_stone"
+  },
+  "pattern": [
+    "SBS",
+    "SNS",
+    "SSS"
+  ],
+  "result": {
+    "id": "mineqtt:speaker"
+  }
+}

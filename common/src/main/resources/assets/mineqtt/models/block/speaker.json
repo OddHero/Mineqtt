@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "particle": "mineqtt:block/speaker_side",
+    "top": "mineqtt:block/speaker_top",
+    "bottom": "mineqtt:block/speaker_bottom",
+    "side": "mineqtt:block/speaker_side"
+  }
+}
