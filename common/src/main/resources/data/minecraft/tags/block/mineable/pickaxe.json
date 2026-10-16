@@ -19,6 +19,7 @@
     "mineqtt:dynamic_publisher",
     "mineqtt:topic_relay",
     "mineqtt:smart_plug",
-    "mineqtt:display_panel"
+    "mineqtt:display_panel",
+    "mineqtt:container_observer"
   ]
 }

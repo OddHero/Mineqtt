@@ -230,15 +230,29 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
         }
     }
 
-    /** An on/off sensor over a boolean field. */
-    record BinarySensor(Meta meta, Field<Boolean> field, @Nullable String deviceClass) implements HaEntity<BinarySensor> {
+    /**
+     * An on/off sensor over a boolean field.
+     *
+     * @param valueTemplate replaces the generated template, e.g. to give {@code None} (unknown) while the value means
+     *                      nothing; it renders {@code ON} or {@code OFF} otherwise. Null for the generated one
+     */
+    record BinarySensor(Meta meta, Field<Boolean> field, @Nullable String deviceClass, @Nullable String valueTemplate) implements HaEntity<BinarySensor> {
+        /** A binary sensor with the generated template. */
+        public BinarySensor(Meta meta, Field<Boolean> field, @Nullable String deviceClass) {
+            this(meta, field, deviceClass, null);
+        }
+
         public BinarySensor deviceClass(String deviceClass) {
-            return new BinarySensor(meta, field, deviceClass);
+            return new BinarySensor(meta, field, deviceClass, valueTemplate);
+        }
+
+        public BinarySensor valueTemplate(String valueTemplate) {
+            return new BinarySensor(meta, field, deviceClass, valueTemplate);
         }
 
         @Override
         public BinarySensor withMeta(Meta meta) {
-            return new BinarySensor(meta, field, deviceClass);
+            return new BinarySensor(meta, field, deviceClass, valueTemplate);
         }
 
         @Override

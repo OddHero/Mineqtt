@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### For players
+
+- **Container Observer** (new block): place it against a chest, barrel, furnace, hopper, shulker box or any other
+  container, and Home Assistant shows how full it is. The fill (in percent) is the device's main sensor, with the items
+  and their counts as attributes (the 64 most numerous kinds); *Items*, *Slots used*, *Empty* and *Full* come with it.
+  It counts by item id only, so item names and other details stay in the game. It looks into the container twice a
+  second and sends changes at most once a second. Crafted from smooth stone, a comparator and the Network Chip.
+
+### For server admins
+
+- With a claim mod, a Container Observer reads a container only in its own claim, or while its owner is online and may
+  open containers there, as the Block Placer does with the container behind it. Otherwise it reports `claimed` and
+  nothing the container holds.
+
 ## 0.9.1 (blocks drawn on Minecraft 1.21 to 1.21.3)
 
 0.9.1 fixes the jars for Minecraft 1.21 to 1.21.3 (`+1.21.1` and `+1.21.3`). The other versions change only their

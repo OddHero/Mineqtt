@@ -82,6 +82,7 @@ public final class Catalog {
             block("motion_sensor_block", Status.CRAFTABLE),
             block("temperature_sensor_block", Status.CRAFTABLE),
             block("block_sensor_block", Status.CRAFTABLE),
+            block("container_observer", Status.CRAFTABLE),
             // Controls and displays
             block("light_remote_block", Status.CRAFTABLE),
             block("display_panel", Status.CRAFTABLE),

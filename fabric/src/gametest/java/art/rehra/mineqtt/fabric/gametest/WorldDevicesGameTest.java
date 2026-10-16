@@ -11,6 +11,7 @@ import art.rehra.mineqtt.device.RawLinkSpec;
 import art.rehra.mineqtt.device.StateWriter;
 import art.rehra.mineqtt.device.types.BlockObserver;
 import art.rehra.mineqtt.device.types.BlockPlacer;
+import art.rehra.mineqtt.device.types.ContainerObserver;
 import art.rehra.mineqtt.ha.HaEntity;
 import art.rehra.mineqtt.mqtt.core.BrokerConfig;
 import art.rehra.mineqtt.mqtt.core.OfflinePolicy;
@@ -22,8 +23,11 @@ import com.google.gson.JsonParser;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.Container;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
@@ -43,7 +47,9 @@ import java.util.function.Predicate;
  * with the data mode as its payload. The Block Placer: with the block placer switched on it places white wool from the
  * chest behind it and clears it back; TNT and block entity data are refused with their reason, a retained message
  * builds nothing, ten messages at once act four times, and switched off it answers disabled; a v1 Block Emitter becomes a
- * Block Placer listening on its v1 topic.
+ * Block Placer listening on its v1 topic. The Container Observer: placed against a chest, it reports the chest empty, then
+ * its items by id (a renamed stack's name never), in its state and in the state it publishes, and no container once the
+ * chest is gone.
  */
 public final class WorldDevicesGameTest implements FabricClientGameTest {
     private static final int Y = GameTestSession.GROUND_Y + 1;
@@ -60,6 +66,8 @@ public final class WorldDevicesGameTest implements FabricClientGameTest {
     private static final BlockPos PLACER_CHEST = PLACER.east();
     private static final BlockPos LEGACY_EMITTER = new BlockPos(3, Y, 12);
     private static final String LEGACY_EMITTER_TOPIC = "world_devices_" + GameTestSession.BRIDGE_ID + "/legacy_emitter";
+    private static final BlockPos CONTAINER_OBSERVER = new BlockPos(3, Y, 16);
+    private static final BlockPos OBSERVED_CHEST = CONTAINER_OBSERVER.east();
     private static final int ANSWER_TICKS = 60;
     private static final int SETTLE_TICKS = 10;
     // A placer looks at its container every 100 ticks; a little more for the state to reach the runtime.
@@ -84,6 +92,7 @@ public final class WorldDevicesGameTest implements FabricClientGameTest {
         migratedSensor(session, broker);
         placer(session, broker);
         migratedEmitter(session);
+        containerObserver(session);
     }
 
     /** Set facing a chest, the observer reports it; filling the chest raises its comparator level. */
@@ -334,6 +343,68 @@ public final class WorldDevicesGameTest implements FabricClientGameTest {
                         && Integer.valueOf(1).equals(session.device(LEGACY_EMITTER, link -> link.legacyItems().size())),
                 "it is a Block Placer set to no block, its slot paper kept (" + state(session, LEGACY_EMITTER) + ")");
         setblock(session, LEGACY_EMITTER, "minecraft:air");
+    }
+
+    /**
+     * Placed against a chest, the Container Observer reports it empty; filled, its items by id with their counts, the totals
+     * and the fill, in its state and in the state it publishes; a renamed stack counts as its item and its name stays on the
+     * server. With the chest gone it reports no container.
+     */
+    private static void containerObserver(GameTestSession session) {
+        setblock(session, OBSERVED_CHEST, "minecraft:chest[facing=west]");
+        setblock(session, CONTAINER_OBSERVER, "mineqtt:container_observer[facing=east]");
+        session.awaitServer(s -> s.overworld().getBlockEntity(CONTAINER_OBSERVER) instanceof DeviceHost host && host.deviceLink().attached());
+        session.check(session.onServer(s -> {
+            BlockEntity blockEntity = s.overworld().getBlockEntity(CONTAINER_OBSERVER);
+            return ((DeviceHost) blockEntity).deviceLink().claim(blockEntity, session.playerId(), session.playerName());
+        }), "the player claims the Container Observer");
+        session.check(ContainerObserver.TYPE.equals(session.device(CONTAINER_OBSERVER, DeviceLink::type)), "a placed container_observer block is a Container Observer device");
+        session.check(session.await(() -> state(session, CONTAINER_OBSERVER).get("status").getAsString().equals("ok"), ANSWER_TICKS),
+                "it reads the chest (" + state(session, CONTAINER_OBSERVER) + ")");
+        JsonObject empty = state(session, CONTAINER_OBSERVER);
+        session.check(empty.get("container").getAsString().equals("minecraft:chest") && empty.get("empty").getAsBoolean() && empty.get("total").getAsInt() == 0
+                        && empty.get("slots_total").getAsInt() == 27 && empty.getAsJsonObject("items").isEmpty() && empty.get("fill").getAsDouble() == 0,
+                "an empty chest of 27 slots (" + empty + ")");
+
+        session.onServer(s -> {
+            Container chest = (Container) s.overworld().getBlockEntity(OBSERVED_CHEST);
+            chest.setItem(0, new ItemStack(Items.STONE, 64));
+            chest.setItem(4, new ItemStack(Items.DIAMOND, 3));
+            ItemStack secret = new ItemStack(Items.PAPER);
+            secret.set(DataComponents.CUSTOM_NAME, Component.literal("Secret Plans"));
+            chest.setItem(26, secret);
+            chest.setChanged();
+            return null;
+        });
+        session.check(session.await(() -> state(session, CONTAINER_OBSERVER).get("total").getAsInt() == 68, ANSWER_TICKS),
+                "filled, it counts the items (" + state(session, CONTAINER_OBSERVER) + ")");
+        JsonObject filled = state(session, CONTAINER_OBSERVER);
+        JsonObject items = filled.getAsJsonObject("items");
+        session.check(items.size() == 3 && items.get("minecraft:stone").getAsInt() == 64 && items.get("minecraft:diamond").getAsInt() == 3
+                        && items.get("minecraft:paper").getAsInt() == 1 && filled.get("slots_used").getAsInt() == 3 && !filled.get("empty").getAsBoolean()
+                        && !filled.get("full").getAsBoolean() && filled.get("fill").getAsDouble() > 0, "its items by id, its slots and fill (" + filled + ")");
+        session.check(!filled.toString().contains("Secret"), "a renamed stack counts as its item; its name never reaches the state");
+        UUID id = id(session, session.device(CONTAINER_OBSERVER, DeviceLink::slug));
+        session.check(session.await(() -> {
+            JsonObject published = session.onRuntime(runtime -> {
+                DeviceRecord record = runtime.registry().record(id);
+                return record == null ? null : record.lastState();
+            });
+            return published != null && published.has("total") && published.get("total").getAsInt() == 68;
+        }, ANSWER_TICKS), "the state it published carries the same counts");
+        // Its back, the face players see, from beside it: it stands beyond reach of the stand.
+        session.teleport(CONTAINER_OBSERVER.west(2));
+        session.aim(CONTAINER_OBSERVER);
+        session.screenshot("world_devices_container_observer");
+
+        setblock(session, OBSERVED_CHEST, "minecraft:air");
+        session.check(session.await(() -> state(session, CONTAINER_OBSERVER).get("status").getAsString().equals("no_container"), ANSWER_TICKS),
+                "with the chest gone it reports no container (" + state(session, CONTAINER_OBSERVER) + ")");
+        JsonObject gone = state(session, CONTAINER_OBSERVER);
+        session.check(gone.getAsJsonObject("items").isEmpty() && gone.get("total").getAsInt() == 0 && gone.get("container").getAsString().isEmpty(),
+                "and nothing of what the chest held (" + gone + ")");
+        setblock(session, CONTAINER_OBSERVER, "minecraft:air");
+        session.teleport(STAND);
     }
 
     // A message on a topic through the runtime's own MQTT service, which delivers it to this server's subscribers.

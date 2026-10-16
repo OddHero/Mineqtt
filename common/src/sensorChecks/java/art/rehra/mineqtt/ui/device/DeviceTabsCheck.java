@@ -23,6 +23,7 @@ import art.rehra.mineqtt.device.ValueCodecs.Rgb;
 import art.rehra.mineqtt.device.types.BlockObserver;
 import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
+import art.rehra.mineqtt.device.types.ContainerObserver;
 import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
@@ -119,6 +120,8 @@ public final class DeviceTabsCheck {
         // M4-2 (plan D5): Trigger now, the Enabled toggle with the state row folded into it, then the schedule; at most four
         // rows, the status line takes the fifth.
         List<String> timerRows = List.of("trigger PRESS USE ACTION", "enabled TOGGLE USE CONFIG");
+        // Its readings are out-ports only, and it has no settings: no Controls tab, as the Redstone Input.
+        expected.put(ContainerObserver.TYPE, List.of());
         expected.put(Timers.INTERVAL_TIMER, rows(timerRows, "interval NUMBER_FIELD CONFIGURE CONFIG", "unit CYCLE CONFIGURE CONFIG"));
         expected.put(Timers.DAYLIGHT_TIMER, rows(timerRows, "trigger_at CYCLE CONFIGURE CONFIG", "time TEXT_FIELD CONFIGURE CONFIG"));
         expected.put(Timers.ALARM_CLOCK, rows(timerRows, "time TEXT_FIELD CONFIGURE CONFIG"));
@@ -155,6 +158,8 @@ public final class DeviceTabsCheck {
                 DisplayPanel.TYPE, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
                         "raw.topic TEXT_FIELD CONFIGURE CONFIG")));
         // The timers' links carry their fires: events, never retained, QoS only (M4-4).
+        // No Raw Link: the tab says so and has no controls.
+        advanced.put(ContainerObserver.TYPE, List.of());
         Timers.all().forEach(timer -> advanced.put(timer, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
                 "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG")));
         check(advanced.keySet().containsAll(DeviceTypes.all()), "Every registered type has its expected Advanced controls listed here");

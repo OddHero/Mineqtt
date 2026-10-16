@@ -15,6 +15,7 @@ import art.rehra.mineqtt.twin.core.Binding;
 import art.rehra.mineqtt.device.types.BlockObserver;
 import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
+import art.rehra.mineqtt.device.types.ContainerObserver;
 import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
@@ -93,6 +94,7 @@ public final class DiscoveryGoldenTest {
         climate();
         observer();
         placer();
+        containerObserver();
         wallSwitch();
         displayPanel();
         everyEntityKind();
@@ -467,6 +469,33 @@ public final class DiscoveryGoldenTest {
         check(reloaded.getAsJsonObject("cmps").getAsJsonObject("block").getAsJsonArray("options").toString()
                         .equals("[\"minecraft:sea_lantern\",\"minecraft:white_wool\"]") && !DiscoveryPublisher.hash(reloaded).equals(hash),
                 "A reload that changes the tag changes the options and the hash");
+    }
+
+    /**
+     * The Container Observer against its golden file: the fill as the primary sensor with the item counts as its
+     * attributes ({@code items} in the subscript form, being a dict method in Jinja), the number of items and of used
+     * slots, empty and full, each unknown while it reads no container; the status and the container as diagnostics and
+     * the location disabled. The entities are the same whatever the container holds, so no contents change the message.
+     */
+    private static void containerObserver() throws IOException {
+        UUID observerId = UUID.fromString("c0a7a1e2-0b5e-4e7a-9c1d-2e3f4a5b6c7d");
+        DeviceRecord observer = new DeviceRecord(observerId, ContainerObserver.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(12, 64, 0)),
+                "Storage Chest", "storage_chest");
+        JsonObject config = DiscoveryPublisher.deviceConfig(ContainerObserver.TYPE, observer, TOPICS, IDENTITY);
+        assertGolden("container_observer", config);
+        JsonObject components = config.getAsJsonObject("cmps");
+        check(components.keySet().equals(Set.of("fill", "total", "slots_used", "empty", "full", "status", "container", "location")),
+                "Container Observer entities: " + components.keySet());
+        JsonObject fill = components.getAsJsonObject("fill");
+        check(fill.get("name").isJsonNull() && fill.get("unit_of_measurement").getAsString().equals("%"), "The fill is the primary sensor, in percent");
+        expect(fill, "json_attributes_template", "{{ (value_json['items'] if value_json['items'] is defined else {}) | tojson }}");
+        expect(fill, "value_template", "{{ value_json.fill if value_json.status == 'ok' else None }}");
+        expect(components.getAsJsonObject("empty"), "value_template", "{{ ('ON' if value_json.empty else 'OFF') if value_json.status == 'ok' else None }}");
+        expect(components.getAsJsonObject("status"), "entity_category", "diagnostic");
+        observer.setLastState(JsonParser.parseString("{\"items\":{\"minecraft:diamond\":3,\"minecraft:stone\":64},\"total\":67,\"status\":\"ok\"}")
+                .getAsJsonObject());
+        check(DiscoveryPublisher.deviceConfig(ContainerObserver.TYPE, observer, TOPICS, IDENTITY).equals(config),
+                "What the container holds never changes the discovery message");
     }
 
     // #mineqtt:placeable as a datapack reload binds it, the built-in registry being frozen.

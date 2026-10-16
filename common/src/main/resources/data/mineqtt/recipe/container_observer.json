@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "C": "minecraft:comparator",
+    "N": "mineqtt:network_chip",
+    "S": "minecraft:smooth_stone"
+  },
+  "pattern": [
+    "SCS",
+    "SNS",
+    "SSS"
+  ],
+  "result": {
+    "id": "mineqtt:container_observer"
+  }
+}

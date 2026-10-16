@@ -520,6 +520,8 @@
   "block.mineqtt.block_emitter_block": "Block Placer",
   "item.mineqtt.block_sensor_block": "Block Observer",
   "item.mineqtt.block_emitter_block": "Block Placer",
+  "block.mineqtt.container_observer": "Container Observer",
+  "item.mineqtt.container_observer": "Container Observer",
   "mineqtt.cyberdeck.publish_refused": "Not published to %s: %s",
   "mineqtt.privacy.prompt": "MineQTT can tell this server's Home Assistant when you are online. Nothing that names you is shared until you choose (change it any time with /mineqtt privacy):",
   "mineqtt.privacy.host_note": "As the host of this world you share your presence with its Home Assistant through MineQTT (see /mineqtt privacy).",

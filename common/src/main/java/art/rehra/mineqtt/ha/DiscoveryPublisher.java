@@ -521,7 +521,8 @@ public final class DiscoveryPublisher {
             }
             case HaEntity.BinarySensor binarySensor -> {
                 component.addProperty("state_topic", topics.state());
-                component.addProperty("value_template", "{{ 'ON' if " + jsonPath(binarySensor.field().key()) + " else 'OFF' }}");
+                component.addProperty("value_template", binarySensor.valueTemplate() != null ? binarySensor.valueTemplate()
+                        : "{{ 'ON' if " + jsonPath(binarySensor.field().key()) + " else 'OFF' }}");
                 if (binarySensor.deviceClass() != null) component.addProperty("device_class", binarySensor.deviceClass());
             }
             case HaEntity.Sensor sensor -> {

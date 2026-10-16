@@ -3,6 +3,7 @@ package art.rehra.mineqtt.device;
 import art.rehra.mineqtt.device.types.BlockObserver;
 import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
+import art.rehra.mineqtt.device.types.ContainerObserver;
 import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
@@ -91,8 +92,9 @@ public final class DeviceTypesCheck {
         List<DeviceType> types = DeviceTypes.all();
         check(types.equals(List.of(SmartLamp.TYPE, RedstoneOutput.TYPE, RedstoneInput.TYPE, PresenceSensor.TYPE, SmartPlug.TYPE, ClimateSensor.TYPE,
                 WallSwitch.TYPE, DisplayPanel.TYPE, Timers.INTERVAL_TIMER, Timers.DAYLIGHT_TIMER, Timers.ALARM_CLOCK, Timers.CRON_TIMER,
-                BlockObserver.TYPE, BlockPlacer.TYPE)),
-                "The fourteen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10): " + types);
+                BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE)),
+                "The fifteen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10) and the "
+                        + "Container Observer: " + types);
         int ports = 0;
         for (DeviceType type : types) {
             declaration(type);
@@ -275,6 +277,15 @@ public final class DeviceTypesCheck {
         check(BlockPlacer.TYPE.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !BlockPlacer.TYPE.groupable() && BlockPlacer.TYPE.use().isEmpty()
                         && BlockPlacer.TYPE.events().isEmpty() && BlockPlacer.TYPE.minInterval().isZero(),
                 "The placer never queues a world edit while unloaded, is no group member, has no use and no events");
+        // What the container in front holds, its fill and whether it is empty or full; nothing in.
+        expectPorts(ContainerObserver.TYPE, List.of(
+                "OUT container text 256 FIELD", "OUT items json FIELD", "OUT total number 0..2147483647 FIELD", "OUT distinct number 0..2147483647 FIELD",
+                "OUT slots_used number 0..2147483647 FIELD", "OUT slots_total number 0..2147483647 FIELD", "OUT fill number 0..100 % FIELD",
+                "OUT empty bool FIELD", "OUT full bool FIELD", "OUT status enum waiting|ok|no_container|claimed FIELD", "OUT location json FIELD"));
+        check(ContainerObserver.TYPE.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !ContainerObserver.TYPE.groupable() && ContainerObserver.TYPE.use().isEmpty()
+                        && ContainerObserver.TYPE.minInterval().equals(Duration.ofSeconds(1)) && ContainerObserver.TYPE.actions().isEmpty()
+                        && ContainerObserver.TYPE.settings().isEmpty() && ContainerObserver.TYPE.events().isEmpty() && ContainerObserver.TYPE.rawLink().isEmpty(),
+                "The Container Observer is a sensor: unavailable while unloaded, no use, settings, actions, events or Raw Link, its state at most once a second");
         for (DeviceType type : DeviceTypes.all()) {
             check(type.editsWorld() == (type == BlockPlacer.TYPE), type + ": only the Block Placer edits the world (D12)");
         }
@@ -1001,9 +1012,11 @@ public final class DeviceTypesCheck {
             check(timer.events().stream().allMatch(EventSpec::throttled) && timer.noV1Topic() && timer.status().isPresent(),
                     timer + ": the timers throttle fired, adopt no v1 topic and have a status line");
         }
-        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 2, "The M3 types, the timers, the observer and the placer are every built-in type");
-        for (DeviceType type : List.of(BlockObserver.TYPE, BlockPlacer.TYPE)) {
-            // Of the world devices only the Block Observer's changed (M4-9, D12) throttles; both adopt their v1 topic.
+        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 3,
+                "The M3 types, the timers, the observer, the placer and the Container Observer are every built-in type");
+        for (DeviceType type : List.of(BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE)) {
+            // Of the world devices only the Block Observer's changed (M4-9, D12) throttles; the observer and the placer adopt their
+            // v1 topic, and the Container Observer, which has no v1 block, takes none (it has no Raw Link).
             check(type.events().stream().filter(EventSpec::throttled).toList().equals(type == BlockObserver.TYPE ? List.of(BlockObserver.CHANGED_EVENT) : List.of()),
                     type + ": of the world devices only the observer's changed event is throttled (D3)");
             check(!type.noV1Topic() && type.status().isEmpty(), type + ": the world devices have no noV1Topic and no status line");

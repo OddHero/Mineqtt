@@ -1,0 +1,27 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "mineqtt:block/container_observer"
+    },
+    "facing=east": {
+      "model": "mineqtt:block/container_observer",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "mineqtt:block/container_observer",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "mineqtt:block/container_observer",
+      "y": 270
+    },
+    "facing=up": {
+      "model": "mineqtt:block/container_observer",
+      "x": 270
+    },
+    "facing=down": {
+      "model": "mineqtt:block/container_observer",
+      "x": 90
+    }
+  }
+}

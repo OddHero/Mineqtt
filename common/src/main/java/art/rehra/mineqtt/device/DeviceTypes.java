@@ -3,6 +3,7 @@ package art.rehra.mineqtt.device;
 import art.rehra.mineqtt.device.types.BlockObserver;
 import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
+import art.rehra.mineqtt.device.types.ContainerObserver;
 import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
@@ -47,6 +48,7 @@ public final class DeviceTypes {
         Timers.all().forEach(DeviceTypes::register);
         register(BlockObserver.TYPE);
         register(BlockPlacer.TYPE);
+        register(ContainerObserver.TYPE);
     }
 
     public static synchronized @Nullable DeviceType get(Identifier id) {

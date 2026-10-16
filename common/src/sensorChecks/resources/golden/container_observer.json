@@ -1,0 +1,96 @@
+{
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/storage_chest/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "cmps": {
+    "container": {
+      "entity_category": "diagnostic",
+      "name": "Container",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/storage_chest",
+      "unique_id": "mineqtt_c0a7a1e20b5e4e7a9c1d2e3f4a5b6c7d_container",
+      "value_template": "{{ value_json.container if value_json.container else None }}"
+    },
+    "empty": {
+      "name": "Empty",
+      "p": "binary_sensor",
+      "state_topic": "mineqtt/world_7f3a/storage_chest",
+      "unique_id": "mineqtt_c0a7a1e20b5e4e7a9c1d2e3f4a5b6c7d_empty",
+      "value_template": "{{ ('ON' if value_json.empty else 'OFF') if value_json.status == 'ok' else None }}"
+    },
+    "fill": {
+      "json_attributes_template": "{{ (value_json['items'] if value_json['items'] is defined else {}) | tojson }}",
+      "json_attributes_topic": "mineqtt/world_7f3a/storage_chest",
+      "name": null,
+      "p": "sensor",
+      "state_class": "measurement",
+      "state_topic": "mineqtt/world_7f3a/storage_chest",
+      "unique_id": "mineqtt_c0a7a1e20b5e4e7a9c1d2e3f4a5b6c7d_fill",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value_json.fill if value_json.status == 'ok' else None }}"
+    },
+    "full": {
+      "name": "Full",
+      "p": "binary_sensor",
+      "state_topic": "mineqtt/world_7f3a/storage_chest",
+      "unique_id": "mineqtt_c0a7a1e20b5e4e7a9c1d2e3f4a5b6c7d_full",
+      "value_template": "{{ ('ON' if value_json.full else 'OFF') if value_json.status == 'ok' else None }}"
+    },
+    "location": {
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Location",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/storage_chest",
+      "unique_id": "mineqtt_c0a7a1e20b5e4e7a9c1d2e3f4a5b6c7d_location",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}"
+    },
+    "slots_used": {
+      "name": "Slots used",
+      "p": "sensor",
+      "state_class": "measurement",
+      "state_topic": "mineqtt/world_7f3a/storage_chest",
+      "unique_id": "mineqtt_c0a7a1e20b5e4e7a9c1d2e3f4a5b6c7d_slots_used",
+      "value_template": "{{ value_json.slots_used if value_json.status == 'ok' else None }}"
+    },
+    "status": {
+      "entity_category": "diagnostic",
+      "name": "Status",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/storage_chest",
+      "unique_id": "mineqtt_c0a7a1e20b5e4e7a9c1d2e3f4a5b6c7d_status",
+      "value_template": "{{ value_json.status }}"
+    },
+    "total": {
+      "name": "Items",
+      "p": "sensor",
+      "state_class": "measurement",
+      "state_topic": "mineqtt/world_7f3a/storage_chest",
+      "unique_id": "mineqtt_c0a7a1e20b5e4e7a9c1d2e3f4a5b6c7d_total",
+      "value_template": "{{ value_json.total if value_json.status == 'ok' else None }}"
+    }
+  },
+  "dev": {
+    "ids": [
+      "mineqtt_c0a7a1e20b5e4e7a9c1d2e3f4a5b6c7d"
+    ],
+    "mdl": "Container Observer",
+    "mdl_id": "mineqtt:container_observer",
+    "mf": "MineQTT",
+    "name": "Storage Chest",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "qos": 1
+}
