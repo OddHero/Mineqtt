@@ -98,6 +98,8 @@
   "config.mineqtt.block_placer_players_may_configure.tooltip": "Whether players who may configure a Block Placer may set its block and raw link; operators always may. Auto: yes on integrated servers, no on dedicated servers.",
   "config.mineqtt.block_placer_consume_items": "Block Placer Uses Items",
   "config.mineqtt.block_placer_consume_items.tooltip": "A placed block costs its item from the container behind the Block Placer; clearing returns it",
+  "config.mineqtt.block_placer_container_unlocks": "Container Blocks Are Placeable",
+  "config.mineqtt.block_placer_container_unlocks.tooltip": "While the Block Placer uses items, any block in the container behind it may be placed, not only the #mineqtt:placeable ones; blocks with block entity data, TNT, fluids, fire, portals, unbreakable and two-part blocks never are",
   "config.mineqtt.block_observer_export_block_entity_data": "Block Observer Exports Block Data",
   "config.mineqtt.block_observer_export_block_entity_data.tooltip": "Include the observed block's block-entity data (chest or sign contents) in the observer's full raw payload. Only when the observer and its target share one claim, or no claim mod is installed; never in Home Assistant.",
   "config.mineqtt.rooms_max_size": "Max Room Size",

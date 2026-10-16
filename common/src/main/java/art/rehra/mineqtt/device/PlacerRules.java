@@ -18,6 +18,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.Container;
 import net.minecraft.world.WorldlyContainer;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -29,6 +30,7 @@ import net.minecraft.world.level.block.Portal;
 import net.minecraft.world.level.block.TntBlock;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.Property;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.StringJoiner;
+import java.util.TreeSet;
 import java.util.function.Predicate;
 import java.util.stream.IntStream;
 
@@ -49,8 +52,10 @@ import java.util.stream.IntStream;
  *     <li>A block is {@code id[property=value,...]} as {@code /setblock} writes it, or the JSON form
  *     {@code {"id":...,"properties":{...}}}. Block entity data is never accepted, in any form: a {@code block_entity}
  *     key, a brace after the id, SNBT.</li>
- *     <li>Only blocks of the tag, and of those never one with a block entity, a game master block (command blocks,
- *     structure and jigsaw blocks), TNT, a block no tool breaks (bedrock, barriers), a fluid, fire, air or a portal.</li>
+ *     <li>Only blocks of the tag, or any block while the container behind the placer unlocks them
+ *     ({@link #containerUnlocks}: placing costs the item, so only what somebody put there), and of those never one with
+ *     a block entity, a game master block (command blocks, structure and jigsaw blocks), TNT, a block no tool breaks
+ *     (bedrock, barriers), a fluid, fire, air, a portal, a block of two parts or one without an item.</li>
  * </ul>
  */
 public final class PlacerRules {
@@ -145,12 +150,16 @@ public final class PlacerRules {
     }
 
     /**
-     * Why no placer may place a block, whatever any tag says, or empty when the code allows it: a block entity (so no NBT
-     * can ever be written), a game master block, TNT, a block no tool breaks, a fluid, fire, air or a portal.
+     * Why no placer may place a block, whatever any tag or container says, or empty when the code allows it: a block
+     * entity (so no NBT can ever be written), a game master block, TNT, a block no tool breaks, a fluid, fire, air, a
+     * portal, a block of two parts (a door, a tall plant: the placer sets one block) and a block without an item of its
+     * own (a piston head, an attached stem), which no container holds.
      */
     public static Optional<String> hardDenial(Block block) {
         BlockState state = block.defaultBlockState();
         if (state.isAir()) return Optional.of("air is no block to place");
+        if (block.asItem() == Items.AIR) return Optional.of("a block without an item of its own is never placed");
+        if (state.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF)) return Optional.of("a block of two parts is never placed");
         if (state.hasBlockEntity()) return Optional.of("a block with a block entity is never placed");
         if (block instanceof GameMasterBlock) return Optional.of("a game master block is never placed");
         if (block instanceof TntBlock) return Optional.of("TNT is never placed");
@@ -185,6 +194,42 @@ public final class PlacerRules {
     /** Whether a block is in {@code #mineqtt:placeable} as the server's tags say now. */
     public static boolean placeable(Block block) {
         return block.builtInRegistryHolder().is(PLACEABLE);
+    }
+
+    /**
+     * Whether the container behind a placer unlocks blocks beyond the tag: only while placing costs the item
+     * ({@code blockPlacer.consumeItems}), so every block placed is one somebody put there, and
+     * {@code blockPlacer.containerUnlocks} is on.
+     */
+    public static boolean containerUnlocks(boolean consumeItems, boolean containerUnlocks) {
+        return consumeItems && containerUnlocks;
+    }
+
+    /**
+     * What a placer may be set to and place, after the hard denies ({@link #check}): a block of the tag, or with the
+     * container unlocking ({@link #containerUnlocks}) any block; that one is placed only with its item from the container.
+     */
+    public static Predicate<Block> allowedBlocks(Predicate<Block> placeable, boolean unlocked) {
+        return unlocked ? block -> true : placeable;
+    }
+
+    /**
+     * The blocks the container behind a placer offers as its choices: the blocks of the block items it holds in the
+     * slots the placer takes from ({@link #take}), without the hard denies and the blocks {@code allowed} refuses,
+     * sorted and distinct.
+     *
+     * @param face the side of the container the placer touches
+     */
+    public static List<String> choices(Container container, Direction face, Predicate<Block> allowed) {
+        TreeSet<String> ids = new TreeSet<>();
+        for (int slot : slots(container, face)) {
+            ItemStack stack = container.getItem(slot);
+            if (stack.isEmpty() || !(stack.getItem() instanceof BlockItem blockItem)) continue;
+            if (container instanceof WorldlyContainer worldly && !worldly.canTakeItemThroughFace(slot, stack, face)) continue;
+            Block block = blockItem.getBlock();
+            if (hardDenial(block).isEmpty() && allowed.test(block)) ids.add(BuiltInRegistries.BLOCK.getKey(block).toString());
+        }
+        return List.copyOf(ids);
     }
 
     /**

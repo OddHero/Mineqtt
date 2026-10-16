@@ -77,6 +77,7 @@ public final class JsonConfigFormat {
         blockPlacer.addProperty("enabled", MineQTTConfig.blockPlacerEnabled);
         blockPlacer.addProperty("playersMayConfigure", MineQTTConfig.blockPlacerPlayersMayConfigure.name());
         blockPlacer.addProperty("consumeItems", MineQTTConfig.blockPlacerConsumeItems);
+        blockPlacer.addProperty("containerUnlocks", MineQTTConfig.blockPlacerContainerUnlocks);
         root.add("blockPlacer", blockPlacer);
         JsonObject blockObserver = new JsonObject();
         blockObserver.addProperty("exportBlockEntityData", MineQTTConfig.blockObserverExportBlockEntityData);
@@ -154,6 +155,8 @@ public final class JsonConfigFormat {
         MineQTTConfig.blockPlacerPlayersMayConfigure = in.autoBoolean(blockPlacer, "blockPlacer.playersMayConfigure",
                 StaticDefaults.DEFAULT_BLOCK_PLACER_PLAYERS_MAY_CONFIGURE);
         MineQTTConfig.blockPlacerConsumeItems = in.bool(blockPlacer, "blockPlacer.consumeItems", StaticDefaults.DEFAULT_BLOCK_PLACER_CONSUME_ITEMS);
+        MineQTTConfig.blockPlacerContainerUnlocks = in.bool(blockPlacer, "blockPlacer.containerUnlocks",
+                StaticDefaults.DEFAULT_BLOCK_PLACER_CONTAINER_UNLOCKS);
         JsonObject blockObserver = in.section(root, "blockObserver");
         MineQTTConfig.blockObserverExportBlockEntityData = in.bool(blockObserver, "blockObserver.exportBlockEntityData",
                 StaticDefaults.DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA);

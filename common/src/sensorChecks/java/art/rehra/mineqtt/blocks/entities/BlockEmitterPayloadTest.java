@@ -12,6 +12,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.DataResult;
+import com.mojang.serialization.JsonOps;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -40,6 +41,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 
 /**
  * Dependency-free regression checks of the Block Placer (M4 plan D12), run by Gradle's verifyBlockEmitter task: which
@@ -54,7 +56,7 @@ public final class BlockEmitterPayloadTest {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         // Item stacks need their items' default components, which a server binds when it loads its data packs.
-        CheckItems.bindCommonComponents(Items.WOOL.white(), Items.GLASS, Items.STONE);
+        CheckItems.bindCommonComponents(Items.WOOL.white(), Items.GLASS, Items.STONE, Items.OAK_PLANKS, Items.CHEST, Items.TNT, Items.DIAMOND, Items.OAK_DOOR);
         PLACEABLE.addAll(resolveTag("mineqtt", "placeable"));
         allowlist();
         accepted();
@@ -63,6 +65,7 @@ public final class BlockEmitterPayloadTest {
         rules();
         rate();
         material();
+        containerChoices();
         grammar();
         switchAndType();
         System.out.println("Block Placer checks passed.");
@@ -112,12 +115,15 @@ public final class BlockEmitterPayloadTest {
     private static void hardDenies() {
         for (Block denied : List.of(Blocks.TNT, Blocks.COMMAND_BLOCK, Blocks.CHAIN_COMMAND_BLOCK, Blocks.STRUCTURE_BLOCK, Blocks.JIGSAW, Blocks.BARRIER,
                 Blocks.SPAWNER, Blocks.BEDROCK, Blocks.CHEST, Blocks.WATER, Blocks.LAVA, Blocks.FIRE, Blocks.SOUL_FIRE, Blocks.AIR, Blocks.NETHER_PORTAL,
-                Blocks.END_PORTAL, Blocks.END_GATEWAY, Blocks.LIGHT)) {
+                Blocks.END_PORTAL, Blocks.END_GATEWAY, Blocks.LIGHT, Blocks.OAK_DOOR, Blocks.TALL_GRASS, Blocks.PISTON_HEAD, Blocks.ATTACHED_MELON_STEM)) {
             Optional<String> denial = PlacerRules.check(denied.defaultBlockState(), block -> true);
-            check(denial.isPresent(), "Denied whatever the tag says: " + denied);
+            check(denial.isPresent(), "Denied whatever the tag or the container says: " + denied);
         }
         check(PlacerRules.check(Blocks.CHEST.defaultBlockState(), block -> true).orElseThrow().contains("block entity"),
                 "A chest a datapack tags is refused for its block entity");
+        check(PlacerRules.hardDenial(Blocks.OAK_DOOR).orElseThrow().contains("two parts") && PlacerRules.hardDenial(Blocks.TALL_GRASS).orElseThrow().contains("two parts"),
+                "A door or a tall plant is refused: the placer sets one block of the two");
+        check(PlacerRules.hardDenial(Blocks.PISTON_HEAD).orElseThrow().contains("without an item"), "A block without an item of its own is refused");
         check(PlacerRules.check(Blocks.WOOL.white().defaultBlockState(), PLACEABLE::contains).isEmpty(), "Wool passes");
     }
 
@@ -203,6 +209,51 @@ public final class BlockEmitterPayloadTest {
         check(!PlacerRules.take(sided, Direction.UP, Items.WOOL.white()) && sided.getItem(1).getCount() == 1, "A slot the face does not offer is not taken from");
         check(PlacerRules.take(sided, Direction.UP, Items.GLASS) && sided.getItem(0).isEmpty(), "The slot it offers is");
         check(!PlacerRules.take(sided, Direction.DOWN, Items.WOOL.white()), "A face that offers nothing gives nothing");
+    }
+
+    /**
+     * blockPlacer.containerUnlocks: while placing costs the item, any block of the container behind may be set and placed;
+     * its choices are the blocks of the block items there, read through the face it touches, with the block it is set to.
+     */
+    private static void containerChoices() {
+        check(PlacerRules.containerUnlocks(true, true) && !PlacerRules.containerUnlocks(false, true) && !PlacerRules.containerUnlocks(true, false),
+                "The container unlocks blocks only while placing costs the item and the switch is on");
+        check(MineQTTConfig.blockPlacerContainerUnlocks, "The container unlocks blocks by default");
+        Predicate<Block> unlocked = PlacerRules.allowedBlocks(PLACEABLE::contains, true);
+        Predicate<Block> tagOnly = PlacerRules.allowedBlocks(PLACEABLE::contains, false);
+        check(unlocked.test(Blocks.OAK_PLANKS) && !tagOnly.test(Blocks.OAK_PLANKS) && tagOnly.test(Blocks.WOOL.white()), "Unlocked any block, else the tag's");
+        check(PlacerRules.allowed("minecraft:oak_planks", Lookups.blocks(), unlocked).result().isPresent(), "Unlocked, planks may be set");
+        check(PlacerRules.allowed("minecraft:chest", Lookups.blocks(), unlocked).error().isPresent()
+                && PlacerRules.allowed("minecraft:oak_door", Lookups.blocks(), unlocked).error().isPresent(), "Unlocked, the hard denies still hold");
+
+        SimpleContainer chest = new SimpleContainer(7);
+        chest.setItem(0, new ItemStack(Items.OAK_PLANKS, 3));
+        chest.setItem(1, new ItemStack(Items.WOOL.white()));
+        chest.setItem(2, new ItemStack(Items.OAK_PLANKS));
+        chest.setItem(3, new ItemStack(Items.CHEST));
+        chest.setItem(4, new ItemStack(Items.TNT));
+        chest.setItem(5, new ItemStack(Items.DIAMOND));
+        chest.setItem(6, new ItemStack(Items.OAK_DOOR));
+        check(PlacerRules.choices(chest, Direction.NORTH, unlocked).equals(List.of("minecraft:oak_planks", "minecraft:white_wool")),
+                "The blocks of the block items, sorted and once each; no chest, TNT, diamond or door: " + PlacerRules.choices(chest, Direction.NORTH, unlocked));
+        check(PlacerRules.choices(chest, Direction.NORTH, tagOnly).equals(List.of("minecraft:white_wool")), "Locked, only the tag's blocks there");
+        check(PlacerRules.choices(new SimpleContainer(3), Direction.NORTH, unlocked).isEmpty(), "An empty container offers none");
+        Sided sided = new Sided();
+        sided.setItem(0, new ItemStack(Items.GLASS));
+        sided.setItem(1, new ItemStack(Items.STONE));
+        check(PlacerRules.choices(sided, Direction.UP, unlocked).equals(List.of("minecraft:glass")), "Only what the face lets it take");
+        check(PlacerRules.choices(sided, Direction.DOWN, unlocked).isEmpty(), "A face that offers nothing offers no choices");
+
+        check(BlockPlacer.choices(null, "minecraft:white_wool").isEmpty(), "No container it may open: no choices, the select offers the tag");
+        check(BlockPlacer.choices(List.of(), "").isEmpty(), "An empty container and no block set: none");
+        check(BlockPlacer.choices(List.of(), "minecraft:redstone_lamp[lit=true]").equals(List.of("minecraft:redstone_lamp")),
+                "The block it is set to stays a choice, without its properties");
+        check(BlockPlacer.choices(List.of("minecraft:stone"), "minecraft:glass").equals(List.of("minecraft:glass", "minecraft:stone")), "and joins the container's");
+        BlockPlacer.Settings old = BlockPlacer.Settings.CODEC.parse(JsonOps.INSTANCE, json("{\"block\":\"minecraft:glass\",\"last_result\":\"ready\"}")).getOrThrow();
+        check(old.choices().isEmpty() && old.block().equals("minecraft:glass"), "A placer saved before has no choices until it looks");
+        BlockPlacer.Settings kept = old.withChoices(List.of("minecraft:glass", "minecraft:stone")).withBlock("minecraft:stone").withResult("placed");
+        JsonElement saved = BlockPlacer.Settings.CODEC.encodeStart(JsonOps.INSTANCE, kept).getOrThrow();
+        check(BlockPlacer.Settings.CODEC.parse(JsonOps.INSTANCE, saved).getOrThrow().equals(kept), "The choices are kept with the setting: " + saved);
     }
 
     /** The Raw Link grammar: place, clear and a block to place. */

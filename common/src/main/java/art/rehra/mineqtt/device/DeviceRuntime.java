@@ -17,6 +17,7 @@ import art.rehra.mineqtt.flow.core.Root;
 import art.rehra.mineqtt.flow.core.Scope;
 import art.rehra.mineqtt.flow.core.Wire;
 import art.rehra.mineqtt.integrations.MineqttPermission;
+import art.rehra.mineqtt.ha.HaEntity;
 import art.rehra.mineqtt.legacy.LegacyConverterBlock;
 import art.rehra.mineqtt.legacy.LegacyNbtV1;
 import art.rehra.mineqtt.mqtt.core.ConnectionState;
@@ -2547,6 +2548,21 @@ public final class DeviceRuntime {
         return subscribed == refused;
     }
 
+    /**
+     * Whether a new state changes the options of a select that takes them from the state
+     * ({@link art.rehra.mineqtt.ha.HaEntity.Select#stateOptions()}), so the device's discovery is built again.
+     *
+     * @param before the state published before; null for none
+     */
+    public static boolean stateOptionsChanged(DeviceType type, @Nullable JsonObject before, JsonObject state) {
+        for (HaEntity<?> entity : type.entities()) {
+            if (!(entity instanceof HaEntity.Select select) || select.stateOptions() == null) continue;
+            String key = select.stateOptions().key();
+            if (!Objects.equals(before == null ? null : before.get(key), state.get(key))) return true;
+        }
+        return false;
+    }
+
     void publishState(DeviceHost host, boolean force) {
         UUID id = host.deviceLink().id();
         DeviceRecord record = id == null ? null : registry.record(id);
@@ -2558,6 +2574,8 @@ public final class DeviceRuntime {
             registry.markDirty();
         }
         if (stopping) return;
+        // A select that offers a list of the state (a Block Placer's choices) changes with it: discovery is built anew.
+        if (stateOptionsChanged(host.deviceType(), before, state)) runtime.discovery().refresh(record);
         // The out-ports carry every change at once; the throttle below only paces MQTT.
         emitChanges(record.id(), host.deviceType(), before, state);
         // Open screens follow the state at once; the throttle only paces MQTT.

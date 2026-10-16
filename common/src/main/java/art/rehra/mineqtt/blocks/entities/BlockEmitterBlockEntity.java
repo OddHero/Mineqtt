@@ -45,8 +45,10 @@ import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /**
  * The Block Placer ({@link BlockPlacer}): places its block into the space in front of its face and clears the block it
@@ -69,6 +71,9 @@ public class BlockEmitterBlockEntity extends DeviceBlockEntity {
     private static final String NOTHING_TO_CLEAR = "nothing to clear: it clears only the block it placed, while that stands";
     // How often the placer looks whether the block it placed still stands, besides the neighbour updates that tell it.
     private static final int CHECK_TICKS = 20;
+    // How often it looks at the container behind it for its choices: a change republishes its Home Assistant discovery,
+    // so a hopper cycling items through does that at most every five seconds.
+    private static final int CHOICES_TICKS = 100;
 
     private final DeviceLink link = new DeviceLink(BlockPlacer.TYPE);
     private Settings settings = Settings.DEFAULT;
@@ -126,6 +131,8 @@ public class BlockEmitterBlockEntity extends DeviceBlockEntity {
             String text = request.getOrThrow().text();
             if (!text.equals(settings.block())) {
                 settings = settings.withBlock(text);
+                // The block it is set to is always one of its choices.
+                refreshChoices();
                 changed = true;
             }
         }
@@ -148,9 +155,15 @@ public class BlockEmitterBlockEntity extends DeviceBlockEntity {
         return Optional.empty();
     }
 
-    // The block of a setting, checked against the code's denies and the tag as the server has it now.
+    // The block of a setting, checked against the code's denies and the tag as the server has it now, or any block while
+    // the container behind unlocks them: that one is placed only with its item from there.
     private static DataResult<PlacerRules.Request> allowed(String text) {
-        return PlacerRules.allowed(text, art.rehra.mineqtt.compat.Lookups.blocks(), PlacerRules::placeable);
+        return PlacerRules.allowed(text, art.rehra.mineqtt.compat.Lookups.blocks(), allowedBlocks());
+    }
+
+    private static Predicate<Block> allowedBlocks() {
+        return PlacerRules.allowedBlocks(PlacerRules::placeable,
+                PlacerRules.containerUnlocks(MineQTTConfig.blockPlacerConsumeItems, MineQTTConfig.blockPlacerContainerUnlocks));
     }
 
     /**
@@ -178,6 +191,8 @@ public class BlockEmitterBlockEntity extends DeviceBlockEntity {
         BlockState state = placementState(serverLevel, request.getOrThrow(), target, facing);
         if (own && current == state) return result("already placed " + settings.block());
         if (!own && !current.canBeReplaced()) return refused("the space in front is taken by " + BuiltInRegistries.BLOCK.getKey(current.getBlock()));
+        // A block from the container may need ground or a wall (a torch, a carpet, a crop): it is placed only where it stays.
+        if (!state.canSurvive(serverLevel, target)) return refused(BuiltInRegistries.BLOCK.getKey(state.getBlock()) + " cannot stand in the space in front");
         Item item = state.getBlock().asItem();
         Container behind = MineQTTConfig.blockPlacerConsumeItems ? HopperBlockEntity.getContainerAt(serverLevel, behindPos) : null;
         if (MineQTTConfig.blockPlacerConsumeItems && (behind == null || !PlacerRules.take(behind, facing, item))) {
@@ -189,6 +204,7 @@ public class BlockEmitterBlockEntity extends DeviceBlockEntity {
         serverLevel.gameEvent(GameEvent.BLOCK_PLACE, target, GameEvent.Context.of(state));
         if (replaced != null && MineQTTConfig.blockPlacerConsumeItems) giveBack(serverLevel, behind, facing, target, replaced);
         placed = new Placed(target, serverLevel.getBlockState(target));
+        refreshChoices();
         return result("placed " + settings.block());
     }
 
@@ -216,7 +232,33 @@ public class BlockEmitterBlockEntity extends DeviceBlockEntity {
                     ? HopperBlockEntity.getContainerAt(serverLevel, behindPos) : null;
             giveBack(serverLevel, behind, facing, cleared.pos(), cleared.state());
         }
+        refreshChoices();
         return result("cleared " + id);
+    }
+
+    /**
+     * Looks at the container behind it again and takes the blocks there as its {@link BlockPlacer#CHOICES} with the block
+     * it is set to. It reads the container only as a placement would: while placing costs the item, its chunk is loaded
+     * and the claim rule lets the placer open it ({@link #containerAllowed}), so a neighbour's chest across a claim line
+     * is never read. While the chunk behind is not loaded the choices stay as they were.
+     *
+     * @return whether the choices changed; the caller publishes the state
+     */
+    private boolean refreshChoices() {
+        if (!(level instanceof ServerLevel serverLevel)) return false;
+        Direction facing = getBlockState().getValue(BlockEmitterBlock.FACING);
+        BlockPos behindPos = worldPosition.relative(facing.getOpposite());
+        List<String> fromContainer = null;
+        if (MineQTTConfig.blockPlacerConsumeItems) {
+            if (!serverLevel.hasChunkAt(behindPos)) return false;
+            Container behind = containerAllowed(serverLevel, behindPos) ? HopperBlockEntity.getContainerAt(serverLevel, behindPos) : null;
+            if (behind != null) fromContainer = PlacerRules.choices(behind, facing, allowedBlocks());
+        }
+        List<String> now = BlockPlacer.choices(fromContainer, settings.block());
+        if (now.equals(settings.choices())) return false;
+        settings = settings.withChoices(now);
+        setChanged();
+        return true;
     }
 
     // The block's item goes back into the container behind the placer, or drops where the block stood.
@@ -394,6 +436,7 @@ public class BlockEmitterBlockEntity extends DeviceBlockEntity {
                 placer.frontChanged = false;
                 placer.followPlaced();
             }
+            if (level.getGameTime() % CHOICES_TICKS == 0 && placer.refreshChoices()) placer.link.stateChanged(placer);
         }
     }
 }

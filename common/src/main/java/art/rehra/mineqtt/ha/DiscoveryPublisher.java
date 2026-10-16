@@ -95,7 +95,9 @@ import java.util.function.Supplier;
  *     may show.</li>
  *     <li><b>Runtime select options</b> (M4 plan §3.2). A select whose options come from a source is published with the
  *     options of the moment, so the hash changes with them; {@link #refreshDynamicOptions()} checks every device and group
- *     with one again (after a datapack reload). A source without options makes the select a platform-only stub
+ *     with one again (after a datapack reload). A select may take its options from a list in the device's last state
+ *     instead (a Block Placer's {@code choices}, the blocks in the container behind it); the device runtime refreshes
+ *     a device whose list changed. A source without options makes the select a platform-only stub
  *     ({@code {"p":"select"}}), kept in the retained message as a bound device's stubs are: Home Assistant removes a
  *     select it discovered with options in its current run, without clearing a device that keeps other components (M4
  *     plan, Home Assistant step 6 before M4-2). A Home Assistant that was offline when the options ran out ignores the stub, and
@@ -322,7 +324,7 @@ public final class DiscoveryPublisher {
 
     private static JsonObject fullConfig(DeviceType type, DeviceRecord record, TopicScheme topics, Identity identity, @Nullable String area) {
         return config(record.objectId(), record.name(), type.model(), type, identity, availability(record, topics), type.entities(),
-                entityTopics(record, topics), record.legacyUniqueId(), area);
+                entityTopics(record, topics), record.legacyUniqueId(), area, record.lastState());
     }
 
     private static List<String> availability(DeviceRecord record, TopicScheme topics) {
@@ -348,7 +350,7 @@ public final class DiscoveryPublisher {
     private static JsonObject mirroredConfig(DeviceType type, DeviceRecord record, TopicScheme topics, Identity identity, @Nullable String area) {
         EntityTopics entityTopics = entityTopics(record, topics);
         JsonObject config = config(record.objectId(), record.name(), type.model(), type, identity, availability(record, topics), List.of(), entityTopics,
-                record.legacyUniqueId(), area);
+                record.legacyUniqueId(), area, null);
         JsonObject components = new JsonObject();
         for (HaEntity<?> entity : type.entities()) components.add(entity.key(), stub(entity.platform()));
         components.add(TwinAdapter.BINDING_ENTITY, bindingSensor(record, entityTopics));
@@ -400,7 +402,7 @@ public final class DiscoveryPublisher {
     public static JsonObject groupConfig(DeviceType type, DeviceGroup group, TopicScheme topics, Identity identity, @Nullable String area) {
         String state = topics.group(group.slug());
         return config(group.objectId(), group.name(), type.model() + " group", type, identity, List.of(topics.bridgeState()),
-                groupEntities(type), new EntityTopics(state, state + "/set", null), group.legacyUniqueId(), area);
+                groupEntities(type), new EntityTopics(state, state + "/set", null), group.legacyUniqueId(), area, null);
     }
 
     /** {@code {"name":"MineQTT","sw":...,"url":...}}, the origin of every message. */
@@ -425,7 +427,7 @@ public final class DiscoveryPublisher {
 
     private static JsonObject config(String objectId, String name, String model, DeviceType type, Identity identity,
                                      List<String> availability, List<HaEntity<?>> entities, EntityTopics entityTopics,
-                                     @Nullable String legacyUniqueId, @Nullable String area) {
+                                     @Nullable String legacyUniqueId, @Nullable String area, @Nullable JsonObject state) {
         JsonObject device = new JsonObject();
         // v1 named its light's device after the unique_id: carrying it makes Home Assistant reuse that device entry
         // (device id, area, device automations) instead of leaving it empty. HA never drops a merged identifier.
@@ -456,18 +458,18 @@ public final class DiscoveryPublisher {
         for (HaEntity<?> entity : entities) {
             // A select whose source has no options now is a stub: Home Assistant refuses a select without options, and a
             // stub removes one it discovered with options in its current run (left out, it would keep the old one).
-            if (entity instanceof HaEntity.Select select && select.currentOptions().isEmpty()) {
+            if (entity instanceof HaEntity.Select select && select.currentOptions(state).isEmpty()) {
                 components.add(entity.key(), stub(entity.platform()));
                 continue;
             }
             String uniqueId = entity == primary && legacyUniqueId != null ? legacyUniqueId : objectId + "_" + entity.key();
-            components.add(entity.key(), component(entity, uniqueId, entityTopics));
+            components.add(entity.key(), component(entity, uniqueId, entityTopics, state));
         }
         config.add("cmps", components);
         return config;
     }
 
-    private static JsonObject component(HaEntity<?> entity, String uniqueId, EntityTopics topics) {
+    private static JsonObject component(HaEntity<?> entity, String uniqueId, EntityTopics topics, @Nullable JsonObject state) {
         JsonObject component = new JsonObject();
         component.addProperty("p", entity.platform());
         if (!(entity instanceof HaEntity.DeviceTrigger)) {
@@ -539,7 +541,7 @@ public final class DiscoveryPublisher {
                 component.addProperty("state_topic", topics.state());
                 component.addProperty("value_template", select.valueTemplate() != null ? select.valueTemplate() : valueTemplate(select.field()));
                 component.addProperty("command_topic", topics.set(select.field().key()));
-                component.add("options", strings(select.currentOptions()));
+                component.add("options", strings(select.currentOptions(state)));
             }
             case HaEntity.Event event -> {
                 component.addProperty("state_topic", topics.action());

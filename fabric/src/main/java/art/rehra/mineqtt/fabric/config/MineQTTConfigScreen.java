@@ -284,6 +284,13 @@ public class MineQTTConfigScreen {
                 .setSaveConsumer(value -> MineQTTConfig.blockPlacerConsumeItems = value)
                 .build());
 
+        worldCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.block_placer_container_unlocks"),
+                        MineQTTConfig.blockPlacerContainerUnlocks)
+                .setDefaultValue(StaticDefaults.DEFAULT_BLOCK_PLACER_CONTAINER_UNLOCKS)
+                .setTooltip(Component.translatable("config.mineqtt.block_placer_container_unlocks.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.blockPlacerContainerUnlocks = value)
+                .build());
+
         worldCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.block_observer_export_block_entity_data"),
                         MineQTTConfig.blockObserverExportBlockEntityData)
                 .setDefaultValue(StaticDefaults.DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA)

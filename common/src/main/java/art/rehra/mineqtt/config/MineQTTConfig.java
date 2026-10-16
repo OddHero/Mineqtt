@@ -54,6 +54,7 @@ public class MineQTTConfig {
     public static int telemetryForgetAfterDays;
     public static AutoBoolean blockPlacerPlayersMayConfigure;
     public static boolean blockPlacerConsumeItems;
+    public static boolean blockPlacerContainerUnlocks;
     public static boolean blockObserverExportBlockEntityData;
     public static int roomsMaxSize;
     public static int limitsMaxRoomsPerPlayer;
@@ -108,6 +109,7 @@ public class MineQTTConfig {
         telemetryForgetAfterDays = StaticDefaults.DEFAULT_TELEMETRY_FORGET_AFTER_DAYS;
         blockPlacerPlayersMayConfigure = StaticDefaults.DEFAULT_BLOCK_PLACER_PLAYERS_MAY_CONFIGURE;
         blockPlacerConsumeItems = StaticDefaults.DEFAULT_BLOCK_PLACER_CONSUME_ITEMS;
+        blockPlacerContainerUnlocks = StaticDefaults.DEFAULT_BLOCK_PLACER_CONTAINER_UNLOCKS;
         blockObserverExportBlockEntityData = StaticDefaults.DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA;
         roomsMaxSize = StaticDefaults.DEFAULT_ROOMS_MAX_SIZE;
         limitsMaxRoomsPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_ROOMS_PER_PLAYER;

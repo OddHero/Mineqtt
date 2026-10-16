@@ -592,19 +592,28 @@ crash never survives.
   the `power` of a Redstone Output and a Smart Plug by default.
 - **Block Placer** (M4-10, plan D12). `device/PlacerRules` is the rule set: `parse` (the setblock form or `{"id":…,
   "properties":{…}}`; braces, `block_entity`, other keys, tags and trailing text refused), `hardDenial` (block entity,
-  game master block, TNT, unbreakable, fluid, fire, air, portal), `check` against `#mineqtt:placeable`
-  (`data/mineqtt/tags/block/placeable.json`), `options` (the tag without hard denies, sorted), `claimAllows`,
+  game master block, TNT, unbreakable, fluid, fire, air, portal, a two-part block (`DOUBLE_BLOCK_HALF`), a block without
+  an item), `check` against `#mineqtt:placeable` (`data/mineqtt/tags/block/placeable.json`) or, while
+  `containerUnlocks(consumeItems, blockPlacer.containerUnlocks)`, any block (`allowedBlocks`: placing costs the item, so
+  only what somebody put into the container), `options` (the tag without hard denies, sorted), `choices` (the blocks of the
+  block items in the container behind, through the face the placer touches, without hard denies), `claimAllows`,
   `underSpawnProtection` (the dedicated server's rule for an offline owner) and `take`/`give` (the container behind,
   sided faces respected). `device/types/BlockPlacer` (`mineqtt:block_placer`, on the `block_emitter_block` ids): the
-  `block` setting, `placed`, `last_result`, `location`, the `place` and `clear` actions; HA's
-  `Ha.selectDynamic("block", …, BlockPlacer::options)` with the template `{{ value_json.block.split('[')[0] if
+  `block` setting, `placed`, `last_result`, `choices` (a JSON list, kept in the block entity's `state` with the setting),
+  `location`, the `place` and `clear` actions; HA's `Ha.selectDynamic("block", …, BlockPlacer::options)
+  .optionsFrom(CHOICES)`: the options are the device state's `choices` while it has entries
+  (`HaEntity.Select.currentOptions(state)`, discovery built from `record.lastState()`), else the tag; with the template `{{ value_json.block.split('[')[0] if
   value_json.block else None }}`, buttons, a binary sensor and a diagnostic `last_result`; `UNAVAILABLE`, `editsWorld()`;
   Raw Link `RawLinkSpec.in(ValueCodecs.PLACER)` with `acceptRetained` false (`place`/`ON`/`true`, `clear`/`OFF`/`false`,
   anything else a block to set and place). `BlockEmitterBlockEntity` (a `DeviceBlockEntity`) runs a command as: the action
   gate (`blockPlacer.enabled`, then a 4-per-second `TokenBucket` that refused actions spend too), the block against the
   live tag, then place (world border, spawn protection and the claim for its owner, a replaceable target or its own
   block, the item taken, `setBlock` with sound and game event; without properties the dispenser's state) or clear (its
-  own block only, no drops, the item given back). A refusal sets `last_result`, publishes the state and returns
+  own block only, no drops, the item given back); a block that cannot stand in front (`canSurvive`) is refused. Every
+  100 ticks, after its own place or clear and when its block is set, it reads the container behind again
+  (`refreshChoices`, only through `containerAllowed` and only while the chunk behind is loaded; `BlockPlacer.choices` adds
+  the block it is set to) and publishes a changed list; `DeviceRuntime.publishState` refreshes the discovery of a device
+  whose state list changed (`stateOptionsChanged`). A refusal sets `last_result`, publishes the state and returns
   REJECTED. It tracks the block it placed through its own state changes (`PlacerRules.follow`: the same block in any
   state stays its own, so a lamp it placed stays clearable while redstone lights it) and lets go on any other block;
   `clear` compares a fresh `getBlockState` with the record (`PlacerRules.ownBlock`) right before `destroyBlock`. Broker
@@ -1280,7 +1289,8 @@ in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wi
   ownerless device (`DeviceRuntime.claim`: the Access tab's claim button and `/mineqtt devices claim`) is refused
   likewise for a player at the limit.
 - The Block Placer (ex block emitter) is off unless `blockPlacer.enabled`, and then subscribes to nothing. It places
-  only `#mineqtt:placeable` minus the hard denies (`PlacerRules`), never with NBT or block entity data, never from a
+  only `#mineqtt:placeable` (or, with `blockPlacer.containerUnlocks` while it consumes items, any block from the container
+  behind it, which it reads only where the claim rule lets it open the container) minus the hard denies (`PlacerRules`), never with NBT or block entity data, never from a
   retained message, at most 4 actions a second, within the world border and outside spawn protection, across a claim
   line only for an online owner who may build there, and clears only its own block; on a dedicated server only operators
   configure it unless `blockPlacer.playersMayConfigure` ([Devices](#devices)). The Block Observer exports block entity

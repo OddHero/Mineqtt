@@ -1,8 +1,12 @@
 package art.rehra.mineqtt.ha;
 
 import art.rehra.mineqtt.device.Field;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -326,9 +330,12 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
      * @param optionsSource where the runtime options come from; null for fixed options
      * @param valueTemplate replaces the generated template, so the state is always an option (a block id without its
      *                      properties); null for the generated one
+     * @param stateOptions  a list field of the device's own state whose entries, when the state has any, are the options
+     *                      instead of the source's (a Block Placer offers the blocks in the container behind it); null
+     *                      for none. A group, which has no such state, offers the source's.
      */
     record Select(Meta meta, Field<?> field, List<String> options, @Nullable Supplier<List<String>> optionsSource,
-                  @Nullable String valueTemplate) implements HaEntity<Select> {
+                  @Nullable String valueTemplate, @Nullable Field<List<String>> stateOptions) implements HaEntity<Select> {
         /** The most options a select with a source offers. */
         public static final int MAX_OPTIONS = 128;
 
@@ -336,6 +343,11 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
             options = List.copyOf(options);
             if (optionsSource == null && options.isEmpty()) throw new IllegalArgumentException("Select " + meta.key() + " needs options");
             if (optionsSource != null && !options.isEmpty()) throw new IllegalArgumentException("Select " + meta.key() + " has fixed options and a source");
+            if (stateOptions != null && optionsSource == null) throw new IllegalArgumentException("Select " + meta.key() + " takes options from its state but has no source");
+        }
+
+        public Select(Meta meta, Field<?> field, List<String> options, @Nullable Supplier<List<String>> optionsSource, @Nullable String valueTemplate) {
+            this(meta, field, options, optionsSource, valueTemplate, null);
         }
 
         /** A select with fixed options. */
@@ -349,7 +361,12 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
         }
 
         public Select valueTemplate(String valueTemplate) {
-            return new Select(meta, field, options, optionsSource, valueTemplate);
+            return new Select(meta, field, options, optionsSource, valueTemplate, stateOptions);
+        }
+
+        /** Takes the options from a list field of the device's state while it has entries ({@link #currentOptions(JsonObject)}). */
+        public Select optionsFrom(Field<List<String>> stateOptions) {
+            return new Select(meta, field, options, optionsSource, valueTemplate, stateOptions);
         }
 
         /**
@@ -358,13 +375,36 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
          * platform-only stub in the device's discovery message, so Home Assistant removes it.
          */
         public List<String> currentOptions() {
+            return currentOptions(null);
+        }
+
+        /**
+         * The options for a device whose state is {@code state}: the entries of its {@link #stateOptions} list when it has
+         * any, normalised as the source's are, else {@link #currentOptions()}'s.
+         *
+         * @param state the device's last state; null for a group or a device without one
+         */
+        public List<String> currentOptions(@Nullable JsonObject state) {
             if (optionsSource == null) return options;
+            if (stateOptions != null && state != null && state.get(stateOptions.key()) instanceof JsonArray array && !array.isEmpty()) {
+                List<String> fromState = new ArrayList<>();
+                for (JsonElement entry : array) {
+                    if (entry.isJsonPrimitive() && entry.getAsJsonPrimitive().isString()) fromState.add(entry.getAsString());
+                }
+                List<String> normalised = normalise(fromState);
+                if (!normalised.isEmpty()) return normalised;
+            }
             List<String> offered;
             try {
                 offered = optionsSource.get();
             } catch (RuntimeException e) {
                 return List.of();
             }
+            return normalise(offered);
+        }
+
+        // Sorted, distinct, without blank entries, at most MAX_OPTIONS.
+        private static List<String> normalise(@Nullable List<String> offered) {
             if (offered == null) return List.of();
             TreeSet<String> sorted = new TreeSet<>();
             for (String option : offered) {
@@ -375,7 +415,7 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
 
         @Override
         public Select withMeta(Meta meta) {
-            return new Select(meta, field, options, optionsSource, valueTemplate);
+            return new Select(meta, field, options, optionsSource, valueTemplate, stateOptions);
         }
 
         @Override

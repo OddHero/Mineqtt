@@ -30,6 +30,7 @@ import art.rehra.mineqtt.twin.core.EntityDocuments;
 import art.rehra.mineqtt.twin.core.EntityGlobs;
 import art.rehra.mineqtt.twin.core.HaCalls;
 import art.rehra.mineqtt.twin.core.ValuePath;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
@@ -266,9 +267,10 @@ public final class DeviceTypesCheck {
                 "The observer is a sensor: unavailable while unloaded, no use, no actions, its state at most once a second");
         check(BlockObserver.CHANGED_EVENT.attributes().equals(Map.of("block", PortType.text(ValueCodecs.MAX_TEXT_LENGTH)))
                 && BlockObserver.CHANGED_EVENT.minInterval().equals(Duration.ofMillis(500)), "changed names the block, at most twice a second");
-        // Its block in (a setting), place and clear as actions; whether its block stands and what came of the last action out (M4-10).
+        // Its block in (a setting), place and clear as actions; whether its block stands, what came of the last action and
+        // the blocks the container behind offers out (M4-10).
         expectPorts(BlockPlacer.TYPE, List.of(
-                "OUT block text 256 FIELD", "OUT placed bool FIELD", "OUT last_result text 256 FIELD", "OUT location json FIELD",
+                "OUT block text 256 FIELD", "OUT placed bool FIELD", "OUT last_result text 256 FIELD", "OUT choices json FIELD", "OUT location json FIELD",
                 "IN block text 256 SETTING", "IN place event place ACTION", "IN clear event clear ACTION"));
         check(BlockPlacer.TYPE.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !BlockPlacer.TYPE.groupable() && BlockPlacer.TYPE.use().isEmpty()
                         && BlockPlacer.TYPE.events().isEmpty() && BlockPlacer.TYPE.minInterval().isZero(),
@@ -1103,6 +1105,34 @@ public final class DeviceTypesCheck {
         check(dynamic.valueTemplate("{{ value_json.block.split('[')[0] }}").valueTemplate().equals("{{ value_json.block.split('[')[0] }}")
                 && dynamic.valueTemplate() == null, "A select takes a value template");
         expectFailure(() -> new HaEntity.Select(new HaEntity.Meta("x", "X", HaEntity.Category.NONE, true), chosen, List.of("a"), List::of, null), "Fixed options and a source at once");
+
+        // Options from the device's state (the Block Placer's choices): its list wins while it has entries, normalised as the
+        // source's; without them, or for a group (no state), the source's.
+        Field<List<String>> choices = Field.json("choices", com.mojang.serialization.Codec.STRING.listOf(), List.of(), Access.READ);
+        HaEntity.Select fromState = Ha.selectDynamic("block", chosen, () -> List.of("minecraft:white_wool")).optionsFrom(choices);
+        JsonObject stocked = new JsonObject();
+        JsonArray held = new JsonArray();
+        for (String id : List.of("minecraft:stone", "minecraft:oak_planks", "minecraft:stone", " ")) held.add(id);
+        stocked.add("choices", held);
+        check(fromState.currentOptions(stocked).equals(List.of("minecraft:oak_planks", "minecraft:stone")), "The state's list is the options: " + fromState.currentOptions(stocked));
+        JsonObject empty = new JsonObject();
+        empty.add("choices", new JsonArray());
+        check(fromState.currentOptions(empty).equals(List.of("minecraft:white_wool")) && fromState.currentOptions(null).equals(List.of("minecraft:white_wool"))
+                && fromState.currentOptions(new JsonObject()).equals(List.of("minecraft:white_wool")) && fromState.currentOptions().equals(List.of("minecraft:white_wool")),
+                "Without entries in the state the source's options");
+        check(fromState.stateOptions() == choices && fromState.valueTemplate("x").stateOptions() == choices && fromState.withMeta(fromState.meta()).stateOptions() == choices,
+                "The state list survives the select's copies");
+        check(dynamic.currentOptions(stocked).equals(dynamic.currentOptions()), "A select without a state list ignores the state");
+        expectFailure(() -> new HaEntity.Select(new HaEntity.Meta("x", "X", HaEntity.Category.NONE, true), chosen, List.of("a"), null, null, choices),
+                "Options from the state without a source");
+        DeviceType listing = DeviceType.builder(id("listing")).model("Listing").unloaded(UnloadedPolicy.UNAVAILABLE).field(chosen).field(choices)
+                .entity(fromState.config()).build();
+        DeviceType plain = DeviceType.builder(id("plain")).model("Plain").unloaded(UnloadedPolicy.UNAVAILABLE).field(chosen)
+                .entity(Ha.selectDynamic("block", chosen, () -> List.of("minecraft:glass")).config()).build();
+        JsonObject stockedAgain = stocked.deepCopy();
+        check(DeviceRuntime.stateOptionsChanged(listing, null, stocked) && DeviceRuntime.stateOptionsChanged(listing, empty, stocked)
+                        && !DeviceRuntime.stateOptionsChanged(listing, stocked, stockedAgain) && !DeviceRuntime.stateOptionsChanged(plain, stocked, empty),
+                "Discovery is built again when the state's list changes, and only then");
         DeviceType placer = DeviceType.builder(id("placer")).model("Placer").unloaded(UnloadedPolicy.UNAVAILABLE).field(chosen)
                 .entity(Ha.selectDynamic("block", chosen, () -> List.of("minecraft:glass")).config()).build();
         check(placer.port(Port.Direction.IN, "block").isPresent(), "A runtime select commands its text field");

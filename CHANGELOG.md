@@ -15,6 +15,16 @@ named `MineQTT-<loader>-<mod version>+<minecraft>.jar`, and Modrinth gets one ve
 - **Checks:** the message bus checks use a fixed clock, so their drain budget no longer fails on a busy machine.
 - **Textures:** the Redstone Output is red now and the Redstone Input blue: the red block is the one that gives off
   redstone.
+- **Block Placer: the container behind it decides.** Home Assistant's block select now offers the blocks in the
+  container behind each placer (and the block it is set to), so you pick from the frontend what it builds next; without
+  a container it offers the `#mineqtt:placeable` list as before. The state carries the list as `choices`, and the
+  placer looks again every five seconds and after each place and clear. While placing costs the item
+  (`blockPlacer.consumeItems`), any block you put into that container may be placed, stone and planks too, not only
+  the tag's: the new op setting `blockPlacer.containerUnlocks` (default on; the placer as a whole stays off unless
+  `blockPlacer.enabled`) switches that back to the tag only. Blocks with block entity data, TNT, fluids, fire, portals,
+  unbreakable blocks, blocks of two parts (doors, tall plants) and blocks without an item are never placed, and a block
+  that cannot stand in front (a torch without a wall) is refused. The placer reads the container only where the claim
+  rule lets it open it.
 
 ## 0.8.0 (MineQTT 2, Milestone 4: the world twin)
 

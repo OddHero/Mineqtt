@@ -67,6 +67,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     public static final ModConfigSpec.BooleanValue BLOCK_PLACER_ENABLED;
     public static final ModConfigSpec.EnumValue<AutoBoolean> BLOCK_PLACER_PLAYERS_MAY_CONFIGURE;
     public static final ModConfigSpec.BooleanValue BLOCK_PLACER_CONSUME_ITEMS;
+    public static final ModConfigSpec.BooleanValue BLOCK_PLACER_CONTAINER_UNLOCKS;
 
     public static final ModConfigSpec.BooleanValue BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA;
 
@@ -213,6 +214,13 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                 .comment("A placed block costs its item from the container behind the Block Placer; clearing returns it")
                 .translation("config.mineqtt.block_placer_consume_items")
                 .define("consumeItems", StaticDefaults.DEFAULT_BLOCK_PLACER_CONSUME_ITEMS);
+
+        BLOCK_PLACER_CONTAINER_UNLOCKS = BUILDER
+                .comment("While the Block Placer uses items, any block in the container behind it may be placed, not only the",
+                        "#mineqtt:placeable ones; blocks with block entity data, TNT, fluids, fire, portals, unbreakable and two-part",
+                        "blocks never are")
+                .translation("config.mineqtt.block_placer_container_unlocks")
+                .define("containerUnlocks", StaticDefaults.DEFAULT_BLOCK_PLACER_CONTAINER_UNLOCKS);
 
         BUILDER.pop();
 
@@ -431,6 +439,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         MineQTTConfig.blockPlacerEnabled = BLOCK_PLACER_ENABLED.get();
         MineQTTConfig.blockPlacerPlayersMayConfigure = BLOCK_PLACER_PLAYERS_MAY_CONFIGURE.get();
         MineQTTConfig.blockPlacerConsumeItems = BLOCK_PLACER_CONSUME_ITEMS.get();
+        MineQTTConfig.blockPlacerContainerUnlocks = BLOCK_PLACER_CONTAINER_UNLOCKS.get();
         MineQTTConfig.blockObserverExportBlockEntityData = BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA.get();
         MineQTTConfig.limitsMaxDevicesPerPlayer = LIMITS_MAX_DEVICES_PER_PLAYER.get();
         MineQTTConfig.limitsMaxWiresPerPlayer = LIMITS_MAX_WIRES_PER_PLAYER.get();
@@ -567,6 +576,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         sink.put(BLOCK_PLACER_ENABLED, MineQTTConfig.blockPlacerEnabled);
         sink.put(BLOCK_PLACER_PLAYERS_MAY_CONFIGURE, MineQTTConfig.blockPlacerPlayersMayConfigure);
         sink.put(BLOCK_PLACER_CONSUME_ITEMS, MineQTTConfig.blockPlacerConsumeItems);
+        sink.put(BLOCK_PLACER_CONTAINER_UNLOCKS, MineQTTConfig.blockPlacerContainerUnlocks);
         sink.put(BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA, MineQTTConfig.blockObserverExportBlockEntityData);
         sink.put(LIMITS_MAX_DEVICES_PER_PLAYER, MineQTTConfig.limitsMaxDevicesPerPlayer);
         sink.put(LIMITS_MAX_WIRES_PER_PLAYER, MineQTTConfig.limitsMaxWiresPerPlayer);

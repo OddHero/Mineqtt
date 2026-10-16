@@ -11,10 +11,12 @@ import art.rehra.mineqtt.device.RawLinkSpec;
 import art.rehra.mineqtt.device.StateWriter;
 import art.rehra.mineqtt.device.types.BlockObserver;
 import art.rehra.mineqtt.device.types.BlockPlacer;
+import art.rehra.mineqtt.ha.HaEntity;
 import art.rehra.mineqtt.mqtt.core.BrokerConfig;
 import art.rehra.mineqtt.mqtt.core.OfflinePolicy;
 import art.rehra.mineqtt.mqtt.core.Outbound;
 import art.rehra.mineqtt.runtime.MineqttRuntime;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
@@ -26,6 +28,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -59,6 +62,8 @@ public final class WorldDevicesGameTest implements FabricClientGameTest {
     private static final String LEGACY_EMITTER_TOPIC = "world_devices_" + GameTestSession.BRIDGE_ID + "/legacy_emitter";
     private static final int ANSWER_TICKS = 60;
     private static final int SETTLE_TICKS = 10;
+    // A placer looks at its container every 100 ticks; a little more for the state to reach the runtime.
+    private static final int CHOICES_TICKS = 130;
     private static final int FLICKERS = 20;
 
     @Override
@@ -198,16 +203,19 @@ public final class WorldDevicesGameTest implements FabricClientGameTest {
 
     /**
      * The Block Placer with the block placer switched on: white wool set by its setting is placed from the chest behind it
-     * and cleared back into it; TNT and block entity data are refused with their reason in last_result, the latter counted
+     * and cleared back into it; the chest's blocks are its choices, Home Assistant's select offers them, and stone from the
+     * chest is placed though the tag lacks it; TNT and block entity data are refused with their reason in last_result, the latter counted
      * as a dropped message; a retained message waiting on its topic builds nothing; ten messages at once act four times;
      * switched off, it answers disabled.
      */
     private static void placer(GameTestSession session, Optional<BrokerConfig> broker) {
         boolean enabled = session.onServer(s -> MineQTTConfig.blockPlacerEnabled);
         boolean consume = session.onServer(s -> MineQTTConfig.blockPlacerConsumeItems);
+        boolean unlocks = session.onServer(s -> MineQTTConfig.blockPlacerContainerUnlocks);
         session.onServer(s -> {
             MineQTTConfig.blockPlacerEnabled = true;
             MineQTTConfig.blockPlacerConsumeItems = true;
+            MineQTTConfig.blockPlacerContainerUnlocks = true;
             return null;
         });
         try {
@@ -235,6 +243,24 @@ public final class WorldDevicesGameTest implements FabricClientGameTest {
             session.check(session.await(() -> block(session, PLACER_TARGET).equals("minecraft:air") && woolInChest(session) == 2, ANSWER_TICKS),
                     "clear removes it and gives the wool back (" + woolInChest(session) + " in the chest)");
             session.check(!state(session, PLACER).get("placed").getAsBoolean(), "it has placed nothing now");
+
+            // The container behind decides (blockPlacer.containerUnlocks, on by default): its blocks are the choices Home
+            // Assistant's select offers, and stone, which is not on #mineqtt:placeable, is placed from it.
+            session.check(choices(session).equals(List.of("minecraft:white_wool")), "the chest's wool is its choice (" + state(session, PLACER) + ")");
+            session.consoleCommand("item replace block " + PLACER_CHEST.getX() + " " + PLACER_CHEST.getY() + " " + PLACER_CHEST.getZ()
+                    + " container.1 with minecraft:stone 1");
+            List<String> stocked = List.of("minecraft:stone", "minecraft:white_wool");
+            session.check(session.await(() -> choices(session).equals(stocked), CHOICES_TICKS), "stone put into the chest joins them (" + choices(session) + ")");
+            session.check(session.await(() -> offered(session, id).equals(stocked), ANSWER_TICKS),
+                    "and Home Assistant's select offers them (" + offered(session, id) + ")");
+            session.consoleCommand("mineqtt devices setting " + slug + " block minecraft:stone");
+            session.consoleCommand("mineqtt devices action " + slug + " place");
+            session.check(session.await(() -> block(session, PLACER_TARGET).equals("minecraft:stone"), ANSWER_TICKS),
+                    "stone from the chest is placed though the tag lacks it (" + state(session, PLACER) + ")");
+            session.check(choices(session).equals(List.of("minecraft:stone", "minecraft:white_wool")), "the block it is set to stays a choice with the chest's stone gone");
+            session.consoleCommand("mineqtt devices action " + slug + " clear");
+            session.check(session.await(() -> block(session, PLACER_TARGET).equals("minecraft:air"), ANSWER_TICKS), "and cleared back into the chest");
+            session.consoleCommand("mineqtt devices setting " + slug + " block minecraft:white_wool");
 
             session.consoleCommand("mineqtt devices setting " + slug + " block minecraft:tnt");
             JsonObject tnt = state(session, PLACER);
@@ -287,6 +313,7 @@ public final class WorldDevicesGameTest implements FabricClientGameTest {
             session.onServer(s -> {
                 MineQTTConfig.blockPlacerEnabled = enabled;
                 MineQTTConfig.blockPlacerConsumeItems = consume;
+                MineQTTConfig.blockPlacerContainerUnlocks = unlocks;
                 return null;
             });
         }
@@ -326,6 +353,23 @@ public final class WorldDevicesGameTest implements FabricClientGameTest {
     private static long dropped(String summary) {
         int open = summary.indexOf('(');
         return open < 0 ? 0 : Long.parseLong(summary.substring(open + 1, summary.indexOf(' ', open)));
+    }
+
+    // The placer's choices in its state.
+    private static List<String> choices(GameTestSession session) {
+        List<String> choices = new ArrayList<>();
+        JsonObject state = state(session, PLACER);
+        if (state.get("choices") instanceof JsonArray array) array.forEach(entry -> choices.add(entry.getAsString()));
+        return choices;
+    }
+
+    // The options the placer's discovery offers Home Assistant now: its select over the state the runtime last published.
+    private static List<String> offered(GameTestSession session, UUID id) {
+        return session.onRuntime(runtime -> {
+            DeviceRecord record = runtime.registry().record(id);
+            return BlockPlacer.TYPE.entities().stream().filter(entity -> entity instanceof HaEntity.Select).map(entity -> (HaEntity.Select) entity)
+                    .findFirst().orElseThrow().currentOptions(record == null ? null : record.lastState());
+        });
     }
 
     private static int woolInChest(GameTestSession session) {

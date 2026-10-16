@@ -94,6 +94,11 @@ public final class StaticDefaults {
     public static final AutoBoolean DEFAULT_BLOCK_PLACER_PLAYERS_MAY_CONFIGURE = AutoBoolean.AUTO;
     /** A placed block costs its item from the container behind the placer. */
     public static final boolean DEFAULT_BLOCK_PLACER_CONSUME_ITEMS = true;
+    /**
+     * While items are consumed, any block in the container behind a placer may be placed, not only those of
+     * {@code #mineqtt:placeable}; the code's hard denies still hold.
+     */
+    public static final boolean DEFAULT_BLOCK_PLACER_CONTAINER_UNLOCKS = true;
 
     // Block Observer (D12)
     /** Block-entity data in the observer's full payload; the observer and its target must also share one claim. */

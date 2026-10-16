@@ -627,7 +627,8 @@ public final class ConfigMigrationCheck {
                 "Its next save adds the telemetry section with the defaults: " + telemetry);
         JsonObject blockPlacer = written.getAsJsonObject("blockPlacer");
         check(!blockPlacer.get("enabled").getAsBoolean() && blockPlacer.get("playersMayConfigure").getAsString().equals("AUTO")
-                && blockPlacer.get("consumeItems").getAsBoolean(), "and the two Block Placer keys, the master switch still off: " + blockPlacer);
+                && blockPlacer.get("consumeItems").getAsBoolean() && blockPlacer.get("containerUnlocks").getAsBoolean(),
+                "and the three Block Placer keys, the master switch still off: " + blockPlacer);
         check(!written.getAsJsonObject("blockObserver").get("exportBlockEntityData").getAsBoolean(), "and blockObserver.exportBlockEntityData as false");
         check(written.getAsJsonObject("rooms").get("maxSize").getAsInt() == 128 && written.getAsJsonObject("limits").get("maxRoomsPerPlayer").getAsInt() == 16,
                 "and rooms.maxSize and limits.maxRoomsPerPlayer");
@@ -636,8 +637,8 @@ public final class ConfigMigrationCheck {
 
         // A 0.6.0 or 0.7.0 config that turned the Block Placer on keeps it on: the master switch is unchanged (D12).
         check(read("{\"configVersion\": 2, \"blockPlacer\": {\"enabled\": true}}").messages().isEmpty() && MineQTTConfig.blockPlacerEnabled
-                && MineQTTConfig.blockPlacerPlayersMayConfigure == AutoBoolean.AUTO && MineQTTConfig.blockPlacerConsumeItems,
-                "An enabled Block Placer stays enabled and gains the defaults of the new keys");
+                && MineQTTConfig.blockPlacerPlayersMayConfigure == AutoBoolean.AUTO && MineQTTConfig.blockPlacerConsumeItems
+                && MineQTTConfig.blockPlacerContainerUnlocks, "An enabled Block Placer stays enabled and gains the defaults of the new keys");
 
         // Every key survives a round trip with a value other than its default.
         MineQTTConfig.resetToDefaults();
@@ -650,6 +651,7 @@ public final class ConfigMigrationCheck {
         MineQTTConfig.telemetryForgetAfterDays = 0;
         MineQTTConfig.blockPlacerPlayersMayConfigure = AutoBoolean.FALSE;
         MineQTTConfig.blockPlacerConsumeItems = false;
+        MineQTTConfig.blockPlacerContainerUnlocks = false;
         MineQTTConfig.blockObserverExportBlockEntityData = true;
         MineQTTConfig.roomsMaxSize = 8;
         MineQTTConfig.limitsMaxRoomsPerPlayer = 0;
@@ -661,7 +663,7 @@ public final class ConfigMigrationCheck {
                 && !MineQTTConfig.telemetryPublishPlayerNames && MineQTTConfig.telemetryAllowBroadcast && MineQTTConfig.telemetryMaxPresenceDevices == 1
                 && MineQTTConfig.telemetryForgetAfterDays == 0, "The telemetry keys survive the round trip");
         check(MineQTTConfig.blockPlacerPlayersMayConfigure == AutoBoolean.FALSE && !MineQTTConfig.blockPlacerConsumeItems
-                && MineQTTConfig.blockObserverExportBlockEntityData && MineQTTConfig.roomsMaxSize == 8 && MineQTTConfig.limitsMaxRoomsPerPlayer == 0,
+                && !MineQTTConfig.blockPlacerContainerUnlocks && MineQTTConfig.blockObserverExportBlockEntityData && MineQTTConfig.roomsMaxSize == 8 && MineQTTConfig.limitsMaxRoomsPerPlayer == 0,
                 "The Block Placer, Block Observer and room keys survive the round trip");
         for (String players : List.of("off", "Presence", " FULL ")) {
             check(read("{\"configVersion\": 2, \"telemetry\": {\"players\": \"" + players + "\"}}").messages().isEmpty()
@@ -704,7 +706,7 @@ public final class ConfigMigrationCheck {
         JsonConfigFormat.Result lenient = read("""
                 {"configVersion": 2, "telemetry": {"enabled": "no", "intervalSeconds": 7.5, "players": "everyone", "publishPlayerNames": 0,
                  "allowBroadcast": "yes", "maxPresenceDevices": "many", "forgetAfterDays": [1]},
-                 "blockPlacer": {"playersMayConfigure": "sometimes", "consumeItems": "no"}, "blockObserver": {"exportBlockEntityData": 1},
+                 "blockPlacer": {"playersMayConfigure": "sometimes", "consumeItems": "no", "containerUnlocks": "yes"}, "blockObserver": {"exportBlockEntityData": 1},
                  "rooms": {"maxSize": "big"}, "limits": {"maxRoomsPerPlayer": 1.5}}""");
         // The two player keys only ever narrow: they fall back to the narrowest setting, every other key to its default.
         check(MineQTTConfig.telemetryPlayers == TelemetryPlayers.OFF && !MineQTTConfig.telemetryPublishPlayerNames,
@@ -714,7 +716,7 @@ public final class ConfigMigrationCheck {
         checkWorldDefaults("The other wrongly typed M4 keys");
         for (String key : List.of("telemetry.enabled", "telemetry.intervalSeconds", "telemetry.players", "telemetry.publishPlayerNames",
                 "telemetry.allowBroadcast", "telemetry.maxPresenceDevices", "telemetry.forgetAfterDays", "blockPlacer.playersMayConfigure",
-                "blockPlacer.consumeItems", "blockObserver.exportBlockEntityData", "rooms.maxSize", "limits.maxRoomsPerPlayer")) {
+                "blockPlacer.consumeItems", "blockPlacer.containerUnlocks", "blockObserver.exportBlockEntityData", "rooms.maxSize", "limits.maxRoomsPerPlayer")) {
             check(lenient.messages().stream().anyMatch(message -> message.startsWith(key)), "A problem with " + key + " is reported: " + lenient.messages());
         }
         check(read("{\"configVersion\": 2, \"telemetry\": 3, \"rooms\": []}").messages().containsAll(List.of(
@@ -792,6 +794,7 @@ public final class ConfigMigrationCheck {
         check(MineQTTConfig.telemetryForgetAfterDays == 90, what + ": players forgotten after 90 days: " + MineQTTConfig.telemetryForgetAfterDays);
         check(MineQTTConfig.blockPlacerPlayersMayConfigure == AutoBoolean.AUTO, what + ": who configures a Block Placer is AUTO");
         check(MineQTTConfig.blockPlacerConsumeItems, what + ": the Block Placer uses items");
+        check(MineQTTConfig.blockPlacerContainerUnlocks, what + ": the container behind a Block Placer unlocks its blocks");
         check(!MineQTTConfig.blockObserverExportBlockEntityData, what + ": no block-entity data from the Block Observer");
         check(MineQTTConfig.roomsMaxSize == 128, what + ": rooms of 128 blocks at most: " + MineQTTConfig.roomsMaxSize);
         check(MineQTTConfig.limitsMaxRoomsPerPlayer == 16, what + ": 16 rooms per player: " + MineQTTConfig.limitsMaxRoomsPerPlayer);
@@ -868,8 +871,8 @@ public final class ConfigMigrationCheck {
         });
         for (String key : List.of("telemetry.enabled", "telemetry.intervalSeconds", "telemetry.players", "telemetry.publishPlayerNames",
                 "telemetry.allowBroadcast", "telemetry.maxPresenceDevices", "telemetry.forgetAfterDays", "blockPlacer.enabled",
-                "blockPlacer.playersMayConfigure", "blockPlacer.consumeItems", "blockObserver.exportBlockEntityData", "rooms.maxSize",
-                "limits.maxRoomsPerPlayer")) {
+                "blockPlacer.playersMayConfigure", "blockPlacer.consumeItems", "blockPlacer.containerUnlocks", "blockObserver.exportBlockEntityData",
+                "rooms.maxSize", "limits.maxRoomsPerPlayer")) {
             check(fieldsByKey.containsKey(key), "NeoForge has the M4 key " + key);
         }
     }
