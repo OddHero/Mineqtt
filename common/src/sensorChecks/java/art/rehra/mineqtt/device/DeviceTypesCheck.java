@@ -5,6 +5,7 @@ import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.ContainerObserver;
 import art.rehra.mineqtt.device.types.DisplayPanel;
+import art.rehra.mineqtt.device.types.EntityObserver;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
@@ -92,9 +93,9 @@ public final class DeviceTypesCheck {
         List<DeviceType> types = DeviceTypes.all();
         check(types.equals(List.of(SmartLamp.TYPE, RedstoneOutput.TYPE, RedstoneInput.TYPE, PresenceSensor.TYPE, SmartPlug.TYPE, ClimateSensor.TYPE,
                 WallSwitch.TYPE, DisplayPanel.TYPE, Timers.INTERVAL_TIMER, Timers.DAYLIGHT_TIMER, Timers.ALARM_CLOCK, Timers.CRON_TIMER,
-                BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE)),
-                "The fifteen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10) and the "
-                        + "Container Observer: " + types);
+                BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE, EntityObserver.TYPE)),
+                "The sixteen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10), the "
+                        + "Container Observer and the Entity Observer: " + types);
         int ports = 0;
         for (DeviceType type : types) {
             declaration(type);
@@ -286,6 +287,22 @@ public final class DeviceTypesCheck {
                         && ContainerObserver.TYPE.minInterval().equals(Duration.ofSeconds(1)) && ContainerObserver.TYPE.actions().isEmpty()
                         && ContainerObserver.TYPE.settings().isEmpty() && ContainerObserver.TYPE.events().isEmpty() && ContainerObserver.TYPE.rawLink().isEmpty(),
                 "The Container Observer is a sensor: unavailable while unloaded, no use, settings, actions, events or Raw Link, its state at most once a second");
+        // The entity in front with what Home Assistant shows of it, a change as an event; the three settings in.
+        expectPorts(EntityObserver.TYPE, List.of(
+                "OUT entity text 256 FIELD", "OUT present bool FIELD", "OUT count number 0..2147483647 FIELD", "OUT entity_name text 256 FIELD",
+                "OUT living bool FIELD", "OUT health number 0..1024 HP FIELD", "OUT max_health number 0..1024 HP FIELD", "OUT distance number 0..16 m FIELD",
+                "OUT details json FIELD", "OUT detect enum all|non_players|mobs FIELD", "OUT range number 1..8 blocks FIELD",
+                "OUT payload enum full|entity_id|name|count FIELD", "OUT location json FIELD", "OUT changed event changed EVENT",
+                "IN detect enum all|non_players|mobs SETTING", "IN range number 1..8 blocks SETTING", "IN payload enum full|entity_id|name|count SETTING"));
+        check(EntityObserver.TYPE.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !EntityObserver.TYPE.groupable() && EntityObserver.TYPE.use().isEmpty()
+                        && EntityObserver.TYPE.minInterval().equals(Duration.ofSeconds(1)) && EntityObserver.TYPE.actions().isEmpty()
+                        && EntityObserver.TYPE.noV1Topic() && EntityObserver.TYPE.status().isEmpty() && EntityObserver.TYPE.deadbands().equals(Map.of("distance", 0.5)),
+                "The Entity Observer is a sensor without v1 data: unavailable while unloaded, no use, no actions, its state at most once a second");
+        check(EntityObserver.TYPE.events().equals(List.of(EntityObserver.CHANGED_EVENT))
+                        && EntityObserver.CHANGED_EVENT.attributes().equals(Map.of("entity", PortType.text(ValueCodecs.MAX_TEXT_LENGTH)))
+                        && EntityObserver.CHANGED_EVENT.minInterval().equals(Duration.ofMillis(500)) && !EntityObserver.CHANGED_EVENT.busOnly(),
+                "changed names the entity, at most twice a second");
+        check(settingKeys(EntityObserver.TYPE.settings()).equals(List.of("detect", "range", "payload")), "Entity Observer settings: detect, range and payload");
         for (DeviceType type : DeviceTypes.all()) {
             check(type.editsWorld() == (type == BlockPlacer.TYPE), type + ": only the Block Placer edits the world (D12)");
         }
@@ -1012,11 +1029,12 @@ public final class DeviceTypesCheck {
             check(timer.events().stream().allMatch(EventSpec::throttled) && timer.noV1Topic() && timer.status().isPresent(),
                     timer + ": the timers throttle fired, adopt no v1 topic and have a status line");
         }
-        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 3,
-                "The M3 types, the timers, the observer, the placer and the Container Observer are every built-in type");
+        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 4,
+                "The M3 types, the timers, the observer, the placer, the Container Observer and the Entity Observer are every built-in type");
         for (DeviceType type : List.of(BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE)) {
             // Of the world devices only the Block Observer's changed (M4-9, D12) throttles; the observer and the placer adopt their
-            // v1 topic, and the Container Observer, which has no v1 block, takes none (it has no Raw Link).
+            // v1 topic, and the Container Observer, which has no v1 block, takes none (it has no Raw Link). The Entity Observer,
+            // a new device with its own throttled changed event and noV1Topic, is checked with its ports.
             check(type.events().stream().filter(EventSpec::throttled).toList().equals(type == BlockObserver.TYPE ? List.of(BlockObserver.CHANGED_EVENT) : List.of()),
                     type + ": of the world devices only the observer's changed event is throttled (D3)");
             check(!type.noV1Topic() && type.status().isEmpty(), type + ": the world devices have no noV1Topic and no status line");

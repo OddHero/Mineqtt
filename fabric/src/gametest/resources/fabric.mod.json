@@ -40,7 +40,8 @@
       "art.rehra.mineqtt.fabric.gametest.TelemetryGameTest",
       "art.rehra.mineqtt.fabric.gametest.PrivacyGameTest",
       "art.rehra.mineqtt.fabric.gametest.RoomsGameTest",
-      "art.rehra.mineqtt.fabric.gametest.ExplorerGameTest"
+      "art.rehra.mineqtt.fabric.gametest.ExplorerGameTest",
+      "art.rehra.mineqtt.fabric.gametest.EntityObserverGameTest"
     ]
   },
   "depends": {

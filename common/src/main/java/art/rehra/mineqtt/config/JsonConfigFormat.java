@@ -82,6 +82,9 @@ public final class JsonConfigFormat {
         JsonObject blockObserver = new JsonObject();
         blockObserver.addProperty("exportBlockEntityData", MineQTTConfig.blockObserverExportBlockEntityData);
         root.add("blockObserver", blockObserver);
+        JsonObject entityObserver = new JsonObject();
+        entityObserver.addProperty("exportEntityData", MineQTTConfig.entityObserverExportEntityData);
+        root.add("entityObserver", entityObserver);
         JsonObject limits = new JsonObject();
         limits.addProperty("maxDevicesPerPlayer", MineQTTConfig.limitsMaxDevicesPerPlayer);
         limits.addProperty("maxWiresPerPlayer", MineQTTConfig.limitsMaxWiresPerPlayer);
@@ -160,6 +163,9 @@ public final class JsonConfigFormat {
         JsonObject blockObserver = in.section(root, "blockObserver");
         MineQTTConfig.blockObserverExportBlockEntityData = in.bool(blockObserver, "blockObserver.exportBlockEntityData",
                 StaticDefaults.DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA);
+        JsonObject entityObserver = in.section(root, "entityObserver");
+        MineQTTConfig.entityObserverExportEntityData = in.bool(entityObserver, "entityObserver.exportEntityData",
+                StaticDefaults.DEFAULT_ENTITY_OBSERVER_EXPORT_ENTITY_DATA);
         JsonObject limits = in.section(root, "limits");
         MineQTTConfig.limitsMaxDevicesPerPlayer = in.integer(limits, "limits.maxDevicesPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER);
         MineQTTConfig.limitsMaxWiresPerPlayer = in.integer(limits, "limits.maxWiresPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER);

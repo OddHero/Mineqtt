@@ -1,8 +1,8 @@
 #!/bin/sh
 # One of each MineQTT block entity, placed with data and checked again after a restart (M2 plan M2-3, D13).
-#   allblocks.sh place            force-load the row, place the 20 blocks with data, save
-#   allblocks.sh verify [log]     after a restart: every block entity has its data back and the seventeen devices
-#                                 re-attached, the eight placed as devices with their ids; with the server log also no
+#   allblocks.sh place            force-load the row, place the 21 blocks with data, save
+#   allblocks.sh verify [log]     after a restart: every block entity has its data back and the eighteen devices
+#                                 re-attached, the nine placed as devices with their ids; with the server log also no
 #                                 block entity load warning. The humidity sensor converted into a Climate Sensor (M2-19),
 #                                 the Static Publisher into a Redstone Input of rising edges (M2-20); the Dynamic
 #                                 Publisher and the Topic Relay keep only their slot paper as legacy items (M2-21); the
@@ -10,13 +10,13 @@
 #                                 v1 timers are timer devices with their anvil names and v1 settings (M4-3); the v1
 #                                 Block Sensor is a Block Observer with its data mode as its payload (M4-9), the v1 Block
 #                                 Emitter a Block Placer with its slot paper as a legacy item (M4-10); the Container
-#                                 Observer is placed as a device.
+#                                 Observer and the Entity Observer are placed as devices.
 # Run place on a fresh world (the devices carry fixed ids; MQTT may be disabled), stop the server, start it again,
 # then verify. RCON goes through game.py (MINEQTT_RCON_PORT, MINEQTT_RCON_PASSWORD), so either loader's dev server works.
 DIR=$(cd "$(dirname "$0")" && pwd)
 E="python $DIR/game.py"
 Y=-60
-# The devices' ids, at x 0, 2, 4, 6, 18, 32, 36 and 38. The Redstone Input reads a mineqtt compound without an id as v1 data.
+# The devices' ids, at x 0, 2, 4, 6, 18, 32, 36, 38 and 40. The Redstone Input reads a mineqtt compound without an id as v1 data.
 ID='[I;1296651345,1414541312,-2147483648,'
 # What 26.2 logs when it drops or cannot load a block entity (BlockEntity, LevelChunk; older versions said
 # "Skipping BlockEntity with id").
@@ -50,6 +50,7 @@ blocks() {
 34|terminal_block[facing=east]|{lastTabId:"console_devices"}|lastTabId|"console_devices"
 36|display_panel[facing=east]|{mineqtt:{id:${ID}36],name:"Allblocks Panel",slug:"allblocks_panel",state:{message:"Allblocks",color:"lime"}}}|mineqtt.state.message|"Allblocks"
 38|container_observer[facing=east]|{mineqtt:{id:${ID}38],name:"Allblocks Container",slug:"allblocks_container"}}|mineqtt.name|"Allblocks Container"
+40|entity_observer[facing=east]|{mineqtt:{id:${ID}40],name:"Allblocks Entity",slug:"allblocks_entity",state:{detect:"mobs",range:3}}}|mineqtt.state.detect|"mobs"
 EOF
 }
 
@@ -59,7 +60,7 @@ value() {
 }
 
 place() {
-    $E rcon forceload add 0 0 38 0
+    $E rcon forceload add 0 0 40 0
     blocks | while IFS='|' read -r x block nbt path expected; do
         $E rcon setblock "$x" $Y 0 "mineqtt:$block$nbt" </dev/null
     done
@@ -111,7 +112,7 @@ verify() {
             echo "FAIL timer at x $x has the name '$actual', expected \"$name\""; failed=1
         fi
     done
-    for x in 0 2 4 6 18 32 36 38; do
+    for x in 0 2 4 6 18 32 36 38 40; do
         actual=$(value "$x" mineqtt.id | tr -d ' ')
         if [ "$actual" = "$ID$x]" ]; then
             echo "PASS device at x $x keeps its id $actual"
@@ -122,10 +123,10 @@ verify() {
     devices=$($E rcon mineqtt devices list)
     echo "$devices"
     loaded=$(echo "$devices" | grep -c "^allblocks_.* loaded at ")
-    if [ "$loaded" -eq 17 ] && echo "$devices" | grep -q "^17 devices:"; then
-        echo "PASS the seventeen devices are loaded"
+    if [ "$loaded" -eq 18 ] && echo "$devices" | grep -q "^18 devices:"; then
+        echo "PASS the eighteen devices are loaded"
     else
-        echo "FAIL expected exactly the seventeen allblocks devices, loaded"; failed=1
+        echo "FAIL expected exactly the eighteen allblocks devices, loaded"; failed=1
     fi
     if [ -n "$1" ]; then
         if grep -iE "$LOAD_WARNINGS" "$1"; then

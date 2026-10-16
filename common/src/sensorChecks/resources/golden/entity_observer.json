@@ -1,0 +1,153 @@
+{
+  "dev": {
+    "ids": [
+      "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f"
+    ],
+    "name": "Pen Watch",
+    "mf": "MineQTT",
+    "mdl": "Entity Observer",
+    "mdl_id": "mineqtt:entity_observer",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/pen_watch/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "qos": 1,
+  "cmps": {
+    "entity": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_entity",
+      "name": null,
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ value_json.entity if value_json.present else 'none' }}",
+      "json_attributes_topic": "mineqtt/world_7f3a/pen_watch",
+      "json_attributes_template": "{{ (value_json.details if value_json.details is defined else {}) | tojson }}"
+    },
+    "present": {
+      "p": "binary_sensor",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_present",
+      "name": "Present",
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ 'ON' if value_json.present else 'OFF' }}",
+      "device_class": "occupancy"
+    },
+    "count": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_count",
+      "name": "Count",
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ value_json.count }}",
+      "state_class": "measurement"
+    },
+    "entity_name": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_entity_name",
+      "name": "Name",
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ value_json.entity_name if value_json.present else None }}"
+    },
+    "health": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_health",
+      "name": "Health",
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ value_json.health if value_json.living else None }}",
+      "unit_of_measurement": "HP",
+      "state_class": "measurement"
+    },
+    "max_health": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_max_health",
+      "name": "Max health",
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ value_json.max_health if value_json.living else None }}",
+      "unit_of_measurement": "HP"
+    },
+    "distance": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_distance",
+      "name": "Distance",
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ value_json.distance if value_json.present and value_json.entity != 'minecraft:player' else None }}",
+      "unit_of_measurement": "m",
+      "device_class": "distance",
+      "state_class": "measurement"
+    },
+    "changed": {
+      "p": "event",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_changed",
+      "name": "Changed",
+      "state_topic": "mineqtt/world_7f3a/pen_watch/action",
+      "event_types": [
+        "changed"
+      ]
+    },
+    "detect": {
+      "p": "select",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_detect",
+      "name": "Detect",
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ value_json.detect }}",
+      "command_topic": "mineqtt/world_7f3a/pen_watch/set/detect",
+      "options": [
+        "all",
+        "non_players",
+        "mobs"
+      ],
+      "retain": false,
+      "entity_category": "config"
+    },
+    "range": {
+      "p": "number",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_range",
+      "name": "Range",
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ value_json.range }}",
+      "command_topic": "mineqtt/world_7f3a/pen_watch/set/range",
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "unit_of_measurement": "blocks",
+      "retain": false,
+      "entity_category": "config"
+    },
+    "payload": {
+      "p": "select",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_payload",
+      "name": "Payload",
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ value_json.payload }}",
+      "command_topic": "mineqtt/world_7f3a/pen_watch/set/payload",
+      "options": [
+        "full",
+        "entity_id",
+        "name",
+        "count"
+      ],
+      "retain": false,
+      "entity_category": "config",
+      "enabled_by_default": false
+    },
+    "location": {
+      "p": "sensor",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_location",
+      "name": "Location",
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  }
+}

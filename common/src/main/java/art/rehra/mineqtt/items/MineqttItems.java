@@ -41,6 +41,7 @@ public class MineqttItems {
     public static RegistrySupplier<Item> DisplayPanel;
     public static RegistrySupplier<Item> ContainerObserver;
     public static RegistrySupplier<Item> NetworkChip;
+    public static RegistrySupplier<Item> EntityObserver;
     public static void init(){
         MineQTT.LOGGER.info("Registering MineQTT Items");
         Cyberdeck = registerItem("cyberdeck", () -> new CyberdeckItem(baseProperties("cyberdeck")));
@@ -76,6 +77,7 @@ public class MineqttItems {
         ContainerObserver = registerItem("container_observer", () -> new DeviceBlockItem(MineqttBlocks.CONTAINER_OBSERVER.get(), baseProperties("container_observer")));
         // The one crafting gate of the whole line (M2 plan D8).
         NetworkChip = registerItem("network_chip", () -> new Item(baseProperties("network_chip")));
+        EntityObserver = registerItem("entity_observer", () -> new DeviceBlockItem(MineqttBlocks.ENTITY_OBSERVER.get(), baseProperties("entity_observer")));
         ITEMS.register();
     }
 

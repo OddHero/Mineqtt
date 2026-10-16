@@ -41,6 +41,7 @@ public class MineqttBlockEntityTypes {
     public static RegistrySupplier<BlockEntityType<TerminalBlockEntity>> TERMINAL_BLOCK;
     public static RegistrySupplier<BlockEntityType<DisplayPanelBlockEntity>> DISPLAY_PANEL;
     public static RegistrySupplier<BlockEntityType<ContainerObserverBlockEntity>> CONTAINER_OBSERVER;
+    public static RegistrySupplier<BlockEntityType<EntityObserverBlockEntity>> ENTITY_OBSERVER;
 
     /**
      * Registers every block entity type (M2 plan D13). {@code MineQTT.init()} calls it after {@code MineqttBlocks.init()}:
@@ -73,6 +74,7 @@ public class MineqttBlockEntityTypes {
         TERMINAL_BLOCK = registerBlockEntity("terminal_block", TerminalBlockEntity::new, MineqttBlocks.TERMINAL_BLOCK);
         DISPLAY_PANEL = registerBlockEntity("display_panel", DisplayPanelBlockEntity::new, MineqttBlocks.DISPLAY_PANEL);
         CONTAINER_OBSERVER = registerBlockEntity("container_observer", ContainerObserverBlockEntity::new, MineqttBlocks.CONTAINER_OBSERVER);
+        ENTITY_OBSERVER = registerBlockEntity("entity_observer", EntityObserverBlockEntity::new, MineqttBlocks.ENTITY_OBSERVER);
         BLOCK_ENTITIES.register();
     }
 
@@ -91,7 +93,8 @@ public class MineqttBlockEntityTypes {
         Set<BlockEntityType<?>> noSlots = Set.of(PUBLISHER_BLOCK.get(), REDSTONE_EMITTER_BLOCK_ENTITY.get(), RGB_LED_BLOCK.get(), MOTION_SENSOR_BLOCK.get(),
                 SMART_PLUG_BLOCK_ENTITY.get(), TEMPERATURE_SENSOR_BLOCK.get(), LIGHT_REMOTE_BLOCK.get(), DYNAMIC_PUBLISHER_BLOCK.get(), TOPIC_RELAY_BLOCK.get(), TERMINAL_BLOCK.get(),
                 DISPLAY_PANEL.get(), INTERVAL_TIMER_BLOCK.get(), GAME_TIME_TIMER_BLOCK.get(), ALARM_CLOCK_BLOCK.get(), CRON_TIMER_BLOCK.get(),
-                BLOCK_SENSOR_BLOCK.get(), BLOCK_EMITTER_BLOCK.get(), CONTAINER_OBSERVER.get());
+                BLOCK_SENSOR_BLOCK.get(), BLOCK_EMITTER_BLOCK.get(), CONTAINER_OBSERVER.get(),
+                ENTITY_OBSERVER.get());
         List<BlockEntityType<?>> slotted = new ArrayList<>();
         for (RegistrySupplier<BlockEntityType<?>> type : BLOCK_ENTITIES) {
             if (!noSlots.contains(type.get())) slotted.add(type.get());

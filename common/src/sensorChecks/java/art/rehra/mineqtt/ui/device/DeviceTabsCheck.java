@@ -25,6 +25,7 @@ import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.ContainerObserver;
 import art.rehra.mineqtt.device.types.DisplayPanel;
+import art.rehra.mineqtt.device.types.EntityObserver;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
@@ -126,6 +127,8 @@ public final class DeviceTabsCheck {
         expected.put(Timers.DAYLIGHT_TIMER, rows(timerRows, "trigger_at CYCLE CONFIGURE CONFIG", "time TEXT_FIELD CONFIGURE CONFIG"));
         expected.put(Timers.ALARM_CLOCK, rows(timerRows, "time TEXT_FIELD CONFIGURE CONFIG"));
         expected.put(Timers.CRON_TIMER, rows(timerRows, "cron TEXT_FIELD CONFIGURE CONFIG"));
+        // What it looks at, how far and what the Raw Link sends; its readings are out-ports only.
+        expected.put(EntityObserver.TYPE, List.of("detect CYCLE CONFIGURE CONFIG", "range SLIDER CONFIGURE CONFIG", "payload CYCLE CONFIGURE CONFIG"));
         for (DeviceType timer : Timers.all()) {
             check(new ControlsTab(timer).statusLine() && ControlsTab.controls(timer).size() <= ControlsTab.MAX_ROWS - 1,
                     timer + ": at most four rows of controls beside its status line");
@@ -162,6 +165,7 @@ public final class DeviceTabsCheck {
         advanced.put(ContainerObserver.TYPE, List.of());
         Timers.all().forEach(timer -> advanced.put(timer, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
                 "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG")));
+        advanced.put(EntityObserver.TYPE, valueLink);
         check(advanced.keySet().containsAll(DeviceTypes.all()), "Every registered type has its expected Advanced controls listed here");
         // The Twin tab of each type with a twin adapter (M3 plan D19): its rows top to bottom, each cell as kind:key; the
         // health line is always the fifth row.

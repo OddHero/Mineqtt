@@ -128,6 +128,7 @@ public record PrivacyPolicy(TelemetryPlayers mode, boolean publishPlayerNames) {
                 lines.add("- your deaths (the kind of death, never the message) and the advancements announced in chat");
                 presenceDevice.ifPresent(device -> lines.add("- your presence device " + device + ": online or offline"));
                 if (shared == Shared.FULL && presenceDevice.isPresent()) lines.add("- your health, dimension and block position, at most every 5 s");
+                if (shared == Shared.FULL) lines.add("- your name on an Entity Observer while you stand in front of it");
                 if (explicit == Consent.FULL && offered() == Shared.PRESENCE) lines.add("(You chose to share all; this server shares presence only.)");
             }
         }

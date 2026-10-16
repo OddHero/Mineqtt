@@ -71,6 +71,8 @@ public class NeoForgeConfigHandler implements ConfigHandler {
 
     public static final ModConfigSpec.BooleanValue BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA;
 
+    public static final ModConfigSpec.BooleanValue ENTITY_OBSERVER_EXPORT_ENTITY_DATA;
+
     public static final ModConfigSpec.IntValue LIMITS_MAX_DEVICES_PER_PLAYER;
     public static final ModConfigSpec.IntValue LIMITS_MAX_WIRES_PER_PLAYER;
     public static final ModConfigSpec.IntValue LIMITS_MAX_ROOMS_PER_PLAYER;
@@ -231,6 +233,16 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                         "Only when the observer and its target share one claim, or no claim mod is installed; never in Home Assistant.")
                 .translation("config.mineqtt.block_observer_export_block_entity_data")
                 .define("exportBlockEntityData", StaticDefaults.DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA);
+
+        BUILDER.pop();
+
+        BUILDER.comment("Entity Observer").translation("config.mineqtt.section.entity_observer").push("entityObserver");
+
+        ENTITY_OBSERVER_EXPORT_ENTITY_DATA = BUILDER
+                .comment("Include the observed entity's data in the observer's full raw payload: never a player's, only for an entity in the",
+                        "observer's claim (or anywhere without a claim mod), without any UUID but the entity's own; never in Home Assistant.")
+                .translation("config.mineqtt.entity_observer_export_entity_data")
+                .define("exportEntityData", StaticDefaults.DEFAULT_ENTITY_OBSERVER_EXPORT_ENTITY_DATA);
 
         BUILDER.pop();
 
@@ -441,6 +453,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         MineQTTConfig.blockPlacerConsumeItems = BLOCK_PLACER_CONSUME_ITEMS.get();
         MineQTTConfig.blockPlacerContainerUnlocks = BLOCK_PLACER_CONTAINER_UNLOCKS.get();
         MineQTTConfig.blockObserverExportBlockEntityData = BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA.get();
+        MineQTTConfig.entityObserverExportEntityData = ENTITY_OBSERVER_EXPORT_ENTITY_DATA.get();
         MineQTTConfig.limitsMaxDevicesPerPlayer = LIMITS_MAX_DEVICES_PER_PLAYER.get();
         MineQTTConfig.limitsMaxWiresPerPlayer = LIMITS_MAX_WIRES_PER_PLAYER.get();
         MineQTTConfig.limitsMaxRoomsPerPlayer = LIMITS_MAX_ROOMS_PER_PLAYER.get();
@@ -578,6 +591,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         sink.put(BLOCK_PLACER_CONSUME_ITEMS, MineQTTConfig.blockPlacerConsumeItems);
         sink.put(BLOCK_PLACER_CONTAINER_UNLOCKS, MineQTTConfig.blockPlacerContainerUnlocks);
         sink.put(BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA, MineQTTConfig.blockObserverExportBlockEntityData);
+        sink.put(ENTITY_OBSERVER_EXPORT_ENTITY_DATA, MineQTTConfig.entityObserverExportEntityData);
         sink.put(LIMITS_MAX_DEVICES_PER_PLAYER, MineQTTConfig.limitsMaxDevicesPerPlayer);
         sink.put(LIMITS_MAX_WIRES_PER_PLAYER, MineQTTConfig.limitsMaxWiresPerPlayer);
         sink.put(LIMITS_MAX_ROOMS_PER_PLAYER, MineQTTConfig.limitsMaxRoomsPerPlayer);

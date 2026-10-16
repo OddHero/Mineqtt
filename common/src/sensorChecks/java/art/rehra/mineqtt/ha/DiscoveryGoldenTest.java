@@ -17,6 +17,7 @@ import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.ContainerObserver;
 import art.rehra.mineqtt.device.types.DisplayPanel;
+import art.rehra.mineqtt.device.types.EntityObserver;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
@@ -95,6 +96,7 @@ public final class DiscoveryGoldenTest {
         observer();
         placer();
         containerObserver();
+        entityObserver();
         wallSwitch();
         displayPanel();
         everyEntityKind();
@@ -440,6 +442,27 @@ public final class DiscoveryGoldenTest {
         check(!components.getAsJsonObject("payload").get("enabled_by_default").getAsBoolean()
                 && components.getAsJsonObject("change_on").get("entity_category").getAsString().equals("config"), "payload is disabled by default, change_on a config");
         check(!config.toString().contains("block_entity"), "No block entity data reaches Home Assistant");
+    }
+
+    /**
+     * The Entity Observer against its golden file: the entity type as the primary sensor ("none" while nothing is there)
+     * with its details as JSON attributes, presence, count, name, health and distance (unknown where they do not apply, a
+     * player's distance always), the {@code changed} event, detect and range as config entities and payload as one
+     * disabled by default. No entity data reaches Home Assistant.
+     */
+    private static void entityObserver() throws IOException {
+        UUID observerId = UUID.fromString("3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f");
+        DeviceRecord observer = new DeviceRecord(observerId, EntityObserver.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(12, 64, 0)), "Pen Watch",
+                "pen_watch");
+        JsonObject config = DiscoveryPublisher.deviceConfig(EntityObserver.TYPE, observer, TOPICS, IDENTITY);
+        assertGolden("entity_observer", config);
+        JsonObject components = config.getAsJsonObject("cmps");
+        check(components.keySet().equals(Set.of("entity", "present", "count", "entity_name", "health", "max_health", "distance", "changed", "detect", "range", "payload",
+                "location")), "Entity Observer entities: " + components.keySet());
+        check(components.getAsJsonObject("entity").get("name").isJsonNull()
+                        && components.getAsJsonObject("entity").get("json_attributes_template").getAsString().contains("value_json.details"),
+                "The entity is the primary sensor, its details its attributes");
+        check(!config.toString().contains("entity_data") && !config.toString().contains("position"), "No entity data or position reaches Home Assistant");
     }
 
     /**

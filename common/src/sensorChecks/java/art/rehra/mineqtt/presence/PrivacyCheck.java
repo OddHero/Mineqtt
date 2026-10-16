@@ -176,10 +176,12 @@ public final class PrivacyCheck {
         check(on.stream().anyMatch(line -> line.contains("your name")) && on.stream().anyMatch(line -> line.contains("deaths"))
                 && on.stream().anyMatch(line -> line.contains("presence device")), "A consenting player reads name, events and device: " + on);
         check(on.stream().noneMatch(line -> line.contains("position")), "but no position on a presence server");
+        check(on.stream().noneMatch(line -> line.contains("Entity Observer")), "and no name at an Entity Observer, which tells where the player is");
         List<String> capped = presence.report(Consent.FULL, false, true, Optional.of("x"));
         check(capped.stream().anyMatch(line -> line.contains("shares presence only")), "share full on a presence server says it is capped: " + capped);
         List<String> fullServer = new PrivacyPolicy(TelemetryPlayers.FULL, true).report(Consent.FULL, false, true, Optional.of("x"));
         check(fullServer.stream().anyMatch(line -> line.contains("position")), "Full data is listed where it is published: " + fullServer);
+        check(fullServer.stream().anyMatch(line -> line.contains("Entity Observer")), "and the name an Entity Observer in front shows: " + fullServer);
         List<String> host = presence.report(Consent.UNSET, true, true, Optional.empty());
         check(host.getFirst().contains("host") && host.stream().anyMatch(line -> line.contains("your name")), "The host reads that they share presence: " + host);
         List<String> vetoed = new PrivacyPolicy(TelemetryPlayers.FULL, false).report(Consent.FULL, false, true, Optional.empty());

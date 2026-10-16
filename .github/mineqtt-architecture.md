@@ -650,6 +650,31 @@ crash never survives.
   attach's `writeState` looks at once, so a state read while the owner could open the container is never published
   again after a restart, and Home Assistant gets the contents rather than `waiting`. `verifyContainerObserver` covers
   the scan, the caps, the fill and the claim rule.
+- **Entity Observer.** `device/types/EntityObserver` (`mineqtt:entity_observer`, a new device: `noV1Topic`):
+  `entity` (the nearest entity's type id; HA's primary sensor reads `none` while nothing is there, with `details` as its
+  `json_attributes`), `present`, `count`, `entity_name` (`name` is a link setting's key), `living`,
+  `health`/`max_health` (HA: unknown unless `living`), `distance` (from the face's centre; deadband 0.5), `details` (a JSON object of what the entity has: custom name, baby,
+  tamed (an owner exists, never who), sitting, armor, on fire, invisible, passengers, vehicle, sheep colour and sheared,
+  villager profession and level, a dropped item and its count; text cut to 64 code points), the settings `detect`
+  (`all`/`non_players`/`mobs`), `range` (1-8 block spaces straight out of the face, default 1) and `payload`
+  (`full`/`entity_id`/`name`/`count`, its HA select disabled by default), and `location`; the `changed` event (`entity`,
+  another nearest entity or the last one leaving) throttled to 500 ms, the state to 1 s; `UNAVAILABLE`; Raw Link
+  `RawLinkSpec.out(…).withoutCustomPayloads()`. The block faces the player who places it, as a dispenser does.
+  `EntityObserverBlockEntity` looks every 10 ticks once attached, only while `ServerLevel.areEntitiesLoaded` holds for
+  every watched space (it never loads a chunk nor reports unloaded entities as gone), takes spectators never, sorts by
+  distance then entity id, and keeps the observation (settings and what it saw, `details` as JSON text so booleans
+  survive NBT, plus `looked`) in its `state`. **Players** are counted, reported as `minecraft:player` and named only when
+  `EntityObserver.names(PrivacyPolicy.shared(effective consent))` is `FULL`: a name at a fixed device tells where the
+  player is, so it takes what a position takes (D9, D10); never health, distance, details, position or entity data.
+  `full` carries `entity_data` (the type id and `Entity.saveWithoutId` as JSON, `compat/Entities`) only with
+  `entityObserver.exportEntityData` (default on), for no player, and with `PermissionManager.sameClaim(level, observer,
+  entity's block)`; `withoutForeignUuids` drops every UUID (an int array of four Integers, or a UUID string) but the
+  entity's own top-level `UUID`, so owners, throwers, gossip targets and liked or angered players never leave, and every
+  `profile`, `minecraft:profile`, `SkullOwner` and `author` key (a worn player head, a written book); free text such as
+  custom names stays; cut at 16 KiB UTF-8 to `"entity_data":null,"truncated":true`. The data is sampled every 20 ticks, at a change and for a new
+  nearest entity; the payload goes out whenever it differs. `compat/Entities` holds the version seams (saved data,
+  owner reference, sheep and villager data). Checked by `verifyEntityObserver`; `PrivacyPolicy.report` lists the name at
+  an Entity Observer among what full sharing publishes.
 - **Rooms** (M4-14, plan D11; `rooms/`). `Room(id, name, dimension, min, max, owner, forAll, created)`; the codec
   normalises the corners. `RoomRules` (pure): names (sanitised, 1-32 code points, unique per owner ignoring case),
   size (each axis `max - min + 1 <= rooms.maxSize`), counts (`limits.maxRoomsPerPlayer`, ops exempt; 512 per world for

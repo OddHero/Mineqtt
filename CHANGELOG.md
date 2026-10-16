@@ -9,12 +9,24 @@
   and their counts as attributes (the 64 most numerous kinds); *Items*, *Slots used*, *Empty* and *Full* come with it.
   It counts by item id only, so item names and other details stay in the game. It looks into the container twice a
   second and sends changes at most once a second. Crafted from smooth stone, a comparator and the Network Chip.
+- **Entity Observer** (new block): reports the entity in front of its face to Home Assistant: its type (the main
+  sensor, with details such as its custom name, baby, tamed, armor, sheep colour, villager profession and level, or a
+  dropped item and its count as attributes), whether anything is there and how many, its name, health, maximum health
+  and distance, and a *Changed* event when another entity becomes the nearest or the last one leaves. It watches the
+  block space in front by default and up to 8 with *Range*; *Detect* picks everything, everything but players, or mobs.
+  Its Raw Link sends the full data as JSON (with the entity's raw data, as `/data get entity` shows it, without any UUID
+  but the entity's own, player head profiles or book authors, at most 16 KiB), the entity id, the name or the count. A player in front is counted and shown
+  as a player, named only after `/mineqtt privacy share full` on a server that shares full data, and never with health,
+  distance, position or raw data. Crafted from smooth stone, two observers, a spyglass and the Network Chip.
 
 ### For server admins
 
 - With a claim mod, a Container Observer reads a container only in its own claim, or while its owner is online and may
   open containers there, as the Block Placer does with the container behind it. Otherwise it reports `claimed` and
   nothing the container holds.
+- **`entityObserver.exportEntityData`** (new, default on): the Entity Observer's full Raw Link payload carries the
+  entity's raw data, never a player's and never to Home Assistant; with a claim mod only for an entity in the
+  observer's claim. Turn it off to send no raw data.
 
 ## 0.9.1 (blocks drawn on Minecraft 1.21 to 1.21.3)
 

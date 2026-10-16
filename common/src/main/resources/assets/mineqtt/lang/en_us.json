@@ -864,5 +864,13 @@
   "block.mineqtt.temperature_sensor_block": "Climate Sensor",
   "item.mineqtt.temperature_sensor_block": "Climate Sensor",
   "block.mineqtt.static_publisher": "Static Publisher",
-  "item.mineqtt.static_publisher": "Static Publisher"
+  "item.mineqtt.static_publisher": "Static Publisher",
+  "block.mineqtt.entity_observer": "Entity Observer",
+  "item.mineqtt.entity_observer": "Entity Observer",
+  "config.mineqtt.section.entity_observer": "Entity Observer",
+  "config.mineqtt.entity_observer_export_entity_data": "Entity Observer Exports Entity Data",
+  "config.mineqtt.entity_observer_export_entity_data.tooltip": "Include the observed entity's data in the observer's full raw payload. Never a player's, only for an entity in the observer's claim (or anywhere without a claim mod), without any UUID but the entity's own; never in Home Assistant.",
+  "mineqtt.device.control.detect.non_players": "All but players",
+  "mineqtt.device.control.payload.entity_id": "Entity id",
+  "mineqtt.device.control.payload.count": "Count"
 }

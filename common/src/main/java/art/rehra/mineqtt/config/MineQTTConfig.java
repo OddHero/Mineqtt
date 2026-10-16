@@ -56,6 +56,7 @@ public class MineQTTConfig {
     public static boolean blockPlacerConsumeItems;
     public static boolean blockPlacerContainerUnlocks;
     public static boolean blockObserverExportBlockEntityData;
+    public static boolean entityObserverExportEntityData;
     public static int roomsMaxSize;
     public static int limitsMaxRoomsPerPlayer;
 
@@ -111,6 +112,7 @@ public class MineQTTConfig {
         blockPlacerConsumeItems = StaticDefaults.DEFAULT_BLOCK_PLACER_CONSUME_ITEMS;
         blockPlacerContainerUnlocks = StaticDefaults.DEFAULT_BLOCK_PLACER_CONTAINER_UNLOCKS;
         blockObserverExportBlockEntityData = StaticDefaults.DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA;
+        entityObserverExportEntityData = StaticDefaults.DEFAULT_ENTITY_OBSERVER_EXPORT_ENTITY_DATA;
         roomsMaxSize = StaticDefaults.DEFAULT_ROOMS_MAX_SIZE;
         limitsMaxRoomsPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_ROOMS_PER_PLAYER;
         twinStatestreamBase = StaticDefaults.DEFAULT_TWIN_STATESTREAM_BASE;

@@ -5,6 +5,7 @@ import art.rehra.mineqtt.device.types.BlockPlacer;
 import art.rehra.mineqtt.device.types.ClimateSensor;
 import art.rehra.mineqtt.device.types.ContainerObserver;
 import art.rehra.mineqtt.device.types.DisplayPanel;
+import art.rehra.mineqtt.device.types.EntityObserver;
 import art.rehra.mineqtt.device.types.PresenceSensor;
 import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
@@ -49,6 +50,7 @@ public final class DeviceTypes {
         register(BlockObserver.TYPE);
         register(BlockPlacer.TYPE);
         register(ContainerObserver.TYPE);
+        register(EntityObserver.TYPE);
     }
 
     public static synchronized @Nullable DeviceType get(Identifier id) {

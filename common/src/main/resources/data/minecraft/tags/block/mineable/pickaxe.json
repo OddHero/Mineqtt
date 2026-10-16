@@ -20,6 +20,7 @@
     "mineqtt:topic_relay",
     "mineqtt:smart_plug",
     "mineqtt:display_panel",
-    "mineqtt:container_observer"
+    "mineqtt:container_observer",
+    "mineqtt:entity_observer"
   ]
 }

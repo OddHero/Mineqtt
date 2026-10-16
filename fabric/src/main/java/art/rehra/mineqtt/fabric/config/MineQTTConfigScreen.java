@@ -298,6 +298,13 @@ public class MineQTTConfigScreen {
                 .setSaveConsumer(value -> MineQTTConfig.blockObserverExportBlockEntityData = value)
                 .build());
 
+        worldCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.entity_observer_export_entity_data"),
+                        MineQTTConfig.entityObserverExportEntityData)
+                .setDefaultValue(StaticDefaults.DEFAULT_ENTITY_OBSERVER_EXPORT_ENTITY_DATA)
+                .setTooltip(Component.translatable("config.mineqtt.entity_observer_export_entity_data.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.entityObserverExportEntityData = value)
+                .build());
+
         worldCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.rooms_max_size"), MineQTTConfig.roomsMaxSize)
                 .setDefaultValue(StaticDefaults.DEFAULT_ROOMS_MAX_SIZE)
                 .setTooltip(Component.translatable("config.mineqtt.rooms_max_size.tooltip"))

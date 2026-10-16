@@ -104,6 +104,13 @@ public final class StaticDefaults {
     /** Block-entity data in the observer's full payload; the observer and its target must also share one claim. */
     public static final boolean DEFAULT_BLOCK_OBSERVER_EXPORT_BLOCK_ENTITY_DATA = false;
 
+    // Entity Observer
+    /**
+     * Entity data in the observer's full payload: never a player's, only for an entity in the observer's claim, without
+     * any UUID but the entity's own and never in Home Assistant. On, as the entity data is what the observer is for.
+     */
+    public static final boolean DEFAULT_ENTITY_OBSERVER_EXPORT_ENTITY_DATA = true;
+
     // Rooms (D11)
     /** The longest side of a room, in blocks, within the two bounds below. */
     public static final int DEFAULT_ROOMS_MAX_SIZE = 128;

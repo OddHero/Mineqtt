@@ -157,6 +157,12 @@ tasks.register('verifyRooms', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.rooms.RoomsCheck'
 }
+// The Entity Observer's rules: what it counts, the player rules, the entity-data gate, the UUID scrub and its payloads.
+tasks.register('verifyEntityObserver', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.EntityObserverCheck'
+}
 // Config v2 defaults, v1 migration, the JSON form and credential masking; plain Java, no game bootstrap needed.
 tasks.register('verifyConfigMigration', JavaExec) {
     dependsOn sensorChecksClasses
@@ -511,6 +517,7 @@ tasks.named('check') {
     dependsOn tasks.named('verifyMirrorNoLoop')
     dependsOn tasks.named('verifyPrivacy')
     dependsOn tasks.named('verifyRooms')
+    dependsOn tasks.named('verifyEntityObserver')
     // The Minecraft-free checks (brokerChecks and the isolation of the cores) are the same for every Minecraft version and
     // start brokers on fixed ports, so only the active version's check runs them.
     if (stonecutter.current.isActive) {
