@@ -567,7 +567,8 @@ public final class DiscoveryPublisher {
                 component.addProperty("type", trigger.type());
                 component.addProperty("subtype", trigger.subtype());
                 component.addProperty("payload", trigger.payload());
-                component.addProperty("value_template", "{{ value_json.event_type }}_{{ " + jsonPath(trigger.attribute()) + " }}");
+                component.addProperty("value_template", trigger.attribute() == null ? "{{ value_json.event_type }}"
+                        : "{{ value_json.event_type }}_{{ " + jsonPath(trigger.attribute()) + " }}");
             }
         }
         // Commands are never retained (design D3).

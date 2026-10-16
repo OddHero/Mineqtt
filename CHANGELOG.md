@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### For players
+
+- **Vibration Sensor** (new block): hears what a sculk sensor hears within 1 to 16 blocks (*Range*, 8 by default):
+  footsteps, blocks placed or broken, doors, trapdoors and fence gates, chests and other containers, items landing,
+  projectiles, mobs and more. Wool between it and a vibration blocks it, wool carpets and sneaking muffle it, as for a
+  sculk sensor. Home Assistant gets *Vibration* (a vibration sensor that stays on for *Clear delay*, 10 s by default,
+  after the last one), a *Vibration* event of a fixed kind (step, projectile, item, entity, door, container, block or
+  other) with vanilla's frequency, the game event and whether the world, an entity or a player caused it, one device
+  trigger per kind, *Frequency*, *Last event*, *Last distance* and the number of *Vibrations*. *Detect* picks everything,
+  only what entities do (so redstone contraptions stay quiet), only players, or everything but players. It hears at most
+  two vibrations a second and sends each kind at most once a second; a comparator reads the last frequency while it
+  reports a vibration, and its Raw Link sends each frequency. A player's vibration is anonymous: never their name, UUID,
+  position or distance. Crafted from smooth stone, a sculk sensor and the Network Chip.
+
 ## 0.10.0 (the Container Observer and the Entity Observer)
 
 0.10.0 adds two observers: the Container Observer shows in Home Assistant what a chest, barrel, furnace or any other

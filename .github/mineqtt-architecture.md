@@ -145,8 +145,9 @@ crash never survives.
 - **Ports (M2-4).** Readable fields and declared events are out-ports, writable fields (settings marked as such) and
   declared actions in-ports; field, action and event keys are frozen port ids, unique per direction (the Output's
   `state` is its on/off field out and its switch-state action in). `build()` refuses an HA event or device trigger
-  without its `EventSpec` (a trigger also needs the event attribute it reads, with its subtype among the attribute's
-  values), a button or notify without its `Action`, and a switch or light without a `state` in-port.
+  without its `EventSpec` (a trigger that reads an event attribute also needs it, with its subtype among the attribute's
+  values; one without an attribute, `Ha.deviceTrigger(type, subtype, event)`, fires on every event of its type, payload
+  the event type and template `{{ value_json.event_type }}`), a button or notify without its `Action`, and a switch or light without a `state` in-port.
   A device may only publish declared events (`DeviceType.eventProblem`; `publishEvent` throws otherwise). Settings and
   `LinkSetting`s (name, expose, access, Raw Link channel/topic/retain/QoS/payloads, with design §8.5's bounds) parse a
   client's NBT strictly through the kind: out of range is refused, while HA's `/set` stays lenient (clamped).
@@ -675,6 +676,39 @@ crash never survives.
   nearest entity; the payload goes out whenever it differs. `compat/Entities` holds the version seams (saved data,
   owner reference, sheep and villager data). Checked by `verifyEntityObserver`; `PrivacyPolicy.report` lists the name at
   an Entity Observer among what full sharing publishes.
+- **Vibration Sensor.** `device/types/VibrationSensor` (`mineqtt:vibration_sensor`, a new device: `noV1Topic`, block
+  `vibration_sensor` without a facing) hears what a sculk sensor hears. `VibrationSensorBlockEntity` is a
+  `GameEventListener.Provider<VibrationSystem.Listener>` and a `VibrationSystem` (found by `EntityBlock#getListener`),
+  whose `User` listens to `#minecraft:vibrations` within `range` (1-16 blocks, default 8, asked per game event; 16 is
+  the vanilla notification radius) at its block position. Vanilla's `isValidVibration` leaves out spectators, sneaking
+  (`#ignore_vibrations_sneaking`), wool carpets (`#dampens_vibrations`) and entities that dampen; its occlusion check
+  leaves out vibrations behind wool. The sensor's `canReceiveVibration` refuses its own placing and breaking (as the
+  sculk sensor), a game event without a vanilla frequency, a vibration while it rests (`COOLDOWN_TICKS` 10 after the
+  last one, so at most two a second) and one `detect` does not let through; `VibrationSystem.Ticker.tick` runs every
+  server tick, so the vibration travels one block a tick with vanilla's particle. `VibrationSystem.Data` is not saved
+  (its `VibrationInfo` holds the source entity's UUID): a vibration in flight at an unload is dropped. The adjacent-chunk
+  check stays off; nothing it calls loads a chunk. On arrival the frequency (`VibrationSystem.getGameEventFrequency`),
+  the group and the source are taken: `Group` is a fixed set (`step`, `projectile`, `item`, `entity`, `door`,
+  `container`, `block`, `other`) keyed by game event id (`VibrationSensor.group`; ids, not constants, as
+  `minecraft:bounce` exists from 1.21.5 on; a landing, splash or bounce by a dropped item is `item`, by a projectile
+  `projectile`; unknown or modded events `other`), `Source` is `world` (no entity), `entity` or `player`
+  (`compat/Vibrations.causedByPlayer`: the player, their projectile, an item they threw, a mount they steer). Fields:
+  `vibration` (on at a vibration, off `clear_delay` 1-3600 s, default 10, after the last; at least 1 s so the state
+  throttle never swallows an on), `count` (heard since placed), `frequency` (0 before the first), `last_group`,
+  `last_event` (the game event id), `last_source`, `last_distance` (vanilla's block distance, tenths; 0 for a player's),
+  the settings `detect` (`all`/`entities`/`players`/`non_players`), `range`, `clear_delay`, and `location`. Each group is
+  an `EventSpec` with `frequency` (1-15), `game_event` and `source`, throttled to one a second per group; the state at
+  most once a second. Home Assistant: the `vibration` binary sensor (primary, `device_class: vibration`), the event
+  entity `action` *Vibration* with the eight groups as `event_types` (`device_class: motion`: event entities know no
+  vibration class), one device trigger per group (type `vibration`, subtype the group, no attribute), *Frequency*
+  (unknown before the first), *Last event*, *Last distance* (unknown unless `last_source` is `world` or `entity`),
+  *Vibrations* (`total_increasing`), the config select *Detect*, numbers *Range* and *Clear delay*, and the disabled
+  location. Raw Link `RawLinkSpec.events()`: each published vibration's frequency, through `publishEvent` under the
+  group's throttle, never retained. A comparator reads the last frequency while `vibration` is on, as a calibrated
+  sculk sensor's. **Players**: a player's vibration is anonymous; the sensor asks only "a player or not", never keeps,
+  publishes or logs the entity; no name, UUID, position or distance leaves the server (as the Entity Observer reports
+  `minecraft:player`, this is no personal data and `PrivacyPolicy.report` is unchanged). Checked by
+  `verifyVibrationSensor`.
 - **Rooms** (M4-14, plan D11; `rooms/`). `Room(id, name, dimension, min, max, owner, forAll, created)`; the codec
   normalises the corners. `RoomRules` (pure): names (sanitised, 1-32 code points, unique per owner ignoring case),
   size (each axis `max - min + 1 <= rooms.maxSize`), counts (`limits.maxRoomsPerPlayer`, ops exempt; 512 per world for

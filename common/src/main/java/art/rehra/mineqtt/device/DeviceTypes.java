@@ -12,6 +12,7 @@ import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.Timers;
+import art.rehra.mineqtt.device.types.VibrationSensor;
 import art.rehra.mineqtt.device.types.WallSwitch;
 import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.Nullable;
@@ -51,6 +52,7 @@ public final class DeviceTypes {
         register(BlockPlacer.TYPE);
         register(ContainerObserver.TYPE);
         register(EntityObserver.TYPE);
+        register(VibrationSensor.TYPE);
     }
 
     public static synchronized @Nullable DeviceType get(Identifier id) {

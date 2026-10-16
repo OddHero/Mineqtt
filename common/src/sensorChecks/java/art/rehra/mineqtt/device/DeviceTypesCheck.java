@@ -12,6 +12,7 @@ import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.Timers;
+import art.rehra.mineqtt.device.types.VibrationSensor;
 import art.rehra.mineqtt.device.types.WallSwitch;
 import art.rehra.mineqtt.flow.core.Coerce;
 import art.rehra.mineqtt.flow.core.Endpoint;
@@ -93,9 +94,9 @@ public final class DeviceTypesCheck {
         List<DeviceType> types = DeviceTypes.all();
         check(types.equals(List.of(SmartLamp.TYPE, RedstoneOutput.TYPE, RedstoneInput.TYPE, PresenceSensor.TYPE, SmartPlug.TYPE, ClimateSensor.TYPE,
                 WallSwitch.TYPE, DisplayPanel.TYPE, Timers.INTERVAL_TIMER, Timers.DAYLIGHT_TIMER, Timers.ALARM_CLOCK, Timers.CRON_TIMER,
-                BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE, EntityObserver.TYPE)),
-                "The sixteen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10), the "
-                        + "Container Observer and the Entity Observer: " + types);
+                BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE, EntityObserver.TYPE, VibrationSensor.TYPE)),
+                "The seventeen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10), the "
+                        + "Container Observer, the Entity Observer and the Vibration Sensor: " + types);
         int ports = 0;
         for (DeviceType type : types) {
             declaration(type);
@@ -303,6 +304,7 @@ public final class DeviceTypesCheck {
                         && EntityObserver.CHANGED_EVENT.minInterval().equals(Duration.ofMillis(500)) && !EntityObserver.CHANGED_EVENT.busOnly(),
                 "changed names the entity, at most twice a second");
         check(settingKeys(EntityObserver.TYPE.settings()).equals(List.of("detect", "range", "payload")), "Entity Observer settings: detect, range and payload");
+        vibrationSensor();
         for (DeviceType type : DeviceTypes.all()) {
             check(type.editsWorld() == (type == BlockPlacer.TYPE), type + ": only the Block Placer edits the world (D12)");
         }
@@ -324,6 +326,39 @@ public final class DeviceTypesCheck {
         ports.addAll(scheduleIn);
         ports.addAll(actions);
         return ports;
+    }
+
+    /**
+     * The Vibration Sensor: what it heard last out, one event per group with the same three attributes, each published at
+     * most once a second, and the three settings in.
+     */
+    private static void vibrationSensor() {
+        String source = "enum world|entity|player";
+        List<String> expected = new ArrayList<>(List.of(
+                "OUT vibration bool FIELD", "OUT count number 0..2147483647 FIELD", "OUT frequency number 0..15 FIELD", "OUT last_group text 256 FIELD",
+                "OUT last_event text 256 FIELD", "OUT last_source text 256 FIELD", "OUT last_distance number 0..16 m FIELD",
+                "OUT detect enum all|entities|players|non_players FIELD", "OUT range number 1..16 blocks FIELD", "OUT clear_delay number 1..3600 s FIELD",
+                "OUT location json FIELD"));
+        for (VibrationSensor.Group group : VibrationSensor.Group.values()) {
+            expected.add("OUT " + group.getSerializedName() + " event " + group.getSerializedName() + " EVENT");
+        }
+        expected.addAll(List.of("IN detect enum all|entities|players|non_players SETTING", "IN range number 1..16 blocks SETTING",
+                "IN clear_delay number 1..3600 s SETTING"));
+        expectPorts(VibrationSensor.TYPE, expected);
+        check(VibrationSensor.TYPE.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !VibrationSensor.TYPE.groupable() && VibrationSensor.TYPE.use().isEmpty()
+                        && VibrationSensor.TYPE.minInterval().equals(Duration.ofSeconds(1)) && VibrationSensor.TYPE.actions().isEmpty()
+                        && VibrationSensor.TYPE.noV1Topic() && VibrationSensor.TYPE.status().isEmpty() && VibrationSensor.TYPE.deadbands().isEmpty(),
+                "The Vibration Sensor is a sensor without v1 data: unavailable while unloaded, no use, no actions, its state at most once a second");
+        Map<String, PortType> attributes = Map.of("frequency", PortType.integer(1, 15), "game_event", PortType.text(ValueCodecs.MAX_TEXT_LENGTH),
+                "source", PortType.enumOf(List.of("world", "entity", "player")));
+        check(VibrationSensor.TYPE.events().size() == VibrationSensor.Group.values().length && VibrationSensor.TYPE.events().stream().allMatch(event ->
+                        event.attributes().equals(attributes) && event.minInterval().equals(Duration.ofSeconds(1)) && !event.busOnly()),
+                "Each group's event carries frequency, game event and source, at most once a second: " + VibrationSensor.TYPE.events());
+        check(attributes.get("source").describe().equals(source), "The source names no one: " + attributes.get("source").describe());
+        check(settingKeys(VibrationSensor.TYPE.settings()).equals(List.of("detect", "range", "clear_delay")), "Vibration Sensor settings: detect, range and clear delay");
+        check(VibrationSensor.TYPE.rawLink().filter(raw -> raw.direction() == RawLinkSpec.Direction.OUT && !raw.level() && !raw.retainByDefault()
+                        && !raw.customPayloads()).isPresent(),
+                "The Vibration Sensor's Raw Link is an output of events, never retained");
     }
 
     private static void expectPorts(DeviceType type, List<String> expected) {
@@ -349,6 +384,14 @@ public final class DeviceTypesCheck {
         failsToBuild(base("b4").event(busPress).entity(Ha.event("action", "press")), "only the bus carries", "An event entity on a bus-only event");
         failsToBuild(base("b5").event(busPress).entity(Ha.deviceTrigger("button_short_press", "left", "press", "button")), "only the bus carries",
                 "A device trigger on a bus-only event");
+        // A trigger without an attribute fires on every event of its type, e.g. the Vibration Sensor's groups.
+        EventSpec step = EventSpec.of("step").attribute("frequency", PortType.integer(1, 15));
+        check(base("b7").event(step).entity(Ha.deviceTrigger("vibration", "step", "step")).build().entities().stream()
+                        .anyMatch(entity -> entity instanceof HaEntity.DeviceTrigger trigger && trigger.attribute() == null && trigger.payload().equals("step")),
+                "A device trigger without an attribute builds, its payload the event type");
+        failsToBuild(base("b8").entity(Ha.deviceTrigger("vibration", "step", "step")), "no declared event", "A device trigger without an attribute needs its event");
+        failsToBuild(base("b9").event(EventSpec.busOnly("step")).entity(Ha.deviceTrigger("vibration", "step", "step")), "only the bus carries",
+                "A device trigger without an attribute on a bus-only event");
         check(busPress.busOnly() && !press.busOnly() && busPress.attribute("x", PortType.BOOL).busOnly() && base("b6").event(busPress).build().port(Port.Direction.OUT, "press").isPresent(),
                 "A bus-only event keeps its flag through attributes and is an out-port like any event");
         failsToBuild(base("c").entity(Ha.button("trigger_now")), "no declared action", "A button without its action");
@@ -1029,8 +1072,9 @@ public final class DeviceTypesCheck {
             check(timer.events().stream().allMatch(EventSpec::throttled) && timer.noV1Topic() && timer.status().isPresent(),
                     timer + ": the timers throttle fired, adopt no v1 topic and have a status line");
         }
-        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 4,
-                "The M3 types, the timers, the observer, the placer, the Container Observer and the Entity Observer are every built-in type");
+        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 5,
+                "The M3 types, the timers, the observer, the placer, the Container Observer, the Entity Observer and the Vibration Sensor are "
+                        + "every built-in type");
         for (DeviceType type : List.of(BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE)) {
             // Of the world devices only the Block Observer's changed (M4-9, D12) throttles; the observer and the placer adopt their
             // v1 topic, and the Container Observer, which has no v1 block, takes none (it has no Raw Link). The Entity Observer,

@@ -1,0 +1,213 @@
+{
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/hall_sensor/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "cmps": {
+    "action": {
+      "device_class": "motion",
+      "event_types": [
+        "step",
+        "projectile",
+        "item",
+        "entity",
+        "door",
+        "container",
+        "block",
+        "other"
+      ],
+      "name": "Vibration",
+      "p": "event",
+      "state_topic": "mineqtt/world_7f3a/hall_sensor/action",
+      "unique_id": "mineqtt_4d5e6f7a8b9c4d0e9f1a2b3c4d5e6f7a_action"
+    },
+    "clear_delay": {
+      "command_topic": "mineqtt/world_7f3a/hall_sensor/set/clear_delay",
+      "entity_category": "config",
+      "max": 3600,
+      "min": 1,
+      "name": "Clear delay",
+      "p": "number",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_sensor",
+      "step": 1,
+      "unique_id": "mineqtt_4d5e6f7a8b9c4d0e9f1a2b3c4d5e6f7a_clear_delay",
+      "unit_of_measurement": "s",
+      "value_template": "{{ value_json.clear_delay }}"
+    },
+    "count": {
+      "name": "Vibrations",
+      "p": "sensor",
+      "state_class": "total_increasing",
+      "state_topic": "mineqtt/world_7f3a/hall_sensor",
+      "unique_id": "mineqtt_4d5e6f7a8b9c4d0e9f1a2b3c4d5e6f7a_count",
+      "value_template": "{{ value_json.count }}"
+    },
+    "detect": {
+      "command_topic": "mineqtt/world_7f3a/hall_sensor/set/detect",
+      "entity_category": "config",
+      "name": "Detect",
+      "options": [
+        "all",
+        "entities",
+        "players",
+        "non_players"
+      ],
+      "p": "select",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_sensor",
+      "unique_id": "mineqtt_4d5e6f7a8b9c4d0e9f1a2b3c4d5e6f7a_detect",
+      "value_template": "{{ value_json.detect }}"
+    },
+    "frequency": {
+      "name": "Frequency",
+      "p": "sensor",
+      "state_class": "measurement",
+      "state_topic": "mineqtt/world_7f3a/hall_sensor",
+      "unique_id": "mineqtt_4d5e6f7a8b9c4d0e9f1a2b3c4d5e6f7a_frequency",
+      "value_template": "{{ value_json.frequency if value_json.count > 0 else None }}"
+    },
+    "last_distance": {
+      "device_class": "distance",
+      "name": "Last distance",
+      "p": "sensor",
+      "state_class": "measurement",
+      "state_topic": "mineqtt/world_7f3a/hall_sensor",
+      "unique_id": "mineqtt_4d5e6f7a8b9c4d0e9f1a2b3c4d5e6f7a_last_distance",
+      "unit_of_measurement": "m",
+      "value_template": "{{ value_json.last_distance if value_json.last_source in ['world', 'entity'] else None }}"
+    },
+    "last_event": {
+      "name": "Last event",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_sensor",
+      "unique_id": "mineqtt_4d5e6f7a8b9c4d0e9f1a2b3c4d5e6f7a_last_event",
+      "value_template": "{{ value_json.last_event if value_json.last_event else None }}"
+    },
+    "location": {
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Location",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_sensor",
+      "unique_id": "mineqtt_4d5e6f7a8b9c4d0e9f1a2b3c4d5e6f7a_location",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}"
+    },
+    "range": {
+      "command_topic": "mineqtt/world_7f3a/hall_sensor/set/range",
+      "entity_category": "config",
+      "max": 16,
+      "min": 1,
+      "name": "Range",
+      "p": "number",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_sensor",
+      "step": 1,
+      "unique_id": "mineqtt_4d5e6f7a8b9c4d0e9f1a2b3c4d5e6f7a_range",
+      "unit_of_measurement": "blocks",
+      "value_template": "{{ value_json.range }}"
+    },
+    "vibration": {
+      "device_class": "vibration",
+      "p": "binary_sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_sensor",
+      "unique_id": "mineqtt_4d5e6f7a8b9c4d0e9f1a2b3c4d5e6f7a_vibration",
+      "value_template": "{{ 'ON' if value_json.vibration else 'OFF' }}",
+      "name": null
+    },
+    "vibration_block": {
+      "automation_type": "trigger",
+      "p": "device_automation",
+      "payload": "block",
+      "subtype": "block",
+      "topic": "mineqtt/world_7f3a/hall_sensor/action",
+      "type": "vibration",
+      "value_template": "{{ value_json.event_type }}"
+    },
+    "vibration_container": {
+      "automation_type": "trigger",
+      "p": "device_automation",
+      "payload": "container",
+      "subtype": "container",
+      "topic": "mineqtt/world_7f3a/hall_sensor/action",
+      "type": "vibration",
+      "value_template": "{{ value_json.event_type }}"
+    },
+    "vibration_door": {
+      "automation_type": "trigger",
+      "p": "device_automation",
+      "payload": "door",
+      "subtype": "door",
+      "topic": "mineqtt/world_7f3a/hall_sensor/action",
+      "type": "vibration",
+      "value_template": "{{ value_json.event_type }}"
+    },
+    "vibration_entity": {
+      "automation_type": "trigger",
+      "p": "device_automation",
+      "payload": "entity",
+      "subtype": "entity",
+      "topic": "mineqtt/world_7f3a/hall_sensor/action",
+      "type": "vibration",
+      "value_template": "{{ value_json.event_type }}"
+    },
+    "vibration_item": {
+      "automation_type": "trigger",
+      "p": "device_automation",
+      "payload": "item",
+      "subtype": "item",
+      "topic": "mineqtt/world_7f3a/hall_sensor/action",
+      "type": "vibration",
+      "value_template": "{{ value_json.event_type }}"
+    },
+    "vibration_other": {
+      "automation_type": "trigger",
+      "p": "device_automation",
+      "payload": "other",
+      "subtype": "other",
+      "topic": "mineqtt/world_7f3a/hall_sensor/action",
+      "type": "vibration",
+      "value_template": "{{ value_json.event_type }}"
+    },
+    "vibration_projectile": {
+      "automation_type": "trigger",
+      "p": "device_automation",
+      "payload": "projectile",
+      "subtype": "projectile",
+      "topic": "mineqtt/world_7f3a/hall_sensor/action",
+      "type": "vibration",
+      "value_template": "{{ value_json.event_type }}"
+    },
+    "vibration_step": {
+      "automation_type": "trigger",
+      "p": "device_automation",
+      "payload": "step",
+      "subtype": "step",
+      "topic": "mineqtt/world_7f3a/hall_sensor/action",
+      "type": "vibration",
+      "value_template": "{{ value_json.event_type }}"
+    }
+  },
+  "dev": {
+    "ids": [
+      "mineqtt_4d5e6f7a8b9c4d0e9f1a2b3c4d5e6f7a"
+    ],
+    "mdl": "Vibration Sensor",
+    "mdl_id": "mineqtt:vibration_sensor",
+    "mf": "MineQTT",
+    "name": "Hall Sensor",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "qos": 1
+}

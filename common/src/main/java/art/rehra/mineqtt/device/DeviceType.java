@@ -634,10 +634,13 @@ public final class DeviceType {
                         EventSpec event = events.stream().filter(spec -> spec.type().equals(trigger.event())).findFirst().orElse(null);
                         if (event == null) fail("device trigger " + entity.key() + " fires on " + trigger.event() + ", which is no declared event");
                         if (event.busOnly()) fail("device trigger " + entity.key() + " fires on " + trigger.event() + ", which only the bus carries");
-                        PortType attribute = event.attributes().get(trigger.attribute());
-                        if (attribute == null) fail("device trigger " + entity.key() + " reads attribute " + trigger.attribute() + ", which event " + event.type() + " does not carry");
-                        if (attribute.problem(new JsonPrimitive(trigger.subtype())).isPresent()) {
-                            fail("device trigger " + entity.key() + " waits for " + trigger.attribute() + " " + trigger.subtype() + ", which event " + event.type() + " never carries");
+                        // A trigger without an attribute fires on every event of its type.
+                        if (trigger.attribute() != null) {
+                            PortType attribute = event.attributes().get(trigger.attribute());
+                            if (attribute == null) fail("device trigger " + entity.key() + " reads attribute " + trigger.attribute() + ", which event " + event.type() + " does not carry");
+                            if (attribute.problem(new JsonPrimitive(trigger.subtype())).isPresent()) {
+                                fail("device trigger " + entity.key() + " waits for " + trigger.attribute() + " " + trigger.subtype() + ", which event " + event.type() + " never carries");
+                            }
                         }
                     }
                     case HaEntity.Button ignoredButton -> {

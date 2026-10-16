@@ -79,4 +79,9 @@ public final class Ha {
     public static HaEntity.DeviceTrigger deviceTrigger(String type, String subtype, String event, String attribute) {
         return new HaEntity.DeviceTrigger(HaEntity.Meta.of(type + "_" + subtype), type, subtype, event, attribute);
     }
+
+    /** A device trigger keyed {@code <type>_<subtype>}, fired by every event of the declared type {@code event}. */
+    public static HaEntity.DeviceTrigger deviceTrigger(String type, String subtype, String event) {
+        return new HaEntity.DeviceTrigger(HaEntity.Meta.of(type + "_" + subtype), type, subtype, event, null);
+    }
 }

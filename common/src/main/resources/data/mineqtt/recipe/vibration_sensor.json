@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "N": "mineqtt:network_chip",
+    "S": "minecraft:smooth_stone",
+    "V": "minecraft:sculk_sensor"
+  },
+  "pattern": [
+    "SVS",
+    "SNS",
+    "SSS"
+  ],
+  "result": {
+    "id": "mineqtt:vibration_sensor"
+  }
+}

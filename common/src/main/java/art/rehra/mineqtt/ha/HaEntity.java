@@ -634,12 +634,17 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
     /**
      * A {@code device_automation} trigger, e.g. type {@code button_short_press}, subtype {@code left}: Home Assistant
      * names it after both. It fires on the device's declared event {@code event} whose attribute {@code attribute} is
-     * the subtype, e.g. {@code {"event_type":"press","button":"left"}}.
+     * the subtype, e.g. {@code {"event_type":"press","button":"left"}}; without an attribute it fires on every event of
+     * that type, e.g. the Vibration Sensor's {@code {"event_type":"step",...}} for type {@code vibration}, subtype
+     * {@code step}.
      */
-    record DeviceTrigger(Meta meta, String type, String subtype, String event, String attribute) implements HaEntity<DeviceTrigger> {
-        /** What the trigger's template makes of an event it fires on, and so its payload: {@code press_left}. */
+    record DeviceTrigger(Meta meta, String type, String subtype, String event, @Nullable String attribute) implements HaEntity<DeviceTrigger> {
+        /**
+         * What the trigger's template makes of an event it fires on, and so its payload: {@code press_left}, or the event
+         * type alone for a trigger without an attribute.
+         */
         public String payload() {
-            return event + "_" + subtype;
+            return attribute == null ? event : event + "_" + subtype;
         }
 
         @Override

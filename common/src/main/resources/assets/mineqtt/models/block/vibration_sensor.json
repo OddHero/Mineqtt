@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "particle": "mineqtt:block/vibration_sensor_side",
+    "top": "mineqtt:block/vibration_sensor_top",
+    "bottom": "mineqtt:block/vibration_sensor_bottom",
+    "side": "mineqtt:block/vibration_sensor_side"
+  }
+}

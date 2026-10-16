@@ -24,6 +24,7 @@ import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.Timers;
+import art.rehra.mineqtt.device.types.VibrationSensor;
 import art.rehra.mineqtt.device.timer.core.TimerKind;
 import art.rehra.mineqtt.device.types.WallSwitch;
 import art.rehra.mineqtt.flow.core.PortType;
@@ -97,6 +98,7 @@ public final class DiscoveryGoldenTest {
         placer();
         containerObserver();
         entityObserver();
+        vibrationSensor();
         wallSwitch();
         displayPanel();
         everyEntityKind();
@@ -463,6 +465,38 @@ public final class DiscoveryGoldenTest {
                         && components.getAsJsonObject("entity").get("json_attributes_template").getAsString().contains("value_json.details"),
                 "The entity is the primary sensor, its details its attributes");
         check(!config.toString().contains("entity_data") && !config.toString().contains("position"), "No entity data or position reaches Home Assistant");
+    }
+
+    /**
+     * The Vibration Sensor against its golden file: vibration as the primary binary sensor (device class vibration), the
+     * event entity with its fixed group types (device class motion, as Home Assistant's event entities know no vibration),
+     * one device trigger per group that fires on the group's event type alone, frequency, last event, distance (unknown
+     * for a player's vibration and before the first) and the count, detect, range and clear delay as config entities. No
+     * player name or position reaches Home Assistant.
+     */
+    private static void vibrationSensor() throws IOException {
+        UUID sensorId = UUID.fromString("4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a");
+        DeviceRecord sensor = new DeviceRecord(sensorId, VibrationSensor.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(14, 64, 0)), "Hall Sensor",
+                "hall_sensor");
+        JsonObject config = DiscoveryPublisher.deviceConfig(VibrationSensor.TYPE, sensor, TOPICS, IDENTITY);
+        assertGolden("vibration_sensor", config);
+        JsonObject components = config.getAsJsonObject("cmps");
+        Set<String> keys = new TreeSet<>(Set.of("vibration", "action", "frequency", "last_event", "last_distance", "count", "detect", "range", "clear_delay",
+                "location"));
+        for (VibrationSensor.Group group : VibrationSensor.Group.values()) keys.add("vibration_" + group.getSerializedName());
+        check(components.keySet().equals(keys), "Vibration Sensor entities: " + components.keySet());
+        JsonObject vibration = components.getAsJsonObject("vibration");
+        check(vibration.get("name").isJsonNull() && vibration.get("device_class").getAsString().equals("vibration"),
+                "Vibration is the primary binary sensor, of class vibration");
+        JsonObject action = components.getAsJsonObject("action");
+        check(action.get("device_class").getAsString().equals("motion") && action.getAsJsonArray("event_types").size() == VibrationSensor.Group.values().length,
+                "The event entity has one fixed type per group, of class motion");
+        JsonObject step = components.getAsJsonObject("vibration_step");
+        expect(step, "type", "vibration");
+        expect(step, "subtype", "step");
+        expect(step, "payload", "step");
+        expect(step, "value_template", "{{ value_json.event_type }}");
+        check(!config.toString().contains("player_name") && !config.toString().contains("position"), "No player name or position reaches Home Assistant");
     }
 
     /**

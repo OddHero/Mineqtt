@@ -32,6 +32,7 @@ import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.Timers;
+import art.rehra.mineqtt.device.types.VibrationSensor;
 import art.rehra.mineqtt.device.types.WallSwitch;
 import art.rehra.mineqtt.flow.core.Coerce;
 import art.rehra.mineqtt.flow.core.PortType;
@@ -129,6 +130,8 @@ public final class DeviceTabsCheck {
         expected.put(Timers.CRON_TIMER, rows(timerRows, "cron TEXT_FIELD CONFIGURE CONFIG"));
         // What it looks at, how far and what the Raw Link sends; its readings are out-ports only.
         expected.put(EntityObserver.TYPE, List.of("detect CYCLE CONFIGURE CONFIG", "range SLIDER CONFIGURE CONFIG", "payload CYCLE CONFIGURE CONFIG"));
+        // Whose vibrations it hears, how far, and how long vibration stays on; what it heard is out-ports only.
+        expected.put(VibrationSensor.TYPE, List.of("detect CYCLE CONFIGURE CONFIG", "range SLIDER CONFIGURE CONFIG", "clear_delay SLIDER CONFIGURE CONFIG"));
         for (DeviceType timer : Timers.all()) {
             check(new ControlsTab(timer).statusLine() && ControlsTab.controls(timer).size() <= ControlsTab.MAX_ROWS - 1,
                     timer + ": at most four rows of controls beside its status line");
@@ -166,6 +169,9 @@ public final class DeviceTabsCheck {
         Timers.all().forEach(timer -> advanced.put(timer, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
                 "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG")));
         advanced.put(EntityObserver.TYPE, valueLink);
+        // Each vibration's frequency as an event, never retained: QoS only, as the timers.
+        advanced.put(VibrationSensor.TYPE, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
+                "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG"));
         check(advanced.keySet().containsAll(DeviceTypes.all()), "Every registered type has its expected Advanced controls listed here");
         // The Twin tab of each type with a twin adapter (M3 plan D19): its rows top to bottom, each cell as kind:key; the
         // health line is always the fifth row.
