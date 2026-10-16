@@ -1,30 +1,56 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 (every Minecraft version from 1.21 to 26.3)
 
-MineQTT now builds for every Minecraft version from 1.21 to 26.3: one jar per loader for 1.21.1, 1.21.3, 1.21.4,
-1.21.5, 1.21.8, 1.21.10, 1.21.11, 26.1.2, 26.2 and 26.3, each also covering the patch releases next to it. The jars are
-named `MineQTT-<loader>-<mod version>+<minecraft>.jar`, and Modrinth gets one version per loader and Minecraft version.
+0.9.0 brings MineQTT to every Minecraft release from 1.21 to 26.3, on Fabric and NeoForge, and lets the Block Placer
+build whatever you put into the container behind it, chosen from Home Assistant. Worlds and config files of 0.8.0 load
+unchanged; a new config key takes its default. On Minecraft 26.2, update Architectury API to 21.1.12 or newer together
+with MineQTT (see **Breaking changes**).
 
-- **Minecraft 1.21.1:** an empty dedicated server never pauses on 1.21.1, so `server.keepTickingWhenEmpty` does
-  nothing there.
-- **Development:** the build is a Stonecutter multi-version project like minecraft-mod-template. Gradle tasks carry
-  the version, such as `:fabric:26.2:runClient` and `:fabric:26.2:runClientGameTest`, and `./gradlew build` builds
-  and checks every version. Minecraft up to 1.21.11 builds with Java 21, 26.x with Java 25. The client game tests
-  run from 1.21.4 on.
-- **Checks:** the message bus checks use a fixed clock, so their drain budget no longer fails on a busy machine.
-- **Textures:** the Redstone Output is red now and the Redstone Input blue: the red block is the one that gives off
-  redstone.
+### For players
+
+- **Every Minecraft version from 1.21 to 26.3.** There is one jar per loader for 1.21.1, 1.21.3, 1.21.4, 1.21.5,
+  1.21.8, 1.21.10, 1.21.11, 26.1.2, 26.2 and 26.3, each also covering the patch releases next to it. The jars are
+  named `MineQTT-<loader>-<mod version>+<minecraft>.jar`, and Modrinth lists one version per loader and Minecraft
+  version.
 - **Block Placer: the container behind it decides.** Home Assistant's block select now offers the blocks in the
   container behind each placer (and the block it is set to), so you pick from the frontend what it builds next; without
   a container it offers the `#mineqtt:placeable` list as before. The state carries the list as `choices`, and the
-  placer looks again every five seconds and after each place and clear. While placing costs the item
-  (`blockPlacer.consumeItems`), any block you put into that container may be placed, stone and planks too, not only
-  the tag's: the new op setting `blockPlacer.containerUnlocks` (default on; the placer as a whole stays off unless
-  `blockPlacer.enabled`) switches that back to the tag only. Blocks with block entity data, TNT, fluids, fire, portals,
-  unbreakable blocks, blocks of two parts (doors, tall plants) and blocks without an item are never placed, and a block
-  that cannot stand in front (a torch without a wall) is refused. The placer reads the container only where the claim
-  rule lets it open it.
+  placer looks again every five seconds and after each place and clear. While placing costs the item, any block you
+  put into that container may be placed, stone and planks too, not only the tag's.
+- **Textures:** the Redstone Output is red now and the Redstone Input blue: the red block is the one that gives off
+  redstone.
+
+### For server admins
+
+- **`blockPlacer.containerUnlocks`** (new, default on): while `blockPlacer.consumeItems` is on, any block in the
+  container behind a Block Placer may be placed. Turn it off to keep placers to `#mineqtt:placeable`. The placer as a
+  whole stays off unless `blockPlacer.enabled`.
+- Whatever the tag or the container says, a placer never places blocks with block entity data, TNT, fluids, fire,
+  portals, unbreakable blocks, blocks of two parts (doors, tall plants) or blocks without an item, and it refuses a
+  block that cannot stand in front (a torch without a wall). It reads the container only where the claim rule lets it
+  open it, so a neighbour's chest across a claim line stays private.
+- **Minecraft 1.21.1:** an empty dedicated server never pauses on 1.21.1, so `server.keepTickingWhenEmpty` does
+  nothing there.
+
+### Breaking changes
+
+- **Architectury API 21.1.12 or newer on Minecraft 26.2.** 0.8.0 ran on 21.1.9; the 26.2 jar of 0.9.0 does not load
+  with it. Each jar names the Architectury API version it needs; Fabric and NeoForge tell you at startup.
+- **Block Placers with a container behind them** offer only that container's blocks in Home Assistant after the
+  update, and can place any block from it (see `blockPlacer.containerUnlocks` above).
+
+### For developers
+
+- The build is a Stonecutter multi-version project like minecraft-mod-template. Gradle tasks carry the version, such
+  as `:fabric:26.2:runClient` and `:fabric:26.2:runClientGameTest`, and `./gradlew build` builds and checks every
+  version. Minecraft up to 1.21.11 builds with Java 21, 26.x with Java 25. The client game tests run from 1.21.4 on.
+  Building, checks and releases are described in
+  [`.github/development.md`](https://github.com/OddHero/Mineqtt/blob/main/.github/development.md).
+- Architectury's transform tasks run one at a time, so parallel builds of several versions no longer fail at random.
+- The message bus checks use a fixed clock, so their drain budget no longer fails on a busy machine.
+- A select may take its options from a list in the device's state (`HaEntity.Select.optionsFrom`); discovery is
+  published again when that list changes.
 
 ## 0.8.0 (MineQTT 2, Milestone 4: the world twin)
 
