@@ -32,9 +32,9 @@ Everything about MineQTT is in the **[MineQTT wiki](https://github.com/OddHero/M
 | [Mirror Your House](https://github.com/OddHero/Mineqtt/wiki/Mirror-Your-House) | Bring Home Assistant entities into Minecraft and switch them back |
 | [Commands](https://github.com/OddHero/Mineqtt/wiki/Commands) | Every `/mineqtt` command and permission |
 | [Upgrading from v1](https://github.com/OddHero/Mineqtt/wiki/Upgrading-from-v1) | What changes when a v1 world loads |
-| [Development](https://github.com/OddHero/Mineqtt/wiki/Development) | Building, testing and releasing |
 
-What changed in each release is in [CHANGELOG.md](https://github.com/OddHero/Mineqtt/blob/main/CHANGELOG.md).
+What changed in each release is in [CHANGELOG.md](https://github.com/OddHero/Mineqtt/blob/main/CHANGELOG.md). To build MineQTT
+from source, see [Developing MineQTT](https://github.com/OddHero/Mineqtt/blob/main/.github/development.md).
 
 ## Supported versions
 

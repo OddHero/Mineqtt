@@ -495,5 +495,5 @@ keeps its id, so v1 worlds load and upgrade in place; read **Breaking changes** 
   no longer finds a MineQTT block by its old name. Block ids are unaffected.
 - **Owners**: a v1 owner name is resolved to the player's UUID; a player who only shares the name is no owner.
 - **Worlds of v2 test builds**: a raw link saved with `retain=false` by such a build becomes retained, and a test build
-  that already migrated v1 lamps left an empty "MineQTT RGB LED" device per lamp in Home Assistant (see the wiki,
-  [Upgrading from v1](https://github.com/OddHero/Mineqtt/wiki/Upgrading-from-v1#worlds-an-earlier-v2-test-build-migrated)).
+  that already migrated v1 lamps left an empty "MineQTT RGB LED" device per lamp in Home Assistant (see
+  [Worlds from v2 test builds](https://github.com/OddHero/Mineqtt/blob/main/.github/development.md#worlds-from-v2-test-builds)).
