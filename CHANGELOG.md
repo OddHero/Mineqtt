@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.1 (blocks drawn on Minecraft 1.21 to 1.21.3)
+
+0.9.1 fixes the jars for Minecraft 1.21 to 1.21.3 (`+1.21.1` and `+1.21.3`). The other versions change only their
+version number. 0.9.0 was published on GitHub only; update to 0.9.1.
+
+### Fixed
+
+- **Minecraft 1.21 to 1.21.3:** MineQTT's blocks were invisible in the world and showed as flat textures in the
+  inventory. Up to 1.21.3 the game hides a block with a block entity unless it asks for its model, and it draws items
+  from their legacy item models, which still showed the block's texture as a flat sprite. The blocks now ask for their
+  model, and their items show the block model, as on 1.21.4 and later.
+
 ## 0.9.0 (every Minecraft version from 1.21 to 26.3)
 
 0.9.0 brings MineQTT to every Minecraft release from 1.21 to 26.3, on Fabric and NeoForge, and lets the Block Placer
