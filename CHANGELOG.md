@@ -13,6 +13,8 @@ named `MineQTT-<loader>-<mod version>+<minecraft>.jar`, and Modrinth gets one ve
   and checks every version. Minecraft up to 1.21.11 builds with Java 21, 26.x with Java 25. The client game tests
   run from 1.21.4 on.
 - **Checks:** the message bus checks use a fixed clock, so their drain budget no longer fails on a busy machine.
+- **Textures:** the Redstone Output is red now and the Redstone Input blue: the red block is the one that gives off
+  redstone.
 
 ## 0.8.0 (MineQTT 2, Milestone 4: the world twin)
 
