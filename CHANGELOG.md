@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 (the Container Observer and the Entity Observer)
+
+0.10.0 adds two observers: the Container Observer shows in Home Assistant what a chest, barrel, furnace or any other
+container holds, and the Entity Observer reports the entity in front of it, with its type, name, health and more. Both
+come for every Minecraft version from 1.21 to 26.3 on Fabric and NeoForge. Worlds and config files of 0.9.x load
+unchanged; the new config key takes its default.
 
 ### For players
 
@@ -27,6 +32,13 @@
 - **`entityObserver.exportEntityData`** (new, default on): the Entity Observer's full Raw Link payload carries the
   entity's raw data, never a player's and never to Home Assistant; with a claim mod only for an entity in the
   observer's claim. Turn it off to send no raw data.
+
+### Known limitations
+
+- **Rooms and Home Assistant areas:** Home Assistant puts a device into the suggested area of its room only when it
+  first creates the device. A device it already knows keeps its area (or none) when you later make a room around it, so
+  create the room first and then place the devices, or assign the area once in Home Assistant. MineQTT cannot change an
+  existing device's area over MQTT.
 
 ## 0.9.1 (blocks drawn on Minecraft 1.21 to 1.21.3)
 
