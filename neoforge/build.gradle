@@ -39,6 +39,10 @@ dependencies {
     // Flan in the dev runs only where it is published for this very Minecraft version.
     if ((project.flan_version as String).startsWith("${project.minecraft_version}-")) {
         add(project.modRuntimeOnly, "io.github.flemmli97:flan:${project.flan_version}-neoforge") { transitive = false }
+        // Flan 1.11 needs LinguaBib at runtime and its POM does not say so.
+        if (project.hasProperty('lingua_bib_version')) {
+            add(project.modRuntimeOnly, "io.github.flemmli97:lingua_bib:${project.lingua_bib_version}-neoforge") { transitive = false }
+        }
     }
 
     common(commonNamed(commonNode)) { transitive false }

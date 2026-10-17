@@ -7,7 +7,8 @@ intruders, a Smart Lock keeps doors and chests shut, an Alarm Panel arms the hou
 siren and a Signal Beacon shows the alarm's state across the map. They work together through wires without Home
 Assistant, and Home Assistant gets a real alarm panel, a lock, a siren and a light for them. All of it comes for every
 Minecraft version from 1.21 to 26.3 on Fabric and NeoForge. Worlds and config files of 0.10.0 load unchanged; the new
-config keys take their defaults. The wiki's *Secure Your Base* guide walks through a complete setup.
+config keys take their defaults. The wiki's *Secure Your Base* guide walks through a complete setup. NeoForge servers on
+Minecraft 1.21.10 and 1.21.11 could not start with MineQTT 0.9.0 to 0.10.0; 0.11.0 fixes that (see *Fixed*).
 
 ### For players
 
@@ -102,6 +103,12 @@ config keys take their defaults. The wiki's *Secure Your Base* guide walks throu
   a locked target refuses an operator like anybody else the lock does not let in (operators still break the plate or
   unlock it at the plate).
 
+### Fixed
+
+- **NeoForge 1.21.10 and 1.21.11:** a dedicated server with MineQTT 0.9.0 to 0.10.0 crashed right after it started
+  (`Duplicate key L32X64MixRandom`). MineQTT asked Java for its default random generator, a lookup that fails under
+  these NeoForge versions. It now uses a plain random generator, and those servers start.
+
 ### Known limitations
 
 - **The alarm code over MQTT:** Home Assistant sends the code with its disarm command in plain text. Use TLS on your
@@ -116,6 +123,8 @@ config keys take their defaults. The wiki's *Secure Your Base* guide walks throu
 - New Home Assistant entity kinds: `siren`, `lock` and `alarm_control_panel`; device types can declare secrets (the
   Alarm Panel's code), which the runtime redacts from logs, replies and the explorer.
 - Wire ports can be edge inputs, so both sensors' booleans and their events trigger an Alarm Panel.
+- The Signal Beacon hooks the beacon's beam scan with a MixinExtras `@WrapOperation`, so other mods' wraps of the same
+  call still apply; a `@Redirect` there stopped NeoForge 1.21.11 (MixinExtras 0.5.3) from starting.
 - The test broker probe hands every listener all its messages, the refused-filter broker scenario waits for the broker
   instead of the clock, and the client game tests get 45 minutes before the runner stops them.
 

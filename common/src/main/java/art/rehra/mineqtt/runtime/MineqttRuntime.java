@@ -56,8 +56,8 @@ import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.Random;
 import java.util.UUID;
-import java.util.random.RandomGenerator;
 
 /**
  * Everything MineQTT runs for one server: the world's device registry with its bridge identity, the devices, the
@@ -206,7 +206,7 @@ public final class MineqttRuntime {
         this.telemetry = new TelemetrySampler(server, privacy::consents);
         this.bridge = new BridgeDevice(mqtt, () -> topics, telemetry::sample, TelemetrySampler::settings, Util::getMillis, this::republish,
                 this::showBroadcast, log);
-        this.birth = new BirthWatcher(mqtt, this::republish, Util::getMillis, RandomGenerator.getDefault());
+        this.birth = new BirthWatcher(mqtt, this::republish, Util::getMillis, new Random());
         // At once: the twin's values become retained, and a fresh catalog is asked for 5 s later (M3 plan D3).
         birth.onBirth(() -> {
             twin.haBirth();
@@ -264,7 +264,9 @@ public final class MineqttRuntime {
      */
     static MineqttRuntime start(MinecraftServer server) {
         RegistryStore store = RegistryStore.of(server);
-        DeviceRegistry registry = store.load(server.getWorldData().getLevelName(), RandomGenerator.getDefault());
+        // java.util.Random, not RandomGenerator.getDefault(): the default looks its algorithm up through the JDK's
+        // ServiceLoader, which finds L32X64MixRandom twice under NeoForge 21.10/21.11's module layers and fails the start.
+        DeviceRegistry registry = store.load(server.getWorldData().getLevelName(), new Random());
         LegacyTopicStateImport.run(server, registry);
         store.saveIfDirty(registry);
         MineqttRuntime runtime = new MineqttRuntime(server, store, registry);
