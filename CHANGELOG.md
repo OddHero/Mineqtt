@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 (the security update)
+
+0.11.0 turns MineQTT into a security system for your base and your Home Assistant: a Vibration Sensor hears
+intruders, a Smart Lock keeps doors and chests shut, an Alarm Panel arms the house with a code, a Speaker sounds the
+siren and a Signal Beacon shows the alarm's state across the map. They work together through wires without Home
+Assistant, and Home Assistant gets a real alarm panel, a lock, a siren and a light for them. All of it comes for every
+Minecraft version from 1.21 to 26.3 on Fabric and NeoForge. Worlds and config files of 0.10.0 load unchanged; the new
+config keys take their defaults. The wiki's *Secure Your Base* guide walks through a complete setup.
 
 ### For players
 
@@ -94,6 +101,23 @@
 - **`smartLock.opsBypass`** (new, default on): operators open targets a Smart Lock keeps locked, as its owner does. Off,
   a locked target refuses an operator like anybody else the lock does not let in (operators still break the plate or
   unlock it at the plate).
+
+### Known limitations
+
+- **The alarm code over MQTT:** Home Assistant sends the code with its disarm command in plain text. Use TLS on your
+  broker, and keep it private: whoever may publish to a lock's or an Alarm Panel's topic can unlock or arm it.
+- **Smart Lock:** it stops hands and hoppers, not explosions, pistons pushing a locked trapdoor or fence gate away, or
+  other mods' item pipes. Claims stay the real protection.
+- **Signal Beacon:** a beam shows only the 16 dye colours, and while the lens is off or between blinks the beacon's
+  own effects pause too.
+
+### For developers
+
+- New Home Assistant entity kinds: `siren`, `lock` and `alarm_control_panel`; device types can declare secrets (the
+  Alarm Panel's code), which the runtime redacts from logs, replies and the explorer.
+- Wire ports can be edge inputs, so both sensors' booleans and their events trigger an Alarm Panel.
+- The test broker probe hands every listener all its messages, the refused-filter broker scenario waits for the broker
+  instead of the clock, and the client game tests get 45 minutes before the runner stops them.
 
 ## 0.10.0 (the Container Observer and the Entity Observer)
 
