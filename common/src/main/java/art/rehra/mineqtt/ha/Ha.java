@@ -81,6 +81,14 @@ public final class Ha {
     }
 
     /**
+     * An alarm control panel over a read-only enum {@code state} field, whose names are Home Assistant alarm states, that
+     * checks its code in the device ({@code REMOTE_CODE}): arm home, arm away and trigger, a code to disarm only.
+     */
+    public static HaEntity.AlarmControlPanel alarmControlPanel(String key, Field<?> state) {
+        return new HaEntity.AlarmControlPanel(HaEntity.Meta.of(key), state, List.of("arm_home", "arm_away", "trigger"), false, true, false);
+    }
+
+    /**
      * A siren over an on/off {@code state} field, a tone enum field and a volume field in percent; its tones are the
      * serialized names of the tone field's enum.
      */

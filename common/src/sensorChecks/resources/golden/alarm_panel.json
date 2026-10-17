@@ -1,0 +1,166 @@
+{
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/hall_alarm/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "cmps": {
+    "alarm": {
+      "code": "REMOTE_CODE",
+      "code_arm_required": false,
+      "code_disarm_required": true,
+      "code_trigger_required": false,
+      "command_template": "{\"action\":\"{{ action }}\",\"code\":{{ code | tojson }}}",
+      "command_topic": "mineqtt/world_7f3a/hall_alarm/set",
+      "p": "alarm_control_panel",
+      "payload_arm_away": "ARM_AWAY",
+      "payload_arm_home": "ARM_HOME",
+      "payload_disarm": "DISARM",
+      "payload_trigger": "TRIGGER",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_alarm",
+      "supported_features": [
+        "arm_home",
+        "arm_away",
+        "trigger"
+      ],
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_alarm",
+      "value_template": "{{ value_json.state }}",
+      "name": null
+    },
+    "alarm_event": {
+      "event_types": [
+        "arm",
+        "disarm",
+        "trigger",
+        "wrong_code"
+      ],
+      "name": "Alarm",
+      "p": "event",
+      "state_topic": "mineqtt/world_7f3a/hall_alarm/action",
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_alarm_event"
+    },
+    "code_set": {
+      "entity_category": "diagnostic",
+      "name": "Code set",
+      "p": "binary_sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_alarm",
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_code_set",
+      "value_template": "{{ 'ON' if value_json.code_set else 'OFF' }}"
+    },
+    "entry_delay": {
+      "command_topic": "mineqtt/world_7f3a/hall_alarm/set/entry_delay",
+      "entity_category": "config",
+      "max": 600,
+      "min": 0,
+      "name": "Entry delay",
+      "p": "number",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_alarm",
+      "step": 1,
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_entry_delay",
+      "unit_of_measurement": "s",
+      "value_template": "{{ value_json.entry_delay }}"
+    },
+    "exit_delay": {
+      "command_topic": "mineqtt/world_7f3a/hall_alarm/set/exit_delay",
+      "entity_category": "config",
+      "max": 600,
+      "min": 0,
+      "name": "Exit delay",
+      "p": "number",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_alarm",
+      "step": 1,
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_exit_delay",
+      "unit_of_measurement": "s",
+      "value_template": "{{ value_json.exit_delay }}"
+    },
+    "location": {
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Location",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_alarm",
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_location",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}"
+    },
+    "lockout": {
+      "device_class": "duration",
+      "entity_category": "diagnostic",
+      "name": "Lockout",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_alarm",
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_lockout",
+      "unit_of_measurement": "s",
+      "value_template": "{{ value_json.lockout }}"
+    },
+    "siren_duration": {
+      "command_topic": "mineqtt/world_7f3a/hall_alarm/set/siren_duration",
+      "entity_category": "config",
+      "max": 3600,
+      "min": 0,
+      "name": "Siren duration",
+      "p": "number",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/hall_alarm",
+      "step": 1,
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_siren_duration",
+      "unit_of_measurement": "s",
+      "value_template": "{{ value_json.siren_duration }}"
+    },
+    "time_left": {
+      "device_class": "duration",
+      "name": "Time left",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_alarm",
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_time_left",
+      "unit_of_measurement": "s",
+      "value_template": "{{ value_json.time_left }}"
+    },
+    "trigger_source": {
+      "name": "Trigger source",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_alarm",
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_trigger_source",
+      "value_template": "{{ value_json.trigger_source }}"
+    },
+    "triggered": {
+      "device_class": "safety",
+      "name": "Triggered",
+      "p": "binary_sensor",
+      "state_topic": "mineqtt/world_7f3a/hall_alarm",
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_triggered",
+      "value_template": "{{ 'ON' if value_json.triggered else 'OFF' }}"
+    },
+    "wrong_codes": {
+      "name": "Wrong codes",
+      "p": "sensor",
+      "state_class": "total_increasing",
+      "state_topic": "mineqtt/world_7f3a/hall_alarm",
+      "unique_id": "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d_wrong_codes",
+      "value_template": "{{ value_json.wrong_codes }}"
+    }
+  },
+  "dev": {
+    "ids": [
+      "mineqtt_7a8b9c0d1e2f4a3b9c4d5e6f7a8b9c0d"
+    ],
+    "mdl": "Alarm Panel",
+    "mdl_id": "mineqtt:alarm_panel",
+    "mf": "MineQTT",
+    "name": "Hall Alarm",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "qos": 1
+}

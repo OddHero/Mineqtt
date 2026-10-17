@@ -1,0 +1,6 @@
+{
+  "parent": "mineqtt:block/alarm_panel",
+  "textures": {
+    "front": "mineqtt:block/alarm_panel_front_armed"
+  }
+}

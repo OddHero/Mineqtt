@@ -1,6 +1,7 @@
 package art.rehra.mineqtt.network;
 
 import art.rehra.mineqtt.MineQTT;
+import art.rehra.mineqtt.blocks.entities.AlarmPanelBlockEntity;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.blocks.entities.TerminalBlockEntity;
 import art.rehra.mineqtt.device.DeviceConfig;
@@ -89,6 +90,7 @@ public final class MineqttNetworking {
     public static final Identifier EXPLORER_PAGE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "explorer_page");
     public static final Identifier EXPLORER_ACTION_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "explorer_action");
     public static final Identifier PRIVACY_CHOICE_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "privacy_choice");
+    public static final Identifier ALARM_KEYPAD_ID = Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "alarm_keypad");
 
     @Deprecated
     public static final Identifier CYBERDECK_PUBLISH = CYBERDECK_PUBLISH_ID;
@@ -159,6 +161,13 @@ public final class MineqttNetworking {
         receive(DeviceActionPayload.TYPE, DeviceActionPayload.CODEC, (player, payload) ->
                 C2SGuard.requireDevice(player, payload, payload.pos(), MineqttPermission.USE)
                         .ifPresent(device -> DeviceRuntime.action(player, device, payload.action(), payload.value())));
+
+        // A key of the Alarm Panel's keypad: USE to arm and disarm (the code is checked by the panel, under its lockout),
+        // CONFIGURE to set or clear the code. The digits are never logged; the payload's toString leaves them out.
+        receive(AlarmKeypadPayload.TYPE, AlarmKeypadPayload.CODEC, (player, payload) ->
+                C2SGuard.requireDevice(player, payload, payload.pos(), type -> payload.op().permission())
+                        .filter(AlarmPanelBlockEntity.class::isInstance)
+                        .ifPresent(device -> ((AlarmPanelBlockEntity) device).keypad(player, payload.op(), payload.code())));
 
         // A player claims a device without an owner (M2-11): CONFIGURE, then the device must have no owner.
         receive(DeviceClaimPayload.TYPE, DeviceClaimPayload.CODEC, (player, payload) ->
@@ -490,6 +499,49 @@ public final class MineqttNetworking {
                 ByteBufCodecs.stringUtf8(C2SGuard.MAX_PAYLOAD_BYTES), DeviceActionPayload::value,
                 DeviceActionPayload::new
         );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * A key of the Alarm Panel's keypad tab (the panel whose screen the player has open): arm away or home, disarm with
+     * the digits typed, set the digits as the code, or clear the code. The digits are at most
+     * {@value #MAX_CODE_CHARS} characters; the panel judges them (4 to 8 digits). {@link #toString()} never shows them,
+     * so no log line that names the payload carries a code.
+     */
+    public record AlarmKeypadPayload(BlockPos pos, Op op, String code) implements CustomPacketPayload {
+        public static final int MAX_CODE_CHARS = art.rehra.mineqtt.device.types.AlarmPanel.MAX_CODE_LENGTH;
+        public static final Type<AlarmKeypadPayload> TYPE = new Type<>(ALARM_KEYPAD_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, AlarmKeypadPayload> CODEC = StreamCodec.composite(
+                BlockPos.STREAM_CODEC, AlarmKeypadPayload::pos,
+                ByteBufCodecs.VAR_INT.map(Op::of, Op::ordinal), AlarmKeypadPayload::op,
+                ByteBufCodecs.stringUtf8(MAX_CODE_CHARS), AlarmKeypadPayload::code,
+                AlarmKeypadPayload::new
+        );
+
+        /** A keypad button. */
+        public enum Op {
+            ARM_AWAY, ARM_HOME, DISARM, SET_CODE, CLEAR_CODE;
+
+            /** The op of an ordinal; an unknown one does not decode. */
+            public static Op of(int ordinal) {
+                if (ordinal < 0 || ordinal >= values().length) throw new DecoderException("Unknown keypad op " + ordinal);
+                return values()[ordinal];
+            }
+
+            /** What the player needs on the panel: USE for the entries, CONFIGURE for the code. */
+            public MineqttPermission permission() {
+                return this == SET_CODE || this == CLEAR_CODE ? MineqttPermission.CONFIGURE : MineqttPermission.USE;
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "AlarmKeypadPayload[pos=" + pos.toShortString() + ", op=" + op + "]";
+        }
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

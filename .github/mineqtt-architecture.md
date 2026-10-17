@@ -583,8 +583,8 @@ crash never survives.
   showing a new value only when it moved by more than 5 s. v1, 0.6.0 and 0.7.0 timer data (all v1-shaped) is read by
   `LegacyNbtV1.hasTimerKeys`/`timerState` and written back by `writeTimer` until the attach adopts it; `DeviceLink.adopt`
   drops a `noV1Topic` type's v1 private mode and last tab. The Cron Timer's *Schedule* tab (`ui/device/CronScheduleTab`,
-  server-safe, with `CronScheduleTabView`) is the one custom tab `DeviceTabs.forType` adds (after Controls, for types
-  with the Cron Timer's `cron` setting); it sends `cron` through `DeviceConfigPayload` like any setting. `util/CronSchedule`
+  server-safe, with `CronScheduleTabView`) is a custom tab `DeviceTabs.forType` adds (after Controls, for types
+  with the Cron Timer's `cron` setting; the Alarm Panel's keypad is the other, first); it sends `cron` through `DeviceConfigPayload` like any setting. `util/CronSchedule`
   steps `*/n` from the field's first value and `v/n` from `v` to the field's last.
   **A standing clock**: the pure `device/timer/core/ClockWatch` is fed at
   `MineqttRuntime.tickStart` (SERVER_PRE, so never by the paused server's pump, which runs no tick) with the clock's real
@@ -838,6 +838,68 @@ crash never survives.
   diagnostics *Target* and *Status*, the disabled location. Known limits: hoppers below a locked chest still pull
   (blocking them needs a mixin), pistons may push a trapdoor or a gate away (the plate pops and the lock goes),
   explosions are not stopped. Checked by `verifySmartLock`; the golden file is `golden/smart_lock.json`.
+- **Alarm Panel.** `device/types/AlarmPanel` (`mineqtt:alarm_panel`, a new device: `noV1Topic`, `UNAVAILABLE` (a queued
+  command is saved in the registry, and Home Assistant's commands carry the code), `defaultAccess(PRIVATE)`, a status line,
+  no Raw Link, no hand action). A wall keypad (`AlarmPanelBlock`: horizontal `facing` placed like the Display Panel, a
+  10 x 12 x 2 shape without collision, `status` = `AlarmPanel.Light` disarmed/arming/armed/pending/triggered, which the
+  block entity mirrors; the arming, pending and triggered front textures are animated strips with `.png.mcmeta`, no
+  client code) and Home Assistant's `alarm_control_panel`. **States** (`AlarmPanel.Alarm(state, mode, left, source,
+  zone)`, pure, saved as `alarm`): `disarmed` -> `arm(mode)` (only from disarmed, so nobody without the code turns armed
+  away into armed home and its inside sensors off) -> `arming` for `exit_delay` (0-600 s, default 30) -> `armed_home` or
+  `armed_away`; `trigger(zone)` while armed (zone `home`, the perimeter, in both modes; `away`, the inside, only armed
+  away) -> `pending` for `entry_delay` (0-600 s, default 30; a second trigger does not restart it) -> `triggered` for
+  `siren_duration` (0-3600 s, default 180; 0 until disarmed), then armed again in its mode; `panic` (Home Assistant's
+  TRIGGER) -> `triggered` at once from any state, back to the armed mode it was in (disarmed when it was disarmed or
+  arming); `disarm` from anywhere. `AlarmPanelBlockEntity` ticks the countdowns and the guard on the server, beeps
+  (`NOTE_BLOCK_HAT`) each second of a delay and plays a short sound on arm, disarm and a wrong code, all through
+  `ServerLevel.playSound` without a game event. Fields: `state` (`AlarmState`, the six Home Assistant names), `armed`
+  (armed, pending, or triggered while armed), `triggered`, `time_left` (whole seconds, `deadband` 10), `trigger_source`
+  (the model of the device that last triggered it, or `Home Assistant`), `wrong_codes` (`total_increasing`), `lockout`
+  (seconds), `code_set`, the three delay settings and `location`. **The code** (`AlarmPanel.CodeHash`): 4 to 8 ASCII
+  digits, stored only as PBKDF2-HMAC-SHA256 (`javax.crypto`, a 16-byte `SecureRandom` salt per code, `ITERATIONS`
+  60 000 rounds kept per hash so they may rise later, 256 bits), saved as `code {salt, hash, iterations}` beside the
+  link and compared with `MessageDigest.isEqual`; about 15 ms per check on the server thread, so the rounds are moderate
+  and the guard is the real defence of a short keyspace. Never a field: not in the state, the registry, the view, the
+  render tag or the Raw Link; a placed copy drops it (and is disarmed). The code is set on the keypad by a player with
+  CONFIGURE while disarmed (which also ends a lockout) and removed likewise; a panel without a code arms and panics for
+  nobody. **Guard** (`AlarmPanel.Guard`, saved as `guard`, counting down only while loaded): per panel, across the keypad
+  and Home Assistant; `TRIES_BEFORE_LOCKOUT` 3 wrong codes in a row lock it out for 30 s, the next three for 60 s,
+  doubling to 900 s; a right code ends the streak and the doubling; while locked out no code is hashed or counted; a
+  missing code (Home Assistant's `null`) is not counted. Each wrong code publishes the bare event `wrong_code` (at most
+  once a second on the action topic) and is refused. **Commands** (`AlarmPanel.request`, by `CommandSource`): Home
+  Assistant's `{"action":"ARM_AWAY|ARM_HOME|DISARM|TRIGGER","code":...}` from `HA` and `PLAYER` (commands); the
+  in-ports `arm_away`, `arm_home`, `disarm`, `trigger_away`, `trigger_home` are `Action.edge` (a toggling BOOL port, so
+  bools, levels and events all wire to them: `true`, `ON`, `TOGGLE` and `PRESS` fire, `false` does nothing), all
+  `withoutControl`. The triggers come from wires (`BINDING`) only; disarming needs the code from every source but a
+  wire, whose maker needed CONFIGURE on the panel (`LinkRules`), as setting the code does (a raw `DeviceActionPayload`
+  `disarm` from a USE player is refused like `devices action <panel> disarm`). Arming needs no code. A wire's command
+  reaches the device with the source device's model (`DeviceHost.applyCommand(in, source, originModel)`, filled by
+  `DeviceRuntime.deliver` for `BINDING`), never its name or owner. Events: `arm` (`mode`), `disarm`, `trigger` (`zone`
+  home/away/panic, `source` the model), `wrong_code`: never the code or who. **Secrets** (`DeviceType.Builder.secret(key)`,
+  `DeviceType.redact`): a type's secret command keys are masked as `<redacted>` in `DeviceRuntime.deliver`'s debug
+  lines, in the Diagnostics tab's last message (`DeviceRuntime.redactedPayload`: a JSON object masked key by key,
+  anything else whole), in `devices set`'s reply and in the explorer's listening on the device's `/set` topics;
+  `build()` refuses a secret that is a field or an action and a type with secrets that queues. **Keypad**:
+  `ui/device/AlarmKeypadTab` (server-safe) and `AlarmKeypadTabView`, the panel's first tab (also for players who may not
+  build, P2) and the one its `openScreen` opens: digits, C and erase, the entry shown as dots and kept only on the
+  client, Arm away, Arm home, Disarm, and for CONFIGURE Set code and Remove. A key sends `AlarmKeypadPayload(pos, Op,
+  code of at most 8 chars)` (C2S; `C2SGuard.requireDevice` with USE for the entries, CONFIGURE for the code; its
+  `toString` leaves the digits out); arming and disarming go through `DeviceRuntime.keypad` -> `set` (the player's
+  command), the code through the block alone. **Home Assistant**: `HaEntity.AlarmControlPanel(meta, state, features,
+  codeArm, codeDisarm, codeTrigger)` (`Ha.alarmControlPanel`, platform `alarm_control_panel`, no `fields()`):
+  `state_topic`, `value_template` of the state field, `command_topic` `/set`, `command_template`
+  `{"action":"{{ action }}","code":{{ code | tojson }}}`, `code: REMOTE_CODE` (Home Assistant shows its keypad and checks
+  nothing), `code_arm_required` false, `code_disarm_required` true, `code_trigger_required` false,
+  `supported_features` `[arm_home, arm_away, trigger]` and the default payloads published explicitly; `build()` refuses a
+  state field that is undeclared or no enum of `AlarmControlPanel.STATES` with `disarmed`, and an alarm panel whose type
+  does not keep `code` secret. Discovery: the alarm panel (primary), the event entity *Alarm*, *Triggered* (`safety`),
+  *Trigger source*, *Wrong codes*, *Time left*, the config numbers *Exit delay*, *Entry delay* and *Siren duration*, the
+  diagnostics *Lockout* and *Code set*, the disabled location. `alarm_control_panel` is a private twin domain: a real
+  house alarm is never mirrored. Known limits: a Speaker wired to `triggered` sounds for its own duration (set it at least
+  as long as the siren duration: an unchanged `triggered` is not sent again); an unloaded panel watches nothing and takes
+  no command; Home Assistant's code crosses MQTT in plain text (use TLS); a creative player's pick-block with data copies
+  the hash into an item (the copy placed has no code). Checked by `verifyAlarmPanel`; the golden file is
+  `golden/alarm_panel.json`.
 - **Rooms** (M4-14, plan D11; `rooms/`). `Room(id, name, dimension, min, max, owner, forAll, created)`; the codec
   normalises the corners. `RoomRules` (pure): names (sanitised, 1-32 code points, unique per owner ignoring case),
   size (each axis `max - min + 1 <= rooms.maxSize`), counts (`limits.maxRoomsPerPlayer`, ops exempt; 512 per world for

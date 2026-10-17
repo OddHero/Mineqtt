@@ -23,6 +23,15 @@ public interface DeviceHost {
     CommandResult applyCommand(CommandReader in, CommandSource source);
 
     /**
+     * {@link #applyCommand(CommandReader, CommandSource)} with the model of the device a wire's command came from (e.g.
+     * {@code "Vibration Sensor"}), never its name or owner; null for every other command. By default it is ignored; the
+     * Alarm Panel reports which kind of device triggered it.
+     */
+    default CommandResult applyCommand(CommandReader in, CommandSource source, @Nullable String originModel) {
+        return applyCommand(in, source);
+    }
+
+    /**
      * Whether the device's Raw Link channel resolves into the owner's private subtree (v1 private mode, a private channel
      * since M2-12; {@link DeviceLink#privateMode()}). Such a link stays there whatever the ACL says, so the one-time M1
      * re-resolution never moves it ({@link RawTopics#reResolveM1}), and its channel resolves into the private subtree

@@ -2,6 +2,9 @@ package art.rehra.mineqtt.mqtt;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.device.DeviceRecord;
+import art.rehra.mineqtt.device.DeviceRuntime;
+import art.rehra.mineqtt.device.DeviceType;
+import art.rehra.mineqtt.device.DeviceTypes;
 import art.rehra.mineqtt.integrations.MineqttPermission;
 import art.rehra.mineqtt.items.CyberdeckItem;
 import art.rehra.mineqtt.mqtt.core.Inbound;
@@ -235,8 +238,19 @@ public final class CyberdeckSessionManager {
         if (!visible || !session.forwarded.tryTake()) return;
         String payload = exposure.kind() == TopicAcl.Exposure.Kind.REDACT
                 ? "<" + message.payload().length + " bytes>"
-                : truncate(message.text(), CyberdeckTopicUpdatePayload.MAX_PAYLOAD_CHARS);
+                : truncate(shown(runtime, exposure, message), CyberdeckTopicUpdatePayload.MAX_PAYLOAD_CHARS);
         NetworkManager.sendToPlayer(player, new CyberdeckTopicUpdatePayload(message.topic(), payload));
+    }
+
+    // A device's message as the explorer shows it: a command to a type with secrets (the Alarm Panel's code from Home
+    // Assistant) with them masked, as on its Diagnostics tab; anything else as it is.
+    private static String shown(MineqttRuntime runtime, TopicAcl.Exposure exposure, Inbound message) {
+        boolean command = message.topic().endsWith("/set") || message.topic().contains("/set/");
+        if (exposure.kind() != TopicAcl.Exposure.Kind.DEVICE || !command) return message.text();
+        DeviceRecord record = runtime.registry().bySlug(exposure.slug());
+        DeviceType type = record == null ? null : DeviceTypes.get(record.type());
+        if (type == null || type.secrets().isEmpty()) return message.text();
+        return new String(DeviceRuntime.redactedPayload(type, message.topic(), message.payload()), StandardCharsets.UTF_8);
     }
 
     /** Cuts text to the payload codec's limit without splitting a surrogate pair. */

@@ -25,7 +25,7 @@ import java.util.regex.PatternSyntaxException;
  */
 public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, HaEntity.Switch, HaEntity.Number,
         HaEntity.BinarySensor, HaEntity.Sensor, HaEntity.Select, HaEntity.Event, HaEntity.Button, HaEntity.Text,
-        HaEntity.Notify, HaEntity.Siren, HaEntity.Lock, HaEntity.DeviceTrigger {
+        HaEntity.Notify, HaEntity.Siren, HaEntity.Lock, HaEntity.AlarmControlPanel, HaEntity.DeviceTrigger {
 
     /** Home Assistant's {@code entity_category}. */
     enum Category {
@@ -709,6 +709,80 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
         }
 
         /** The lock states the state field takes, as Home Assistant reads them; empty when it is no enum field. */
+        public List<String> states() {
+            return state.kind() instanceof art.rehra.mineqtt.flow.core.PortType.Enum names ? names.values() : List.of();
+        }
+    }
+
+    /**
+     * An alarm control panel (Home Assistant's MQTT {@code alarm_control_panel}) whose code the device checks itself:
+     * {@code code: REMOTE_CODE}, so Home Assistant shows its numeric keypad but validates nothing, and sends every command
+     * on the device's {@code /set} topic as {@code {"action":"<ARM_AWAY|ARM_HOME|DISARM|TRIGGER>","code":<the code or
+     * null>}} through its command template. It reads its state from a read-only enum field whose names are Home
+     * Assistant alarm states ({@link #STATES}). Commanding no field, it has no {@link #fields()}; the type must declare
+     * {@link #CODE} a secret, so no log or queue keeps the code.
+     *
+     * @param state       the read-only enum field Home Assistant reads as the panel's state
+     * @param features    Home Assistant's {@code supported_features}, among {@link #FEATURES}
+     * @param codeArm     whether Home Assistant asks for the code to arm ({@code code_arm_required})
+     * @param codeDisarm  whether it asks for the code to disarm ({@code code_disarm_required})
+     * @param codeTrigger whether it asks for the code to trigger ({@code code_trigger_required})
+     */
+    record AlarmControlPanel(Meta meta, Field<?> state, List<String> features, boolean codeArm, boolean codeDisarm,
+                             boolean codeTrigger) implements HaEntity<AlarmControlPanel> {
+        /** The states Home Assistant's MQTT alarm control panel accepts on its state topic. */
+        public static final List<String> STATES = List.of("disarmed", "armed_home", "armed_away", "armed_night", "armed_vacation",
+                "armed_custom_bypass", "pending", "triggered", "arming", "disarming");
+        /** The {@code supported_features} values Home Assistant knows. */
+        public static final List<String> FEATURES = List.of("arm_home", "arm_away", "arm_night", "arm_vacation", "arm_custom_bypass", "trigger");
+        /** Home Assistant's special {@code code} value for a numeric code the device validates. */
+        public static final String REMOTE_CODE = "REMOTE_CODE";
+        /** The command keys of the template: the action and the code. */
+        public static final String ACTION = "action";
+        public static final String CODE = "code";
+        /** The payloads Home Assistant sends as {@code action}: its defaults, published explicitly. */
+        public static final String ARM_AWAY = "ARM_AWAY";
+        public static final String ARM_HOME = "ARM_HOME";
+        public static final String DISARM = "DISARM";
+        public static final String TRIGGER = "TRIGGER";
+
+        public AlarmControlPanel {
+            features = List.copyOf(features);
+            if (features.isEmpty() || !FEATURES.containsAll(features)) {
+                throw new IllegalArgumentException("Alarm control panel " + meta.key() + " needs features among " + FEATURES);
+            }
+        }
+
+        /**
+         * The command template: the action as a JSON string, the code as JSON ({@code null} when none was entered), so a
+         * code with quotes or backslashes still makes valid JSON.
+         */
+        public static String commandTemplate() {
+            return "{\"" + ACTION + "\":\"{{ action }}\",\"" + CODE + "\":{{ code | tojson }}}";
+        }
+
+        @Override
+        public AlarmControlPanel withMeta(Meta meta) {
+            return new AlarmControlPanel(meta, state, features, codeArm, codeDisarm, codeTrigger);
+        }
+
+        @Override
+        public String platform() {
+            return "alarm_control_panel";
+        }
+
+        /** None: its commands are actions with a code, which the device reads itself; the state is {@link #state()}. */
+        @Override
+        public List<Field<?>> fields() {
+            return List.of();
+        }
+
+        @Override
+        public boolean commands() {
+            return true;
+        }
+
+        /** The alarm states the state field takes, as Home Assistant reads them; empty when it is no enum field. */
         public List<String> states() {
             return state.kind() instanceof art.rehra.mineqtt.flow.core.PortType.Enum names ? names.values() : List.of();
         }

@@ -24,6 +24,7 @@
     "mineqtt:entity_observer",
     "mineqtt:vibration_sensor",
     "mineqtt:speaker",
-    "mineqtt:smart_lock"
+    "mineqtt:smart_lock",
+    "mineqtt:alarm_panel"
   ]
 }

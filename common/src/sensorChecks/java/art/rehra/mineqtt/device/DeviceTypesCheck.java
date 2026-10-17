@@ -12,6 +12,7 @@ import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.SmartLock;
+import art.rehra.mineqtt.device.types.AlarmPanel;
 import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
@@ -96,9 +97,10 @@ public final class DeviceTypesCheck {
         List<DeviceType> types = DeviceTypes.all();
         check(types.equals(List.of(SmartLamp.TYPE, RedstoneOutput.TYPE, RedstoneInput.TYPE, PresenceSensor.TYPE, SmartPlug.TYPE, ClimateSensor.TYPE,
                 WallSwitch.TYPE, DisplayPanel.TYPE, Timers.INTERVAL_TIMER, Timers.DAYLIGHT_TIMER, Timers.ALARM_CLOCK, Timers.CRON_TIMER,
-                BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE, EntityObserver.TYPE, VibrationSensor.TYPE, Speaker.TYPE, SmartLock.TYPE)),
-                "The nineteen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10), the "
-                        + "Container Observer, the Entity Observer, the Vibration Sensor, the Speaker and the Smart Lock: " + types);
+                BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE, EntityObserver.TYPE, VibrationSensor.TYPE, Speaker.TYPE, SmartLock.TYPE,
+                AlarmPanel.TYPE)),
+                "The twenty built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10), the "
+                        + "Container Observer, the Entity Observer, the Vibration Sensor, the Speaker, the Smart Lock and the Alarm Panel: " + types);
         int ports = 0;
         for (DeviceType type : types) {
             declaration(type);
@@ -183,6 +185,8 @@ public final class DeviceTypesCheck {
                         type + ": " + entity.key() + " has a state in-port and reads a state out-port");
                 case HaEntity.Lock lock -> check(type.port(Port.Direction.IN, lock.locked().key()).isPresent() && type.port(Port.Direction.OUT, lock.state().key()).isPresent(),
                         type + ": " + entity.key() + " commands its locked in-port and reads a state out-port");
+                case HaEntity.AlarmControlPanel panel -> check(type.port(Port.Direction.OUT, panel.state().key()).isPresent() && type.secrets().contains("code"),
+                        type + ": " + entity.key() + " reads a state out-port and keeps its code a secret");
                 default -> {
                 }
             }
@@ -313,6 +317,7 @@ public final class DeviceTypesCheck {
         vibrationSensor();
         speaker();
         smartLock();
+        alarmPanel();
         for (DeviceType type : DeviceTypes.all()) {
             check(type.editsWorld() == (type == BlockPlacer.TYPE), type + ": only the Block Placer edits the world (D12)");
         }
@@ -422,6 +427,33 @@ public final class DeviceTypesCheck {
         check(lock.meta().name() == null && lock.state() == SmartLock.STATE && lock.fields().equals(List.of(SmartLock.LOCKED)) && lock.commands()
                         && lock.states().equals(List.of("locked", "unlocked", "open", "jammed")),
                 "The lock is the primary entity, reading the state and commanding locked");
+    }
+
+    /**
+     * The Alarm Panel: its state, armed, triggered, the time left, the trigger source, the wrong codes, the lockout, whether a
+     * code is set, the three delays and the location out, the four events, the three delay settings and the five edge
+     * actions in (all without controls). Never queued, private, the code a secret; the alarm panel is the primary entity.
+     */
+    private static void alarmPanel() {
+        expectPorts(AlarmPanel.TYPE, List.of(
+                "OUT state enum disarmed|arming|armed_home|armed_away|pending|triggered FIELD", "OUT armed bool FIELD", "OUT triggered bool FIELD",
+                "OUT time_left number 0..3600 s FIELD", "OUT trigger_source text 256 FIELD", "OUT wrong_codes number 0..1000000000 FIELD",
+                "OUT lockout number 0..900 s FIELD", "OUT code_set bool FIELD", "OUT exit_delay number 0..600 s FIELD", "OUT entry_delay number 0..600 s FIELD",
+                "OUT siren_duration number 0..3600 s FIELD", "OUT location json FIELD", "OUT arm event arm EVENT", "OUT disarm event disarm EVENT",
+                "OUT trigger event trigger EVENT", "OUT wrong_code event wrong_code EVENT",
+                "IN exit_delay number 0..600 s SETTING", "IN entry_delay number 0..600 s SETTING", "IN siren_duration number 0..3600 s SETTING",
+                "IN arm_away bool ACTION toggles", "IN arm_home bool ACTION toggles", "IN disarm bool ACTION toggles", "IN trigger_away bool ACTION toggles",
+                "IN trigger_home bool ACTION toggles"));
+        check(AlarmPanel.TYPE.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !AlarmPanel.TYPE.groupable() && AlarmPanel.TYPE.use().isEmpty()
+                        && AlarmPanel.TYPE.noV1Topic() && AlarmPanel.TYPE.rawLink().isEmpty() && AlarmPanel.TYPE.status().isPresent()
+                        && AlarmPanel.TYPE.defaultAccess() == art.rehra.mineqtt.security.AccessMode.PRIVATE && AlarmPanel.TYPE.secrets().equals(java.util.Set.of("code")),
+                "The Alarm Panel drops commands while unloaded, opens its keypad by hand, has no v1 topic and no Raw Link, a status line, private access and its code a secret");
+        check(settingKeys(AlarmPanel.TYPE.settings()).equals(List.of("exit_delay", "entry_delay", "siren_duration")), "Alarm Panel settings: the three delays");
+        HaEntity.AlarmControlPanel panel = (HaEntity.AlarmControlPanel) AlarmPanel.TYPE.entities().getFirst();
+        check(panel.meta().name() == null && panel.state() == AlarmPanel.STATE && panel.commands(), "The alarm control panel is the primary entity, reading the state");
+        for (DeviceType type : DeviceTypes.all()) {
+            check(type.secrets().isEmpty() == (type != AlarmPanel.TYPE), type + ": only the Alarm Panel has secrets");
+        }
     }
 
     private static void expectPorts(DeviceType type, List<String> expected) {
@@ -1162,9 +1194,9 @@ public final class DeviceTypesCheck {
             check(timer.events().stream().allMatch(EventSpec::throttled) && timer.noV1Topic() && timer.status().isPresent(),
                     timer + ": the timers throttle fired, adopt no v1 topic and have a status line");
         }
-        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 7,
+        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 8,
                 "The M3 types, the timers, the observer, the placer, the Container Observer, the Entity Observer, the Vibration Sensor, the "
-                        + "Speaker and the Smart Lock are every built-in type");
+                        + "Speaker, the Smart Lock and the Alarm Panel are every built-in type");
         for (DeviceType type : List.of(BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE)) {
             // Of the world devices only the Block Observer's changed (M4-9, D12) throttles; the observer and the placer adopt their
             // v1 topic, and the Container Observer, which has no v1 block, takes none (it has no Raw Link). The Entity Observer,

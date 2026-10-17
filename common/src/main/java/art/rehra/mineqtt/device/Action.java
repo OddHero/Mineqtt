@@ -35,6 +35,23 @@ public record Action(String key, PortType kind, boolean toggles) {
         return new Action(STATE, PortType.BOOL, true);
     }
 
+    /**
+     * An action that fires on an edge (the Alarm Panel's triggers): a switch-state port, so a bool, a level and an event
+     * may all be wired to it. The device fires it on {@code true}, {@code ON} and {@code TOGGLE} (an event, or a pulse
+     * toggle's rising edge) and ignores {@code false}/{@code OFF}, so a sensor's on-and-off fires it once per rise.
+     */
+    public static Action edge(String key) {
+        return new Action(key, PortType.BOOL, true);
+    }
+
+    /** Whether a value sent to an {@link #edge} action fires it: {@code true}, {@code ON}, {@code TOGGLE} or {@code PRESS}. */
+    public static boolean fires(JsonElement value) {
+        if (value == null || !value.isJsonPrimitive()) return false;
+        String text = value.getAsString().trim();
+        if (text.equalsIgnoreCase(Coerce.TOGGLE) || text.equalsIgnoreCase(Coerce.PRESS)) return true;
+        return Coerce.bool(text).orElse(false);
+    }
+
     /** An action that fires, as a Home Assistant button does with {@code PRESS}; an event wired to it fires it too. */
     public static Action press(String key) {
         return new Action(key, PortType.event(key), false);

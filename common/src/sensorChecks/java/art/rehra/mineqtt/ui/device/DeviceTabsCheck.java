@@ -32,6 +32,7 @@ import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.SmartLock;
+import art.rehra.mineqtt.device.types.AlarmPanel;
 import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
@@ -140,6 +141,9 @@ public final class DeviceTabsCheck {
         // The locked switch by hand and the relock delay; lock, unlock and toggle are in-ports without controls, the status
         // line names the target.
         expected.put(SmartLock.TYPE, List.of("locked TOGGLE USE CONFIG", "relock SLIDER CONFIGURE CONFIG"));
+        // The three delays; arming, disarming and the triggers are in-ports without controls (the keypad and wires), the status
+        // line says what the panel does.
+        expected.put(AlarmPanel.TYPE, List.of("exit_delay SLIDER CONFIGURE CONFIG", "entry_delay SLIDER CONFIGURE CONFIG", "siren_duration SLIDER CONFIGURE CONFIG"));
         for (DeviceType timer : Timers.all()) {
             check(new ControlsTab(timer).statusLine() && ControlsTab.controls(timer).size() <= ControlsTab.MAX_ROWS - 1,
                     timer + ": at most four rows of controls beside its status line");
@@ -177,6 +181,7 @@ public final class DeviceTabsCheck {
         // No Raw Link: Home Assistant, wires and the hand drive it.
         advanced.put(Speaker.TYPE, List.of());
         advanced.put(SmartLock.TYPE, List.of());
+        advanced.put(AlarmPanel.TYPE, List.of());
         Timers.all().forEach(timer -> advanced.put(timer, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
                 "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG")));
         advanced.put(EntityObserver.TYPE, valueLink);
@@ -233,7 +238,10 @@ public final class DeviceTabsCheck {
     private static int tabs(DeviceType type, List<String> expected) {
         List<MqttTab> tabs = DeviceTabs.forType(type);
         boolean inPorts = type.ports().stream().anyMatch(port -> port.direction() == Port.Direction.IN);
-        List<String> ids = new ArrayList<>(List.of(GeneralTab.ID));
+        List<String> ids = new ArrayList<>();
+        // The Alarm Panel's keypad first, the second custom tab: a right-click opens it.
+        if (AlarmKeypadTab.appliesTo(type)) ids.add(AlarmKeypadTab.ID);
+        ids.add(GeneralTab.ID);
         if (inPorts) ids.add(ControlsTab.ID);
         // M4-5 (D5): the Cron Timer's Schedule tab after Controls, the one custom tab.
         if (CronScheduleTab.appliesTo(type)) ids.add(CronScheduleTab.ID);
@@ -246,9 +254,12 @@ public final class DeviceTabsCheck {
                 type.id() + ": its " + tabs.size() + " tab buttons fit the panel's width");
         check(DeviceTabs.forViewer(type, false).stream().map(MqttTab::id).toList().equals(ids),type.id() + ": a player who may build gets every generated tab");
         List<String> controlsOnly = DeviceTabs.forViewer(type, true).stream().map(MqttTab::id).toList();
-        check(controlsOnly.equals(inPorts ? List.of(ControlsTab.ID) : List.of()),
-                type.id() + ": a player who may not build gets the Controls tab alone, or no screen without one (P2): " + controlsOnly);
-        GeneralTab general = (GeneralTab) tabs.getFirst();
+        List<String> usesOnly = new ArrayList<>();
+        if (AlarmKeypadTab.appliesTo(type)) usesOnly.add(AlarmKeypadTab.ID);
+        if (inPorts) usesOnly.add(ControlsTab.ID);
+        check(controlsOnly.equals(usesOnly),
+                type.id() + ": a player who may not build gets the Controls tab alone (and the Alarm Panel's keypad), or no screen without one (P2): " + controlsOnly);
+        GeneralTab general = tabs.stream().filter(GeneralTab.class::isInstance).map(GeneralTab.class::cast).findFirst().orElseThrow();
         check(general.controls().stream().map(DeviceTabs.Control::key).toList().equals(List.of("name", "expose")), type.id() + ": General has name and expose");
         for (DeviceTabs.Control control : general.controls()) {
             LinkSetting<?> setting = type.linkSetting(control.key()).orElseThrow(() -> new AssertionError(type.id() + " declares no " + control.key()));
@@ -270,7 +281,7 @@ public final class DeviceTabsCheck {
         // M2-17: the group pages only for a type that can be grouped (design D1: actuators), never for a sensor or an input.
         check(general.grouping() == type.groupable(), type.id() + ": General has the group pages exactly when the type can be grouped");
 
-        List<DeviceTabs.Control> controls = inPorts ? ((ControlsTab) tabs.get(1)).controls() : ControlsTab.controls(type);
+        List<DeviceTabs.Control> controls = inPorts ? tabs.stream().filter(ControlsTab.class::isInstance).map(ControlsTab.class::cast).findFirst().orElseThrow().controls() : ControlsTab.controls(type);
         List<String> shown = controls.stream().map(control -> control.key() + " " + control.widget() + " " + control.gate() + " " + control.payload()).toList();
         check(shown.equals(expected), type.id() + ": the Controls tab shows " + expected + ", not " + shown);
         for (DeviceTabs.Control control : controls) {

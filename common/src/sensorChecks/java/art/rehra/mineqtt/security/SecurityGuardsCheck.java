@@ -1420,7 +1420,8 @@ public final class SecurityGuardsCheck {
         // M4-15: the Room mode's prompt (S2C) and its answer (C2S, which answers only the player's open offer).
         // M4-16: the Devices tab's search and its page.
         // M4-18: the Devices tab's actions on a device and the You row's privacy choice.
-        check(payloads.size() == 32, "32 payloads, " + payloads.size() + " found: a new or retired one updates this count");
+        // Security update: the Alarm Panel's keypad (C2S; USE to arm and disarm, CONFIGURE for the code).
+        check(payloads.size() == 33, "33 payloads, " + payloads.size() + " found: a new or retired one updates this count");
         for (String retired : List.of("set_static_message", "test_static_publish", "set_topic_relay_source", "set_topic_relay_target", "test_topic_relay",
                 "set_dynamic_data_type", "test_dynamic_publish", "light_remote_command", "set_cron_expression", "set_interval_timer", "set_single_alarm",
                 "set_game_time_timer", "set_block_sensor_mode", "trigger_block_emitter_test")) {

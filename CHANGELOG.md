@@ -46,6 +46,26 @@
   it. Only its owner, players who may configure it and operators break the plate; breaking the target pops it. It stops
   hands, not pistons, explosions or hoppers below a chest: claims stay the real protection. Crafted from iron ingots, a
   tripwire hook and the Network Chip.
+- **Alarm Panel** (new block): a keypad on the wall that turns the security devices into one alarm system, and Home
+  Assistant's alarm panel card in the world. A right-click opens its keypad: a player who may configure it types a code
+  of 4 to 8 digits and presses *Set code* (only while it is disarmed); without a code it does not arm. Players who may
+  use it press *Arm away* or *Arm home* (no code needed) and type the code to *Disarm*. Arming takes the *Exit delay*
+  (30 s by default) to leave the room; a trigger while armed gives the *Entry delay* (30 s) to disarm, then it is
+  triggered for the *Siren duration* (3 minutes by default, 0 until disarmed) and armed again as before. Its light shows
+  green disarmed, red armed, amber blinking while a delay runs and red flashing triggered, and it beeps through the
+  delays. **Wires make the system:** a Smart Lock's *attempt* or a door's Vibration Sensor into *trigger_home* (the
+  perimeter: armed home and away), a Vibration Sensor, Presence Sensor or Redstone Input inside into *trigger_away*
+  (armed away only), and its *triggered* into a Speaker's *state* sounds the siren (set the Speaker's duration at least as
+  long as the siren duration); *armed* and *state* switch lamps and outputs. Wires may also arm and disarm it, without a
+  code, since only players who may configure the panel make them. Home Assistant sees an alarm control panel (disarmed,
+  arming, armed home, armed away, pending, triggered) that asks for the code to disarm and lets the panel check it, an
+  *Alarm* event (arm, disarm, trigger, wrong_code), *Triggered*, *Trigger source* (the kind of device, e.g. "Vibration
+  Sensor", never a player), *Wrong codes*, *Time left*, the three delays as settings and the *Lockout* and *Code set*
+  diagnostics. **The code** is kept only as a salted, slow hash in the block: never in the state, Home Assistant's
+  discovery, the device registry, a log line or the screen. Three wrong codes in a row, on the keypad or from Home
+  Assistant, lock it out for 30 s, then 60 s, doubling up to 15 minutes; each one raises an anonymous *wrong_code*.
+  Home Assistant sends the code over MQTT, so use TLS on the broker. Crafted from stone buttons, iron ingots, redstone
+  and the Network Chip.
 
 ### For server admins
 

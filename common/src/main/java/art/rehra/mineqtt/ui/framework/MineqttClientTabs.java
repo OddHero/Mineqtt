@@ -7,6 +7,8 @@ import art.rehra.mineqtt.ui.console.ConsoleDevicesTabView;
 import art.rehra.mineqtt.ui.console.ConsoleGroupsTab;
 import art.rehra.mineqtt.ui.console.ConsoleGroupsTabView;
 import art.rehra.mineqtt.ui.device.AccessTab;
+import art.rehra.mineqtt.ui.device.AlarmKeypadTab;
+import art.rehra.mineqtt.ui.device.AlarmKeypadTabView;
 import art.rehra.mineqtt.ui.device.AccessTabView;
 import art.rehra.mineqtt.ui.device.AdvancedTab;
 import art.rehra.mineqtt.ui.device.AdvancedTabView;
@@ -38,6 +40,7 @@ public final class MineqttClientTabs {
         MqttTabViews.register(GeneralTab.ID, GeneralTabView::new);
         MqttTabViews.register(ControlsTab.ID, ControlsTabView::new);
         MqttTabViews.register(CronScheduleTab.ID, CronScheduleTabView::new);
+        MqttTabViews.register(AlarmKeypadTab.ID, AlarmKeypadTabView::new);
         MqttTabViews.register(TwinTab.ID, TwinTabView::new);
         MqttTabViews.register(AdvancedTab.ID, AdvancedTabView::new);
         MqttTabViews.register(AccessTab.ID, AccessTabView::new);

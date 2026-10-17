@@ -244,12 +244,15 @@ public final class DeviceTabs {
     }
 
     /**
-     * The generated tabs of a device of {@code type}, in tab-bar order: General, Controls when it has any, Schedule for the
-     * Cron Timer (M4 plan D5), Twin when its type takes part in the Home Assistant twin (M3 plan D19), then Advanced, which
-     * every device has for its links, Access and Diagnostics.
+     * The generated tabs of a device of {@code type}, in tab-bar order: the Alarm Panel's Keypad first (a right-click opens
+     * it), General, Controls when it has any, Schedule for the Cron Timer (M4 plan D5), Twin when its type takes part in
+     * the Home Assistant twin (M3 plan D19), then Advanced, which every device has for its links, Access and Diagnostics.
      */
     public static List<MqttTab> forType(DeviceType type) {
-        List<MqttTab> tabs = new ArrayList<>(List.of(new GeneralTab(type)));
+        List<MqttTab> tabs = new ArrayList<>();
+        // The second custom tab: the Alarm Panel's keypad, whose code never travels as a setting.
+        if (AlarmKeypadTab.appliesTo(type)) tabs.add(new AlarmKeypadTab());
+        tabs.add(new GeneralTab(type));
         if (!ControlsTab.controls(type).isEmpty()) tabs.add(new ControlsTab(type));
         // The one custom tab (M4 plan D5): the Cron Timer's per-field editor of its expression.
         if (CronScheduleTab.appliesTo(type)) tabs.add(new CronScheduleTab(type));
@@ -269,7 +272,11 @@ public final class DeviceTabs {
      */
     public static List<MqttTab> forViewer(DeviceType type, boolean controlsOnly) {
         if (!controlsOnly) return forType(type);
-        return ControlsTab.controls(type).isEmpty() ? List.of() : List.of(new ControlsTab(type));
+        List<MqttTab> tabs = new ArrayList<>();
+        // The keypad needs USE only, so a player who may not build arms and disarms the panel too.
+        if (AlarmKeypadTab.appliesTo(type)) tabs.add(new AlarmKeypadTab());
+        if (!ControlsTab.controls(type).isEmpty()) tabs.add(new ControlsTab(type));
+        return List.copyOf(tabs);
     }
 
     /** A name as the server keeps it ({@link LinkSetting#NAME}): sanitised and stripped. */

@@ -1,0 +1,79 @@
+{
+  "variants": {
+    "facing=north,status=disarmed": {
+      "model": "mineqtt:block/alarm_panel"
+    },
+    "facing=north,status=arming": {
+      "model": "mineqtt:block/alarm_panel_arming"
+    },
+    "facing=north,status=armed": {
+      "model": "mineqtt:block/alarm_panel_armed"
+    },
+    "facing=north,status=pending": {
+      "model": "mineqtt:block/alarm_panel_pending"
+    },
+    "facing=north,status=triggered": {
+      "model": "mineqtt:block/alarm_panel_triggered"
+    },
+    "facing=east,status=disarmed": {
+      "model": "mineqtt:block/alarm_panel",
+      "y": 90
+    },
+    "facing=east,status=arming": {
+      "model": "mineqtt:block/alarm_panel_arming",
+      "y": 90
+    },
+    "facing=east,status=armed": {
+      "model": "mineqtt:block/alarm_panel_armed",
+      "y": 90
+    },
+    "facing=east,status=pending": {
+      "model": "mineqtt:block/alarm_panel_pending",
+      "y": 90
+    },
+    "facing=east,status=triggered": {
+      "model": "mineqtt:block/alarm_panel_triggered",
+      "y": 90
+    },
+    "facing=south,status=disarmed": {
+      "model": "mineqtt:block/alarm_panel",
+      "y": 180
+    },
+    "facing=south,status=arming": {
+      "model": "mineqtt:block/alarm_panel_arming",
+      "y": 180
+    },
+    "facing=south,status=armed": {
+      "model": "mineqtt:block/alarm_panel_armed",
+      "y": 180
+    },
+    "facing=south,status=pending": {
+      "model": "mineqtt:block/alarm_panel_pending",
+      "y": 180
+    },
+    "facing=south,status=triggered": {
+      "model": "mineqtt:block/alarm_panel_triggered",
+      "y": 180
+    },
+    "facing=west,status=disarmed": {
+      "model": "mineqtt:block/alarm_panel",
+      "y": 270
+    },
+    "facing=west,status=arming": {
+      "model": "mineqtt:block/alarm_panel_arming",
+      "y": 270
+    },
+    "facing=west,status=armed": {
+      "model": "mineqtt:block/alarm_panel_armed",
+      "y": 270
+    },
+    "facing=west,status=pending": {
+      "model": "mineqtt:block/alarm_panel_pending",
+      "y": 270
+    },
+    "facing=west,status=triggered": {
+      "model": "mineqtt:block/alarm_panel_triggered",
+      "y": 270
+    }
+  }
+}

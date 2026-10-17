@@ -57,6 +57,7 @@ public final class DeviceType {
     private final CommandPreview preview;
     private final UnaryOperator<JsonObject> powerOn;
     private final @Nullable TwinAdapter twin;
+    private final Set<String> secrets;
 
     private DeviceType(Builder builder) {
         this.id = builder.id;
@@ -82,6 +83,7 @@ public final class DeviceType {
         this.preview = builder.preview != null ? builder.preview : this::applyFields;
         this.powerOn = builder.powerOn;
         this.twin = builder.twin;
+        this.secrets = Set.copyOf(builder.secrets);
     }
 
     public static Builder builder(Identifier id) {
@@ -244,6 +246,30 @@ public final class DeviceType {
 
     public Optional<RawLinkSpec> rawLink() {
         return Optional.ofNullable(rawLink);
+    }
+
+    /**
+     * The command keys whose values are secrets ({@link Builder#secret}, the Alarm Panel's {@code code}): no log line, no
+     * Diagnostics tab and no queue ever holds them ({@link #redact}).
+     */
+    public Set<String> secrets() {
+        return secrets;
+    }
+
+    /** The value a secret is shown as wherever a command of the type is logged or kept: never the secret itself. */
+    public static final String REDACTED = "<redacted>";
+
+    /**
+     * A copy of {@code command} with the value of every secret key ({@link #secrets()}) replaced by {@link #REDACTED};
+     * the command itself for a type without secrets.
+     */
+    public JsonObject redact(JsonObject command) {
+        if (secrets.isEmpty() || secrets.stream().noneMatch(command::has)) return command;
+        JsonObject redacted = command.deepCopy();
+        for (String key : secrets) {
+            if (redacted.has(key)) redacted.addProperty(key, REDACTED);
+        }
+        return redacted;
     }
 
     /** How the type takes part in the twin; empty for a type no binding fits (M3 plan §3.1). */
@@ -473,6 +499,7 @@ public final class DeviceType {
         private @Nullable CommandPreview preview;
         private UnaryOperator<JsonObject> powerOn = UnaryOperator.identity();
         private @Nullable TwinAdapter twin;
+        private final Set<String> secrets = new HashSet<>();
 
         private Builder(Identifier id) {
             this.id = id;
@@ -601,6 +628,16 @@ public final class DeviceType {
             return this;
         }
 
+        /**
+         * Declares a command key whose value is a secret (the Alarm Panel's {@code code}): it is no field, never part of a
+         * state, and wherever the runtime logs or keeps a command of the type it shows {@link #REDACTED} instead
+         * ({@link DeviceType#redact}). A type with secrets must not queue commands, as the queue is saved.
+         */
+        public Builder secret(String key) {
+            this.secrets.add(key);
+            return this;
+        }
+
         /** How devices of this type take part in the twin (M3 plan §3.1); checked against the ports by {@link #build()}. */
         public Builder twin(TwinAdapter twin) {
             this.twin = twin;
@@ -724,6 +761,15 @@ public final class DeviceType {
                             fail("lock " + entity.key() + " reads field " + lock.state().key() + ", whose names are no lock states with locked and unlocked");
                         }
                     }
+                    case HaEntity.AlarmControlPanel panel -> {
+                        // Its state is an enum of Home Assistant's alarm states; its code reaches the device only, as a secret.
+                        if (!fields.contains(panel.state())) fail("alarm control panel " + entity.key() + " reads undeclared field " + panel.state().key());
+                        if (!panel.state().access().readable()) fail("alarm control panel " + entity.key() + " reads write-only field " + panel.state().key());
+                        if (panel.states().isEmpty() || !HaEntity.AlarmControlPanel.STATES.containsAll(panel.states()) || !panel.states().contains("disarmed")) {
+                            fail("alarm control panel " + entity.key() + " reads field " + panel.state().key() + ", whose names are no alarm states with disarmed");
+                        }
+                        if (!secrets.contains(HaEntity.AlarmControlPanel.CODE)) fail("alarm control panel " + entity.key() + " needs its code declared a secret");
+                    }
                     case HaEntity.Select select -> {
                         // Runtime options are names the field must take as they are (M4 plan §3.2).
                         if (select.dynamic() && !(select.field().kind() instanceof PortType.Text || select.field().kind() instanceof PortType.Enum)) {
@@ -759,6 +805,12 @@ public final class DeviceType {
                 if (!keys.contains(deadband.getKey())) fail("has a deadband on undeclared field " + deadband.getKey());
                 if (!(deadband.getValue() > 0)) fail("has a deadband that is not positive on " + deadband.getKey());
             }
+            for (String secret : secrets) {
+                // A secret is a command key only: a field, action or setting of its key would publish or show it.
+                if (keys.contains(secret) || actionKeys.contains(secret)) fail("declares secret " + secret + ", which is also a field or action");
+            }
+            // The queue of an unloaded device is saved in the registry, which must never hold a secret.
+            if (!secrets.isEmpty() && unloadedPolicy == UnloadedPolicy.QUEUE) fail("has secrets but queues commands while unloaded");
             if (twin != null) checkTwin(twin);
             return new DeviceType(this);
         }

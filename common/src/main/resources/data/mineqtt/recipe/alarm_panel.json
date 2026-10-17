@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "B": "minecraft:stone_button",
+    "I": "minecraft:iron_ingot",
+    "R": "minecraft:redstone",
+    "N": "mineqtt:network_chip"
+  },
+  "pattern": [
+    "BBB",
+    "IRI",
+    " N "
+  ],
+  "result": {
+    "id": "mineqtt:alarm_panel"
+  }
+}

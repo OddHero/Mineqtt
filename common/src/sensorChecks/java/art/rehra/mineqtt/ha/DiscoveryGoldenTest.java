@@ -24,6 +24,7 @@ import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.SmartLock;
+import art.rehra.mineqtt.device.types.AlarmPanel;
 import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
@@ -103,6 +104,7 @@ public final class DiscoveryGoldenTest {
         vibrationSensor();
         speaker();
         smartLock();
+        alarmPanel();
         wallSwitch();
         displayPanel();
         everyEntityKind();
@@ -545,6 +547,27 @@ public final class DiscoveryGoldenTest {
      * event entity, the attempts, the relock delay as a config number, the target and status diagnostics. No open
      * payload and nothing that names a player.
      */
+    private static void alarmPanel() throws IOException {
+        UUID panelId = UUID.fromString("7a8b9c0d-1e2f-4a3b-9c4d-5e6f7a8b9c0d");
+        DeviceRecord panel = new DeviceRecord(panelId, AlarmPanel.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(20, 64, 0)), "Hall Alarm", "hall_alarm");
+        JsonObject config = DiscoveryPublisher.deviceConfig(AlarmPanel.TYPE, panel, TOPICS, IDENTITY);
+        assertGolden("alarm_panel", config);
+        JsonObject components = config.getAsJsonObject("cmps");
+        check(components.keySet().equals(Set.of("alarm", "alarm_event", "triggered", "trigger_source", "wrong_codes", "time_left", "exit_delay", "entry_delay",
+                "siren_duration", "lockout", "code_set", "location")), "Alarm Panel entities: " + components.keySet());
+        JsonObject entity = components.getAsJsonObject("alarm");
+        expect(entity, "p", "alarm_control_panel");
+        expect(entity, "command_topic", "mineqtt/world_7f3a/hall_alarm/set");
+        expect(entity, "state_topic", "mineqtt/world_7f3a/hall_alarm");
+        expect(entity, "value_template", "{{ value_json.state }}");
+        expect(entity, "code", "REMOTE_CODE");
+        check(entity.get("name").isJsonNull() && !entity.get("retain").getAsBoolean(), "The alarm panel is the primary entity, never retained: " + entity);
+        JsonObject event = components.getAsJsonObject("alarm_event");
+        expect(event, "p", "event");
+        check(event.getAsJsonArray("event_types").toString().equals("[\"arm\",\"disarm\",\"trigger\",\"wrong_code\"]"), "Four event types: " + event);
+        check(!config.toString().contains("player") && !config.toString().replace("\"code\":\"REMOTE_CODE\"", "").contains("\"code\":\""), "Nothing in the discovery names a player or holds a code");
+    }
+
     private static void smartLock() throws IOException {
         UUID lockId = UUID.fromString("6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c");
         DeviceRecord lock = new DeviceRecord(lockId, SmartLock.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(18, 64, 0)), "Front Door Lock",
@@ -683,9 +706,11 @@ public final class DiscoveryGoldenTest {
         Field<Integer> items = Field.intRange("items", 0, 64, Access.READ);
         Field<Boolean> latched = Field.bool("latched", Access.READ_WRITE);
         Field<SmartLock.LockState> lockState = Field.enumOf("lock_state", SmartLock.LockState.class, Access.READ);
+        Field<AlarmPanel.AlarmState> alarmState = Field.enumOf("alarm_state", AlarmPanel.AlarmState.class, Access.READ);
         DeviceType type = DeviceType.builder(Identifier.fromNamespaceAndPath("mineqtt_check", "everything"))
-                .model("Everything")
-                .field(power).field(mode).field(powered).field(label).field(items).field(latched).field(lockState).field(CommonFields.LOCATION)
+                // An alarm panel's code is a secret, which a type that queues may not have.
+                .model("Everything").unloaded(art.rehra.mineqtt.device.UnloadedPolicy.UNAVAILABLE).secret("code")
+                .field(power).field(mode).field(powered).field(label).field(items).field(latched).field(lockState).field(alarmState).field(CommonFields.LOCATION)
                 .entity(Ha.switchOf("output", power).on(15).off(0).name(null))
                 .entity(Ha.number("power_level", power).range(0, 15).slider().unit("level"))
                 .entity(Ha.select("mode", mode).config())
@@ -698,6 +723,7 @@ public final class DiscoveryGoldenTest {
                 .entity(Ha.notify("message"))
                 .entity(Ha.siren("siren", powered, mode, power))
                 .entity(Ha.lock("lock", lockState, latched))
+                .entity(Ha.alarmControlPanel("alarm", alarmState))
                 .entity(Ha.deviceTrigger("button_short_press", "left", "press", "button"))
                 // Every command and event entity has its declaration (M2-4): no discovery key depends on them.
                 .action(Action.state()).action(Action.press("trigger_now")).action(new Action("message", PortType.text(255), false))
@@ -765,6 +791,21 @@ public final class DiscoveryGoldenTest {
         expect(lock, "state_jammed", "jammed");
         check(!lock.has("payload_open") && !lock.has("command_template") && !lock.get("retain").getAsBoolean(),
                 "A lock sends its locked field's command as it is, never opens and is never retained: " + lock);
+        JsonObject alarm = components.getAsJsonObject("alarm");
+        expect(alarm, "p", "alarm_control_panel");
+        expect(alarm, "command_topic", state + "/set");
+        expect(alarm, "state_topic", state);
+        expect(alarm, "value_template", "{{ value_json.alarm_state }}");
+        expect(alarm, "command_template", "{\"action\":\"{{ action }}\",\"code\":{{ code | tojson }}}");
+        expect(alarm, "code", "REMOTE_CODE");
+        expect(alarm, "payload_arm_away", "ARM_AWAY");
+        expect(alarm, "payload_arm_home", "ARM_HOME");
+        expect(alarm, "payload_disarm", "DISARM");
+        expect(alarm, "payload_trigger", "TRIGGER");
+        check(alarm.getAsJsonArray("supported_features").toString().equals("[\"arm_home\",\"arm_away\",\"trigger\"]")
+                        && !alarm.get("code_arm_required").getAsBoolean() && alarm.get("code_disarm_required").getAsBoolean()
+                        && !alarm.get("code_trigger_required").getAsBoolean() && !alarm.get("retain").getAsBoolean(),
+                "An alarm panel checks its code in the device, asks for it to disarm only and is never retained: " + alarm);
 
         JsonObject trigger = components.getAsJsonObject("button_short_press_left");
         expect(trigger, "p", "device_automation");
@@ -782,7 +823,7 @@ public final class DiscoveryGoldenTest {
         check(config.getAsJsonObject("dev").get("via_device").getAsString().equals(IDENTITY.bridgeObjectId()), "Every device is behind the bridge");
 
         JsonObject group = DiscoveryPublisher.groupConfig(type, new DeviceGroup(UUID.randomUUID(), "G", "g"), TOPICS, IDENTITY).getAsJsonObject("cmps");
-        check(group.keySet().equals(Set.of("output", "power_level", "mode", "trigger_now", "label", "message", "siren", "lock")),
+        check(group.keySet().equals(Set.of("output", "power_level", "mode", "trigger_now", "label", "message", "siren", "lock", "alarm")),
                 "A group gets only command entities, no sensors, events or triggers: " + group.keySet());
     }
 

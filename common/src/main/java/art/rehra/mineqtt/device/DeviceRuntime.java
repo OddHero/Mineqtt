@@ -53,6 +53,7 @@ import art.rehra.mineqtt.ui.device.DeviceMenu;
 import art.rehra.mineqtt.ui.device.TwinPicker;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.JsonOps;
@@ -969,6 +970,18 @@ public final class DeviceRuntime {
         fromScreen(player, blockEntity, key, (devices, record, editor) -> devices.action(record, key, value, editor));
     }
 
+    /**
+     * The Alarm Panel's keypad: a player's command from the keypad tab of the panel whose screen they have open, judged as
+     * any command of theirs ({@link #set(DeviceRecord, JsonObject, ServerPlayer)}); a refusal is told on the screen and in
+     * chat, with the command's secrets masked.
+     */
+    public static void keypad(ServerPlayer player, BlockEntity blockEntity, JsonObject command) {
+        fromScreen(player, blockEntity, KEYPAD_KEY, (devices, record, editor) -> devices.set(record, command, editor.player()));
+    }
+
+    /** The key a refusal of the Alarm Panel's keypad is sent back under ({@code DeviceRefusedPayload}). */
+    public static final String KEYPAD_KEY = "keypad";
+
     /** {@code DeviceClaimC2S}: a player claims the device whose screen they have open ({@link #claim(DeviceRecord, Editor)}). */
     public static void claim(ServerPlayer player, BlockEntity blockEntity) {
         fromScreen(player, blockEntity, CLAIM_KEY, (devices, record, editor) -> devices.claim(record, editor));
@@ -1591,7 +1604,8 @@ public final class DeviceRuntime {
         } finally {
             actor = before;
         }
-        String shown = shown(command.toString());
+        // A command's secrets (the Alarm Panel's code) are never echoed.
+        String shown = shown(redacted(DeviceTypes.get(record.type()), command).toString());
         // A faulted device is offline although its chunk may be loaded, so the reply names the fault and the retry instead.
         String offline = fault(record.pos()).map(fault -> " is faulted (" + fault.text() + "; /mineqtt devices retry " + record.slug() + ")")
                 .orElse(" is not loaded");
@@ -4240,7 +4254,7 @@ public final class DeviceRuntime {
         Route route = route(false, type, blockEntity != null, source, mirrored);
         if (route == Route.REFUSE) {
             String reason = refusal(record.slug(), binding, source, mirrored.control(), type.twin().map(twin -> !twin.controllable()).orElse(false));
-            MineQTT.LOGGER.debug("Device {} refused {} ({}): {}", record.slug(), command, source, reason);
+            MineQTT.LOGGER.debug("Device {} refused {} ({}): {}", record.slug(), redacted(type, command), source, reason);
             if (message != null) traffic(record.id()).dropped();
             return new Delivery(route, null, reason);
         }
@@ -4254,18 +4268,18 @@ public final class DeviceRuntime {
                     logOnce("twin-root:" + record.id() + ":" + root, "Device {} does not ask Home Assistant to change {} for a {} cause: {}",
                             record.slug(), binding.describeSource(), root.name().toLowerCase(Locale.ROOT), TwinGate.refusal(root).orElse(""));
                 } else {
-                    MineQTT.LOGGER.debug("Device {} did not forward {} ({}): {}", record.slug(), command, source, refused.reason());
+                    MineQTT.LOGGER.debug("Device {} did not forward {} ({}): {}", record.slug(), redacted(type, command), source, refused.reason());
                 }
             }
             return Delivery.forwarded(forwarded);
         }
         if (route == Route.APPLY) {
             DeviceHost host = requireHost(blockEntity);
-            CommandResult result = host.applyCommand(new CommandReader(command), source);
+            CommandResult result = host.applyCommand(new CommandReader(command), source, originModel(source, origin));
             switch (result.outcome()) {
                 case APPLIED -> publishState(host, false);
                 case REJECTED -> {
-                    MineQTT.LOGGER.debug("Device {} rejected {} ({}{}): {}", record.slug(), command, source,
+                    MineQTT.LOGGER.debug("Device {} rejected {} ({}{}): {}", record.slug(), redacted(type, command), source,
                             origin == null ? "" : " from " + origin, result.detail());
                     if (message != null) traffic(record.id()).dropped();
                 }
@@ -4508,8 +4522,38 @@ public final class DeviceRuntime {
     }
 
     private void received(UUID id, Inbound message) {
-        traffic(id).received(message.topic(), message.payload(), Util.getMillis());
+        DeviceRecord record = registry.record(id);
+        DeviceType type = record == null ? null : DeviceTypes.get(record.type());
+        traffic(id).received(message.topic(), redactedPayload(type, message.topic(), message.payload()), Util.getMillis());
         viewChanged(id);
+    }
+
+    // A command as it may be logged: its secrets (the Alarm Panel's code) masked.
+    private static JsonObject redacted(@Nullable DeviceType type, JsonObject command) {
+        return type == null ? command : type.redact(command);
+    }
+
+    /**
+     * A message's payload as the Diagnostics tab may keep it: for a type with secrets, a JSON object with its secrets
+     * masked, and anything else (a plain {@code /set/<key>} value, text that is no JSON object) masked whole.
+     */
+    public static byte[] redactedPayload(@Nullable DeviceType type, String topic, byte[] payload) {
+        if (type == null || type.secrets().isEmpty()) return payload;
+        try {
+            JsonElement json = JsonParser.parseString(new String(payload, java.nio.charset.StandardCharsets.UTF_8));
+            if (json.isJsonObject()) return ValueCodecs.utf8(type.redact(json.getAsJsonObject()).toString());
+        } catch (RuntimeException e) {
+            // Not JSON: masked whole below.
+        }
+        return ValueCodecs.utf8(DeviceType.REDACTED);
+    }
+
+    // The model of the device a wire's command came from, for the target to tell which kind of device sent it.
+    private @Nullable String originModel(CommandSource source, @Nullable UUID origin) {
+        if (source != CommandSource.BINDING || origin == null) return null;
+        DeviceRecord from = registry.record(origin);
+        DeviceType type = from == null ? null : DeviceTypes.get(from.type());
+        return type == null ? null : type.model();
     }
 
     // Publishes one of a device's own messages (its state, an event, its Raw Link level or its state echo) and keeps it.

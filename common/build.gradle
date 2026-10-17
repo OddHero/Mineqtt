@@ -185,6 +185,14 @@ tasks.register('verifySmartLock', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.device.SmartLockCheck'
 }
+// The Alarm Panel's rules: the state machine with its delays and siren time, the zones, the panic, the code's format,
+// hash and check, the wrong-code lockout, what each source may ask, the events, the saved form, and that the code is in
+// no state, log form, Diagnostics payload or keypad payload text.
+tasks.register('verifyAlarmPanel', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.AlarmPanelCheck'
+}
 // Config v2 defaults, v1 migration, the JSON form and credential masking; plain Java, no game bootstrap needed.
 tasks.register('verifyConfigMigration', JavaExec) {
     dependsOn sensorChecksClasses
@@ -543,6 +551,7 @@ tasks.named('check') {
     dependsOn tasks.named('verifyVibrationSensor')
     dependsOn tasks.named('verifySpeaker')
     dependsOn tasks.named('verifySmartLock')
+    dependsOn tasks.named('verifyAlarmPanel')
     // The Minecraft-free checks (brokerChecks and the isolation of the cores) are the same for every Minecraft version and
     // start brokers on fixed ports, so only the active version's check runs them.
     if (stonecutter.current.isActive) {

@@ -582,6 +582,23 @@ public final class DiscoveryPublisher {
                 component.addProperty("payload_unlock", "{\"" + lock.locked().key() + "\":false}");
                 for (String name : lock.states()) component.addProperty("state_" + name, name);
             }
+            case HaEntity.AlarmControlPanel panel -> {
+                // REMOTE_CODE: Home Assistant shows its keypad and sends what was typed with the command, through the
+                // template, for the device to check; it validates nothing itself. The payloads are its defaults.
+                component.addProperty("state_topic", topics.state());
+                component.addProperty("value_template", valueTemplate(panel.state()));
+                component.addProperty("command_topic", topics.set());
+                component.addProperty("command_template", HaEntity.AlarmControlPanel.commandTemplate());
+                component.addProperty("code", HaEntity.AlarmControlPanel.REMOTE_CODE);
+                component.addProperty("code_arm_required", panel.codeArm());
+                component.addProperty("code_disarm_required", panel.codeDisarm());
+                component.addProperty("code_trigger_required", panel.codeTrigger());
+                component.add("supported_features", strings(panel.features()));
+                component.addProperty("payload_arm_away", HaEntity.AlarmControlPanel.ARM_AWAY);
+                component.addProperty("payload_arm_home", HaEntity.AlarmControlPanel.ARM_HOME);
+                component.addProperty("payload_disarm", HaEntity.AlarmControlPanel.DISARM);
+                component.addProperty("payload_trigger", HaEntity.AlarmControlPanel.TRIGGER);
+            }
             case HaEntity.DeviceTrigger trigger -> {
                 component.addProperty("automation_type", "trigger");
                 component.addProperty("topic", topics.action());
