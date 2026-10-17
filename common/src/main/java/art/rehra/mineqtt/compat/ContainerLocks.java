@@ -44,9 +44,13 @@ public final class ContainerLocks {
         *///?}
     }
 
-    /** Whether {@code code} is the Smart Lock's lock, by its saved form. */
+    /**
+     * Whether {@code code} is the Smart Lock's lock, by its saved form. Hoppers ask it on every pull, so no lock and the
+     * Smart Lock's own instance are answered without encoding.
+     */
     public static boolean isSmartLock(LockCode code) {
         if (code == SMART_LOCK) return true;
+        if (code == LockCode.NO_LOCK || code.equals(LockCode.NO_LOCK)) return false;
         Optional<JsonElement> saved = LockCode.CODEC.encodeStart(JsonOps.INSTANCE, code).result();
         Optional<JsonElement> ours = LockCode.CODEC.encodeStart(JsonOps.INSTANCE, SMART_LOCK).result();
         return saved.isPresent() && saved.equals(ours);
@@ -72,9 +76,16 @@ public final class ContainerLocks {
         return !lock.equals(LockCode.NO_LOCK) && !isSmartLock(lock);
     }
 
-    /** Whether the container carries the Smart Lock's lock. */
+    /**
+     * Whether the container carries the Smart Lock's lock. A lock read back from saved data is swapped for the Smart
+     * Lock's own instance, which saves the same, so the next question is answered without encoding.
+     */
     public static boolean locked(BaseContainerBlockEntity container) {
-        return isSmartLock(lock(container));
+        LockCode lock = lock(container);
+        if (lock == SMART_LOCK) return true;
+        if (!isSmartLock(lock)) return false;
+        ((BaseContainerBlockEntityAccessor) container).mineqtt$setLockKey(SMART_LOCK);
+        return true;
     }
 
     /**

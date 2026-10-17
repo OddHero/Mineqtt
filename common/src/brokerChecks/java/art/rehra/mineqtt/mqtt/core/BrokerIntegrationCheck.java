@@ -547,6 +547,10 @@ public final class BrokerIntegrationCheck {
      * A wide filter the broker refuses takes nothing over: the narrower filters it covers stay subscribed on their own,
      * also after a reconnect, and the wide filter takes them over once the broker accepts it. Local routing hands the
      * wide handler whatever the narrower subscriptions bring, but nothing only the refused filter would cover.
+     * <p>
+     * Nothing here waits on the wall clock alone: a reconnect waits until the broker has let go of the old connection
+     * ({@link #reconnect}), and each round first sends markers until one arrives ({@link Round#publish}), so a loaded
+     * machine only makes it slower.
      */
     private static void refusedCoveringFilter(Target target, ProtocolVersion protocol, String root) throws Exception {
         EmbeddedMoquette broker = target.refusingBroker();
@@ -554,8 +558,9 @@ public final class BrokerIntegrationCheck {
         String scope = root + "/" + EmbeddedMoquette.REFUSED_LEVEL;
         String wideFilter = scope + "/#";
         Round round = new Round(scope + "/lamp/set", scope + "/plug/set", scope + "/sensor/state", root + "/marker");
+        String clientId = "it-" + shortId();
         try (TcpProxy proxy = new TcpProxy(target.host(), target.port()); Remote remote = new Remote(target)) {
-            HiveMqttService service = service(target, proxy, protocol, root, BrokerSettings.DEFAULT_MAX_INBOUND_BYTES);
+            HiveMqttService service = service(target, proxy, protocol, root, clientId, BrokerSettings.DEFAULT_MAX_INBOUND_BYTES);
             try {
                 Recorder exact = new Recorder();
                 Recorder plus = new Recorder();
@@ -570,34 +575,31 @@ public final class BrokerIntegrationCheck {
                 tickUntil(service, () -> service.refusedFilters().contains(wideFilter), "the broker to refuse the wide filter");
                 // The narrower filters are subscribed again in reply to the refusal, so only now are they all in place.
                 awaitBrokerOperations(service);
-                long before = service.receivedFromBroker();
-                round.publish(service, remote, markers, "1");
+                long received = round.publish(service, remote, markers, "1");
                 check(exact.payloads().equals(List.of("lamp1")) && plus.payloads().equals(List.of("lamp1", "plug1")),
                         "The narrower filters survive the refusal, got " + exact.payloads() + " " + plus.payloads());
                 check(wide.payloads().equals(List.of("lamp1", "plug1")), "The refused filter brings nothing itself, got " + wide.payloads());
-                check(service.receivedFromBroker() == before + 3, "One copy per deliverable message, got " + (service.receivedFromBroker() - before));
+                check(received == 3, "One copy per deliverable message, got " + received);
 
                 // The whole table goes out again after a reconnect and the broker refuses the wide filter again.
-                reconnect(service, proxy);
-                before = service.receivedFromBroker();
-                round.publish(service, remote, markers, "2");
+                reconnect(service, proxy, broker, clientId);
+                received = round.publish(service, remote, markers, "2");
                 check(exact.payloads().equals(List.of("lamp1", "lamp2")) && plus.payloads().equals(List.of("lamp1", "plug1", "lamp2", "plug2")),
                         "A reconnect keeps the narrower filters, got " + exact.payloads() + " " + plus.payloads());
                 check(service.refusedFilters().contains(wideFilter) && !wide.payloads().contains("sensor2"), "The wide filter is still refused");
-                check(service.receivedFromBroker() == before + 3, "Still one copy per message, got " + (service.receivedFromBroker() - before));
+                check(received == 3, "Still one copy per message, got " + received);
 
                 // Once the broker accepts it, the wide filter takes the narrower ones over again.
                 broker.refuseWideFilters(false);
-                reconnect(service, proxy);
+                reconnect(service, proxy, broker, clientId);
                 tickUntil(service, () -> service.refusedFilters().isEmpty(), "the broker to accept the wide filter");
                 awaitBrokerOperations(service);
-                before = service.receivedFromBroker();
-                round.publish(service, remote, markers, "3");
+                received = round.publish(service, remote, markers, "3");
                 check(count(exact.payloads(), "lamp3") == 1 && count(plus.payloads(), "lamp3") == 1 && count(plus.payloads(), "plug3") == 1,
                         "The narrower handlers still get each message once, got " + exact.payloads() + " " + plus.payloads());
                 check(wide.payloads().subList(4, wide.payloads().size()).equals(List.of("lamp3", "plug3", "sensor3")),
                         "The accepted wide filter receives its whole scope, got " + wide.payloads());
-                check(service.receivedFromBroker() == before + 4, "The narrower subscriptions are gone, got " + (service.receivedFromBroker() - before));
+                check(received == 4, "The narrower subscriptions are gone, got " + received);
             } finally {
                 broker.refuseWideFilters(true);
                 service.close();
@@ -607,14 +609,47 @@ public final class BrokerIntegrationCheck {
 
     /** The topics of one publishing round of {@link #refusedCoveringFilter}; only {@code sensor} is outside {@code +/set}. */
     private record Round(String lamp, String plug, String sensor, String marker) {
-        /** Publishes {@code lamp<n>}, {@code plug<n>}, {@code sensor<n>} and a marker, and ticks until the marker arrived. */
-        void publish(HiveMqttService service, Remote remote, Recorder markers, String n) throws Exception {
+        /** How long a ready marker may take before the next one goes out. */
+        private static final long READY_RETRY_MILLIS = 250;
+
+        /**
+         * Sends ready markers until one arrives, which shows the service's subscriptions in place on the broker, then
+         * publishes {@code lamp<n>}, {@code plug<n>}, {@code sensor<n>} and a marker, and ticks until the marker arrived.
+         *
+         * @return how many messages the broker sent the service for the round itself, the ready markers not counted
+         */
+        long publish(HiveMqttService service, Remote remote, Recorder markers, String n) throws Exception {
+            awaitReady(service, remote, markers, n);
+            long before = service.receivedFromBroker();
             remote.publish(lamp, "lamp" + n, 1, false);
             remote.publish(plug, "plug" + n, 1, false);
             remote.publish(sensor, "sensor" + n, 1, false);
             remote.publish(marker, "m" + n, 1, false);
             tickUntil(service, () -> markers.payloads().contains("m" + n), "marker " + n);
             tickFor(service, 200);
+            return service.receivedFromBroker() - before;
+        }
+
+        /**
+         * A marker published before the subscription is in place is lost, and one after it arrives in order; so once the
+         * last one sent arrives, every earlier one has arrived or is gone, and none is still on its way.
+         */
+        private void awaitReady(HiveMqttService service, Remote remote, Recorder markers, String n) throws Exception {
+            long deadline = System.currentTimeMillis() + TIMEOUT_MILLIS;
+            for (int attempt = 1; ; attempt++) {
+                String ready = "ready" + n + "-" + attempt;
+                remote.publish(marker, ready, 1, false);
+                long retry = System.currentTimeMillis() + READY_RETRY_MILLIS;
+                while (System.currentTimeMillis() < retry) {
+                    service.drainInbound(MqttService.DEFAULT_DRAIN_BUDGET_NANOS, MqttService.DEFAULT_MAX_MESSAGES_PER_TICK);
+                    service.flushOutbound();
+                    if (markers.payloads().contains(ready)) return;
+                    Thread.sleep(5);
+                }
+                if (System.currentTimeMillis() > deadline) {
+                    throw new AssertionError("Timed out waiting for a ready marker of round " + n + ", state " + service.state());
+                }
+            }
         }
     }
 
@@ -1103,9 +1138,15 @@ public final class BrokerIntegrationCheck {
         awaitBrokerOperations(service);
     }
 
-    private static void reconnect(HiveMqttService service, TcpProxy proxy) throws InterruptedException {
+    /**
+     * Cuts the connection and lets the service connect again once the broker has let go of the old connection: with a
+     * clean session, a broker that handles the old connection's loss after the new CONNECT of the same client id would
+     * drop the new session's subscriptions with it.
+     */
+    private static void reconnect(HiveMqttService service, TcpProxy proxy, EmbeddedMoquette broker, String clientId) throws InterruptedException {
         proxy.cut();
         tickUntil(service, () -> !service.state().isConnected(), "the connection to drop");
+        waitUntil(() -> !broker.connected(clientId), "the broker to drop the old connection of " + clientId);
         proxy.restore();
         connect(service);
     }

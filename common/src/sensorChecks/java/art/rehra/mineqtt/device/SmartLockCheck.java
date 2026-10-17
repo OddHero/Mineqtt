@@ -48,7 +48,7 @@ import java.util.function.BooleanSupplier;
 /**
  * Dependency-free regression checks of the Smart Lock, run by Gradle's verifySmartLock task: what is lockable and what a
  * target covers (a door with both halves and its double-door partner by facing and hinge, a double chest's halves),
- * where the plate may go, which plates cover a target, who may pass (owner, operators under the key, the access mode,
+ * which locked container a hopper below may not pull from (either half of a double chest), where the plate may go, which plates cover a target, who may pass (owner, operators under the key, the access mode,
  * the claim), the relock countdown, the commands, the state Home Assistant reads, the attempt event, the saved form,
  * an unloaded lock's queued preview and vanilla's container lock the Smart Lock uses.
  */
@@ -170,7 +170,7 @@ public final class SmartLockCheck {
         check(LockTargets.group(lone, O.above()).equals(List.of(O.above(), O)) && !LockTargets.paired(lone, O), "A lone door is its two halves");
     }
 
-    /** A double chest is both halves; a single chest and a barrel are one. */
+    /** A double chest is both halves, also for a hopper below either half; a single chest and a barrel are one. */
     private static void chests() {
         BlockState left = Blocks.CHEST.defaultBlockState().setValue(ChestBlock.FACING, Direction.NORTH).setValue(ChestBlock.TYPE, ChestType.LEFT);
         BlockPos partner = O.relative(ChestBlock.getConnectedDirection(left));
@@ -182,6 +182,20 @@ public final class SmartLockCheck {
         check(LockTargets.group(half, O).equals(List.of(O)) && !LockTargets.paired(half, O), "A half whose partner is gone is one chest");
         World single = new World().set(O, Blocks.CHEST.defaultBlockState());
         check(LockTargets.group(single, O).equals(List.of(O)), "A single chest is one");
+
+        // What a hopper below asks: either half's lock closes the pair; a lone half, a barrel and stone answer for themselves.
+        Set<BlockEntity> lockedHalves = Set.of(world.entity(partner));
+        check(LockTargets.lockedContainer(world, O, lockedHalves::contains) && LockTargets.lockedContainer(world, partner, lockedHalves::contains),
+                "A hopper under either half of a double chest meets the lock of the other half");
+        check(!LockTargets.lockedContainer(world, O, container -> false), "An unlocked double chest lets hoppers pull");
+        check(!LockTargets.lockedContainer(half, O, lockedHalves::contains), "A lone half is not locked by a chest that is gone");
+        World barrels = new World().set(O, Blocks.BARREL.defaultBlockState()).set(O.east(), Blocks.BARREL.defaultBlockState())
+                .set(O.west(), Blocks.STONE.defaultBlockState());
+        Set<BlockEntity> lockedBarrel = Set.of(barrels.entity(O));
+        check(LockTargets.lockedContainer(barrels, O, lockedBarrel::contains) && !LockTargets.lockedContainer(barrels, O.east(), lockedBarrel::contains),
+                "A barrel's lock is its own, never its neighbour's");
+        check(!LockTargets.lockedContainer(barrels, O.west(), container -> true) && !LockTargets.lockedContainer(barrels, O.above(), container -> true),
+                "Stone and air are no locked container");
     }
 
     /**

@@ -209,12 +209,10 @@ public final class VibrationSensorGameTest implements FabricClientGameTest {
         RawLink raw = session.device(SENSOR, DeviceLink::raw);
         session.check(raw != null && RAW_TOPIC.equals(raw.topic()) && raw.active(), "its Raw Link channel resolves to " + RAW_TOPIC + " (" + raw + ")");
         String stateTopic = "mineqtt/" + GameTestSession.BRIDGE_ID + "/" + slug;
-        // The Raw Link is read through a probe of its own: one probe's listeners share its stream of messages, and the
-        // action listener's reads would take the Raw Link payloads that arrive with the events.
+        // Two listeners on one probe: each gets every message of its own topic.
         try (BrokerProbe probe = BrokerProbe.connect(broker);
              BrokerProbe.Listener actions = probe.listen(stateTopic + "/action");
-             BrokerProbe rawProbe = BrokerProbe.connect(broker);
-             BrokerProbe.Listener rawPayloads = rawProbe.listen(RAW_TOPIC)) {
+             BrokerProbe.Listener rawPayloads = probe.listen(RAW_TOPIC)) {
             session.consoleCommand("mineqtt devices setting " + slug + " detect non_players");
             session.context().waitTicks(SILENCE_TICKS);
             drain(actions);

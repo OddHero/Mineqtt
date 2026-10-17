@@ -88,6 +88,11 @@ final class EmbeddedMoquette implements AutoCloseable {
         return port;
     }
 
+    /** Whether the broker still holds a connection of {@code clientId}; it lets go of a lost one asynchronously. */
+    boolean connected(String clientId) {
+        return server.listConnectedClients().stream().anyMatch(client -> client.getClientID().equals(clientId));
+    }
+
     /** Whether SUBSCRIBEs to {@code .../}{@value #REFUSED_LEVEL}{@code /#} are refused from now on. */
     void refuseWideFilters(boolean refuse) {
         acl.refuse = refuse;

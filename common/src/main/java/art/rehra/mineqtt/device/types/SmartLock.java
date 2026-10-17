@@ -42,9 +42,10 @@ import java.util.function.BooleanSupplier;
  * {@link AccessMode#PRIVATE}), and operators while {@code smartLock.opsBypass} is on. They also toggle the lock with a
  * right-click on the plate. Locking closes the target; something other than such a player's hand that opens a locked
  * door, trapdoor or gate (redstone, a mob, a wind charge) is undone the next tick. Containers also carry vanilla's own
- * lock while locked, so vanilla refuses them with its message on every path that opens their menu.
+ * lock while locked, so vanilla refuses them with its message on every path that opens their menu, and hoppers and
+ * hopper minecarts pull nothing out of them (they may still put items in).
  * <p>
- * It stops hands, not explosions, pistons or hoppers; claims stay the real protection.
+ * It stops hands and hoppers, not explosions, pistons or other mods' item pipes; claims stay the real protection.
  */
 public final class SmartLock {
     /** The longest auto-relock delay: an hour. */

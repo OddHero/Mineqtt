@@ -35,7 +35,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Where the Smart Lock acts on other blocks, through Architectury's events on both loaders (no mixin):
+ * Where the Smart Lock acts on other blocks, through Architectury's events on both loaders:
  * <ul>
  *     <li>A right-click on a lockable target with the Smart Lock item places the plate ({@link SmartLockItem#placeOn}),
  *     before vanilla would use the target.</li>
@@ -48,7 +48,9 @@ import java.util.Optional;
  *     <li>Breaking a plate needs CONFIGURE on it (its owner, players its access mode lets configure it, operators who may
  *     build). Breaking a locked container takes its vanilla lock off first, so a shulker box keeps no lock as an item.</li>
  * </ul>
- * Claim mods answer the same events with their own rules; a click either refuses stays refused.
+ * Claim mods answer the same events with their own rules; a click either refuses stays refused. Hoppers and hopper
+ * minecarts do not pull from a locked container ({@link #refusesPull}, asked by {@code HopperBlockEntityMixin}); they
+ * still put items into it.
  */
 public final class SmartLocks {
     private static boolean registered;
@@ -155,6 +157,16 @@ public final class SmartLocks {
             if (level.getBlockEntity(part) instanceof BaseContainerBlockEntity container) containers.add(container);
         }
         return containers;
+    }
+
+    /**
+     * Whether a hopper or hopper minecart may not pull from the container at {@code pos}, the position above it: the
+     * container, or either half of a double chest, carries the Smart Lock's lock. Asked at every pull, so it reads only
+     * the block entities there (the lock sits on the container itself) and never loads a chunk.
+     */
+    public static boolean refusesPull(Level level, BlockPos pos) {
+        if (!level.hasChunkAt(pos)) return false;
+        return LockTargets.lockedContainer(LockTargets.Lookup.of(level), pos, ContainerLocks::locked);
     }
 
     /** A player breaking a block: a plate only with CONFIGURE on it; a locked container loses its vanilla lock first. */

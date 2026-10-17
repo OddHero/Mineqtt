@@ -19,14 +19,19 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.Container;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
+import net.minecraft.world.level.block.entity.Hopper;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.AttachFace;
 import net.minecraft.world.phys.AABB;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -37,6 +42,9 @@ import java.util.Optional;
  * redstone; unlocked, the signal opens it. A double door whose plate nobody owns refuses the player at the door
  * without a plate, with vanilla's "is locked" message, and stays shut; claimed, the player passes. On a chest the item
  * puts the plate on the chest; the owner opens the locked chest, which carries vanilla's lock, gone once unlocked. A
+ * hopper under the locked chest pulls nothing while a hopper above still fills it; unlocked, it drains the chest, and
+ * locked again it stops. Under a locked double chest neither a hopper under the half without the plate nor a hopper
+ * minecart under the other pulls, until it is unlocked. A
  * chest whose plate nobody owns refuses the player with vanilla's message and counts an attempt by hand; as an
  * operator the player passes, unless smartLock.opsBypass is off; with public access everybody passes. The item on
  * stone or on a target that already has a lock places nothing. A stranger cannot break a plate. Breaking the door pops
@@ -63,6 +71,12 @@ public final class SmartLockGameTest implements FabricClientGameTest {
     private static final BlockPos OTHER_PLATE = OTHER_CHEST.south();
     private static final BlockPos OTHER_STAND = OTHER_CHEST.south(2);
     private static final BlockPos STONE = new BlockPos(16, Y, 18);
+    // A double chest facing south: the plate sits on its western half, a hopper waits under the eastern half and a
+    // hopper minecart on a rail under the western one.
+    private static final BlockPos PAIR_CHEST = new BlockPos(20, Y, 18);
+    private static final BlockPos PAIR_CHEST_OTHER = PAIR_CHEST.east();
+    private static final BlockPos PAIR_CHEST_PLATE = PAIR_CHEST.south();
+    private static final int HOPPER_TICKS = 40;
     private static final int ANSWER_TICKS = 80;
 
     @Override
@@ -88,6 +102,8 @@ public final class SmartLockGameTest implements FabricClientGameTest {
             redstone(session, door);
             doublePair(session);
             String chest = chest(session);
+            hoppers(session, chest);
+            hoppersUnderPair(session);
             String other = strangerChest(session);
             refusals(session);
             Optional<BrokerConfig> broker = session.broker();
@@ -238,6 +254,63 @@ public final class SmartLockGameTest implements FabricClientGameTest {
     }
 
     /**
+     * A hopper under the locked chest pulls nothing, while a hopper above it still fills it; unlocked, the hopper below
+     * drains it, and locked again it stops.
+     */
+    private static void hoppers(GameTestSession session, String slug) {
+        BlockPos below = CHEST.below();
+        BlockPos above = CHEST.above();
+        fill(session, CHEST, "minecraft:stone 64");
+        setblock(session, below, "minecraft:hopper");
+        setblock(session, above, "minecraft:hopper");
+        fill(session, above, "minecraft:dirt 3");
+        session.context().waitTicks(HOPPER_TICKS);
+        session.check(vanillaLocked(session, CHEST), "the chest is still locked");
+        session.check(items(session, below) == 0 && count(session, CHEST, Items.STONE) == 64,
+                "a hopper under the locked chest pulls nothing (" + items(session, below) + " in the hopper)");
+        session.check(items(session, above) == 0 && count(session, CHEST, Items.DIRT) == 3,
+                "a hopper above still fills it (" + items(session, above) + " left above)");
+        session.consoleCommand("mineqtt devices action " + slug + " unlock");
+        session.check(session.await(() -> items(session, below) > 0, ANSWER_TICKS), "unlocked, the hopper below drains the chest");
+        session.consoleCommand("mineqtt devices action " + slug + " lock");
+        session.check(session.await(() -> vanillaLocked(session, CHEST), ANSWER_TICKS), "locked again");
+        int pulled = items(session, below);
+        session.context().waitTicks(HOPPER_TICKS);
+        session.check(items(session, below) == pulled, "and the hopper stops (" + pulled + " then " + items(session, below) + ")");
+        setblock(session, below, "minecraft:grass_block");
+        setblock(session, above, "minecraft:air");
+    }
+
+    /**
+     * A double chest whose plate sits on one half: neither a hopper under the other half nor a hopper minecart under the
+     * plate's half pulls from it while it is locked; unlocked, both do.
+     */
+    private static void hoppersUnderPair(GameTestSession session) {
+        setblock(session, PAIR_CHEST, "minecraft:chest[facing=south,type=right]");
+        setblock(session, PAIR_CHEST_OTHER, "minecraft:chest[facing=south,type=left]");
+        setblock(session, PAIR_CHEST_PLATE, "mineqtt:smart_lock[face=wall,facing=south]");
+        session.awaitServer(s -> s.overworld().getBlockEntity(PAIR_CHEST_PLATE) instanceof DeviceHost host && host.deviceLink().attached());
+        session.check(session.await(() -> vanillaLocked(session, PAIR_CHEST) && vanillaLocked(session, PAIR_CHEST_OTHER), ANSWER_TICKS),
+                "both halves of the double chest carry the lock");
+        String slug = session.device(PAIR_CHEST_PLATE, DeviceLink::slug);
+        fill(session, PAIR_CHEST, "minecraft:stone 64");
+        fill(session, PAIR_CHEST_OTHER, "minecraft:stone 64");
+        BlockPos hopper = PAIR_CHEST_OTHER.below();
+        BlockPos rail = PAIR_CHEST.below();
+        setblock(session, hopper, "minecraft:hopper");
+        setblock(session, rail, "minecraft:rail");
+        session.consoleCommand("summon minecraft:hopper_minecart " + (rail.getX() + 0.5) + " " + rail.getY() + " " + (rail.getZ() + 0.5));
+        session.check(session.await(() -> minecartItems(session, rail) == 0, ANSWER_TICKS), "a hopper minecart stands on the rail under the plate's half");
+        session.context().waitTicks(HOPPER_TICKS);
+        session.check(items(session, hopper) == 0, "a hopper under the half without the plate pulls nothing (" + items(session, hopper) + ")");
+        session.check(minecartItems(session, rail) == 0, "nor does the hopper minecart under the other half (" + minecartItems(session, rail) + ")");
+        session.consoleCommand("mineqtt devices action " + slug + " unlock");
+        session.check(session.await(() -> items(session, hopper) > 0 && minecartItems(session, rail) > 0, ANSWER_TICKS),
+                "unlocked, both drain the double chest (" + items(session, hopper) + ", " + minecartItems(session, rail) + ")");
+        session.consoleCommand("kill @e[type=minecraft:hopper_minecart]");
+    }
+
+    /**
      * A chest whose plate nobody owns refuses the player with vanilla's message and counts an attempt by hand; an operator
      * passes unless smartLock.opsBypass is off; public access lets everybody in.
      */
@@ -325,7 +398,6 @@ public final class SmartLockGameTest implements FabricClientGameTest {
             probe.publish(doorTopic + "/set", "{\"locked\":true}", false);
             session.check(session.await(() -> locked(session, DOOR_PLATE), ANSWER_TICKS), "payload_lock locks it again");
         }
-        // One probe per listener: two subscriptions on one probe share a stream.
         try (BrokerProbe probe = BrokerProbe.connect(broker); BrokerProbe.Listener events = probe.listen(otherTopic + "/action")) {
             session.context().waitTicks(30);
             session.teleport(OTHER_STAND);
@@ -381,6 +453,38 @@ public final class SmartLockGameTest implements FabricClientGameTest {
 
     private static boolean vanillaLocked(GameTestSession session, BlockPos chest) {
         return session.onServer(s -> s.overworld().getBlockEntity(chest) instanceof BaseContainerBlockEntity container && ContainerLocks.locked(container));
+    }
+
+    // Puts the stack ("minecraft:stone 64") into the first slot of the container at pos.
+    private static void fill(GameTestSession session, BlockPos pos, String stack) {
+        session.consoleCommand("item replace block " + pos.getX() + " " + pos.getY() + " " + pos.getZ() + " container.0 with " + stack);
+    }
+
+    // Every item in the container at pos, all slots together; -1 when there is no container.
+    private static int items(GameTestSession session, BlockPos pos) {
+        return session.onServer(s -> s.overworld().getBlockEntity(pos) instanceof Container container ? total(container) : -1);
+    }
+
+    private static int count(GameTestSession session, BlockPos pos, Item item) {
+        return session.onServer(s -> s.overworld().getBlockEntity(pos) instanceof Container container ? container.countItem(item) : -1);
+    }
+
+    // Every item in the hopper minecarts at the rail; -1 while there is none.
+    private static int minecartItems(GameTestSession session, BlockPos rail) {
+        return session.onServer(s -> {
+            // A hopper minecart is the one entity that is a Hopper; its type field moved between versions.
+            List<Entity> carts = s.overworld().getEntitiesOfClass(Entity.class, new AABB(rail).inflate(0.5), entity -> entity instanceof Hopper);
+            if (carts.isEmpty()) return -1;
+            int total = 0;
+            for (Entity cart : carts) total += total((Container) cart);
+            return total;
+        });
+    }
+
+    private static int total(Container container) {
+        int total = 0;
+        for (int slot = 0; slot < container.getContainerSize(); slot++) total += container.getItem(slot).getCount();
+        return total;
     }
 
     private static void setblock(GameTestSession session, BlockPos pos, String block) {

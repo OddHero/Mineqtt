@@ -831,13 +831,23 @@ crash never survives.
   with a target (at each change and every 20 ticks), cleared when unlocked, by `preRemoveSideEffects` and by
   `setRemoved` of a plate a command replaced; a player breaking a locked container clears it first (`BlockEvent.BREAK`),
   so a shulker box keeps no lock as an item, and a right-click on a container whose lock no plate holds clears it (a
-  shulker box blown up and carried off). **Plate protection:** `BlockEvent.BREAK` (Stonecutter: 5 parameters before
+  shulker box blown up and carried off). `ContainerLocks.isSmartLock` answers no lock and the Smart Lock's own instance
+  without encoding, and `locked` swaps a lock read back from saved data for that instance. **Hoppers:** the common mixin
+  `HopperBlockEntityMixin` cancels `HopperBlockEntity.suckInItems(Level, Hopper)` at its head (`false`, nothing moved)
+  when `SmartLocks.refusesPull` finds a locked container at the hopper's source position (`BlockPos.containing(x,
+  y + 1, z)` of the `Hopper`, as vanilla; `LockTargets.lockedContainer`: the container or either half of a double
+  chest, read from the containers' own lock, no index, never loading a chunk). Hoppers and hopper minecarts both pull
+  only there, with the same signature on 1.21.1 to 26.3; the head also comes before NeoForge's
+  `VanillaInventoryCodeHooks.extractHook`, which on 1.21.1 to 1.21.3 asks the item handler capability of the container
+  above before the vanilla container (from 1.21.4 the vanilla container wins and the handler serves only blocks
+  without one). Pushing into a locked container stays allowed (a farm may fill locked storage), as do a locked
+  hopper's own pulls and pushes and a locked dropper's or dispenser's output. **Plate protection:** `BlockEvent.BREAK` (Stonecutter: 5 parameters before
   26.2, 4 from 26.2) refuses breaking a plate without CONFIGURE (`mineqtt.smart_lock.protected`). Redstone at the plate
   does nothing (anyone may place a lever beside it); wires reach `locked`, `lock`, `unlock`, `toggle`. Discovery: the
   lock (primary), the event entity *Attempt*, *Attempts* (`total_increasing`), the config number *Auto-relock*, the
-  diagnostics *Target* and *Status*, the disabled location. Known limits: hoppers below a locked chest still pull
-  (blocking them needs a mixin), pistons may push a trapdoor or a gate away (the plate pops and the lock goes),
-  explosions are not stopped. Checked by `verifySmartLock`; the golden file is `golden/smart_lock.json`.
+  diagnostics *Target* and *Status*, the disabled location. Known limits: other mods' item pipes still reach a locked
+  container through Fabric's transfer API or NeoForge's item handler capability, pistons may push a trapdoor or a gate
+  away (the plate pops and the lock goes), explosions are not stopped. Checked by `verifySmartLock`; the golden file is `golden/smart_lock.json`.
 - **Alarm Panel.** `device/types/AlarmPanel` (`mineqtt:alarm_panel`, a new device: `noV1Topic`, `UNAVAILABLE` (a queued
   command is saved in the registry, and Home Assistant's commands carry the code), `defaultAccess(PRIVATE)`, a status line,
   no Raw Link, no hand action). A wall keypad (`AlarmPanelBlock`: horizontal `facing` placed like the Display Panel, a
@@ -1605,8 +1615,8 @@ in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wi
   behind it, which it reads only where the claim rule lets it open the container) minus the hard denies (`PlacerRules`), never with NBT or block entity data, never from a
   retained message, at most 4 actions a second, within the world border and outside spawn protection, across a claim
   line only for an online owner who may build there, and clears only its own block; on a dedicated server only operators
-  configure it unless `blockPlacer.playersMayConfigure` ([Devices](#devices)). A Smart Lock stops hands only (not
-  pistons, explosions or hoppers); only a player who may build, interact and use there locks a target, a new lock is
+  configure it unless `blockPlacer.playersMayConfigure` ([Devices](#devices)). A Smart Lock stops hands and hoppers
+  pulling from a container (not pistons, explosions or other mods' item pipes); only a player who may build, interact and use there locks a target, a new lock is
   private, operators pass it only under `smartLock.opsBypass`, and its attempt events never name a player. The Block Observer exports block entity
   data only under `blockObserver.exportBlockEntityData` and within one claim, never to Home Assistant. The Container
   Observer publishes a container's item counts (by item id, never names or other components) only where the Block

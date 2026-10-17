@@ -27,6 +27,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * What a Smart Lock locks and where its plate goes, read through a {@link Lookup} so the rules run without a level.
@@ -165,6 +166,17 @@ public final class LockTargets {
         boolean pairs = other.getBlock() instanceof ChestBlock && other.getValue(ChestBlock.TYPE) != ChestType.SINGLE
                 && partner.relative(ChestBlock.getConnectedDirection(other)).equals(pos) && lookup.entity(partner) instanceof BaseContainerBlockEntity;
         return pairs ? Optional.of(partner) : Optional.empty();
+    }
+
+    /**
+     * Whether the container at {@code pos} is locked, as {@code locked} tells for one container: the container itself or,
+     * for half of a double chest, either half, so a hopper under one half meets the lock of the pair. Not a container: false.
+     */
+    public static boolean lockedContainer(Lookup lookup, BlockPos pos, Predicate<BaseContainerBlockEntity> locked) {
+        if (!(lookup.entity(pos) instanceof BaseContainerBlockEntity container)) return false;
+        if (locked.test(container)) return true;
+        return chestPartner(lookup, pos).map(lookup::entity).filter(BaseContainerBlockEntity.class::isInstance)
+                .map(BaseContainerBlockEntity.class::cast).filter(locked).isPresent();
     }
 
     /**

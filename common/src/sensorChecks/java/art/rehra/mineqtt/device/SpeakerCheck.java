@@ -76,7 +76,9 @@ public final class SpeakerCheck {
                         && Math.abs(Speaker.pitch(99) - 2) < 1e-6, "Pitches as a note block's: 12 is 1, 0 is 0.5, 24 and beyond 2");
         for (Instrument instrument : Instrument.values()) {
             SoundEvent sound = SpeakerBlockEntity.soundEvent(instrument);
-            check(sound != null && sound.fixedRange().isEmpty(), instrument + ": a vanilla sound whose range grows with its volume");
+            // Through getRange, public on every version (fixedRange is private on 1.21.1): a fixed range never grows.
+            check(sound != null && sound.getRange(1.0F) == 16.0F && sound.getRange(4.0F) == 64.0F,
+                    instrument + ": a vanilla sound whose range grows with its volume");
         }
         check(Speaker.soundDue(Speaker.MIN_SOUND_GAP_TICKS) && !Speaker.soundDue(Speaker.MIN_SOUND_GAP_TICKS - 1), "The sound gap");
     }

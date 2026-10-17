@@ -43,8 +43,10 @@
   *Attempts*, *Auto-relock* (seconds after an unlock until it locks again, off by default), and the *Target* and *Status*
   diagnostics. Wires reach its *locked*, *lock*, *unlock* and *toggle* in-ports and read *locked* and *attempt*: a Wall
   Switch or a Redstone Input unlocks it. Redstone at the plate itself does nothing, as anyone could place a lever beside
-  it. Only its owner, players who may configure it and operators break the plate; breaking the target pops it. It stops
-  hands, not pistons, explosions or hoppers below a chest: claims stay the real protection. Crafted from iron ingots, a
+  it. Only its owner, players who may configure it and operators break the plate; breaking the target pops it. Hoppers and
+  hopper minecarts pull nothing out of a locked container (both halves of a double chest), but may still fill it, so a
+  farm can feed locked storage. It stops hands and hoppers, not pistons, explosions or other mods' item pipes: claims
+  stay the real protection. Crafted from iron ingots, a
   tripwire hook and the Network Chip.
 - **Alarm Panel** (new block): a keypad on the wall that turns the security devices into one alarm system, and Home
   Assistant's alarm panel card in the world. A right-click opens its keypad: a player who may configure it types a code
