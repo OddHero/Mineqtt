@@ -910,6 +910,8 @@
   "config.mineqtt.smart_lock_ops_bypass.tooltip": "Operators open doors, trapdoors, fence gates and containers a Smart Lock keeps locked, as its owner does. Off, a locked target refuses an operator like anybody else the lock does not let in; operators may still unlock it at its plate.",
   "block.mineqtt.alarm_panel": "Alarm Panel",
   "item.mineqtt.alarm_panel": "Alarm Panel",
+  "block.mineqtt.signal_beacon": "Signal Beacon",
+  "item.mineqtt.signal_beacon": "Signal Beacon",
   "mineqtt.tab.keypad": "Keypad",
   "mineqtt.device.control.exit_delay": "Exit delay",
   "mineqtt.device.control.entry_delay": "Entry delay",

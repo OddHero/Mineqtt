@@ -11,7 +11,9 @@ import art.rehra.mineqtt.device.EventSpec;
 import art.rehra.mineqtt.device.Field;
 import art.rehra.mineqtt.device.Port;
 import art.rehra.mineqtt.device.UnloadedPolicy;
+import art.rehra.mineqtt.device.types.AlarmPanel;
 import art.rehra.mineqtt.device.types.ClimateSensor;
+import art.rehra.mineqtt.device.types.SignalBeacon;
 import art.rehra.mineqtt.device.types.DisplayPanel;
 import art.rehra.mineqtt.device.types.BlockObserver;
 import art.rehra.mineqtt.device.types.BlockPlacer;
@@ -434,7 +436,14 @@ public final class RuntimeWiringCheck {
                 new DefaultWiring.Pair("press", "state", Mapping.PULSE_TOGGLE),
                 new DefaultWiring.Pair("occupancy", "state", Mapping.FOLLOW),
                 new DefaultWiring.Pair("signal", "power", Mapping.FOLLOW),
-                new DefaultWiring.Pair("fired", "state", Mapping.PULSE_TOGGLE))), "The D15 order, first match wins: " + DefaultWiring.pairs());
+                new DefaultWiring.Pair("fired", "state", Mapping.PULSE_TOGGLE),
+                new DefaultWiring.Pair("state", "alarm", Mapping.FOLLOW))), "The D15 order, first match wins: " + DefaultWiring.pairs());
+        // The security update's pair: an Alarm Panel's state into a Signal Beacon's alarm, and no other type's state.
+        check(DefaultWiring.of(AlarmPanel.TYPE, SignalBeacon.TYPE).equals(Optional.of(new DefaultWiring.Pair("state", "alarm", Mapping.FOLLOW))),
+                "An Alarm Panel shows its state on a Signal Beacon: " + DefaultWiring.of(AlarmPanel.TYPE, SignalBeacon.TYPE));
+        for (DeviceType from : List.of(RedstoneOutput.TYPE, SmartPlug.TYPE, Speaker.TYPE, SignalBeacon.TYPE)) {
+            check(DefaultWiring.of(from, SignalBeacon.TYPE).filter(pair -> pair.to().equals("alarm")).isEmpty(), from + "'s on/off state is no alarm state");
+        }
         // The resolutions M4's types add on top of the M3 order; every other pair resolves as before M4.
         Map<List<DeviceType>, DefaultWiring.Pair> m4 = Map.of(
                 List.of(BlockObserver.TYPE, RedstoneOutput.TYPE), new DefaultWiring.Pair("signal", "power", Mapping.FOLLOW),
@@ -502,7 +511,9 @@ public final class RuntimeWiringCheck {
         DefaultWiring.Pair toggle = new DefaultWiring.Pair("fired", "state", Mapping.PULSE_TOGGLE);
         Map<DeviceType, DefaultWiring.Pair> into = Map.of(WallSwitch.TYPE, trigger, RedstoneInput.TYPE, arm, PresenceSensor.TYPE, presence);
         // A Speaker's state is a switch state too: a timer toggles its siren as it does a lamp.
-        Map<DeviceType, DefaultWiring.Pair> from = Map.of(SmartLamp.TYPE, toggle, RedstoneOutput.TYPE, toggle, SmartPlug.TYPE, toggle, Speaker.TYPE, toggle);
+        // So is a Signal Beacon's.
+        Map<DeviceType, DefaultWiring.Pair> from = Map.of(SmartLamp.TYPE, toggle, RedstoneOutput.TYPE, toggle, SmartPlug.TYPE, toggle, Speaker.TYPE, toggle,
+                SignalBeacon.TYPE, toggle);
         for (DeviceType timer : Timers.all()) {
             for (DeviceType other : DeviceTypes.all()) {
                 Optional<DefaultWiring.Pair> in = Timers.all().contains(other) ? Optional.of(chain) : Optional.ofNullable(into.get(other));

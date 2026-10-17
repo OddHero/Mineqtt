@@ -66,6 +66,18 @@
   Assistant, lock it out for 30 s, then 60 s, doubling up to 15 minutes; each one raises an anonymous *wrong_code*.
   Home Assistant sends the code over MQTT, so use TLS on the broker. Crafted from stone buttons, iron ingots, redstone
   and the Network Chip.
+- **Signal Beacon** (new block): a lens you put on top of a vanilla beacon (or anywhere in its beam) that colours the
+  beam on command, so a status shows across the map. The beam takes one of the 16 dye colours, as stained glass gives
+  it: a colour Home Assistant or a command asks for becomes the nearest dye (pure green is lime, pure blue blue, a
+  dimmed white a grey), a dye name such as `light_blue` is that dye, and the device reports the colour the beam really
+  has. Off, or between two blinks, it stops the beam like an opaque block (the beacon's effects pause too). Home
+  Assistant sees a light (on/off and an RGB colour, effects *off* and *blink*, once a second), *Beam colour* (the dye)
+  and the *Beacon* diagnostic: `beam`, `inactive` (a beacon without its pyramid) or `no_beacon`; without a beacon below
+  it is a coloured lens and nothing more. A right-click switches it, and its screen has the switch and the colour picker.
+  **Wired to an Alarm Panel** (its *state* into the beacon's *alarm*, the default wire between the two) it shows green
+  (lime) disarmed, blinking orange while arming or pending, red armed and blinking red when triggered; Home Assistant
+  automations may send the same alarm states to `/set/alarm`. A Smart Lamp's *light* wires to it too. Crafted from
+  iron ingots, glass, redstone and the Network Chip.
 
 ### For server admins
 

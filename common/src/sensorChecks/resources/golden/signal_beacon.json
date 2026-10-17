@@ -1,0 +1,73 @@
+{
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/base_beacon/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "cmps": {
+    "beacon": {
+      "entity_category": "diagnostic",
+      "name": "Beacon",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/base_beacon",
+      "unique_id": "mineqtt_8b9c0d1e2f3a4b4c8d5e6f7a8b9c0d1e_beacon",
+      "value_template": "{{ value_json.beacon }}"
+    },
+    "dye": {
+      "name": "Beam colour",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/base_beacon",
+      "unique_id": "mineqtt_8b9c0d1e2f3a4b4c8d5e6f7a8b9c0d1e_dye",
+      "value_template": "{{ value_json.dye }}"
+    },
+    "light": {
+      "brightness": false,
+      "command_topic": "mineqtt/world_7f3a/base_beacon/set",
+      "effect": true,
+      "effect_list": [
+        "off",
+        "blink"
+      ],
+      "flash": false,
+      "name": null,
+      "p": "light",
+      "retain": false,
+      "schema": "json",
+      "state_topic": "mineqtt/world_7f3a/base_beacon",
+      "supported_color_modes": [
+        "rgb"
+      ],
+      "unique_id": "mineqtt_8b9c0d1e2f3a4b4c8d5e6f7a8b9c0d1e_light"
+    },
+    "location": {
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Location",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/base_beacon",
+      "unique_id": "mineqtt_8b9c0d1e2f3a4b4c8d5e6f7a8b9c0d1e_location",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}"
+    }
+  },
+  "dev": {
+    "ids": [
+      "mineqtt_8b9c0d1e2f3a4b4c8d5e6f7a8b9c0d1e"
+    ],
+    "mdl": "Signal Beacon",
+    "mdl_id": "mineqtt:signal_beacon",
+    "mf": "MineQTT",
+    "name": "Base Beacon",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "qos": 1
+}

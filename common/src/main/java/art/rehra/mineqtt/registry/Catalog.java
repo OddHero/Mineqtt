@@ -92,6 +92,7 @@ public final class Catalog {
             // Security
             block("smart_lock", Status.CRAFTABLE),
             block("alarm_panel", Status.CRAFTABLE),
+            block("signal_beacon", Status.CRAFTABLE),
             // Automation
             block("alarm_clock", Status.CRAFTABLE),
             block("game_time_timer", Status.CRAFTABLE),

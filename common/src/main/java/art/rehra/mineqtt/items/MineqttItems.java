@@ -46,6 +46,7 @@ public class MineqttItems {
     public static RegistrySupplier<Item> Speaker;
     public static RegistrySupplier<Item> SmartLock;
     public static RegistrySupplier<Item> AlarmPanel;
+    public static RegistrySupplier<Item> SignalBeacon;
     public static void init(){
         MineQTT.LOGGER.info("Registering MineQTT Items");
         Cyberdeck = registerItem("cyberdeck", () -> new CyberdeckItem(baseProperties("cyberdeck")));
@@ -87,6 +88,7 @@ public class MineqttItems {
         // Placed onto a door, trapdoor, fence gate or container rather than into the world.
         SmartLock = registerItem("smart_lock", () -> new SmartLockItem(MineqttBlocks.SMART_LOCK.get(), baseProperties("smart_lock")));
         AlarmPanel = registerItem("alarm_panel", () -> new DeviceBlockItem(MineqttBlocks.ALARM_PANEL.get(), baseProperties("alarm_panel")));
+        SignalBeacon = registerItem("signal_beacon", () -> new DeviceBlockItem(MineqttBlocks.SIGNAL_BEACON.get(), baseProperties("signal_beacon")));
         ITEMS.register();
     }
 

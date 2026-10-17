@@ -13,6 +13,7 @@ import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.SmartLock;
 import art.rehra.mineqtt.device.types.AlarmPanel;
+import art.rehra.mineqtt.device.types.SignalBeacon;
 import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
@@ -98,9 +99,10 @@ public final class DeviceTypesCheck {
         check(types.equals(List.of(SmartLamp.TYPE, RedstoneOutput.TYPE, RedstoneInput.TYPE, PresenceSensor.TYPE, SmartPlug.TYPE, ClimateSensor.TYPE,
                 WallSwitch.TYPE, DisplayPanel.TYPE, Timers.INTERVAL_TIMER, Timers.DAYLIGHT_TIMER, Timers.ALARM_CLOCK, Timers.CRON_TIMER,
                 BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE, EntityObserver.TYPE, VibrationSensor.TYPE, Speaker.TYPE, SmartLock.TYPE,
-                AlarmPanel.TYPE)),
-                "The twenty built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10), the "
-                        + "Container Observer, the Entity Observer, the Vibration Sensor, the Speaker, the Smart Lock and the Alarm Panel: " + types);
+                AlarmPanel.TYPE, SignalBeacon.TYPE)),
+                "The twenty-one built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10), the "
+                        + "Container Observer, the Entity Observer, the Vibration Sensor, the Speaker, the Smart Lock, the Alarm Panel and the "
+                        + "Signal Beacon: " + types);
         int ports = 0;
         for (DeviceType type : types) {
             declaration(type);
@@ -318,6 +320,7 @@ public final class DeviceTypesCheck {
         speaker();
         smartLock();
         alarmPanel();
+        signalBeacon();
         for (DeviceType type : DeviceTypes.all()) {
             check(type.editsWorld() == (type == BlockPlacer.TYPE), type + ": only the Block Placer edits the world (D12)");
         }
@@ -454,6 +457,32 @@ public final class DeviceTypesCheck {
         for (DeviceType type : DeviceTypes.all()) {
             check(type.secrets().isEmpty() == (type != AlarmPanel.TYPE), type + ": only the Alarm Panel has secrets");
         }
+    }
+
+    /**
+     * The Signal Beacon: its light (the lamp's composite kind), the dye, whether a beacon's beam reaches it and the location
+     * out; the light, its on/off and the alarm state in (the alarm without a control). Queued while unloaded and groupable
+     * like the lamp, no v1 topic, no Raw Link, no settings; the light is the primary entity, in rgb mode with off and blink.
+     */
+    private static void signalBeacon() {
+        expectPorts(SignalBeacon.TYPE, List.of(
+                "OUT light light FIELD", "OUT dye enum white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black FIELD",
+                "OUT beacon enum beam|inactive|no_beacon FIELD", "OUT location json FIELD",
+                "IN light light FIELD", "IN state bool ACTION toggles",
+                "IN alarm enum disarmed|armed_home|armed_away|armed_night|armed_vacation|armed_custom_bypass|pending|triggered|arming|disarming ACTION"));
+        check(SignalBeacon.TYPE.unloadedPolicy() == UnloadedPolicy.QUEUE && SignalBeacon.TYPE.groupable() && SignalBeacon.TYPE.use().map(Action::key).equals(Optional.of(Action.STATE))
+                        && SignalBeacon.TYPE.noV1Topic() && SignalBeacon.TYPE.rawLink().isEmpty() && SignalBeacon.TYPE.status().isEmpty()
+                        && SignalBeacon.TYPE.settings().isEmpty() && SignalBeacon.TYPE.events().isEmpty() && !SignalBeacon.TYPE.hasControl(SignalBeacon.ALARM),
+                "The Signal Beacon queues while unloaded, groups, switches by hand, has no v1 topic, Raw Link, status line, settings or events, "
+                        + "and its alarm in-port no control");
+        HaEntity.Light light = (HaEntity.Light) SignalBeacon.TYPE.entities().getFirst();
+        check(light.meta().name() == null && light.fields().equals(List.of(SignalBeacon.LIGHT)) && !light.brightness()
+                        && light.colorModes().equals(List.of("rgb")) && light.effects().equals(List.of("off", "blink")),
+                "The light is the primary entity: rgb without brightness, effects off and blink");
+        // An Alarm Panel's state wires to the alarm in-port, a Smart Lamp's light to the light.
+        check(in(SignalBeacon.TYPE, SignalBeacon.ALARM).accepts(out(AlarmPanel.TYPE, "state")), "Alarm Panel state -> Signal Beacon alarm");
+        check(in(SignalBeacon.TYPE, "light").accepts(out(SmartLamp.TYPE, "light")), "Smart Lamp light -> Signal Beacon light");
+        check(in(SignalBeacon.TYPE, "state").accepts(out(RedstoneInput.TYPE, "powered")), "Input powered -> Signal Beacon state");
     }
 
     private static void expectPorts(DeviceType type, List<String> expected) {
@@ -1194,9 +1223,9 @@ public final class DeviceTypesCheck {
             check(timer.events().stream().allMatch(EventSpec::throttled) && timer.noV1Topic() && timer.status().isPresent(),
                     timer + ": the timers throttle fired, adopt no v1 topic and have a status line");
         }
-        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 8,
+        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 9,
                 "The M3 types, the timers, the observer, the placer, the Container Observer, the Entity Observer, the Vibration Sensor, the "
-                        + "Speaker, the Smart Lock and the Alarm Panel are every built-in type");
+                        + "Speaker, the Smart Lock, the Alarm Panel and the Signal Beacon are every built-in type");
         for (DeviceType type : List.of(BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE)) {
             // Of the world devices only the Block Observer's changed (M4-9, D12) throttles; the observer and the placer adopt their
             // v1 topic, and the Container Observer, which has no v1 block, takes none (it has no Raw Link). The Entity Observer,

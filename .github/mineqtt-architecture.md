@@ -900,6 +900,46 @@ crash never survives.
   no command; Home Assistant's code crosses MQTT in plain text (use TLS); a creative player's pick-block with data copies
   the hash into an item (the copy placed has no code). Checked by `verifyAlarmPanel`; the golden file is
   `golden/alarm_panel.json`.
+- **Signal Beacon.** `device/types/SignalBeacon` (`mineqtt:signal_beacon`, a new device: `noV1Topic`, no Raw Link, `QUEUE`
+  with its own preview and `groupable` like the lamp, no settings, no events, no status line). A lens that colours a
+  vanilla beacon's beam. **Beam mechanism:** vanilla tints a beam with `BeaconBeamBlock#getColor()`, which has no block
+  state, so one block cannot give 16 colours through it. `SignalBeaconBlock` (opaque cube, `color` = `DyeColor`, `lit`)
+  instead stands in for another block in the beacon's beam scan: the common mixin `BeaconBlockEntityMixin` redirects the
+  one `Level.getBlockState` call of `BeaconBlockEntity.tick` (javap: one call on 1.21.1, 26.2, 26.3, Fabric and NeoForge)
+  through `SignalBeaconBlock.beamStandIn`: lit, `<dye>_stained_glass` (`stainedGlass`: `Blocks.STAINED_GLASS.pick(dye)`
+  from 26.2, a field per dye before); not lit, `tinted_glass`. Vanilla then tints the beam (Fabric through
+  `BeaconBeamBlock#getColor`, NeoForge through its patched `getBeaconColorMultiplier`, which reads the stand-in) or stops
+  it (light dampening 15), and averages it with glass below as usual. The scan runs in the client's own beacon tick too,
+  from the synced block state, so there is no render data and no client code; the block's own opacity never matters.
+  `@Redirect` rather than MixinExtras (not used in the repo; a second mod redirecting the same call would clash).
+  **Palette and snapping:** the beam colour of a dye is `DyeColor.getTextureDiffuseColor() & 0xFFFFFF` (`beamColor`;
+  `verifySignalBeacon` keeps the generator's table equal to it). `nearest(rgb)` compares in the HSV cone: saturation along
+  the hue's angle on the unit disc, value along the axis weighted `VALUE_WEIGHT` 0.75, the disc radius fading below
+  `DARK_KNEE` 0.25 of value, so Home Assistant's full-value primaries find their hue (green is lime, blue blue, cyan cyan),
+  dark and bright dyes of a hue part by brightness (brown/orange) and near-black is black; a dye's own beam colour is that
+  dye. **Fields:** `light` (inline, `PortType.LIGHT`, `SignalBeacon.Beam(on, dye, effect)`: `state`, `brightness` always
+  255, `color_mode` `rgb`, `color` the dye's beam colour, `effect` `off`/`blink`), `dye` (the dye, read-only), `beacon`
+  (`Status`: `beam`, `inactive`, `no_beacon`), `location`. Actions `state` (`use`: a right-click toggles) and `alarm`
+  (`PortType.enumOf(HaEntity.AlarmControlPanel.STATES)`, `withoutControl`), so the Controls tab is the lamp's (switch and
+  light picker). **Commands** (`Beam.merge`, `SignalBeacon.apply`): `state` ON/OFF/TOGGLE/bool; `color` in every form the
+  lamp reads, a dye name exactly; `color_temp_kelvin`/`color_temp` through its colour; a `brightness` beside a colour
+  scales it first (Home Assistant scales an rgb light without brightness itself, so dimming moves to darker dyes), alone
+  it changes nothing; `effect`; `transition` ignored. An `alarm` state is applied first and the light keys of the same
+  command override it: `disarmed` steady `DISARMED_DYE` lime, `arming`/`pending`/`disarming` blinking `PENDING_DYE` orange,
+  every armed state steady `ARMED_DYE` red, `triggered` blinking red; an unknown one alone is refused. **Block entity:**
+  `SignalBeaconBlockEntity` saves the beam (`Beam.CODEC`: `on`, `dye`, `effect`); its server ticker keeps `color` and
+  `lit` in step (`Beam.lit(gameTime)`: a blink shows `BLINK_HALF_PERIOD_TICKS` 10 ticks and hides 10, by game time so all
+  beacons blink in step) and every `STATUS_INTERVAL_TICKS` 20 ticks looks down its column (`compat/BeaconBeams.status`:
+  past every block that lets a beam through, Signal Beacons by their stand-in; `stopsBeam` is vanilla's rule with
+  `getLightBlock(level, pos)` before 1.21.2, `getLightBlock()` to 1.21.11, `getLightDampening()` from 26.1) for a beacon
+  and its first pyramid layer (`hasPyramid`: the 3 x 3 below in `#minecraft:beacon_base_blocks`, never loading a chunk;
+  read here because vanilla works its level out only while the beam already reaches the sky). The status is published,
+  never saved. A placed copy is off with its dye and effect. Discovery: the light (primary, `brightness` false,
+  `supported_color_modes` `[rgb]`, `effect_list` `[off, blink]`, `flash` false), *Beam colour*, the diagnostic *Beacon*,
+  the disabled location; a group gets the light. Known limits: 16 colours only; off and blinking pause the beacon's
+  effects; a blink changes a block state twice a second (clients redraw the section); the status looks down only, a block
+  above that stops the beam is not reported. Checked by `verifySignalBeacon`; the golden file is
+  `golden/signal_beacon.json`.
 - **Rooms** (M4-14, plan D11; `rooms/`). `Room(id, name, dimension, min, max, owner, forAll, created)`; the codec
   normalises the corners. `RoomRules` (pure): names (sanitised, 1-32 code points, unique per owner ignoring case),
   size (each axis `max - min + 1 <= rooms.maxSize`), counts (`limits.maxRoomsPerPlayer`, ops exempt; 512 per world for
@@ -1067,7 +1107,8 @@ How the server runs it (M2-15):
   else follows). `DefaultWiring.of(fromType, toType)` gives the pair Link mode offers first, the first match of the D15
   list (M4-1, `DefaultWiring.pairs()`): `press` into `trigger` follows, `fired` into `trigger` follows, `powered` into
   `state` follows, `press` into `state` toggles, `occupancy` into `state` follows, `signal` into `power` follows, `fired`
-  into `state` toggles. Among the 0.7.0 types this resolves exactly as M3 did (`verifyRuntimeWiring.defaultWiring`
+  into `state` toggles, `state` into `alarm` follows (security update: only the Alarm Panel's enum `state` fits the Signal
+  Beacon's `alarm`; a switch's BOOL `state` never does). Among the 0.7.0 types this resolves exactly as M3 did (`verifyRuntimeWiring.defaultWiring`
   compares all ordered pairs with a copy of the M3 list). The shipped M4 types exercise the rest
   (`shippedTimerWiring`): a Wall Switch's `press` fires a timer (Trigger now), a timer's `fired` fires the next, a
   Redstone Input's `powered` and a Presence Sensor's `occupancy` arm a timer through `state`, a timer's `fired` toggles a

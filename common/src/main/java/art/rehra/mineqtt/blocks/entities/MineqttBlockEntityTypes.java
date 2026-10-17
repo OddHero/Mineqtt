@@ -46,6 +46,7 @@ public class MineqttBlockEntityTypes {
     public static RegistrySupplier<BlockEntityType<SpeakerBlockEntity>> SPEAKER;
     public static RegistrySupplier<BlockEntityType<SmartLockBlockEntity>> SMART_LOCK;
     public static RegistrySupplier<BlockEntityType<AlarmPanelBlockEntity>> ALARM_PANEL;
+    public static RegistrySupplier<BlockEntityType<SignalBeaconBlockEntity>> SIGNAL_BEACON;
 
     /**
      * Registers every block entity type (M2 plan D13). {@code MineQTT.init()} calls it after {@code MineqttBlocks.init()}:
@@ -83,6 +84,7 @@ public class MineqttBlockEntityTypes {
         SPEAKER = registerBlockEntity("speaker", SpeakerBlockEntity::new, MineqttBlocks.SPEAKER);
         SMART_LOCK = registerBlockEntity("smart_lock", SmartLockBlockEntity::new, MineqttBlocks.SMART_LOCK);
         ALARM_PANEL = registerBlockEntity("alarm_panel", AlarmPanelBlockEntity::new, MineqttBlocks.ALARM_PANEL);
+        SIGNAL_BEACON = registerBlockEntity("signal_beacon", SignalBeaconBlockEntity::new, MineqttBlocks.SIGNAL_BEACON);
         BLOCK_ENTITIES.register();
     }
 
@@ -102,7 +104,7 @@ public class MineqttBlockEntityTypes {
                 SMART_PLUG_BLOCK_ENTITY.get(), TEMPERATURE_SENSOR_BLOCK.get(), LIGHT_REMOTE_BLOCK.get(), DYNAMIC_PUBLISHER_BLOCK.get(), TOPIC_RELAY_BLOCK.get(), TERMINAL_BLOCK.get(),
                 DISPLAY_PANEL.get(), INTERVAL_TIMER_BLOCK.get(), GAME_TIME_TIMER_BLOCK.get(), ALARM_CLOCK_BLOCK.get(), CRON_TIMER_BLOCK.get(),
                 BLOCK_SENSOR_BLOCK.get(), BLOCK_EMITTER_BLOCK.get(), CONTAINER_OBSERVER.get(),
-                ENTITY_OBSERVER.get(), VIBRATION_SENSOR.get(), SPEAKER.get(), SMART_LOCK.get(), ALARM_PANEL.get());
+                ENTITY_OBSERVER.get(), VIBRATION_SENSOR.get(), SPEAKER.get(), SMART_LOCK.get(), ALARM_PANEL.get(), SIGNAL_BEACON.get());
         List<BlockEntityType<?>> slotted = new ArrayList<>();
         for (RegistrySupplier<BlockEntityType<?>> type : BLOCK_ENTITIES) {
             if (!noSlots.contains(type.get())) slotted.add(type.get());

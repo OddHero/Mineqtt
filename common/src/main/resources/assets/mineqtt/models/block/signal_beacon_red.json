@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "particle": "mineqtt:block/signal_beacon_side_red",
+    "top": "mineqtt:block/signal_beacon_top_red",
+    "bottom": "mineqtt:block/signal_beacon_bottom",
+    "side": "mineqtt:block/signal_beacon_side_red"
+  }
+}

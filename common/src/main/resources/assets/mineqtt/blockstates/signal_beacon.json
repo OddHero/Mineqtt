@@ -1,0 +1,100 @@
+{
+  "variants": {
+    "color=white,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=white,lit=true": {
+      "model": "mineqtt:block/signal_beacon_white"
+    },
+    "color=orange,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=orange,lit=true": {
+      "model": "mineqtt:block/signal_beacon_orange"
+    },
+    "color=magenta,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=magenta,lit=true": {
+      "model": "mineqtt:block/signal_beacon_magenta"
+    },
+    "color=light_blue,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=light_blue,lit=true": {
+      "model": "mineqtt:block/signal_beacon_light_blue"
+    },
+    "color=yellow,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=yellow,lit=true": {
+      "model": "mineqtt:block/signal_beacon_yellow"
+    },
+    "color=lime,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=lime,lit=true": {
+      "model": "mineqtt:block/signal_beacon_lime"
+    },
+    "color=pink,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=pink,lit=true": {
+      "model": "mineqtt:block/signal_beacon_pink"
+    },
+    "color=gray,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=gray,lit=true": {
+      "model": "mineqtt:block/signal_beacon_gray"
+    },
+    "color=light_gray,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=light_gray,lit=true": {
+      "model": "mineqtt:block/signal_beacon_light_gray"
+    },
+    "color=cyan,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=cyan,lit=true": {
+      "model": "mineqtt:block/signal_beacon_cyan"
+    },
+    "color=purple,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=purple,lit=true": {
+      "model": "mineqtt:block/signal_beacon_purple"
+    },
+    "color=blue,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=blue,lit=true": {
+      "model": "mineqtt:block/signal_beacon_blue"
+    },
+    "color=brown,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=brown,lit=true": {
+      "model": "mineqtt:block/signal_beacon_brown"
+    },
+    "color=green,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=green,lit=true": {
+      "model": "mineqtt:block/signal_beacon_green"
+    },
+    "color=red,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=red,lit=true": {
+      "model": "mineqtt:block/signal_beacon_red"
+    },
+    "color=black,lit=false": {
+      "model": "mineqtt:block/signal_beacon"
+    },
+    "color=black,lit=true": {
+      "model": "mineqtt:block/signal_beacon_black"
+    }
+  }
+}

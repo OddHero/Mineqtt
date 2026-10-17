@@ -17,6 +17,8 @@ public final class DefaultWiring {
     public static final String TRIGGER = "trigger";
     /** A timer's event, published on each fire (M4 plan D2). */
     public static final String FIRED = "fired";
+    /** A Signal Beacon's in-port of alarm states, which an Alarm Panel's {@code state} follows into. */
+    public static final String ALARM = "alarm";
 
     /**
      * The default pairs, first match wins (M4 plan D15), so the order matters once a type has both a {@code trigger} and
@@ -27,7 +29,9 @@ public final class DefaultWiring {
      *     <li>a Redstone Input's {@code powered} follows into a switch state (Output, Lamp, Plug, and a timer's enable),</li>
      *     <li>a press toggles a switch state, a Presence Sensor's {@code occupancy} follows into one,</li>
      *     <li>a comparator level ({@code signal}, the Block Observer's) follows into a power level (the Redstone Output's),</li>
-     *     <li>a timer's fire toggles a switch state (a lamp, an output, a plug).</li>
+     *     <li>a timer's fire toggles a switch state (a lamp, an output, a plug),</li>
+     *     <li>an alarm state ({@code state}, an enum of alarm states only the Alarm Panel has) follows into a Signal
+     *     Beacon's {@code alarm}; a switch's BOOL {@code state} never fits that enum.</li>
      * </ol>
      * A Wall Switch's press into a lamp still toggles its {@code state} (a lamp has no {@code trigger}); a lever into a timer
      * arms it through {@code powered→state}.
@@ -39,7 +43,8 @@ public final class DefaultWiring {
             new Pair("press", Action.STATE, Mapping.PULSE_TOGGLE),
             new Pair("occupancy", Action.STATE, Mapping.FOLLOW),
             new Pair("signal", "power", Mapping.FOLLOW),
-            new Pair(FIRED, Action.STATE, Mapping.PULSE_TOGGLE));
+            new Pair(FIRED, Action.STATE, Mapping.PULSE_TOGGLE),
+            new Pair(Action.STATE, ALARM, Mapping.FOLLOW));
 
     /** An out-port key, an in-port key and the mapping between them. */
     public record Pair(String from, String to, Mapping mapping) {

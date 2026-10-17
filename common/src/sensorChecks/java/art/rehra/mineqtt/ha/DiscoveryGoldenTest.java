@@ -25,6 +25,7 @@ import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.SmartLock;
 import art.rehra.mineqtt.device.types.AlarmPanel;
+import art.rehra.mineqtt.device.types.SignalBeacon;
 import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
@@ -105,6 +106,7 @@ public final class DiscoveryGoldenTest {
         speaker();
         smartLock();
         alarmPanel();
+        signalBeacon();
         wallSwitch();
         displayPanel();
         everyEntityKind();
@@ -566,6 +568,31 @@ public final class DiscoveryGoldenTest {
         expect(event, "p", "event");
         check(event.getAsJsonArray("event_types").toString().equals("[\"arm\",\"disarm\",\"trigger\",\"wrong_code\"]"), "Four event types: " + event);
         check(!config.toString().contains("player") && !config.toString().replace("\"code\":\"REMOTE_CODE\"", "").contains("\"code\":\""), "Nothing in the discovery names a player or holds a code");
+    }
+
+    /**
+     * The Signal Beacon: a JSON light in rgb mode without brightness, with the effects off and blink (no flash), the beam
+     * colour, the beacon diagnostic and the disabled location. A group of beacons gets the light alone.
+     */
+    private static void signalBeacon() throws IOException {
+        UUID beaconId = UUID.fromString("8b9c0d1e-2f3a-4b4c-8d5e-6f7a8b9c0d1e");
+        DeviceRecord beacon = new DeviceRecord(beaconId, SignalBeacon.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(22, 64, 0)), "Base Beacon", "base_beacon");
+        JsonObject config = DiscoveryPublisher.deviceConfig(SignalBeacon.TYPE, beacon, TOPICS, IDENTITY);
+        assertGolden("signal_beacon", config);
+        JsonObject components = config.getAsJsonObject("cmps");
+        check(components.keySet().equals(Set.of("light", "dye", "beacon", "location")), "Signal Beacon entities: " + components.keySet());
+        JsonObject light = components.getAsJsonObject("light");
+        expect(light, "p", "light");
+        expect(light, "schema", "json");
+        expect(light, "command_topic", "mineqtt/world_7f3a/base_beacon/set");
+        expect(light, "state_topic", "mineqtt/world_7f3a/base_beacon");
+        check(light.get("name").isJsonNull() && !light.get("brightness").getAsBoolean() && !light.get("flash").getAsBoolean()
+                        && light.getAsJsonArray("supported_color_modes").toString().equals("[\"rgb\"]")
+                        && light.getAsJsonArray("effect_list").toString().equals("[\"off\",\"blink\"]") && !light.has("color_temp_kelvin"),
+                "The light is the primary entity, rgb only, no brightness, off and blink: " + light);
+        JsonObject group = DiscoveryPublisher.groupConfig(SignalBeacon.TYPE, new DeviceGroup(UUID.randomUUID(), "Beacons", "beacons"), TOPICS, IDENTITY)
+                .getAsJsonObject("cmps");
+        check(group.keySet().equals(Set.of("light")), "A group of Signal Beacons gets the light alone: " + group.keySet());
     }
 
     private static void smartLock() throws IOException {

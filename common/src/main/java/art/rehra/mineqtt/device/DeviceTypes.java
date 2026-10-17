@@ -14,6 +14,7 @@ import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.SmartLock;
 import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.AlarmPanel;
+import art.rehra.mineqtt.device.types.SignalBeacon;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
 import art.rehra.mineqtt.device.types.WallSwitch;
@@ -59,6 +60,7 @@ public final class DeviceTypes {
         register(Speaker.TYPE);
         register(SmartLock.TYPE);
         register(AlarmPanel.TYPE);
+        register(SignalBeacon.TYPE);
     }
 
     public static synchronized @Nullable DeviceType get(Identifier id) {

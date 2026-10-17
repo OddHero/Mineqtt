@@ -25,6 +25,7 @@
     "mineqtt:vibration_sensor",
     "mineqtt:speaker",
     "mineqtt:smart_lock",
-    "mineqtt:alarm_panel"
+    "mineqtt:alarm_panel",
+    "mineqtt:signal_beacon"
   ]
 }

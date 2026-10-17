@@ -1,8 +1,8 @@
 #!/bin/sh
 # One of each MineQTT block entity, placed with data and checked again after a restart (M2 plan M2-3, D13).
-#   allblocks.sh place            force-load the row, place the 25 blocks with data, save
-#   allblocks.sh verify [log]     after a restart: every block entity has its data back and the twenty-two devices
-#                                 re-attached, the thirteen placed as devices with their ids; with the server log also no
+#   allblocks.sh place            force-load the row, place the 26 blocks with data, save
+#   allblocks.sh verify [log]     after a restart: every block entity has its data back and the twenty-three devices
+#                                 re-attached, the fourteen placed as devices with their ids; with the server log also no
 #                                 block entity load warning. The humidity sensor converted into a Climate Sensor (M2-19),
 #                                 the Static Publisher into a Redstone Input of rising edges (M2-20); the Dynamic
 #                                 Publisher and the Topic Relay keep only their slot paper as legacy items (M2-21); the
@@ -11,13 +11,14 @@
 #                                 Block Sensor is a Block Observer with its data mode as its payload (M4-9), the v1 Block
 #                                 Emitter a Block Placer with its slot paper as a legacy item (M4-10); the Container
 #                                 Observer, the Entity Observer, the Vibration Sensor, the Speaker, the Smart Lock (a
-#                                 plate without a target, so no_target) and the Alarm Panel are placed as devices.
+#                                 plate without a target, so no_target), the Alarm Panel and the Signal Beacon are placed as
+#                                 devices.
 # Run place on a fresh world (the devices carry fixed ids; MQTT may be disabled), stop the server, start it again,
 # then verify. RCON goes through game.py (MINEQTT_RCON_PORT, MINEQTT_RCON_PASSWORD), so either loader's dev server works.
 DIR=$(cd "$(dirname "$0")" && pwd)
 E="python $DIR/game.py"
 Y=-60
-# The devices' ids, at x 0, 2, 4, 6, 18, 32, 36, 38, 40, 42, 44, 46 and 48. The Redstone Input reads a mineqtt compound without an id as v1 data.
+# The devices' ids, at x 0, 2, 4, 6, 18, 32, 36, 38, 40, 42, 44, 46, 48 and 50. The Redstone Input reads a mineqtt compound without an id as v1 data.
 ID='[I;1296651345,1414541312,-2147483648,'
 # What 26.2 logs when it drops or cannot load a block entity (BlockEntity, LevelChunk; older versions said
 # "Skipping BlockEntity with id").
@@ -56,6 +57,7 @@ blocks() {
 44|speaker|{mineqtt:{id:${ID}44],name:"Allblocks Speaker",slug:"allblocks_speaker",state:{tone:"doorbell",range:24}}}|mineqtt.state.tone|"doorbell"
 46|smart_lock[face=wall,facing=north]|{mineqtt:{id:${ID}46],name:"Allblocks Lock",slug:"allblocks_lock",state:{relock:30}}}|mineqtt.state.relock|30
 48|alarm_panel[facing=north]|{mineqtt:{id:${ID}48],name:"Allblocks Alarm",slug:"allblocks_alarm",state:{exit_delay:45}}}|mineqtt.state.exit_delay|45
+50|signal_beacon[color=red]|{mineqtt:{id:${ID}50],name:"Allblocks Beacon",slug:"allblocks_beacon",state:{dye:"red",effect:"blink"}}}|mineqtt.state.dye|"red"
 EOF
 }
 
@@ -65,7 +67,7 @@ value() {
 }
 
 place() {
-    $E rcon forceload add 0 0 48 0
+    $E rcon forceload add 0 0 50 0
     blocks | while IFS='|' read -r x block nbt path expected; do
         $E rcon setblock "$x" $Y 0 "mineqtt:$block$nbt" </dev/null
     done
@@ -117,7 +119,7 @@ verify() {
             echo "FAIL timer at x $x has the name '$actual', expected \"$name\""; failed=1
         fi
     done
-    for x in 0 2 4 6 18 32 36 38 40 42 44 46 48; do
+    for x in 0 2 4 6 18 32 36 38 40 42 44 46 48 50; do
         actual=$(value "$x" mineqtt.id | tr -d ' ')
         if [ "$actual" = "$ID$x]" ]; then
             echo "PASS device at x $x keeps its id $actual"
@@ -128,10 +130,10 @@ verify() {
     devices=$($E rcon mineqtt devices list)
     echo "$devices"
     loaded=$(echo "$devices" | grep -c "^allblocks_.* loaded at ")
-    if [ "$loaded" -eq 22 ] && echo "$devices" | grep -q "^22 devices:"; then
-        echo "PASS the twenty-two devices are loaded"
+    if [ "$loaded" -eq 23 ] && echo "$devices" | grep -q "^23 devices:"; then
+        echo "PASS the twenty-three devices are loaded"
     else
-        echo "FAIL expected exactly the twenty-two allblocks devices, loaded"; failed=1
+        echo "FAIL expected exactly the twenty-three allblocks devices, loaded"; failed=1
     fi
     if [ -n "$1" ]; then
         if grep -iE "$LOAD_WARNINGS" "$1"; then

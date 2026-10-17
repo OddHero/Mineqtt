@@ -33,6 +33,7 @@ import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
 import art.rehra.mineqtt.device.types.SmartLock;
 import art.rehra.mineqtt.device.types.AlarmPanel;
+import art.rehra.mineqtt.device.types.SignalBeacon;
 import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
@@ -144,6 +145,9 @@ public final class DeviceTabsCheck {
         // The three delays; arming, disarming and the triggers are in-ports without controls (the keypad and wires), the status
         // line says what the panel does.
         expected.put(AlarmPanel.TYPE, List.of("exit_delay SLIDER CONFIGURE CONFIG", "entry_delay SLIDER CONFIGURE CONFIG", "siren_duration SLIDER CONFIGURE CONFIG"));
+        // The lamp's rows: its switch and the light picker, whose colour becomes the nearest dye; the alarm state is an in-port
+        // without a control (wires and Home Assistant).
+        expected.put(SignalBeacon.TYPE, List.of("state TOGGLE USE ACTION", "light LIGHT USE CONFIG"));
         for (DeviceType timer : Timers.all()) {
             check(new ControlsTab(timer).statusLine() && ControlsTab.controls(timer).size() <= ControlsTab.MAX_ROWS - 1,
                     timer + ": at most four rows of controls beside its status line");
@@ -182,6 +186,7 @@ public final class DeviceTabsCheck {
         advanced.put(Speaker.TYPE, List.of());
         advanced.put(SmartLock.TYPE, List.of());
         advanced.put(AlarmPanel.TYPE, List.of());
+        advanced.put(SignalBeacon.TYPE, List.of());
         Timers.all().forEach(timer -> advanced.put(timer, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
                 "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG")));
         advanced.put(EntityObserver.TYPE, valueLink);
@@ -213,8 +218,8 @@ public final class DeviceTabsCheck {
         }
         twinTabLimits();
         check(DeviceTypes.all().stream().filter(type -> new GeneralTab(type).grouping()).map(DeviceType::id).collect(Collectors.toSet())
-                .equals(Set.of(RedstoneOutput.TYPE.id(), SmartLamp.TYPE.id(), SmartPlug.TYPE.id())),
-                "Of the registered types only the output, the lamp and the plug have group pages");
+                .equals(Set.of(RedstoneOutput.TYPE.id(), SmartLamp.TYPE.id(), SmartPlug.TYPE.id(), SignalBeacon.TYPE.id())),
+                "Of the registered types only the output, the lamp, the plug and the Signal Beacon have group pages");
         groupPages();
         claimable();
         diagnosticsTab();

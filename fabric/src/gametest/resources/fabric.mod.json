@@ -45,7 +45,8 @@
       "art.rehra.mineqtt.fabric.gametest.VibrationSensorGameTest",
       "art.rehra.mineqtt.fabric.gametest.SpeakerGameTest",
       "art.rehra.mineqtt.fabric.gametest.SmartLockGameTest",
-      "art.rehra.mineqtt.fabric.gametest.AlarmPanelGameTest"
+      "art.rehra.mineqtt.fabric.gametest.AlarmPanelGameTest",
+      "art.rehra.mineqtt.fabric.gametest.SignalBeaconGameTest"
     ]
   },
   "depends": {

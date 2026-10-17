@@ -6,7 +6,8 @@
   "client": [
   ],
   "mixins": [
-    "BaseContainerBlockEntityAccessor"
+    "BaseContainerBlockEntityAccessor",
+    "BeaconBlockEntityMixin"
   ],
   "server": [
     "MinecraftServerPauseMixin"

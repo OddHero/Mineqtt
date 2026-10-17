@@ -193,6 +193,14 @@ tasks.register('verifyAlarmPanel', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.device.AlarmPanelCheck'
 }
+// The Signal Beacon's rules: the beam palette against the game, which dye a colour becomes, the light commands, the alarm
+// states and what each shows, the blink's timing, the state Home Assistant reads, the saved form, the queued preview and
+// the stand-ins of the beacon's beam scan.
+tasks.register('verifySignalBeacon', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.SignalBeaconCheck'
+}
 // Config v2 defaults, v1 migration, the JSON form and credential masking; plain Java, no game bootstrap needed.
 tasks.register('verifyConfigMigration', JavaExec) {
     dependsOn sensorChecksClasses
@@ -552,6 +560,7 @@ tasks.named('check') {
     dependsOn tasks.named('verifySpeaker')
     dependsOn tasks.named('verifySmartLock')
     dependsOn tasks.named('verifyAlarmPanel')
+    dependsOn tasks.named('verifySignalBeacon')
     // The Minecraft-free checks (brokerChecks and the isolation of the cores) are the same for every Minecraft version and
     // start brokers on fixed ports, so only the active version's check runs them.
     if (stonecutter.current.isActive) {
