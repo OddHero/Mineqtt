@@ -2,10 +2,12 @@ package art.rehra.mineqtt.fabric.gametest;
 
 import art.rehra.mineqtt.compat.Screens;
 import art.rehra.mineqtt.blocks.BaseMqttBlock;
+import art.rehra.mineqtt.blocks.SmartLockBlock;
 import art.rehra.mineqtt.blocks.entities.BaseMqttBlockEntity;
 import art.rehra.mineqtt.blocks.entities.TerminalBlockEntity;
 import art.rehra.mineqtt.device.DeviceHost;
 import art.rehra.mineqtt.device.DeviceView;
+import art.rehra.mineqtt.device.StateWriter;
 import art.rehra.mineqtt.fabric.config.MineQTTConfigScreen;
 import art.rehra.mineqtt.items.MineqttItems;
 import art.rehra.mineqtt.ui.CyberdeckScreen;
@@ -13,26 +15,33 @@ import art.rehra.mineqtt.ui.console.ConsoleMenu;
 import art.rehra.mineqtt.ui.device.DeviceMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttMenu;
 import art.rehra.mineqtt.ui.framework.TabbedMqttScreen;
+import com.google.gson.JsonElement;
 import com.mojang.blaze3d.platform.InputConstants;
 import me.shedaniel.clothconfig2.gui.ClothConfigScreen;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 /**
- * Every MineQTT screen opens: each block with a screen is placed by the non-op player, opened with the use key, and every
- * one of its tabs is clicked and photographed; then the Cyberdeck's screen the same way, and finally each category of the
- * config screen. A device's screen has no inventory and is titled with the device's name, the Bridge Console's has none
- * either and is titled with the block's name; every other screen keeps the player's inventory. A client crash while
- * building or drawing a screen fails the run.
+ * Every MineQTT screen opens: each block with a screen is placed by the non-op player (the Smart Lock onto a chest, the
+ * only place its item puts it), opened the way a player opens it ({@link GameTestSession#openBlock}: sneak + use where a
+ * plain right-click uses the device), and every one of its tabs is clicked and photographed; then the Cyberdeck's screen
+ * the same way, and finally each category of the config screen. A device's screen has no inventory and is titled with the
+ * device's name, the Bridge Console's has none either and is titled with the block's name; every other screen keeps the
+ * player's inventory. Opening and touring a screen does not use the device: a lamp, plug, beacon or speaker stays off and
+ * a lock stays locked. A client crash while building or drawing a screen fails the run.
  */
 public final class ScreensGameTest implements FabricClientGameTest {
     /** Blocks are placed in a row along x, this far apart, with the player standing this far north of each. */
@@ -60,7 +69,7 @@ public final class ScreensGameTest implements FabricClientGameTest {
             Identifier id = BuiltInRegistries.BLOCK.getKey(block);
             BlockPos ground = new BlockPos(i * SPACING, GameTestSession.GROUND_Y, STAND_OFF);
             session.teleport(new BlockPos(ground.getX(), GameTestSession.GROUND_Y + 1, 0));
-            BlockPos pos = session.place(block, ground);
+            BlockPos pos = block instanceof SmartLockBlock ? placeLock(session, ground) : session.place(block, ground);
             // A device keeps its owner in its link, a block that is no device in its own data; the Bridge Console has none.
             Kind kind = session.onServer(s -> switch (s.overworld().getBlockEntity(pos)) {
                 case DeviceHost host -> Kind.DEVICE;
@@ -74,9 +83,12 @@ public final class ScreensGameTest implements FabricClientGameTest {
             });
             session.check(kind == Kind.CONSOLE ? owner == null : session.playerName().equals(owner),
                     kind == Kind.CONSOLE ? id + " is placed and has no owner" : id + " is placed and owned by the player");
+            JsonElement before = usedState(session, pos);
             session.openBlock(pos);
             layout(session, id.getPath(), kind);
             visitTabs(session, id.getPath());
+            JsonElement after = usedState(session, pos);
+            session.check(Objects.equals(before, after), id + "'s screen opens and closes without using it (state " + before + ", then " + after + ")");
         }
 
         session.hold(MineqttItems.Cyberdeck.get());
@@ -86,6 +98,36 @@ public final class ScreensGameTest implements FabricClientGameTest {
         visitTabs(session, "cyberdeck");
 
         configScreen(session);
+    }
+
+    /**
+     * Puts a Smart Lock onto a chest standing on {@code ground}: the item, used on the chest's face towards the player,
+     * puts the plate there. Returns the plate's position, once both sides have it.
+     */
+    private static BlockPos placeLock(GameTestSession session, BlockPos ground) {
+        BlockPos chest = ground.above();
+        BlockPos plate = chest.north();
+        session.consoleCommand("setblock " + chest.getX() + " " + chest.getY() + " " + chest.getZ() + " minecraft:chest[facing=north]");
+        session.context().waitFor(mc -> mc.level.getBlockState(chest).is(Blocks.CHEST));
+        session.hold(MineqttItems.SmartLock.get());
+        session.aim(chest, Direction.NORTH);
+        session.pressUse();
+        session.awaitServer(s -> s.overworld().getBlockEntity(plate) instanceof DeviceHost host && host.deviceLink().attached());
+        session.context().waitFor(mc -> mc.level.getBlockState(plate).getBlock() instanceof SmartLockBlock);
+        return plate;
+    }
+
+    /**
+     * What a plain right-click would change on the device at {@code pos}: its {@code state} when its type has a use (the
+     * lamp's light, the speaker's siren, the lock's lock), else null.
+     */
+    private static @Nullable JsonElement usedState(GameTestSession session, BlockPos pos) {
+        return session.onServer(s -> {
+            if (!(s.overworld().getBlockEntity(pos) instanceof DeviceHost host) || host.deviceType().use().isEmpty()) return null;
+            StateWriter state = new StateWriter();
+            host.writeState(state);
+            return state.json().get("state");
+        });
     }
 
     /**
