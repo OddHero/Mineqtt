@@ -80,6 +80,8 @@
   (lime) disarmed, blinking orange while arming or pending, red armed and blinking red when triggered; Home Assistant
   automations may send the same alarm states to `/set/alarm`. A Smart Lamp's *light* wires to it too. Crafted from
   iron ingots, glass, redstone and the Network Chip.
+- **Example security dashboard.** `docs/dashboards/mineqtt-security.yaml` shows the Alarm Panel's card, the locks, the
+  vibrations and every device's events, the siren and the beacon, with an example automation in its comments.
 
 ### For server admins
 

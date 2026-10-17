@@ -9,8 +9,11 @@ Maybe you want to know when your virtual nuclear reactor is about to blow up. Wi
 airhorn to wake you up before it is too late.
 
 - **Real smart-home devices.** Home Assistant discovers every placed Smart Lamp, Redstone Output, Redstone Input,
-  Smart Plug, Presence Sensor, Climate Sensor, Wall Switch, Display Panel, timer, Block Observer and Block Placer as
-  its own device, under a **MineQTT Bridge** device that also reports the world's time, weather and load.
+  Smart Plug, Presence Sensor, Climate Sensor, Wall Switch, Display Panel, timer, Block, Container and Entity Observer
+  and Block Placer as its own device, under a **MineQTT Bridge** device that also reports the world's time, weather
+  and load.
+- **Secure your base.** Vibration Sensors, Smart Locks, a Speaker and a Signal Beacon make one alarm system with the
+  Alarm Panel, which Home Assistant arms and disarms with its alarm panel card.
 - **Mirror your house.** A lamp follows the real kitchen light, a Display Panel shows the outdoor temperature, and a
   pressure plate switches the real hallway light.
 - **Works without the broker.** Wires connect devices on the server, so a Daylight Timer switches the lamps at sunset

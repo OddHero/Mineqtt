@@ -1,0 +1,137 @@
+# MineQTT security dashboard for Home Assistant (MineQTT 0.11.0 or newer, Home Assistant 2025.2 or newer).
+#
+# It shows one alarm system built from MineQTT's security devices: an Alarm Panel, two Vibration Sensors (one at the
+# door, one inside), two Smart Locks (the door and a chest), a Speaker and a Signal Beacon. The wiki page
+# "Secure Your Base" (https://github.com/OddHero/Mineqtt/wiki/Secure-Your-Base) builds this system step by step.
+#
+# Entity ids follow the device names. A device's main entity takes the device's name, its other entities add their own
+# name: an Alarm Panel named "Base Alarm" is alarm_control_panel.base_alarm, its Triggered sensor is
+# binary_sensor.base_alarm_triggered. This file uses these device names:
+#
+#   Base Alarm       Alarm Panel        alarm_control_panel.base_alarm
+#   Door Sensor      Vibration Sensor   binary_sensor.door_sensor
+#   Hall Sensor      Vibration Sensor   binary_sensor.hall_sensor
+#   Front Door Lock  Smart Lock         lock.front_door_lock
+#   Chest Lock       Smart Lock         lock.chest_lock
+#   Base Speaker     Speaker            siren.base_speaker
+#   Base Beacon      Signal Beacon      light.base_beacon
+#
+# Rename your devices to these names (a name tag, or the device screen's General tab) before Home Assistant first sees
+# them, or replace the entity ids below with yours (Settings > Devices & services > Entities lists them).
+# Home Assistant 2026.10 puts the area first when it creates a device inside a room: a Speaker in a room "Base" becomes
+# siren.base_base_speaker. Check the ids in Home Assistant after you place the devices.
+#
+# To add it: Settings > Dashboards > Add dashboard > New dashboard from scratch, then the three-dot menu > Raw
+# configuration editor, and paste this file. Nothing it shows is disabled by default.
+#
+# The alarm panel card asks for the code to disarm. Home Assistant sends that code to the Alarm Panel over MQTT, in
+# plain text unless the broker uses TLS: use TLS between Home Assistant, the broker and the Minecraft server.
+#
+# Example automation (Settings > Automations & scenes > Create automation > Edit in YAML). The Speaker and the Signal
+# Beacon need no automation when they are wired to the Alarm Panel; this one also reaches the real house: a phone
+# notification and the real hallway light. Replace notify.mobile_app_my_phone and light.hallway with yours.
+#
+#   alias: Minecraft base alarm
+#   description: The Alarm Panel in Minecraft is triggered.
+#   triggers:
+#     - trigger: state
+#       entity_id: alarm_control_panel.base_alarm
+#       to: triggered
+#   actions:
+#     # Not needed when the Speaker's state is wired to the panel's triggered.
+#     - action: siren.turn_on
+#       target:
+#         entity_id: siren.base_speaker
+#       data:
+#         tone: alarm
+#         duration: 180
+#     # Not needed when the beacon's alarm is wired to the panel's state.
+#     - action: light.turn_on
+#       target:
+#         entity_id: light.base_beacon
+#       data:
+#         rgb_color: [255, 0, 0]
+#         effect: blink
+#     - action: notify.mobile_app_my_phone
+#       data:
+#         title: Minecraft
+#         message: "Base alarm: {{ states('sensor.base_alarm_trigger_source') }} triggered it."
+#     - action: light.turn_on
+#       target:
+#         entity_id: light.hallway
+#       data:
+#         flash: long
+#   mode: single
+#
+# A second automation can tell you about a refused hand at a lock, armed or not. The Attempt event says how and on
+# what, never who:
+#
+#   alias: Minecraft lock attempt
+#   triggers:
+#     - trigger: state
+#       entity_id: event.front_door_lock_attempt
+#       not_from: unavailable
+#       not_to: unavailable
+#   actions:
+#     - action: notify.mobile_app_my_phone
+#       data:
+#         message: "Front door: an attempt by {{ trigger.to_state.attributes.method }}."
+#   mode: queued
+title: Minecraft security
+views:
+  - title: Security
+    path: minecraft-security
+    icon: mdi:shield-home
+    cards:
+      - type: alarm-panel
+        name: Base alarm
+        entity: alarm_control_panel.base_alarm
+        states:
+          - arm_home
+          - arm_away
+      - type: entities
+        title: Alarm
+        entities:
+          - entity: binary_sensor.base_alarm_triggered
+          - entity: sensor.base_alarm_trigger_source
+          - entity: sensor.base_alarm_time_left
+          - entity: sensor.base_alarm_wrong_codes
+      - type: entities
+        title: Locks
+        entities:
+          - entity: lock.front_door_lock
+            name: Front door
+          - entity: lock.chest_lock
+            name: Chest
+          - entity: sensor.front_door_lock_attempts
+            name: Front door attempts
+          - entity: sensor.chest_lock_attempts
+            name: Chest attempts
+      - type: entities
+        title: Siren and beacon
+        entities:
+          - entity: siren.base_speaker
+            name: Siren
+          - entity: sensor.base_speaker_time_left
+          - entity: light.base_beacon
+            name: Beacon
+          - entity: sensor.base_beacon_beam_colour
+      - type: history-graph
+        title: Vibrations
+        hours_to_show: 6
+        entities:
+          - entity: binary_sensor.door_sensor
+            name: Door
+          - entity: binary_sensor.hall_sensor
+            name: Hall
+          - entity: binary_sensor.base_alarm_triggered
+            name: Triggered
+      - type: logbook
+        title: Events
+        hours_to_show: 24
+        entities:
+          - event.base_alarm_alarm
+          - event.door_sensor_vibration
+          - event.hall_sensor_vibration
+          - event.front_door_lock_attempt
+          - event.chest_lock_attempt
