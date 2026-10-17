@@ -572,6 +572,16 @@ public final class DiscoveryPublisher {
                 component.addProperty("support_duration", true);
                 component.addProperty("support_volume_set", true);
             }
+            case HaEntity.Lock lock -> {
+                // Home Assistant sends payload_lock and payload_unlock as they are (no command template): the device's own
+                // command to its locked field. It reads the state field's name and maps each onto a lock state.
+                component.addProperty("state_topic", topics.state());
+                component.addProperty("value_template", valueTemplate(lock.state()));
+                component.addProperty("command_topic", topics.set());
+                component.addProperty("payload_lock", "{\"" + lock.locked().key() + "\":true}");
+                component.addProperty("payload_unlock", "{\"" + lock.locked().key() + "\":false}");
+                for (String name : lock.states()) component.addProperty("state_" + name, name);
+            }
             case HaEntity.DeviceTrigger trigger -> {
                 component.addProperty("automation_type", "trigger");
                 component.addProperty("topic", topics.action());

@@ -25,7 +25,7 @@ import java.util.regex.PatternSyntaxException;
  */
 public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, HaEntity.Switch, HaEntity.Number,
         HaEntity.BinarySensor, HaEntity.Sensor, HaEntity.Select, HaEntity.Event, HaEntity.Button, HaEntity.Text,
-        HaEntity.Notify, HaEntity.Siren, HaEntity.DeviceTrigger {
+        HaEntity.Notify, HaEntity.Siren, HaEntity.Lock, HaEntity.DeviceTrigger {
 
     /** Home Assistant's {@code entity_category}. */
     enum Category {
@@ -668,6 +668,49 @@ public sealed interface HaEntity<S extends HaEntity<S>> permits HaEntity.Light, 
         @Override
         public boolean commands() {
             return true;
+        }
+    }
+
+    /**
+     * A lock (Home Assistant's MQTT {@code lock}): locked and unlocked with the type's writable BOOL field
+     * {@code locked}, which Home Assistant commands on the device's {@code /set} topic with
+     * {@code {"<locked>":true}} ({@code payload_lock}) and {@code {"<locked>":false}} ({@code payload_unlock}), sent as
+     * they are, without a command template. It reads its state from a read-only enum field whose names are Home
+     * Assistant's lock states ({@link #STATES}): each name is its {@code state_<name>}, so the device publishes them as
+     * it spells them. No {@code payload_open}: a lock that opens would show Home Assistant's Open button on every device
+     * of the type, whatever it locks.
+     *
+     * @param state  the read-only enum field Home Assistant reads as the lock's state; not among {@link #fields()}
+     * @param locked the writable BOOL field a command sets: true locks, false unlocks
+     */
+    record Lock(Meta meta, Field<?> state, Field<Boolean> locked) implements HaEntity<Lock> {
+        /** The lock states Home Assistant's MQTT lock knows, each configurable as {@code state_<name>}. */
+        public static final List<String> STATES = List.of("locked", "unlocked", "locking", "unlocking", "jammed", "open", "opening");
+
+        @Override
+        public Lock withMeta(Meta meta) {
+            return new Lock(meta, state, locked);
+        }
+
+        @Override
+        public String platform() {
+            return "lock";
+        }
+
+        /** The {@code locked} field, which a command sets; the state is read through {@link #state()}. */
+        @Override
+        public List<Field<?>> fields() {
+            return List.of(locked);
+        }
+
+        @Override
+        public boolean commands() {
+            return true;
+        }
+
+        /** The lock states the state field takes, as Home Assistant reads them; empty when it is no enum field. */
+        public List<String> states() {
+            return state.kind() instanceof art.rehra.mineqtt.flow.core.PortType.Enum names ? names.values() : List.of();
         }
     }
 

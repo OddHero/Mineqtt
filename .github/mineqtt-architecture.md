@@ -158,6 +158,15 @@ crash never survives.
   JSON siren state besides `state` against its turn-on schema, so the device's whole state would be refused.
   `DeviceType.hasControl(key)` is false for an action declared `withoutControl` (the Speaker's `announce`):
   `ControlsTab.controls` leaves it out, its in-port stays for wires, Home Assistant and commands.
+  `HaEntity.Lock(meta, state, locked)` (`Ha.lock`, platform `lock`): `fields()` is the writable BOOL `locked` it commands;
+  the state is a separate read-only enum field whose serialized names are Home Assistant lock states
+  (`HaEntity.Lock.STATES`; `build()` refuses a field that is undeclared, no enum of those names or without `locked` and
+  `unlocked`, and a `locked` that is no BOOL). Its component has `command_topic` `/set` with `payload_lock`
+  `{"<locked>":true}` and `payload_unlock` `{"<locked>":false}` (sent as they are, no command template), `value_template`
+  the state field, and `state_<name>` = `<name>` for each of its names; never `payload_open` (an Open button would show on
+  every device of the type). `DeviceType.Builder.defaultAccess(mode)` gives a type another starting access mode than
+  `AccessMode.DEFAULT` (claim): `DeviceLink` takes it for a new link, a link saved without one and a placement
+  (`sanitizePlaced`).
   A device may only publish declared events (`DeviceType.eventProblem`; `publishEvent` throws otherwise). Settings and
   `LinkSetting`s (name, expose, access, Raw Link channel/topic/retain/QoS/payloads, with design §8.5's bounds) parse a
   client's NBT strictly through the kind: out of range is refused, while HA's `/set` stays lenient (clamped).
@@ -766,6 +775,69 @@ crash never survives.
   %), *Duration* (s) and *Range* (blocks), *Time left* (`device_class: duration`), *Last announcement* (unknown before
   the first), the diagnostic *Last result* and the disabled location. Checked by `verifySpeaker`; the golden file is
   `golden/speaker.json`.
+- **Smart Lock.** `device/types/SmartLock` (`mineqtt:smart_lock`, a new device: `noV1Topic`, `QUEUE` with its own
+  preview, `defaultAccess(PRIVATE)`, a status line, no Raw Link). It locks a target against other players' hands: a
+  block in `#mineqtt:lockable` (`data/mineqtt/tags/block/lockable.json`: `#minecraft:doors`, `#minecraft:trapdoors`,
+  `#minecraft:fence_gates`) or one whose block entity is a `BaseContainerBlockEntity` (chests, barrels, shulker boxes,
+  furnaces, hoppers, dispensers, droppers, brewing stands, crafters). **Plate.** `SmartLockBlock` (`face`
+  floor/wall/ceiling, horizontal `facing`, `locked`) is a 6 x 8 x 2 keypad without collision against one face of one
+  part of its target: `outward` points away from it, `support(pos, state)` is the part it aims at, and the target is never
+  stored. Its `canSurvive` needs a lockable support (placement only); `updateShape` pops it (drops, device destroyed) when
+  the support becomes replaceable, so breaking, blowing up or pushing away the target removes the lock; a support a
+  command swaps for another block keeps it (`target_missing`). It has a block entity, so pistons never move it. `locked`
+  mirrors the device (red or green light) and tells clients not to predict a locked target. **Targets**
+  (`blocks/LockTargets`, pure over a `Lookup`): `kind` (door, trapdoor, fence gate, container, other), `group` (a door's
+  two halves plus the door that pairs with it: same facing, the other hinge, at `facing.getClockWise()` for a left hinge
+  and `getCounterClockWise()` for a right one, as vanilla hangs a double door; a double chest's halves through
+  `ChestBlock.getConnectedDirection`), read again every time, so a chest that becomes double or a second door is locked
+  with it; `plates` (the plates aimed at any part of the group); `spots` (the clicked face, then each face of each part
+  towards the player; a door only its sides); `swinging` (doors by their lower half, trapdoors, gates; a barrel's `open`
+  is no swing). **Placing.** `SmartLocks` (Architectury `RIGHT_CLICK_BLOCK`, registered with the blocks) hands a
+  right-click on a lockable target with the item to `SmartLockItem.placeOn` before vanilla would use the target (the
+  client predicts nothing): refused in the action bar for a target that already has a plate or a foreign vanilla lock,
+  where the player may not interact, build (`canPlace`) or use (`canInteract` USE) any part (claims, spawn protection),
+  and without a free spot; else vanilla's `BlockItem.place` with a context on the chosen part's face (item used, sound,
+  owner, `limits.maxDevicesPerPlayer`). The item anywhere else is refused with a hint; `/setblock` makes a plate without
+  a target (`no_target`). **Fields:** `locked` (BOOL, default true: a new or placed lock is locked), `state`
+  (`LockState`: `locked`, `unlocked`, `open` while a door, trapdoor or gate of the target stands open, `jammed` while
+  locked without a target in reach; `SmartLock.state`), `relock` (0-3600 s, setting, default 0 = off), `attempts` (since
+  placed), `target` (the block id, kept while missing), `paired`, `status` (`ok`, `no_target` before it ever had one,
+  `target_missing`) and `location`. Actions `lock`, `unlock`, `toggle` (pressed, `withoutControl`; `use(toggle)`), so the
+  Controls tab has the `locked` switch and the relock slider above the status line ("Locks oak door (pair)"). Commands
+  (`SmartLock.lockTo`): `locked` true/false, `LOCK`, `UNLOCK`, `ON`, `OFF`, `TOGGLE`; `lock`, `unlock`, `toggle` win in
+  that order. Event `attempt` (`method` `hand`, `plate`, `redstone`, `other`; `target` the kind), at most once a second
+  on the action topic, counted at most once a tick. **Access** (`SmartLock.mayPass`): the owner; an operator while
+  `smartLock.opsBypass` (default on); anybody else as `DeviceAccess.permits(USE, access, op=false, owner=false,
+  claimTrust)`. Spectators are left to vanilla, which lets them look into a container and nothing else. The plate's
+  right-click goes through `BaseMqttBlock.click` (USE, which every operator has); a player without USE gets `mineqtt.smart_lock.no_access` and a `plate` attempt. **Enforcement**
+  (`SmartLocks.click`, server; a sneaking player with an item uses no block and is let through): a target whose plates
+  include a locked one refuses a player `mayPass` refuses: an `attempt` (`hand`), then for containers vanilla's own
+  refusal (the containers carry its lock, applied now if missing), for the rest `container.isLocked` with the block's
+  name in the action bar, `CHEST_LOCKED`, the group's blocks resent to the player (a client that predicted a swing sees
+  it undone) and `interruptFalse`. A player it lets in is marked (`authorized`); a container's main-hand use then runs
+  `useWithoutItem` with the vanilla lock of every part lifted and put back right after (the menu opens inside that call
+  and vanilla asks the lock only there), anything else passes to vanilla. The client answers `interruptTrue` for a target
+  whose plate shows `locked`, so it predicts nothing and sends the click. `SmartLockBlockEntity` ticks on the server: the
+  target's status, kind, id and pair (never loading a chunk), the relock countdown (`Settings.lockedTo/tickRelock/
+  relockDue`, saved as `relock_left`; an unlock starts it, a second one does not restart it, a changed delay restarts
+  it), the edges of `open` per swinging part: a rising edge while locked that no
+  permitted player's use marked since the last look (`authorized`, a one-shot mark: vanilla opens the door within that
+  use) is closed at once (`swing`: `DoorBlock.setOpen`, or the property with the trapdoor's or gate's
+  sound and `BLOCK_CLOSE`) and counted (`redstone` while `powered`, else `other`); a signal that stays on keeps the door
+  shut until it changes. Locking closes every open swinging part; unlocking opens one a signal still holds. **Vanilla
+  lock** (`compat/ContainerLocks`, through the accessor mixin `BaseContainerBlockEntityAccessor` on `lockKey`): from
+  1.21.2 an item predicate over an empty item list (saved `{"items":[]}`), before a custom name no anvil can type;
+  recognised by its saved form, so a map maker's lock is never touched. Applied to every container part while locked
+  with a target (at each change and every 20 ticks), cleared when unlocked, by `preRemoveSideEffects` and by
+  `setRemoved` of a plate a command replaced; a player breaking a locked container clears it first (`BlockEvent.BREAK`),
+  so a shulker box keeps no lock as an item, and a right-click on a container whose lock no plate holds clears it (a
+  shulker box blown up and carried off). **Plate protection:** `BlockEvent.BREAK` (Stonecutter: 5 parameters before
+  26.2, 4 from 26.2) refuses breaking a plate without CONFIGURE (`mineqtt.smart_lock.protected`). Redstone at the plate
+  does nothing (anyone may place a lever beside it); wires reach `locked`, `lock`, `unlock`, `toggle`. Discovery: the
+  lock (primary), the event entity *Attempt*, *Attempts* (`total_increasing`), the config number *Auto-relock*, the
+  diagnostics *Target* and *Status*, the disabled location. Known limits: hoppers below a locked chest still pull
+  (blocking them needs a mixin), pistons may push a trapdoor or a gate away (the plate pops and the lock goes),
+  explosions are not stopped. Checked by `verifySmartLock`; the golden file is `golden/smart_lock.json`.
 - **Rooms** (M4-14, plan D11; `rooms/`). `Room(id, name, dimension, min, max, owner, forAll, created)`; the codec
   normalises the corners. `RoomRules` (pure): names (sanitised, 1-32 code points, unique per owner ignoring case),
   size (each axis `max - min + 1 <= rooms.maxSize`), counts (`limits.maxRoomsPerPlayer`, ops exempt; 512 per world for
@@ -1430,7 +1502,9 @@ in the bullets of [Flows](#flows) (roots, twin wires, mirroring types, target wi
   behind it, which it reads only where the claim rule lets it open the container) minus the hard denies (`PlacerRules`), never with NBT or block entity data, never from a
   retained message, at most 4 actions a second, within the world border and outside spawn protection, across a claim
   line only for an online owner who may build there, and clears only its own block; on a dedicated server only operators
-  configure it unless `blockPlacer.playersMayConfigure` ([Devices](#devices)). The Block Observer exports block entity
+  configure it unless `blockPlacer.playersMayConfigure` ([Devices](#devices)). A Smart Lock stops hands only (not
+  pistons, explosions or hoppers); only a player who may build, interact and use there locks a target, a new lock is
+  private, operators pass it only under `smartLock.opsBypass`, and its attempt events never name a player. The Block Observer exports block entity
   data only under `blockObserver.exportBlockEntityData` and within one claim, never to Home Assistant. The Container
   Observer publishes a container's item counts (by item id, never names or other components) only where the Block
   Placer's claim rule lets its owner open the container, asked at every look, and never publishes a scan saved from

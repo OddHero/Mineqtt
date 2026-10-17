@@ -2,6 +2,7 @@ package art.rehra.mineqtt.device;
 
 import art.rehra.mineqtt.flow.core.PortType;
 import art.rehra.mineqtt.ha.HaEntity;
+import art.rehra.mineqtt.security.AccessMode;
 import art.rehra.mineqtt.twin.TwinAdapter;
 import art.rehra.mineqtt.twin.core.Binding;
 import art.rehra.mineqtt.twin.core.EntityDocument;
@@ -49,6 +50,7 @@ public final class DeviceType {
     private final boolean remote;
     private final boolean noV1Topic;
     private final boolean editsWorld;
+    private final AccessMode defaultAccess;
     private final @Nullable StatusLine status;
     private final Duration minInterval;
     private final Map<String, Double> deadbands;
@@ -73,6 +75,7 @@ public final class DeviceType {
         this.remote = builder.remote;
         this.noV1Topic = builder.noV1Topic;
         this.editsWorld = builder.editsWorld;
+        this.defaultAccess = builder.defaultAccess;
         this.status = builder.status;
         this.minInterval = builder.minInterval;
         this.deadbands = Map.copyOf(builder.deadbands);
@@ -132,6 +135,14 @@ public final class DeviceType {
 
     public Optional<LinkSetting<?>> linkSetting(String key) {
         return linkSettings().stream().filter(setting -> setting.key().equals(key)).findFirst();
+    }
+
+    /**
+     * The access mode of a device of this type that is new, placed or saved without one: {@link AccessMode#DEFAULT} (the
+     * claim's) unless the type says otherwise ({@link Builder#defaultAccess}).
+     */
+    public AccessMode defaultAccess() {
+        return defaultAccess;
     }
 
     public List<Action> actions() {
@@ -455,6 +466,7 @@ public final class DeviceType {
         private boolean remote;
         private boolean noV1Topic;
         private boolean editsWorld;
+        private AccessMode defaultAccess = AccessMode.DEFAULT;
         private @Nullable StatusLine status;
         private Duration minInterval = Duration.ZERO;
         private final Map<String, Double> deadbands = new LinkedHashMap<>();
@@ -550,6 +562,16 @@ public final class DeviceType {
             return this;
         }
 
+        /**
+         * The access mode a new device of this type starts with ({@link DeviceType#defaultAccess()}): the claim's by
+         * default; the Smart Lock's is private, as a lock open to everyone the claim trusts (everyone without a claim mod)
+         * would lock nobody out.
+         */
+        public Builder defaultAccess(AccessMode access) {
+            this.defaultAccess = access;
+            return this;
+        }
+
         /** The read-only line at the foot of the type's Controls tab ({@link DeviceType#status()}). */
         public Builder status(StatusLine status) {
             this.status = status;
@@ -592,7 +614,8 @@ public final class DeviceType {
          *                               Assistant event or device trigger without its declared event, a button or
          *                               notify without its declared action, a switch, light or siren without a
          *                               {@code state} in-port, a siren whose state field is undeclared or whose tones
-         *                               its tone field does not take, a hidden control of no declared action, an
+         *                               its tone field does not take, a lock over a field that is no BOOL or a state
+         *                               field that is undeclared or no enum of lock states, a hidden control of no declared action, an
          *                               action that shadows a writable field, two ports of one key and
          *                               direction, a field named like a link setting, a writable inline field that
          *                               is no light, a use that is no declared action that toggles or fires, a
@@ -689,6 +712,16 @@ public final class DeviceType {
                         if (!siren.state().access().readable()) fail("siren " + entity.key() + " reads write-only field " + siren.state().key());
                         if (!(siren.tone().kind() instanceof PortType.Enum tones) || !tones.values().equals(siren.tones())) {
                             fail("siren " + entity.key() + " offers tones its field " + siren.tone().key() + " does not take");
+                        }
+                    }
+                    case HaEntity.Lock lock -> {
+                        // Locked and unlocked through its BOOL field; its state is an enum of Home Assistant's lock states.
+                        if (!(lock.locked().kind() instanceof PortType.Bool)) fail("lock " + entity.key() + " commands field " + lock.locked().key() + ", which is no BOOL");
+                        if (!fields.contains(lock.state())) fail("lock " + entity.key() + " reads undeclared field " + lock.state().key());
+                        if (!lock.state().access().readable()) fail("lock " + entity.key() + " reads write-only field " + lock.state().key());
+                        if (lock.states().isEmpty() || !HaEntity.Lock.STATES.containsAll(lock.states())
+                                || !lock.states().containsAll(java.util.List.of("locked", "unlocked"))) {
+                            fail("lock " + entity.key() + " reads field " + lock.state().key() + ", whose names are no lock states with locked and unlocked");
                         }
                     }
                     case HaEntity.Select select -> {

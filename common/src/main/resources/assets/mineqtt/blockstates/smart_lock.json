@@ -1,0 +1,110 @@
+{
+  "variants": {
+    "face=floor,facing=north,locked=false": {
+      "model": "mineqtt:block/smart_lock",
+      "x": 270
+    },
+    "face=floor,facing=north,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked",
+      "x": 270
+    },
+    "face=floor,facing=east,locked=false": {
+      "model": "mineqtt:block/smart_lock",
+      "x": 270,
+      "y": 90
+    },
+    "face=floor,facing=east,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked",
+      "x": 270,
+      "y": 90
+    },
+    "face=floor,facing=south,locked=false": {
+      "model": "mineqtt:block/smart_lock",
+      "x": 270,
+      "y": 180
+    },
+    "face=floor,facing=south,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked",
+      "x": 270,
+      "y": 180
+    },
+    "face=floor,facing=west,locked=false": {
+      "model": "mineqtt:block/smart_lock",
+      "x": 270,
+      "y": 270
+    },
+    "face=floor,facing=west,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked",
+      "x": 270,
+      "y": 270
+    },
+    "face=wall,facing=north,locked=false": {
+      "model": "mineqtt:block/smart_lock"
+    },
+    "face=wall,facing=north,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked"
+    },
+    "face=wall,facing=east,locked=false": {
+      "model": "mineqtt:block/smart_lock",
+      "y": 90
+    },
+    "face=wall,facing=east,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked",
+      "y": 90
+    },
+    "face=wall,facing=south,locked=false": {
+      "model": "mineqtt:block/smart_lock",
+      "y": 180
+    },
+    "face=wall,facing=south,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked",
+      "y": 180
+    },
+    "face=wall,facing=west,locked=false": {
+      "model": "mineqtt:block/smart_lock",
+      "y": 270
+    },
+    "face=wall,facing=west,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked",
+      "y": 270
+    },
+    "face=ceiling,facing=north,locked=false": {
+      "model": "mineqtt:block/smart_lock",
+      "x": 90
+    },
+    "face=ceiling,facing=north,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked",
+      "x": 90
+    },
+    "face=ceiling,facing=east,locked=false": {
+      "model": "mineqtt:block/smart_lock",
+      "x": 90,
+      "y": 90
+    },
+    "face=ceiling,facing=east,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked",
+      "x": 90,
+      "y": 90
+    },
+    "face=ceiling,facing=south,locked=false": {
+      "model": "mineqtt:block/smart_lock",
+      "x": 90,
+      "y": 180
+    },
+    "face=ceiling,facing=south,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked",
+      "x": 90,
+      "y": 180
+    },
+    "face=ceiling,facing=west,locked=false": {
+      "model": "mineqtt:block/smart_lock",
+      "x": 90,
+      "y": 270
+    },
+    "face=ceiling,facing=west,locked=true": {
+      "model": "mineqtt:block/smart_lock_locked",
+      "x": 90,
+      "y": 270
+    }
+  }
+}

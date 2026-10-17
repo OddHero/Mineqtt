@@ -125,6 +125,14 @@ public final class StaticDefaults {
     /** Three times vanilla's 16 blocks: a sound of volume 3. */
     public static final int MAX_SPEAKER_MAX_RANGE = 48;
 
+    // Smart Lock
+    /**
+     * Whether operators open targets a Smart Lock keeps locked, as its owner does. On: an operator is an admin, who may
+     * break the plate or unlock it at the plate anyway. Off, a locked target refuses an operator who is neither its
+     * owner nor let in by its access mode, like anybody else (a moderator who must not look into players' chests).
+     */
+    public static final boolean DEFAULT_SMART_LOCK_OPS_BYPASS = true;
+
     // Rooms (D11)
     /** The longest side of a room, in blocks, within the two bounds below. */
     public static final int DEFAULT_ROOMS_MAX_SIZE = 128;

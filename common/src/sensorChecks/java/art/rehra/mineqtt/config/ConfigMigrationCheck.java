@@ -634,6 +634,7 @@ public final class ConfigMigrationCheck {
         JsonObject speaker = written.getAsJsonObject("speaker");
         check(!speaker.get("allowAnnouncements").getAsBoolean() && !speaker.get("announceInChat").getAsBoolean() && speaker.get("maxRange").getAsInt() == 32,
                 "and the Speaker keys, announcements off: " + speaker);
+        check(written.getAsJsonObject("smartLock").get("opsBypass").getAsBoolean(), "and smartLock.opsBypass as true");
         check(written.getAsJsonObject("rooms").get("maxSize").getAsInt() == 128 && written.getAsJsonObject("limits").get("maxRoomsPerPlayer").getAsInt() == 16,
                 "and rooms.maxSize and limits.maxRoomsPerPlayer");
         check(JsonConfigFormat.read(written).messages().isEmpty(), "The saved file reads back without messages");
@@ -661,6 +662,7 @@ public final class ConfigMigrationCheck {
         MineQTTConfig.speakerAllowAnnouncements = true;
         MineQTTConfig.speakerAnnounceInChat = true;
         MineQTTConfig.speakerMaxRange = 48;
+        MineQTTConfig.smartLockOpsBypass = false;
         MineQTTConfig.roomsMaxSize = 8;
         MineQTTConfig.limitsMaxRoomsPerPlayer = 0;
         JsonObject custom = JsonConfigFormat.write();
@@ -676,6 +678,7 @@ public final class ConfigMigrationCheck {
         check(!MineQTTConfig.entityObserverExportEntityData, "The Entity Observer key survives the round trip");
         check(MineQTTConfig.speakerAllowAnnouncements && MineQTTConfig.speakerAnnounceInChat && MineQTTConfig.speakerMaxRange == 48,
                 "The Speaker keys survive the round trip");
+        check(!MineQTTConfig.smartLockOpsBypass, "smartLock.opsBypass survives the round trip");
         for (int range : List.of(0, 49, -3)) {
             check(read("{\"configVersion\": 2, \"speaker\": {\"maxRange\": " + range + "}}").messages().stream().anyMatch(message -> message.startsWith("speaker.maxRange"))
                     && MineQTTConfig.speakerMaxRange == StaticDefaults.DEFAULT_SPEAKER_MAX_RANGE, "speaker.maxRange " + range + " is outside 1-48 and falls back to 32");
@@ -722,7 +725,7 @@ public final class ConfigMigrationCheck {
                 {"configVersion": 2, "telemetry": {"enabled": "no", "intervalSeconds": 7.5, "players": "everyone", "publishPlayerNames": 0,
                  "allowBroadcast": "yes", "maxPresenceDevices": "many", "forgetAfterDays": [1]},
                  "blockPlacer": {"playersMayConfigure": "sometimes", "consumeItems": "no", "containerUnlocks": "yes"}, "blockObserver": {"exportBlockEntityData": 1},
-                 "entityObserver": {"exportEntityData": "yes"}, "speaker": {"allowAnnouncements": "yes", "announceInChat": 1, "maxRange": "far"},
+                 "entityObserver": {"exportEntityData": "yes"}, "speaker": {"allowAnnouncements": "yes", "announceInChat": 1, "maxRange": "far"}, "smartLock": {"opsBypass": "never"},
                  "rooms": {"maxSize": "big"}, "limits": {"maxRoomsPerPlayer": 1.5}}""");
         // The two player keys only ever narrow: they fall back to the narrowest setting, every other key to its default.
         check(MineQTTConfig.telemetryPlayers == TelemetryPlayers.OFF && !MineQTTConfig.telemetryPublishPlayerNames,
@@ -733,7 +736,7 @@ public final class ConfigMigrationCheck {
         for (String key : List.of("telemetry.enabled", "telemetry.intervalSeconds", "telemetry.players", "telemetry.publishPlayerNames",
                 "telemetry.allowBroadcast", "telemetry.maxPresenceDevices", "telemetry.forgetAfterDays", "blockPlacer.playersMayConfigure",
                 "blockPlacer.consumeItems", "blockPlacer.containerUnlocks", "blockObserver.exportBlockEntityData", "entityObserver.exportEntityData",
-                "speaker.allowAnnouncements", "speaker.announceInChat", "speaker.maxRange", "rooms.maxSize", "limits.maxRoomsPerPlayer")) {
+                "speaker.allowAnnouncements", "speaker.announceInChat", "speaker.maxRange", "smartLock.opsBypass", "rooms.maxSize", "limits.maxRoomsPerPlayer")) {
             check(lenient.messages().stream().anyMatch(message -> message.startsWith(key)), "A problem with " + key + " is reported: " + lenient.messages());
         }
         check(read("{\"configVersion\": 2, \"telemetry\": 3, \"rooms\": []}").messages().containsAll(List.of(
@@ -817,6 +820,7 @@ public final class ConfigMigrationCheck {
         check(!MineQTTConfig.speakerAllowAnnouncements, what + ": no Speaker announcements");
         check(!MineQTTConfig.speakerAnnounceInChat, what + ": announcements in the action bar");
         check(MineQTTConfig.speakerMaxRange == 32, what + ": Speakers carry 32 blocks at most: " + MineQTTConfig.speakerMaxRange);
+        check(MineQTTConfig.smartLockOpsBypass, what + ": operators pass Smart Locks");
         check(MineQTTConfig.roomsMaxSize == 128, what + ": rooms of 128 blocks at most: " + MineQTTConfig.roomsMaxSize);
         check(MineQTTConfig.limitsMaxRoomsPerPlayer == 16, what + ": 16 rooms per player: " + MineQTTConfig.limitsMaxRoomsPerPlayer);
     }
@@ -893,7 +897,7 @@ public final class ConfigMigrationCheck {
         for (String key : List.of("telemetry.enabled", "telemetry.intervalSeconds", "telemetry.players", "telemetry.publishPlayerNames",
                 "telemetry.allowBroadcast", "telemetry.maxPresenceDevices", "telemetry.forgetAfterDays", "blockPlacer.enabled",
                 "blockPlacer.playersMayConfigure", "blockPlacer.consumeItems", "blockPlacer.containerUnlocks", "blockObserver.exportBlockEntityData",
-                "entityObserver.exportEntityData", "speaker.allowAnnouncements", "speaker.announceInChat", "speaker.maxRange", "rooms.maxSize",
+                "entityObserver.exportEntityData", "speaker.allowAnnouncements", "speaker.announceInChat", "speaker.maxRange", "smartLock.opsBypass", "rooms.maxSize",
                 "limits.maxRoomsPerPlayer")) {
             check(fieldsByKey.containsKey(key), "NeoForge has the M4 key " + key);
         }

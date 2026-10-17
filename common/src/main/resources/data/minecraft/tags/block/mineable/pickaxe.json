@@ -23,6 +23,7 @@
     "mineqtt:container_observer",
     "mineqtt:entity_observer",
     "mineqtt:vibration_sensor",
-    "mineqtt:speaker"
+    "mineqtt:speaker",
+    "mineqtt:smart_lock"
   ]
 }

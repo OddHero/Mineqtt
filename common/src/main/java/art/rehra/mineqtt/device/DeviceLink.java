@@ -74,7 +74,7 @@ public final class DeviceLink {
     private String slug = "";
     private @Nullable UUID owner;
     private String ownerName = "";
-    private AccessMode access = AccessMode.DEFAULT;
+    private AccessMode access;
     private @Nullable Boolean expose;
     private @Nullable RawLink raw;
     private @Nullable Binding twin;
@@ -90,6 +90,7 @@ public final class DeviceLink {
 
     public DeviceLink(DeviceType type) {
         this.type = type;
+        this.access = type.defaultAccess();
     }
 
     /** Only a block entity in a server level has a device; client copies never touch MQTT. */
@@ -144,7 +145,7 @@ public final class DeviceLink {
         slug = data.getStringOr("slug", "");
         owner = data.read("owner", UUIDUtil.CODEC).orElse(null);
         ownerName = data.getStringOr("ownerName", "");
-        access = data.read("access", AccessMode.CODEC).orElse(AccessMode.DEFAULT);
+        access = data.read("access", AccessMode.CODEC).orElse(type.defaultAccess());
         expose = data.read("expose", Codec.BOOL).orElse(null);
         raw = data.read("raw", RawLink.CODEC).orElse(null);
         // Only a type with a twin adapter keeps a binding; one that breaks the binding rules reads as none.
@@ -302,7 +303,7 @@ public final class DeviceLink {
 
     /**
      * The untrusted-data rule of a placement: no copied id (a fresh one is minted), no legacy items, the placer owns it,
-     * access follows the claim, the exposure follows the policy default, grandfathering is dropped and the Raw Link is
+     * access is the type's default (the claim's but for the Smart Lock), the exposure follows the policy default, grandfathering is dropped and the Raw Link is
      * checked for the placer. A link with a channel is resolved for the placer again at the attach, which replaces this check.
      * A twin binding is judged for the placer (M3 plan D13 #6): refused when they may not bind its entities, without
      * control unless they may turn it on; the attach judges it again for its owner, so a refusal heals there.
@@ -324,7 +325,7 @@ public final class DeviceLink {
         slug = "";
         owner = placer;
         ownerName = placerName;
-        access = AccessMode.DEFAULT;
+        access = type.defaultAccess();
         expose = null;
         if (raw != null) raw = raw.withoutGrandfather();
         revalidateRaw(check);

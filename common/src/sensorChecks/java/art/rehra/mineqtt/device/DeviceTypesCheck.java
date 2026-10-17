@@ -11,6 +11,7 @@ import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.SmartLock;
 import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
@@ -95,9 +96,9 @@ public final class DeviceTypesCheck {
         List<DeviceType> types = DeviceTypes.all();
         check(types.equals(List.of(SmartLamp.TYPE, RedstoneOutput.TYPE, RedstoneInput.TYPE, PresenceSensor.TYPE, SmartPlug.TYPE, ClimateSensor.TYPE,
                 WallSwitch.TYPE, DisplayPanel.TYPE, Timers.INTERVAL_TIMER, Timers.DAYLIGHT_TIMER, Timers.ALARM_CLOCK, Timers.CRON_TIMER,
-                BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE, EntityObserver.TYPE, VibrationSensor.TYPE, Speaker.TYPE)),
-                "The eighteen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10), the "
-                        + "Container Observer, the Entity Observer, the Vibration Sensor and the Speaker: " + types);
+                BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE, EntityObserver.TYPE, VibrationSensor.TYPE, Speaker.TYPE, SmartLock.TYPE)),
+                "The nineteen built-in types are registered, the four timers (M4-2), then the observer and the placer (M4-9, M4-10), the "
+                        + "Container Observer, the Entity Observer, the Vibration Sensor, the Speaker and the Smart Lock: " + types);
         int ports = 0;
         for (DeviceType type : types) {
             declaration(type);
@@ -180,6 +181,8 @@ public final class DeviceTypesCheck {
                 case HaEntity.Light ignoredLight -> check(type.port(Port.Direction.IN, Action.STATE).isPresent(), type + ": " + entity.key() + " has a state in-port");
                 case HaEntity.Siren siren -> check(type.port(Port.Direction.IN, Action.STATE).isPresent() && type.port(Port.Direction.OUT, siren.state().key()).isPresent(),
                         type + ": " + entity.key() + " has a state in-port and reads a state out-port");
+                case HaEntity.Lock lock -> check(type.port(Port.Direction.IN, lock.locked().key()).isPresent() && type.port(Port.Direction.OUT, lock.state().key()).isPresent(),
+                        type + ": " + entity.key() + " commands its locked in-port and reads a state out-port");
                 default -> {
                 }
             }
@@ -309,6 +312,7 @@ public final class DeviceTypesCheck {
         check(settingKeys(EntityObserver.TYPE.settings()).equals(List.of("detect", "range", "payload")), "Entity Observer settings: detect, range and payload");
         vibrationSensor();
         speaker();
+        smartLock();
         for (DeviceType type : DeviceTypes.all()) {
             check(type.editsWorld() == (type == BlockPlacer.TYPE), type + ": only the Block Placer edits the world (D12)");
         }
@@ -392,6 +396,34 @@ public final class DeviceTypesCheck {
                 "The announcement is a notify entity, always declared");
     }
 
+    /**
+     * The Smart Lock: locked out and in, its state, relock, attempts, target, pair, status and location out, the attempt
+     * event, the relock setting and the three pressed actions in, the toggle by hand; queued while unloaded, private by
+     * default. The lock is the primary entity, reading the state and commanding locked.
+     */
+    private static void smartLock() {
+        expectPorts(SmartLock.TYPE, List.of(
+                "OUT locked bool FIELD", "OUT state enum locked|unlocked|open|jammed FIELD", "OUT relock number 0..3600 s FIELD",
+                "OUT attempts number 0..1000000000 FIELD", "OUT target text 256 FIELD", "OUT paired bool FIELD",
+                "OUT status enum ok|no_target|target_missing FIELD", "OUT location json FIELD", "OUT attempt event attempt EVENT",
+                "IN locked bool FIELD", "IN relock number 0..3600 s SETTING", "IN lock event lock ACTION", "IN unlock event unlock ACTION",
+                "IN toggle event toggle ACTION"));
+        check(SmartLock.TYPE.unloadedPolicy() == UnloadedPolicy.QUEUE && !SmartLock.TYPE.groupable() && SmartLock.TYPE.use().map(Action::key).equals(Optional.of(SmartLock.TOGGLE))
+                        && SmartLock.TYPE.noV1Topic() && SmartLock.TYPE.rawLink().isEmpty() && SmartLock.TYPE.status().isPresent()
+                        && SmartLock.TYPE.defaultAccess() == art.rehra.mineqtt.security.AccessMode.PRIVATE,
+                "The Smart Lock queues while unloaded, toggles by hand, has no v1 topic and no Raw Link, a status line and private access");
+        check(!SmartLock.TYPE.hasControl(SmartLock.LOCK) && !SmartLock.TYPE.hasControl(SmartLock.UNLOCK) && !SmartLock.TYPE.hasControl(SmartLock.TOGGLE),
+                "Its actions have no controls: the locked switch is the control");
+        check(settingKeys(SmartLock.TYPE.settings()).equals(List.of("relock")), "Smart Lock settings: relock");
+        check(SmartLock.TYPE.events().equals(List.of(SmartLock.ATTEMPT_EVENT)) && SmartLock.ATTEMPT_EVENT.minInterval().equals(Duration.ofSeconds(1))
+                        && SmartLock.ATTEMPT_EVENT.attributes().keySet().equals(java.util.Set.of("method", "target")),
+                "One attempt event, at most once a second, with how and on what");
+        HaEntity.Lock lock = (HaEntity.Lock) SmartLock.TYPE.entities().getFirst();
+        check(lock.meta().name() == null && lock.state() == SmartLock.STATE && lock.fields().equals(List.of(SmartLock.LOCKED)) && lock.commands()
+                        && lock.states().equals(List.of("locked", "unlocked", "open", "jammed")),
+                "The lock is the primary entity, reading the state and commanding locked");
+    }
+
     private static void expectPorts(DeviceType type, List<String> expected) {
         List<String> actual = type.ports().stream().map(port -> port.direction() + " " + port.key() + " " + port.kind().describe() + " " + port.origin()
                 + (port.toggles() ? " toggles" : "")).toList();
@@ -442,6 +474,18 @@ public final class DeviceTypesCheck {
         check(DeviceType.builder(id("d6")).model("D6").field(sounding).field(tone).field(volume).action(Action.state())
                         .entity(Ha.siren("s", sounding, tone, volume)).build().entities().size() == 1,
                 "A siren over a read-only state, a tone and a volume with the state action builds");
+        // A lock commands a BOOL field and reads an enum of Home Assistant's lock states.
+        Field<Boolean> locked = Field.bool("locked", Access.READ_WRITE);
+        Field<SmartLock.LockState> lockState = Field.enumOf("lock_state", SmartLock.LockState.class, Access.READ);
+        Field<SmartLock.Status> notLockStates = Field.enumOf("lock_state", SmartLock.Status.class, Access.READ);
+        Field<Boolean> notBool = new Field<>("locked", ValueCodecs.BOOL, false, Access.READ_WRITE, false, PortType.LEVEL);
+        failsToBuild(DeviceType.builder(id("d7")).model("D7").field(locked).entity(Ha.lock("l", lockState, locked)), "undeclared field", "A lock over an undeclared state field");
+        failsToBuild(DeviceType.builder(id("d8")).model("D8").field(locked).field(notLockStates).entity(Ha.lock("l", notLockStates, locked)), "no lock states",
+                "A lock whose state field's names are no lock states");
+        failsToBuild(DeviceType.builder(id("d9")).model("D9").field(notBool).field(lockState).entity(Ha.lock("l", lockState, notBool)), "which is no BOOL",
+                "A lock commanding a field that is no BOOL");
+        check(DeviceType.builder(id("d10")).model("D10").field(locked).field(lockState).entity(Ha.lock("l", lockState, locked)).build().entities().size() == 1,
+                "A lock over a BOOL field and an enum of lock states builds");
         failsToBuild(DeviceType.builder(id("e")).model("E").field(power).entity(Ha.switchOf("s", power).on(15).off(0)), "state action",
                 "A switch without a state in-port");
         failsToBuild(DeviceType.builder(id("f")).model("F").field(SmartLamp.LIGHT).entity(Ha.light("l", SmartLamp.LIGHT)), "state action",
@@ -1118,9 +1162,9 @@ public final class DeviceTypesCheck {
             check(timer.events().stream().allMatch(EventSpec::throttled) && timer.noV1Topic() && timer.status().isPresent(),
                     timer + ": the timers throttle fired, adopt no v1 topic and have a status line");
         }
-        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 6,
-                "The M3 types, the timers, the observer, the placer, the Container Observer, the Entity Observer, the Vibration Sensor and the "
-                        + "Speaker are every built-in type");
+        check(DeviceTypes.all().size() == 8 + Timers.all().size() + 7,
+                "The M3 types, the timers, the observer, the placer, the Container Observer, the Entity Observer, the Vibration Sensor, the "
+                        + "Speaker and the Smart Lock are every built-in type");
         for (DeviceType type : List.of(BlockObserver.TYPE, BlockPlacer.TYPE, ContainerObserver.TYPE)) {
             // Of the world devices only the Block Observer's changed (M4-9, D12) throttles; the observer and the placer adopt their
             // v1 topic, and the Container Observer, which has no v1 block, takes none (it has no Raw Link). The Entity Observer,

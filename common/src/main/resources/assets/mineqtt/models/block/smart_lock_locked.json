@@ -1,0 +1,79 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "front": "mineqtt:block/smart_lock_front_locked",
+    "side": "mineqtt:block/smart_lock_side",
+    "particle": "mineqtt:block/smart_lock_side"
+  },
+  "elements": [
+    {
+      "from": [
+        5,
+        4,
+        14
+      ],
+      "to": [
+        11,
+        12,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            5,
+            4,
+            11,
+            12
+          ],
+          "texture": "#front"
+        },
+        "south": {
+          "uv": [
+            5,
+            4,
+            11,
+            12
+          ],
+          "texture": "#side",
+          "cullface": "south"
+        },
+        "east": {
+          "uv": [
+            0,
+            4,
+            2,
+            12
+          ],
+          "texture": "#side"
+        },
+        "west": {
+          "uv": [
+            14,
+            4,
+            16,
+            12
+          ],
+          "texture": "#side"
+        },
+        "up": {
+          "uv": [
+            5,
+            0,
+            11,
+            2
+          ],
+          "texture": "#side"
+        },
+        "down": {
+          "uv": [
+            5,
+            14,
+            11,
+            16
+          ],
+          "texture": "#side"
+        }
+      }
+    }
+  ]
+}

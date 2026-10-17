@@ -73,6 +73,14 @@ public final class Ha {
     }
 
     /**
+     * A lock over a read-only enum {@code state} field, whose names are Home Assistant lock states, and the writable
+     * BOOL field {@code locked} its lock and unlock commands set.
+     */
+    public static HaEntity.Lock lock(String key, Field<?> state, Field<Boolean> locked) {
+        return new HaEntity.Lock(HaEntity.Meta.of(key), state, locked);
+    }
+
+    /**
      * A siren over an on/off {@code state} field, a tone enum field and a volume field in percent; its tones are the
      * serialized names of the tone field's enum.
      */

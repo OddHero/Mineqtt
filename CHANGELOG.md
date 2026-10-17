@@ -29,6 +29,23 @@
   to 120 characters, and each Speaker shows two at once, then one every two seconds; *Last announcement* and *Last result*
   say what came of it. Showcase: the Vibration Sensor hears an intruder, Home Assistant sounds the Speaker's alarm and
   flashes the lights. Crafted from smooth stone, a note block and the Network Chip.
+- **Smart Lock** (new block): a small keypad plate you put onto a door, trapdoor, fence gate or container (chest, barrel,
+  shulker box, furnace, hopper, dispenser and the like) by right-clicking it with the Smart Lock: the target does not
+  swing or open, the plate sits on the face you clicked (or the nearest free face) and aims at it. Double doors and
+  double chests lock as a pair, also when the second half comes later. A new lock is locked and private: only its owner
+  opens the target, and players its access mode lets in (*Claim* for the players a claim trusts, *Public* for
+  everybody); operators pass too (see `smartLock.opsBypass` below). Anybody else is refused with vanilla's "is locked"
+  message, and a container also carries vanilla's own lock while locked. A right-click on the plate locks and unlocks
+  it for those who may; the plate's light shows red or green. Locking closes the target; redstone, a mob or a wind
+  charge that opens a locked door, trapdoor or gate is undone the next tick. Home Assistant sees a lock (locked,
+  unlocked, open while the door stands open, jammed without a target) with lock and unlock, an *Attempt* event when
+  somebody without access tries the target or the plate or something forces it open (how and on what, never who),
+  *Attempts*, *Auto-relock* (seconds after an unlock until it locks again, off by default), and the *Target* and *Status*
+  diagnostics. Wires reach its *locked*, *lock*, *unlock* and *toggle* in-ports and read *locked* and *attempt*: a Wall
+  Switch or a Redstone Input unlocks it. Redstone at the plate itself does nothing, as anyone could place a lever beside
+  it. Only its owner, players who may configure it and operators break the plate; breaking the target pops it. It stops
+  hands, not pistons, explosions or hoppers below a chest: claims stay the real protection. Crafted from iron ingots, a
+  tripwire hook and the Network Chip.
 
 ### For server admins
 
@@ -38,6 +55,9 @@
 - **`speaker.announceInChat`** (new, default off): announcements in the chat instead of the action bar.
 - **`speaker.maxRange`** (new, 1 to 48, default 32): the farthest any Speaker carries its sound and its announcements,
   whatever its own *Range* says.
+- **`smartLock.opsBypass`** (new, default on): operators open targets a Smart Lock keeps locked, as its owner does. Off,
+  a locked target refuses an operator like anybody else the lock does not let in (operators still break the plate or
+  unlock it at the plate).
 
 ## 0.10.0 (the Container Observer and the Entity Observer)
 

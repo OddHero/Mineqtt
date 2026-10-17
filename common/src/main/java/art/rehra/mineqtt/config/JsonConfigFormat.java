@@ -90,6 +90,9 @@ public final class JsonConfigFormat {
         speaker.addProperty("announceInChat", MineQTTConfig.speakerAnnounceInChat);
         speaker.addProperty("maxRange", MineQTTConfig.speakerMaxRange);
         root.add("speaker", speaker);
+        JsonObject smartLock = new JsonObject();
+        smartLock.addProperty("opsBypass", MineQTTConfig.smartLockOpsBypass);
+        root.add("smartLock", smartLock);
         JsonObject limits = new JsonObject();
         limits.addProperty("maxDevicesPerPlayer", MineQTTConfig.limitsMaxDevicesPerPlayer);
         limits.addProperty("maxWiresPerPlayer", MineQTTConfig.limitsMaxWiresPerPlayer);
@@ -175,6 +178,8 @@ public final class JsonConfigFormat {
         MineQTTConfig.speakerAllowAnnouncements = in.bool(speaker, "speaker.allowAnnouncements", StaticDefaults.DEFAULT_SPEAKER_ALLOW_ANNOUNCEMENTS);
         MineQTTConfig.speakerAnnounceInChat = in.bool(speaker, "speaker.announceInChat", StaticDefaults.DEFAULT_SPEAKER_ANNOUNCE_IN_CHAT);
         MineQTTConfig.speakerMaxRange = in.integer(speaker, "speaker.maxRange", StaticDefaults.DEFAULT_SPEAKER_MAX_RANGE);
+        JsonObject smartLock = in.section(root, "smartLock");
+        MineQTTConfig.smartLockOpsBypass = in.bool(smartLock, "smartLock.opsBypass", StaticDefaults.DEFAULT_SMART_LOCK_OPS_BYPASS);
         JsonObject limits = in.section(root, "limits");
         MineQTTConfig.limitsMaxDevicesPerPlayer = in.integer(limits, "limits.maxDevicesPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_DEVICES_PER_PLAYER);
         MineQTTConfig.limitsMaxWiresPerPlayer = in.integer(limits, "limits.maxWiresPerPlayer", StaticDefaults.DEFAULT_LIMITS_MAX_WIRES_PER_PLAYER);

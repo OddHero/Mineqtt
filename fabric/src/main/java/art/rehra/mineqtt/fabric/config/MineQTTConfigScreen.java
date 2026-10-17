@@ -327,6 +327,13 @@ public class MineQTTConfigScreen {
                 .setSaveConsumer(value -> MineQTTConfig.speakerMaxRange = value)
                 .build());
 
+        worldCategory.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.mineqtt.smart_lock_ops_bypass"),
+                        MineQTTConfig.smartLockOpsBypass)
+                .setDefaultValue(StaticDefaults.DEFAULT_SMART_LOCK_OPS_BYPASS)
+                .setTooltip(Component.translatable("config.mineqtt.smart_lock_ops_bypass.tooltip"))
+                .setSaveConsumer(value -> MineQTTConfig.smartLockOpsBypass = value)
+                .build());
+
         worldCategory.addEntry(entryBuilder.startIntField(Component.translatable("config.mineqtt.rooms_max_size"), MineQTTConfig.roomsMaxSize)
                 .setDefaultValue(StaticDefaults.DEFAULT_ROOMS_MAX_SIZE)
                 .setTooltip(Component.translatable("config.mineqtt.rooms_max_size.tooltip"))

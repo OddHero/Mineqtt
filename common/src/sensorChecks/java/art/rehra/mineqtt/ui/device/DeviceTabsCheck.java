@@ -31,6 +31,7 @@ import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.SmartLock;
 import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
@@ -136,6 +137,9 @@ public final class DeviceTabsCheck {
         // The siren's switch and its four settings; the announcement is an in-port without a control (Home Assistant and wires).
         expected.put(Speaker.TYPE, List.of("state TOGGLE USE ACTION", "tone CYCLE CONFIGURE CONFIG", "volume SLIDER CONFIGURE CONFIG",
                 "duration SLIDER CONFIGURE CONFIG", "range SLIDER CONFIGURE CONFIG"));
+        // The locked switch by hand and the relock delay; lock, unlock and toggle are in-ports without controls, the status
+        // line names the target.
+        expected.put(SmartLock.TYPE, List.of("locked TOGGLE USE CONFIG", "relock SLIDER CONFIGURE CONFIG"));
         for (DeviceType timer : Timers.all()) {
             check(new ControlsTab(timer).statusLine() && ControlsTab.controls(timer).size() <= ControlsTab.MAX_ROWS - 1,
                     timer + ": at most four rows of controls beside its status line");
@@ -172,6 +176,7 @@ public final class DeviceTabsCheck {
         advanced.put(ContainerObserver.TYPE, List.of());
         // No Raw Link: Home Assistant, wires and the hand drive it.
         advanced.put(Speaker.TYPE, List.of());
+        advanced.put(SmartLock.TYPE, List.of());
         Timers.all().forEach(timer -> advanced.put(timer, List.of("raw.channel TEXT_FIELD CONFIGURE CONFIG", "raw.private TEXT_FIELD CONFIGURE CONFIG",
                 "raw.topic TEXT_FIELD CONFIGURE CONFIG", "raw.qos SLIDER CONFIGURE CONFIG")));
         advanced.put(EntityObserver.TYPE, valueLink);

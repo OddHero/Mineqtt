@@ -177,6 +177,14 @@ tasks.register('verifySpeaker', JavaExec) {
     classpath = sourceSets.sensorChecks.runtimeClasspath
     mainClass = 'art.rehra.mineqtt.device.SpeakerCheck'
 }
+// The Smart Lock's rules: what is lockable and what a target covers (double doors, double chests), where the plate
+// goes, which plates cover a target, who passes (owner, operators under the key, access mode, claim), the relock
+// countdown, the commands, the state Home Assistant reads, the attempt event, the saved form and the container lock.
+tasks.register('verifySmartLock', JavaExec) {
+    dependsOn sensorChecksClasses
+    classpath = sourceSets.sensorChecks.runtimeClasspath
+    mainClass = 'art.rehra.mineqtt.device.SmartLockCheck'
+}
 // Config v2 defaults, v1 migration, the JSON form and credential masking; plain Java, no game bootstrap needed.
 tasks.register('verifyConfigMigration', JavaExec) {
     dependsOn sensorChecksClasses
@@ -534,6 +542,7 @@ tasks.named('check') {
     dependsOn tasks.named('verifyEntityObserver')
     dependsOn tasks.named('verifyVibrationSensor')
     dependsOn tasks.named('verifySpeaker')
+    dependsOn tasks.named('verifySmartLock')
     // The Minecraft-free checks (brokerChecks and the isolation of the cores) are the same for every Minecraft version and
     // start brokers on fixed ports, so only the active version's check runs them.
     if (stonecutter.current.isActive) {

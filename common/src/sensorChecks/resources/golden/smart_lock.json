@@ -1,0 +1,101 @@
+{
+  "avty": [
+    {
+      "t": "mineqtt/world_7f3a/bridge/state"
+    },
+    {
+      "t": "mineqtt/world_7f3a/front_door_lock/availability"
+    }
+  ],
+  "avty_mode": "all",
+  "cmps": {
+    "attempt": {
+      "event_types": [
+        "attempt"
+      ],
+      "name": "Attempt",
+      "p": "event",
+      "state_topic": "mineqtt/world_7f3a/front_door_lock/action",
+      "unique_id": "mineqtt_6f7a8b9c0d1e4f2a8b3c4d5e6f7a8b9c_attempt"
+    },
+    "attempts": {
+      "name": "Attempts",
+      "p": "sensor",
+      "state_class": "total_increasing",
+      "state_topic": "mineqtt/world_7f3a/front_door_lock",
+      "unique_id": "mineqtt_6f7a8b9c0d1e4f2a8b3c4d5e6f7a8b9c_attempts",
+      "value_template": "{{ value_json.attempts }}"
+    },
+    "location": {
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Location",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/front_door_lock",
+      "unique_id": "mineqtt_6f7a8b9c0d1e4f2a8b3c4d5e6f7a8b9c_location",
+      "value_template": "{{ value_json.location.dimension }} {{ value_json.location.pos | join(',') }}"
+    },
+    "lock": {
+      "command_topic": "mineqtt/world_7f3a/front_door_lock/set",
+      "name": null,
+      "p": "lock",
+      "payload_lock": "{\"locked\":true}",
+      "payload_unlock": "{\"locked\":false}",
+      "retain": false,
+      "state_jammed": "jammed",
+      "state_locked": "locked",
+      "state_open": "open",
+      "state_topic": "mineqtt/world_7f3a/front_door_lock",
+      "state_unlocked": "unlocked",
+      "unique_id": "mineqtt_6f7a8b9c0d1e4f2a8b3c4d5e6f7a8b9c_lock",
+      "value_template": "{{ value_json.state }}"
+    },
+    "relock": {
+      "command_topic": "mineqtt/world_7f3a/front_door_lock/set/relock",
+      "entity_category": "config",
+      "max": 3600,
+      "min": 0,
+      "name": "Auto-relock",
+      "p": "number",
+      "retain": false,
+      "state_topic": "mineqtt/world_7f3a/front_door_lock",
+      "step": 1,
+      "unique_id": "mineqtt_6f7a8b9c0d1e4f2a8b3c4d5e6f7a8b9c_relock",
+      "unit_of_measurement": "s",
+      "value_template": "{{ value_json.relock }}"
+    },
+    "status": {
+      "entity_category": "diagnostic",
+      "name": "Status",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/front_door_lock",
+      "unique_id": "mineqtt_6f7a8b9c0d1e4f2a8b3c4d5e6f7a8b9c_status",
+      "value_template": "{{ value_json.status }}"
+    },
+    "target": {
+      "entity_category": "diagnostic",
+      "name": "Target",
+      "p": "sensor",
+      "state_topic": "mineqtt/world_7f3a/front_door_lock",
+      "unique_id": "mineqtt_6f7a8b9c0d1e4f2a8b3c4d5e6f7a8b9c_target",
+      "value_template": "{{ value_json.target }}"
+    }
+  },
+  "dev": {
+    "ids": [
+      "mineqtt_6f7a8b9c0d1e4f2a8b3c4d5e6f7a8b9c"
+    ],
+    "mdl": "Smart Lock",
+    "mdl_id": "mineqtt:smart_lock",
+    "mf": "MineQTT",
+    "name": "Front Door Lock",
+    "sw": "2.0.0",
+    "via_device": "mineqtt_bridge_5b0e9a7c3d2f41e8a6c4b1d09f8e7a63"
+  },
+  "o": {
+    "name": "MineQTT",
+    "sw": "2.0.0",
+    "url": "https://github.com/OddHero/Mineqtt"
+  },
+  "qos": 1
+}

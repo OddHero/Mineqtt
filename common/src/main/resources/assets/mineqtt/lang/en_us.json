@@ -893,5 +893,19 @@
   "config.mineqtt.speaker_announce_in_chat": "Speaker Announcements in Chat",
   "config.mineqtt.speaker_announce_in_chat.tooltip": "Show announcements in the chat instead of the action bar.",
   "config.mineqtt.speaker_max_range": "Speaker Max Range",
-  "config.mineqtt.speaker_max_range.tooltip": "The farthest a Speaker carries its sound and its announcements, in blocks (1 to 48), whatever its own range says."
+  "config.mineqtt.speaker_max_range.tooltip": "The farthest a Speaker carries its sound and its announcements, in blocks (1 to 48), whatever its own range says.",
+  "block.mineqtt.smart_lock": "Smart Lock",
+  "item.mineqtt.smart_lock": "Smart Lock",
+  "mineqtt.device.control.locked": "Locked",
+  "mineqtt.device.control.relock": "Auto-relock",
+  "mineqtt.smart_lock.place_hint": "Use the Smart Lock on a door, trapdoor, fence gate or container",
+  "mineqtt.smart_lock.already_locked": "This already has a Smart Lock",
+  "mineqtt.smart_lock.foreign_lock": "This container is locked otherwise",
+  "mineqtt.smart_lock.claimed": "You may not lock this here",
+  "mineqtt.smart_lock.no_room": "No free side to put the Smart Lock on",
+  "mineqtt.smart_lock.no_access": "This Smart Lock does not let you in",
+  "mineqtt.smart_lock.protected": "Only its owner may remove this Smart Lock",
+  "config.mineqtt.section.smart_lock": "Smart Lock",
+  "config.mineqtt.smart_lock_ops_bypass": "Smart Lock Operator Bypass",
+  "config.mineqtt.smart_lock_ops_bypass.tooltip": "Operators open doors, trapdoors, fence gates and containers a Smart Lock keeps locked, as its owner does. Off, a locked target refuses an operator like anybody else the lock does not let in; operators may still unlock it at its plate."
 }

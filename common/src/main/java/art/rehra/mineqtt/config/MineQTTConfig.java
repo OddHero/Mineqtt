@@ -60,6 +60,7 @@ public class MineQTTConfig {
     public static boolean speakerAllowAnnouncements;
     public static boolean speakerAnnounceInChat;
     public static int speakerMaxRange;
+    public static boolean smartLockOpsBypass;
     public static int roomsMaxSize;
     public static int limitsMaxRoomsPerPlayer;
 
@@ -119,6 +120,7 @@ public class MineQTTConfig {
         speakerAllowAnnouncements = StaticDefaults.DEFAULT_SPEAKER_ALLOW_ANNOUNCEMENTS;
         speakerAnnounceInChat = StaticDefaults.DEFAULT_SPEAKER_ANNOUNCE_IN_CHAT;
         speakerMaxRange = StaticDefaults.DEFAULT_SPEAKER_MAX_RANGE;
+        smartLockOpsBypass = StaticDefaults.DEFAULT_SMART_LOCK_OPS_BYPASS;
         roomsMaxSize = StaticDefaults.DEFAULT_ROOMS_MAX_SIZE;
         limitsMaxRoomsPerPlayer = StaticDefaults.DEFAULT_LIMITS_MAX_ROOMS_PER_PLAYER;
         twinStatestreamBase = StaticDefaults.DEFAULT_TWIN_STATESTREAM_BASE;

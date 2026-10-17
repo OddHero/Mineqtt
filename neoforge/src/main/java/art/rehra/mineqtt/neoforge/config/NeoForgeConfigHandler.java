@@ -75,6 +75,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
     public static final ModConfigSpec.BooleanValue SPEAKER_ALLOW_ANNOUNCEMENTS;
     public static final ModConfigSpec.BooleanValue SPEAKER_ANNOUNCE_IN_CHAT;
     public static final ModConfigSpec.IntValue SPEAKER_MAX_RANGE;
+    public static final ModConfigSpec.BooleanValue SMART_LOCK_OPS_BYPASS;
 
     public static final ModConfigSpec.IntValue LIMITS_MAX_DEVICES_PER_PLAYER;
     public static final ModConfigSpec.IntValue LIMITS_MAX_WIRES_PER_PLAYER;
@@ -266,6 +267,16 @@ public class NeoForgeConfigHandler implements ConfigHandler {
                 .comment("The farthest a Speaker carries its sound and its announcements, in blocks, whatever its own range says.")
                 .translation("config.mineqtt.speaker_max_range")
                 .defineInRange("maxRange", StaticDefaults.DEFAULT_SPEAKER_MAX_RANGE, StaticDefaults.MIN_SPEAKER_MAX_RANGE, StaticDefaults.MAX_SPEAKER_MAX_RANGE);
+
+        BUILDER.pop();
+
+        BUILDER.comment("Smart Lock").translation("config.mineqtt.section.smart_lock").push("smartLock");
+
+        SMART_LOCK_OPS_BYPASS = BUILDER
+                .comment("Operators open doors, trapdoors, fence gates and containers a Smart Lock keeps locked, as its owner does.",
+                        "Off, a locked target refuses an operator like anybody else the lock does not let in; operators may still unlock it at its plate.")
+                .translation("config.mineqtt.smart_lock_ops_bypass")
+                .define("opsBypass", StaticDefaults.DEFAULT_SMART_LOCK_OPS_BYPASS);
 
         BUILDER.pop();
 
@@ -480,6 +491,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         MineQTTConfig.speakerAllowAnnouncements = SPEAKER_ALLOW_ANNOUNCEMENTS.get();
         MineQTTConfig.speakerAnnounceInChat = SPEAKER_ANNOUNCE_IN_CHAT.get();
         MineQTTConfig.speakerMaxRange = SPEAKER_MAX_RANGE.get();
+        MineQTTConfig.smartLockOpsBypass = SMART_LOCK_OPS_BYPASS.get();
         MineQTTConfig.limitsMaxDevicesPerPlayer = LIMITS_MAX_DEVICES_PER_PLAYER.get();
         MineQTTConfig.limitsMaxWiresPerPlayer = LIMITS_MAX_WIRES_PER_PLAYER.get();
         MineQTTConfig.limitsMaxRoomsPerPlayer = LIMITS_MAX_ROOMS_PER_PLAYER.get();
@@ -621,6 +633,7 @@ public class NeoForgeConfigHandler implements ConfigHandler {
         sink.put(SPEAKER_ALLOW_ANNOUNCEMENTS, MineQTTConfig.speakerAllowAnnouncements);
         sink.put(SPEAKER_ANNOUNCE_IN_CHAT, MineQTTConfig.speakerAnnounceInChat);
         sink.put(SPEAKER_MAX_RANGE, MineQTTConfig.speakerMaxRange);
+        sink.put(SMART_LOCK_OPS_BYPASS, MineQTTConfig.smartLockOpsBypass);
         sink.put(LIMITS_MAX_DEVICES_PER_PLAYER, MineQTTConfig.limitsMaxDevicesPerPlayer);
         sink.put(LIMITS_MAX_WIRES_PER_PLAYER, MineQTTConfig.limitsMaxWiresPerPlayer);
         sink.put(LIMITS_MAX_ROOMS_PER_PLAYER, MineQTTConfig.limitsMaxRoomsPerPlayer);

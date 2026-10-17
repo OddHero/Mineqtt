@@ -23,6 +23,7 @@ import art.rehra.mineqtt.device.types.RedstoneInput;
 import art.rehra.mineqtt.device.types.RedstoneOutput;
 import art.rehra.mineqtt.device.types.SmartLamp;
 import art.rehra.mineqtt.device.types.SmartPlug;
+import art.rehra.mineqtt.device.types.SmartLock;
 import art.rehra.mineqtt.device.types.Speaker;
 import art.rehra.mineqtt.device.types.Timers;
 import art.rehra.mineqtt.device.types.VibrationSensor;
@@ -101,6 +102,7 @@ public final class DiscoveryGoldenTest {
         entityObserver();
         vibrationSensor();
         speaker();
+        smartLock();
         wallSwitch();
         displayPanel();
         everyEntityKind();
@@ -538,6 +540,35 @@ public final class DiscoveryGoldenTest {
     }
 
     /**
+     * The Smart Lock against its golden file: the lock as the primary entity on the device's /set topic, commanding its
+     * locked field with payloads Home Assistant sends as they are and reading the four states it publishes; the attempt
+     * event entity, the attempts, the relock delay as a config number, the target and status diagnostics. No open
+     * payload and nothing that names a player.
+     */
+    private static void smartLock() throws IOException {
+        UUID lockId = UUID.fromString("6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c");
+        DeviceRecord lock = new DeviceRecord(lockId, SmartLock.TYPE.id(), GlobalPos.of(Level.OVERWORLD, new BlockPos(18, 64, 0)), "Front Door Lock",
+                "front_door_lock");
+        JsonObject config = DiscoveryPublisher.deviceConfig(SmartLock.TYPE, lock, TOPICS, IDENTITY);
+        assertGolden("smart_lock", config);
+        JsonObject components = config.getAsJsonObject("cmps");
+        check(components.keySet().equals(Set.of("lock", "attempt", "attempts", "relock", "target", "status", "location")),
+                "Smart Lock entities: " + components.keySet());
+        JsonObject entity = components.getAsJsonObject("lock");
+        expect(entity, "p", "lock");
+        expect(entity, "command_topic", "mineqtt/world_7f3a/front_door_lock/set");
+        expect(entity, "state_topic", "mineqtt/world_7f3a/front_door_lock");
+        expect(entity, "payload_lock", "{\"locked\":true}");
+        expect(entity, "payload_unlock", "{\"locked\":false}");
+        check(entity.get("name").isJsonNull() && !entity.has("payload_open") && !entity.get("retain").getAsBoolean(),
+                "The lock is the primary entity, never opens and is never retained: " + entity);
+        JsonObject attempt = components.getAsJsonObject("attempt");
+        expect(attempt, "p", "event");
+        check(attempt.getAsJsonArray("event_types").toString().equals("[\"attempt\"]"), "One event type: attempt");
+        check(!config.toString().contains("player"), "Nothing in the discovery names a player");
+    }
+
+    /**
      * The Block Placer (M4 plan D12) against its golden file, with #mineqtt:placeable bound to wool, glass and TNT as a
      * datapack might: the block select offers the tag's blocks without TNT, sorted, and its value template strips the
      * properties so its state is always an option; place and clear are buttons, placed a binary sensor, the last result a
@@ -650,9 +681,11 @@ public final class DiscoveryGoldenTest {
         Field<Boolean> powered = Field.bool("powered", Access.READ);
         Field<String> label = Field.text("label", Access.READ_WRITE);
         Field<Integer> items = Field.intRange("items", 0, 64, Access.READ);
+        Field<Boolean> latched = Field.bool("latched", Access.READ_WRITE);
+        Field<SmartLock.LockState> lockState = Field.enumOf("lock_state", SmartLock.LockState.class, Access.READ);
         DeviceType type = DeviceType.builder(Identifier.fromNamespaceAndPath("mineqtt_check", "everything"))
                 .model("Everything")
-                .field(power).field(mode).field(powered).field(label).field(items).field(CommonFields.LOCATION)
+                .field(power).field(mode).field(powered).field(label).field(items).field(latched).field(lockState).field(CommonFields.LOCATION)
                 .entity(Ha.switchOf("output", power).on(15).off(0).name(null))
                 .entity(Ha.number("power_level", power).range(0, 15).slider().unit("level"))
                 .entity(Ha.select("mode", mode).config())
@@ -664,6 +697,7 @@ public final class DiscoveryGoldenTest {
                 .entity(Ha.text("label", label))
                 .entity(Ha.notify("message"))
                 .entity(Ha.siren("siren", powered, mode, power))
+                .entity(Ha.lock("lock", lockState, latched))
                 .entity(Ha.deviceTrigger("button_short_press", "left", "press", "button"))
                 // Every command and event entity has its declaration (M2-4): no discovery key depends on them.
                 .action(Action.state()).action(Action.press("trigger_now")).action(new Action("message", PortType.text(255), false))
@@ -718,6 +752,19 @@ public final class DiscoveryGoldenTest {
         expect(siren, "state_value_template", "{{ {'state': value_json.powered, 'tone': value_json.mode, 'volume_level': (value_json.power / 100) | round(2)} | tojson }}");
         check(siren.getAsJsonArray("available_tones").toString().equals("[\"switch\",\"level\"]") && siren.get("support_duration").getAsBoolean()
                 && siren.get("support_volume_set").getAsBoolean() && !siren.get("retain").getAsBoolean(), "A siren offers its tone field's names, duration and volume");
+        JsonObject lock = components.getAsJsonObject("lock");
+        expect(lock, "p", "lock");
+        expect(lock, "command_topic", state + "/set");
+        expect(lock, "state_topic", state);
+        expect(lock, "value_template", "{{ value_json.lock_state }}");
+        expect(lock, "payload_lock", "{\"latched\":true}");
+        expect(lock, "payload_unlock", "{\"latched\":false}");
+        expect(lock, "state_locked", "locked");
+        expect(lock, "state_unlocked", "unlocked");
+        expect(lock, "state_open", "open");
+        expect(lock, "state_jammed", "jammed");
+        check(!lock.has("payload_open") && !lock.has("command_template") && !lock.get("retain").getAsBoolean(),
+                "A lock sends its locked field's command as it is, never opens and is never retained: " + lock);
 
         JsonObject trigger = components.getAsJsonObject("button_short_press_left");
         expect(trigger, "p", "device_automation");
@@ -735,7 +782,7 @@ public final class DiscoveryGoldenTest {
         check(config.getAsJsonObject("dev").get("via_device").getAsString().equals(IDENTITY.bridgeObjectId()), "Every device is behind the bridge");
 
         JsonObject group = DiscoveryPublisher.groupConfig(type, new DeviceGroup(UUID.randomUUID(), "G", "g"), TOPICS, IDENTITY).getAsJsonObject("cmps");
-        check(group.keySet().equals(Set.of("output", "power_level", "mode", "trigger_now", "label", "message", "siren")),
+        check(group.keySet().equals(Set.of("output", "power_level", "mode", "trigger_now", "label", "message", "siren", "lock")),
                 "A group gets only command entities, no sensors, events or triggers: " + group.keySet());
     }
 
