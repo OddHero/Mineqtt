@@ -105,8 +105,8 @@ Minecraft 1.21.10 and 1.21.11 could not start with MineQTT 0.9.0 to 0.10.0; 0.11
 
 ### Fixed
 
-- **NeoForge 1.21.10 and 1.21.11:** a dedicated server with MineQTT 0.9.0 to 0.10.0 crashed right after it started
-  (`Duplicate key L32X64MixRandom`). MineQTT asked Java for its default random generator, a lookup that fails under
+- **NeoForge 1.21.10 and 1.21.11:** with MineQTT 0.9.0 to 0.10.0 a server crashed right after it started
+  (`Duplicate key L32X64MixRandom`; seen on dedicated servers, and single player starts its world the same way). MineQTT asked Java for its default random generator, a lookup that fails under
   these NeoForge versions. It now uses a plain random generator, and those servers start.
 
 ### Known limitations
