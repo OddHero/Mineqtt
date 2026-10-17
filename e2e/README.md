@@ -431,7 +431,7 @@ The link is slow (~8 MB/s up, ~4.5 MB/s down): each lane up/reload ships the ~6.
 run.sh brings back the report, latest.log, console.log and only failing suites' screenshots from a remote; add
 --screenshots all only when you review UI (~29 MB for a full run). run.sh prints the bytes sent and received.
 Capacity: each remote's row of the host table (a build host: 16 client stacks / 20 lanes), local 1 / 2; run.sh waits for a free slot.
-A client run is stopped after 30 min (MINEQTT_CLIENT_TIMEOUT_MIN) and fails with a TIMEOUT line.
+A client run is stopped after 45 min (MINEQTT_CLIENT_TIMEOUT_MIN; the full suite takes about 30) and fails with a TIMEOUT line.
 ```
 
 Once per Docker host, and again after a dependency bump (Minecraft, loader, Fabric API, Architectury), the maintainer

@@ -37,7 +37,7 @@
 #
 # Environment: CLIENT_CPUS / CLIENT_MEMORY (client container limits, default 3 and 5g here, the remote's row there), CLIENT_HEAP (the game's -Xmx,
 # default 2g: the JVM default of 25 % of the container left the game out of heap at 4g), MINEQTT_CLIENT_TIMEOUT_MIN
-# (default 30; the test step is stopped after it and the run fails: a game that hangs no longer holds its stack forever,
+# (default 45, since the full suite of 39 takes about 30 min; the test step is stopped after it and the run fails: a game that hangs no longer holds its stack forever,
 # because the heartbeat only notices a dead run.sh, not a stuck game),
 # MINEQTT_DOCKER_HOST, MINEQTT_REMOTES, MINEQTT_SLOTS_<NAME>, MINEQTT_LOCAL_CONTEXT (docker/hosts.sh).
 set -eu
@@ -53,7 +53,7 @@ LOCAL_SLOTS=${MINEQTT_CLIENT_SLOTS:-1}
 USER_CPUS=${CLIENT_CPUS:-}
 USER_MEMORY=${CLIENT_MEMORY:-}
 STALE_MIN=${MINEQTT_CLIENT_SLOT_STALE_MIN:-60}
-TEST_TIMEOUT_MIN=${MINEQTT_CLIENT_TIMEOUT_MIN:-30}
+TEST_TIMEOUT_MIN=${MINEQTT_CLIENT_TIMEOUT_MIN:-45}
 CLIENT_HEAP=${CLIENT_HEAP:-2g}
 WATCHDOG=${MINEQTT_CLIENT_WATCHDOG_SEC:-90}
 if [ -n "${MINEQTT_CLIENT_SLOT_DIR:-}" ]; then
