@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-mineqtt",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Node-RED nodes for MineQTT: every Minecraft smart device (lamps, switches, sensors, locks, alarm panels) and its Home Assistant counterpart as a node to wire flows with",
   "keywords": [
     "node-red",

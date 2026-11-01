@@ -133,7 +133,8 @@ public final class DeviceTabsCheck {
         expected.put(Timers.ALARM_CLOCK, rows(timerRows, "time TEXT_FIELD CONFIGURE CONFIG"));
         expected.put(Timers.CRON_TIMER, rows(timerRows, "cron TEXT_FIELD CONFIGURE CONFIG"));
         // What it looks at, how far and what the Raw Link sends; its readings are out-ports only.
-        expected.put(EntityObserver.TYPE, List.of("detect CYCLE CONFIGURE CONFIG", "range SLIDER CONFIGURE CONFIG", "payload CYCLE CONFIGURE CONFIG"));
+        expected.put(EntityObserver.TYPE, List.of("detect CYCLE CONFIGURE CONFIG", "range SLIDER CONFIGURE CONFIG", "spread SLIDER CONFIGURE CONFIG",
+                "payload CYCLE CONFIGURE CONFIG"));
         // Whose vibrations it hears, how far, and how long vibration stays on; what it heard is out-ports only.
         expected.put(VibrationSensor.TYPE, List.of("detect CYCLE CONFIGURE CONFIG", "range SLIDER CONFIGURE CONFIG", "clear_delay SLIDER CONFIGURE CONFIG"));
         // The siren's switch and its four settings; the announcement is an in-port without a control (Home Assistant and wires).

@@ -1,4 +1,4 @@
-# MineQTT security dashboard for Home Assistant (MineQTT 0.11.0 or newer, Home Assistant 2025.2 or newer).
+# MineQTT security dashboard for Home Assistant (MineQTT 0.11.1 or newer, Home Assistant 2025.2 or newer).
 #
 # It shows one alarm system built from MineQTT's security devices: an Alarm Panel, two Vibration Sensors (one at the
 # door, one inside), two Smart Locks (the door and a chest), a Speaker and a Signal Beacon. The wiki page

@@ -37,7 +37,8 @@ Every output carries `msg.payload` (the main value), `msg.state` (the whole stat
 `type`, `source`) and, for events, `msg.event` and `msg.eventType`. Trigger-like outputs (switch presses, timer fires,
 redstone pulses) send `TOGGLE` by default, so a switch node wired straight into a lamp node toggles the lamp; each such
 node can send the event name instead. The state a node finds when it starts only sets its status: outputs fire on
-later changes, so deploying never triggers a flow by itself.
+later changes, so deploying never triggers a flow by itself. A node that sends state changes can also send the state it
+finds at the start (*At start: send the current state*), e.g. to fill a display with a sensor's value after a deploy.
 
 ## Setup
 

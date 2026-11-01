@@ -467,8 +467,8 @@ public final class DiscoveryGoldenTest {
         JsonObject config = DiscoveryPublisher.deviceConfig(EntityObserver.TYPE, observer, TOPICS, IDENTITY);
         assertGolden("entity_observer", config);
         JsonObject components = config.getAsJsonObject("cmps");
-        check(components.keySet().equals(Set.of("entity", "present", "count", "entity_name", "health", "max_health", "distance", "changed", "detect", "range", "payload",
-                "location")), "Entity Observer entities: " + components.keySet());
+        check(components.keySet().equals(Set.of("entity", "present", "count", "entity_name", "health", "max_health", "distance", "changed", "detect", "range", "spread",
+                "payload", "location")), "Entity Observer entities: " + components.keySet());
         check(components.getAsJsonObject("entity").get("name").isJsonNull()
                         && components.getAsJsonObject("entity").get("json_attributes_template").getAsString().contains("value_json.details"),
                 "The entity is the primary sensor, its details its attributes");

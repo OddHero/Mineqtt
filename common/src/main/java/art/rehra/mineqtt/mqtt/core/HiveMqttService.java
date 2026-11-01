@@ -170,6 +170,8 @@ public final class HiveMqttService implements MqttService {
     // Acknowledgement listeners of published messages, queued by the client's threads for the owner thread.
     private final ConcurrentLinkedQueue<Runnable> acknowledged = new ConcurrentLinkedQueue<>();
     private final Set<CompletableFuture<?>> brokerOperations = ConcurrentHashMap.newKeySet();
+    // Checks only, written at every CONNACK under the lock.
+    private ConnectionTable connectionTable;
     private final AtomicLong oversizedInbound = new AtomicLong();
     private final AtomicLong receivedFromBroker = new AtomicLong();
     private final LogLimiter logLimiter = new LogLimiter();
@@ -346,6 +348,23 @@ public final class HiveMqttService implements MqttService {
         }
     }
 
+    /**
+     * Checks only: a broker connection and the SUBSCRIBE of the filter table it sent at its CONNACK.
+     *
+     * @param connection the CONNACKs so far, which numbers the connections
+     * @param table      completes when the broker acknowledged the table (refused filters included), exceptionally
+     *                   when the connection was lost first; already complete for an empty table
+     */
+    record ConnectionTable(long connection, CompletableFuture<?> table) {
+    }
+
+    /** Checks only: the latest connection's table, null before the first CONNACK. */
+    ConnectionTable connectionTable() {
+        synchronized (lock) {
+            return connectionTable;
+        }
+    }
+
     /** Checks only: every PUBLISH the broker sent, whether or not a handler took it. */
     long receivedFromBroker() {
         return receivedFromBroker.get();
@@ -398,7 +417,10 @@ public final class HiveMqttService implements MqttService {
             // under the lock means a concurrent subscribe() is either in this batch or sent after it.
             List<MqttClientAdapter.BrokerSubscription> table = new ArrayList<>();
             brokerFilters.forEach((filter, merged) -> table.add(brokerSubscription(filter, merged, true)));
-            if (!table.isEmpty()) sendSubscribe(table);
+            CompletableFuture<List<String>> subscribed = table.isEmpty()
+                    ? CompletableFuture.completedFuture(List.of()) : track(client.subscribe(table));
+            connectionTable = new ConnectionTable(session, subscribed);
+            if (!table.isEmpty()) onSubAck(table, subscribed);
         }
         pendingConnects.incrementAndGet();
         inboundQueued();
@@ -655,6 +677,11 @@ public final class HiveMqttService implements MqttService {
      * filter whose new handler needs the retained messages: its broker filter is re-subscribed with SEND, or, when
      * it is served by a wider one, it is subscribed and at once unsubscribed, which fetches exactly its own retained
      * messages instead of the whole wider scope. Disconnected, nothing is sent: every CONNACK sends the full table.
+     * <p>
+     * Every packet of the change goes out before any of them is listened to. A SUBACK that is already in when its
+     * listener is attached runs the listener right there, and a refusal changes the table: the SUBSCRIBE it sends
+     * for the filters the refused one took over must follow this change's UNSUBSCRIBE of those filters, or the broker
+     * would end up without them.
      */
     private void syncBroker(Map<String, BrokerFilter> before, String replayFilter) {
         if (client == null || !state.isConnected()) return;
@@ -677,9 +704,13 @@ public final class HiveMqttService implements MqttService {
         for (String brokerFilter : before.keySet()) {
             if (!brokerFilters.containsKey(brokerFilter)) unsubscribe.add(brokerFilter);
         }
-        if (!subscribe.isEmpty()) sendSubscribe(subscribe);
-        for (String filter : unsubscribe) {
-            track(client.unsubscribe(filter)).whenComplete((ignored, error) -> {
+        CompletableFuture<List<String>> subscribed = subscribe.isEmpty() ? null : track(client.subscribe(subscribe));
+        List<CompletableFuture<Void>> unsubscribed = new ArrayList<>(unsubscribe.size());
+        for (String filter : unsubscribe) unsubscribed.add(track(client.unsubscribe(filter)));
+        if (subscribed != null) onSubAck(subscribe, subscribed);
+        for (int i = 0; i < unsubscribe.size(); i++) {
+            String filter = unsubscribe.get(i);
+            unsubscribed.get(i).whenComplete((ignored, error) -> {
                 if (error != null) warnLimited("unsubscribe", "MQTT unsubscribe from " + forLog(filter) + " failed: " + describe(error), null);
             });
         }
@@ -702,8 +733,9 @@ public final class HiveMqttService implements MqttService {
         return new MqttClientAdapter.BrokerSubscription(filter, merged.qos(), merged.noLocal(), retained);
     }
 
-    private void sendSubscribe(List<MqttClientAdapter.BrokerSubscription> subscriptions) {
-        track(client.subscribe(subscriptions)).whenComplete((refused, error) -> {
+    /** Applies the SUBACK of {@code subscriptions} once it arrives; at once if it is already in. See {@link #syncBroker}. */
+    private void onSubAck(List<MqttClientAdapter.BrokerSubscription> subscriptions, CompletableFuture<List<String>> subscribed) {
+        subscribed.whenComplete((refused, error) -> {
             if (error != null) {
                 warnLimited("subscribe", "MQTT subscribe failed: " + describe(error), null);
                 return;

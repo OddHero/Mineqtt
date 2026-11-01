@@ -38,6 +38,10 @@ import java.util.Properties;
  * QoS 1 publish therefore does not guarantee that a SUBSCRIBE sent afterwards sees the new retained message or its
  * clear. A completed QoS 2 publish does: the PUBREL that leads to the PUBCOMP is only handled after {@code manageRetain}
  * returns. Otherwise a check must wait for the retained state to reach a subscriber instead of relying on the ack.
+ * <p>
+ * Also read from the source, as neither can be probed reliably: Moquette {@linkplain #DROPS_EARLY_SUBSCRIBE drops a
+ * connection whose first SUBSCRIBE comes too soon after the CONNACK}, and it drops a command (a PUBLISH, a delivery,
+ * a SUBSCRIBE) when the command queue of a session event loop is full, which {@link #SESSION_QUEUE_SIZE} keeps clear of.
  */
 final class EmbeddedMoquette implements AutoCloseable {
     static final String HOST = "127.0.0.1";
@@ -51,6 +55,20 @@ final class EmbeddedMoquette implements AutoCloseable {
     static final String REFUSED_LEVEL = "acl-refused";
     /** The largest packet the broker takes; Moquette's own default is 8092 bytes. */
     static final int MAX_PACKET_BYTES = 256 * 1024;
+    /**
+     * {@code MQTTConnection.executeConnect} writes the CONNACK from a session event loop and only then adds the
+     * listener that marks the connection connected; when the write completes first, Netty runs that listener later,
+     * on the channel's event loop, which may read the client's next packets before it. {@code processSubscribe} closes
+     * a connection that is not marked connected yet, so a client that subscribes right after the CONNACK, as
+     * {@link HiveMqttService} sends its filter table, sometimes loses the connection on a loaded machine. Only the
+     * first SUBSCRIBE of a connection is at risk: one the broker acknowledged shows the mark was set.
+     */
+    static final boolean DROPS_EARLY_SUBSCRIBE = true;
+    /**
+     * Commands per session event loop (one per processor); Moquette's default is 1 024. The ordering scenario alone
+     * queues 1 000 PUBLISHes, and their deliveries on top, which a loaded machine drains slower than they come.
+     */
+    static final int SESSION_QUEUE_SIZE = 16 * 1024;
 
     private final Server server;
     private final int port;
@@ -76,6 +94,8 @@ final class EmbeddedMoquette implements AutoCloseable {
         // The default of 8092 bytes per packet closes the connection of a client that publishes a larger message, so
         // a check could not send one above the 16 KiB limits.
         properties.setProperty(IConfig.NETTY_MAX_BYTES_PROPERTY_NAME, Integer.toString(MAX_PACKET_BYTES));
+        // A full session command queue drops the command, a PUBLISH included.
+        properties.setProperty(IConfig.SESSION_QUEUE_SIZE, Integer.toString(SESSION_QUEUE_SIZE));
 
         Server server = new Server();
         RefusingAcl acl = new RefusingAcl();

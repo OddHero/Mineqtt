@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device.types;
 
+import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.device.Access;
 import art.rehra.mineqtt.device.CommandReader;
@@ -68,6 +69,11 @@ public final class EntityObserver {
     public static final int MAX_RANGE = 8;
     /** The block space in front of its face: the observer reports on what stands right there. */
     public static final int DEFAULT_RANGE = 1;
+    public static final int MIN_SPREAD = 0;
+    /** At most four blocks to each side: a 9 by 9 face, 8 deep, still within one chunk border either way. */
+    public static final int MAX_SPREAD = 4;
+    /** A line straight out of its face, one block wide, as the observer watched before it had a spread. */
+    public static final int DEFAULT_SPREAD = 0;
     /** How often the observer looks, in game ticks: the Presence Sensor's interval. */
     public static final int SCAN_INTERVAL = 10;
     /** How often a {@code full} payload whose entity data alone changed is sent again, in game ticks. */
@@ -152,6 +158,8 @@ public final class EntityObserver {
     public static final Field<JsonObject> DETAILS = Field.json("details", DETAILS_CODEC, new JsonObject(), Access.READ);
     public static final Field<Detect> DETECT = Field.enumOf("detect", Detect.class, Access.READ_WRITE);
     public static final Field<Integer> RANGE = Field.intRange("range", MIN_RANGE, MAX_RANGE, DEFAULT_RANGE, "blocks", Access.READ_WRITE);
+    /** How many blocks the watched area reaches to each side of the line out of its face: 0 is that line, 1 a 3 by 3 area. */
+    public static final Field<Integer> SPREAD = Field.intRange("spread", MIN_SPREAD, MAX_SPREAD, DEFAULT_SPREAD, "blocks", Access.READ_WRITE);
     public static final Field<Payload> PAYLOAD = Field.enumOf("payload", Payload.class, Access.READ_WRITE);
     /** Another entity became the nearest, or the last one left; with the type id of the nearest after it, empty for none. */
     public static final EventSpec CHANGED_EVENT = EventSpec.of(CHANGED).attribute(ENTITY.key(), PortType.text(ValueCodecs.MAX_TEXT_LENGTH))
@@ -167,8 +175,8 @@ public final class EntityObserver {
     public static final DeviceType TYPE = DeviceType.builder(Identifier.fromNamespaceAndPath(MineQTT.MOD_ID, "entity_observer"))
             .model("Entity Observer").unloaded(UnloadedPolicy.UNAVAILABLE).minInterval(Duration.ofSeconds(1)).deadband(DISTANCE, 0.5).noV1Topic()
             .field(ENTITY).field(PRESENT).field(COUNT).field(NAME).field(LIVING).field(HEALTH).field(MAX_HEALTH).field(DISTANCE).field(DETAILS)
-            .field(DETECT).field(RANGE).field(PAYLOAD).field(CommonFields.LOCATION)
-            .setting(new Setting<>(DETECT)).setting(new Setting<>(RANGE)).setting(new Setting<>(PAYLOAD))
+            .field(DETECT).field(RANGE).field(SPREAD).field(PAYLOAD).field(CommonFields.LOCATION)
+            .setting(new Setting<>(DETECT)).setting(new Setting<>(RANGE)).setting(new Setting<>(SPREAD)).setting(new Setting<>(PAYLOAD))
             .event(CHANGED_EVENT)
             .entity(Ha.sensor("entity", ENTITY).name(null).valueTemplate(ENTITY_TEMPLATE).jsonAttributes(DETAILS))
             .entity(Ha.binarySensor("present", PRESENT).deviceClass("occupancy"))
@@ -180,6 +188,7 @@ public final class EntityObserver {
             .entity(Ha.event(CHANGED, CHANGED))
             .entity(Ha.select("detect", DETECT).config())
             .entity(Ha.number("range", RANGE).range(MIN_RANGE, MAX_RANGE).unit("blocks").config())
+            .entity(Ha.number("spread", SPREAD).range(MIN_SPREAD, MAX_SPREAD).unit("blocks").config())
             .entity(Ha.select("payload", PAYLOAD).config().disabledByDefault())
             .entity(Ha.sensor("location", CommonFields.LOCATION).name("Location").diagnostic().disabledByDefault())
             // A new device without v1 data; not retained unless the link says so. An empty message clears a topic the link
@@ -198,13 +207,40 @@ public final class EntityObserver {
         return List.copyOf(list);
     }
 
-    /** The box of the watched spaces ({@link #spaces}); an entity whose box touches it is in front. */
+    /** The box of the watched spaces ({@link #spaces}) without a spread; an entity whose box touches it is in front. */
     public static AABB area(BlockPos pos, Direction facing, int range) {
+        return area(pos, facing, range, DEFAULT_SPREAD);
+    }
+
+    /**
+     * The watched box: the spaces straight out of the face ({@link #spaces}), widened by {@code spread} blocks to each
+     * side across the facing, so an observer on a ceiling facing down with spread 1 watches a 3 by 3 area below it.
+     */
+    public static AABB area(BlockPos pos, Direction facing, int range, int spread) {
         List<BlockPos> spaces = spaces(pos, facing, range);
         BlockPos first = spaces.getFirst();
         BlockPos last = spaces.getLast();
-        return new AABB(Math.min(first.getX(), last.getX()), Math.min(first.getY(), last.getY()), Math.min(first.getZ(), last.getZ()),
+        AABB line = new AABB(Math.min(first.getX(), last.getX()), Math.min(first.getY(), last.getY()), Math.min(first.getZ(), last.getZ()),
                 Math.max(first.getX(), last.getX()) + 1, Math.max(first.getY(), last.getY()) + 1, Math.max(first.getZ(), last.getZ()) + 1);
+        int side = Math.clamp(spread, MIN_SPREAD, MAX_SPREAD);
+        Direction.Axis axis = facing.getAxis();
+        return line.inflate(axis == Direction.Axis.X ? 0 : side, axis == Direction.Axis.Y ? 0 : side, axis == Direction.Axis.Z ? 0 : side);
+    }
+
+    /**
+     * The chunks a watched box ({@link #area}) lies in, packed ({@link ChunkPositions#pack}): the observer only looks while the
+     * entities of all of them are loaded.
+     */
+    public static List<Long> chunks(AABB area) {
+        int minX = ((int) Math.floor(area.minX)) >> 4;
+        int maxX = ((int) Math.ceil(area.maxX) - 1) >> 4;
+        int minZ = ((int) Math.floor(area.minZ)) >> 4;
+        int maxZ = ((int) Math.ceil(area.maxZ) - 1) >> 4;
+        List<Long> chunks = new ArrayList<>();
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) chunks.add(ChunkPositions.pack(new BlockPos(x << 4, 0, z << 4)));
+        }
+        return List.copyOf(chunks);
     }
 
     /** The centre of the observer's face, from which distances are measured. */
@@ -435,13 +471,14 @@ public final class EntityObserver {
      * @param count  how many entities it saw
      * @param looked whether it ever looked; not part of the state
      */
-    public record Observation(Detect detect, int range, Payload payload, int count, String entity, String name, boolean living, double health,
+    public record Observation(Detect detect, int range, int spread, Payload payload, int count, String entity, String name, boolean living, double health,
                               double maxHealth, double distance, JsonObject details, boolean looked) {
-        public static final Observation DEFAULT = new Observation(Detect.ALL, DEFAULT_RANGE, Payload.FULL, 0, "", "", false, 0, 0, 0, new JsonObject(), false);
+        public static final Observation DEFAULT = new Observation(Detect.ALL, DEFAULT_RANGE, DEFAULT_SPREAD, Payload.FULL, 0, "", "", false, 0, 0, 0, new JsonObject(), false);
         /** The observer in the block entity's {@code state} compound; unreadable values keep their default. */
         public static final Codec<Observation> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 DETECT.codec().lenientOptionalFieldOf(DETECT.key(), Detect.ALL).forGetter(Observation::detect),
                 RANGE.codec().lenientOptionalFieldOf(RANGE.key(), DEFAULT_RANGE).forGetter(Observation::range),
+                SPREAD.codec().lenientOptionalFieldOf(SPREAD.key(), DEFAULT_SPREAD).forGetter(Observation::spread),
                 PAYLOAD.codec().lenientOptionalFieldOf(PAYLOAD.key(), Payload.FULL).forGetter(Observation::payload),
                 COUNT.codec().lenientOptionalFieldOf(COUNT.key(), 0).forGetter(Observation::count),
                 Codec.STRING.lenientOptionalFieldOf(ENTITY.key(), "").forGetter(Observation::entity),
@@ -456,6 +493,7 @@ public final class EntityObserver {
 
         public Observation {
             range = Math.clamp(range, MIN_RANGE, MAX_RANGE);
+            spread = Math.clamp(spread, MIN_SPREAD, MAX_SPREAD);
             count = Math.max(0, count);
             // Rounded as the state shows them, so a look that changes nothing shown is no change.
             health = tenths(Math.clamp(health, 0, MAX_HEALTH_POINTS));
@@ -476,33 +514,34 @@ public final class EntityObserver {
         /** The observer after a look that saw {@code newCount} entities, the nearest as {@code seen}. */
         public Observation looked(int newCount, Seen seen) {
             Seen nearest = newCount > 0 ? seen : Seen.NOTHING;
-            return new Observation(detect, range, payload, newCount, nearest.entity(), nearest.name(), nearest.living(), nearest.health(),
+            return new Observation(detect, range, spread, payload, newCount, nearest.entity(), nearest.name(), nearest.living(), nearest.health(),
                     nearest.maxHealth(), nearest.distance(), nearest.details(), true);
         }
 
         /** A placed copy (M2 plan D14): the settings stay, what it saw is gone until its first look. */
         public Observation placed() {
-            return new Observation(detect, range, payload, 0, "", "", false, 0, 0, 0, new JsonObject(), false);
+            return new Observation(detect, range, spread, payload, 0, "", "", false, 0, 0, 0, new JsonObject(), false);
         }
 
         /**
-         * The observer after a partial command: {@code detect}, {@code range} and {@code payload}.
+         * The observer after a partial command: {@code detect}, {@code range}, {@code spread} and {@code payload}.
          *
          * @return empty when the command has none of these keys in a readable form
          */
         public Optional<Observation> apply(CommandReader command) {
             Optional<Detect> newDetect = command.get(DETECT);
             Optional<Integer> newRange = command.get(RANGE);
+            Optional<Integer> newSpread = command.get(SPREAD);
             Optional<Payload> newPayload = command.get(PAYLOAD);
-            if (newDetect.isEmpty() && newRange.isEmpty() && newPayload.isEmpty()) return Optional.empty();
-            return Optional.of(new Observation(newDetect.orElse(detect), newRange.orElse(range), newPayload.orElse(payload), count, entity, name, living,
+            if (newDetect.isEmpty() && newRange.isEmpty() && newSpread.isEmpty() && newPayload.isEmpty()) return Optional.empty();
+            return Optional.of(new Observation(newDetect.orElse(detect), newRange.orElse(range), newSpread.orElse(spread), newPayload.orElse(payload), count, entity, name, living,
                     health, maxHealth, distance, details, looked));
         }
 
         /** Writes every readable field but the location. */
         public StateWriter write(StateWriter out) {
             return out.put(ENTITY, entity).put(PRESENT, present()).put(COUNT, count).put(NAME, name).put(LIVING, living).put(HEALTH, health)
-                    .put(MAX_HEALTH, maxHealth).put(DISTANCE, distance).put(DETAILS, details).put(DETECT, detect).put(RANGE, range).put(PAYLOAD, payload);
+                    .put(MAX_HEALTH, maxHealth).put(DISTANCE, distance).put(DETAILS, details).put(DETECT, detect).put(RANGE, range).put(SPREAD, spread).put(PAYLOAD, payload);
         }
     }
 }

@@ -24,6 +24,8 @@ function register(RED, type) {
         const emit = opt.emit || type.defaultEmit;
         const sendStates = emit === 'state' || emit === 'both';
         const sendEvents = emit === 'event' || emit === 'both';
+        // The state found at the start goes out only when the node is set to send it ("At start").
+        const sendInitial = sendStates && opt.initial === 'yes';
         const source = config.source === 'ha' ? 'ha' : 'mineqtt';
         let lastKey;
         let seen = false;
@@ -53,7 +55,12 @@ function register(RED, type) {
                 describe();
                 const s = server.ha.states.get(entity);
                 showState(s);
-                if (s && !seen) { seen = true; lastKey = JSON.stringify(type.ha.payload ? type.ha.payload(s) : s.state); }
+                if (s && !seen) {
+                    seen = true;
+                    const payload = type.ha.payload ? type.ha.payload(s) : s.state;
+                    lastKey = JSON.stringify(payload);
+                    if (sendInitial && s.state !== 'unavailable') output({ topic: device.name, payload, state: type.ha.state ? type.ha.state(s) : s, device });
+                }
             };
             const onState = (id, now, old) => {
                 if (id !== entity) return;
@@ -69,7 +76,7 @@ function register(RED, type) {
                         output({ topic: device.name, payload: triggerPayload(opt, evt), eventType: evt, event: { event_type: evt, attributes: now.attributes }, state, device });
                     }
                 }
-                if (sendStates && seen && key !== lastKey && now.state !== 'unavailable') {
+                if (sendStates && (seen ? key !== lastKey : sendInitial) && now.state !== 'unavailable') {
                     output({ topic: device.name, payload, state, device });
                 }
                 lastKey = key;
@@ -105,7 +112,12 @@ function register(RED, type) {
             describe(rec);
             if (rec.available === false) { status('yellow', 'ring', 'offline'); return; }
             if (rec.state) {
-                if (!seen) { seen = true; lastKey = changeKey(rec.state); }
+                if (!seen) {
+                    seen = true;
+                    lastKey = changeKey(rec.state);
+                    const payload = sendInitial ? type.statePayload(rec.state, opt) : undefined;
+                    if (payload !== undefined) output({ topic: device.name, payload, state: V.stripState(rec.state), device });
+                }
                 status('green', 'dot', shown(type.statePayload(rec.state, opt)));
             } else {
                 status('grey', 'dot', 'waiting for state');
@@ -119,7 +131,7 @@ function register(RED, type) {
                 describe(rec);
                 const state = V.stripState(data.state);
                 const ck = changeKey(data.state);
-                if (sendStates && seen && ck !== lastKey) {
+                if (sendStates && (seen ? ck !== lastKey : sendInitial)) {
                     const payload = type.statePayload(data.state, opt);
                     if (payload !== undefined) output({ topic: device.name, payload, state, device });
                 }

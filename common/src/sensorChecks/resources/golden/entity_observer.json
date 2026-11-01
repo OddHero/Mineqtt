@@ -123,6 +123,20 @@
       "retain": false,
       "entity_category": "config"
     },
+    "spread": {
+      "p": "number",
+      "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_spread",
+      "name": "Spread",
+      "state_topic": "mineqtt/world_7f3a/pen_watch",
+      "value_template": "{{ value_json.spread }}",
+      "command_topic": "mineqtt/world_7f3a/pen_watch/set/spread",
+      "min": 0,
+      "max": 4,
+      "step": 1,
+      "unit_of_measurement": "blocks",
+      "retain": false,
+      "entity_category": "config"
+    },
     "payload": {
       "p": "select",
       "unique_id": "mineqtt_3c4d5e6f7a8b4c9d8e0f1a2b3c4d5e6f_payload",

@@ -29,6 +29,13 @@ const EMIT = (values, def) => ({
     values: values.map((v) => [v, { state: 'state changes', event: 'events', both: 'state changes and events' }[v]]),
 });
 
+// Whether a node that sends state changes also sends the state it finds when it starts (a deploy, a reconnect), e.g. for
+// a display that shows a sensor's value. Off by default, so a switch wired into a lamp does not switch it at a deploy.
+const INITIAL = {
+    name: 'initial', label: 'At start', type: 'select', default: 'no',
+    values: [['no', 'send nothing (only changes)'], ['yes', 'send the current state']],
+};
+
 function triggerPayload(opt, eventType) {
     switch (opt.payloadMode) {
         case 'event': return eventType;
@@ -424,6 +431,7 @@ for (const t of TYPES) {
     t.options = t.options || [];
     t.defaultEmit = t.defaultEmit || t.emits[0];
     if (t.emits.length > 1) t.options = [EMIT(t.emits, t.defaultEmit), ...t.options];
+    if (t.emits.includes('state') || t.emits.includes('both')) t.options = [...t.options, INITIAL];
 }
 
 module.exports = { TYPES, triggerPayload, haTrigger };

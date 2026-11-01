@@ -1,5 +1,6 @@
 package art.rehra.mineqtt.device;
 
+import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.config.TelemetryPlayers;
 import art.rehra.mineqtt.device.types.EntityObserver;
 import art.rehra.mineqtt.device.types.EntityObserver.Detect;
@@ -71,6 +72,26 @@ public final class EntityObserverCheck {
         check(!west.contains(Vec3.atCenterOf(POS)) && west.contains(Vec3.atCenterOf(POS.west(4))), "The observer itself is not watched, the fourth space is");
         Vec3 face = EntityObserver.face(POS, Direction.UP);
         check(face.x == -3.5 && face.y == 65 && face.z == 10.5, "Distances count from the centre of the face: " + face);
+
+        // The spread widens the line across the facing, the same on each side; 0 is the line itself.
+        check(EntityObserver.SPREAD.defaultValue() == 0 && EntityObserver.area(POS, Direction.WEST, 4, 0).equals(west), "Spread 0 is the line");
+        AABB porch = EntityObserver.area(POS, Direction.DOWN, 3, 1);
+        check(porch.minX == -5 && porch.maxX == -2 && porch.minY == 61 && porch.maxY == 64 && porch.minZ == 9 && porch.maxZ == 12,
+                "Facing down, spread 1: three deep under a 3 by 3 face: " + porch);
+        AABB wide = EntityObserver.area(POS, Direction.EAST, 2, 2);
+        check(wide.minX == -3 && wide.maxX == -1 && wide.minY == 62 && wide.maxY == 67 && wide.minZ == 8 && wide.maxZ == 13,
+                "Facing east, spread 2: 5 by 5 across, 2 deep along x: " + wide);
+        check(EntityObserver.area(POS, Direction.UP, 1, 99).equals(EntityObserver.area(POS, Direction.UP, 1, EntityObserver.MAX_SPREAD))
+                && EntityObserver.area(POS, Direction.UP, 1, -3).equals(EntityObserver.area(POS, Direction.UP, 1)), "The spread is clamped to 0-4");
+        check(!porch.contains(Vec3.atCenterOf(POS)), "The observer itself is still not watched");
+
+        // It looks only while every chunk of the box has its entities loaded.
+        check(EntityObserver.chunks(porch).equals(List.of(ChunkPositions.pack(POS))), "A box inside one chunk: that chunk");
+        BlockPos corner = new BlockPos(0, 64, 0);
+        List<Long> four = EntityObserver.chunks(EntityObserver.area(corner, Direction.DOWN, 2, 1));
+        check(four.size() == 4 && four.containsAll(List.of(ChunkPositions.pack(corner), ChunkPositions.pack(corner.west()), ChunkPositions.pack(corner.north()),
+                ChunkPositions.pack(corner.west().north()))), "A box across a chunk corner: all four chunks, got " + four);
+        check(EntityObserver.chunks(EntityObserver.area(corner, Direction.EAST, 8, 0)).size() == 1, "A line along the chunk's edge stays in one chunk");
     }
 
     /** All counts every entity, non_players everything but players, mobs living entities that are no players. */
@@ -253,10 +274,10 @@ public final class EntityObserverCheck {
     private static void state() {
         JsonObject state = Observation.DEFAULT.looked(3, cow()).write(new StateWriter()).json();
         check(state.keySet().stream().toList().equals(List.of("entity", "present", "count", "entity_name", "living", "health", "max_health", "distance", "details",
-                "detect", "range", "payload")), "The state's keys: " + state.keySet());
+                "detect", "range", "spread", "payload")), "The state's keys: " + state.keySet());
         check(state.get("entity").getAsString().equals("minecraft:cow") && state.get("present").getAsBoolean() && state.get("count").getAsInt() == 3
                 && state.get("entity_name").getAsString().equals("Daisy") && state.get("living").getAsBoolean() && state.get("health").getAsDouble() == 9.5
-                && state.get("detect").getAsString().equals("all") && state.get("range").getAsInt() == 1 && state.get("payload").getAsString().equals("full"),
+                && state.get("detect").getAsString().equals("all") && state.get("range").getAsInt() == 1 && state.get("spread").getAsInt() == 0 && state.get("payload").getAsString().equals("full"),
                 "The state of a cow in front: " + state);
         JsonObject empty = Observation.DEFAULT.write(new StateWriter()).json();
         check(!empty.get("present").getAsBoolean() && empty.get("entity").getAsString().isEmpty() && empty.get("count").getAsInt() == 0, "Nothing seen: " + empty);
@@ -311,7 +332,7 @@ public final class EntityObserverCheck {
 
     /** The saved form: settings and what it saw survive, details keep their types, unreadable values take their defaults. */
     private static void saved() {
-        Observation seen = new Observation(Detect.MOBS, 5, Payload.COUNT, 0, "", "", false, 0, 0, 0, new JsonObject(), false).looked(2, cow());
+        Observation seen = new Observation(Detect.MOBS, 5, 2, Payload.COUNT, 0, "", "", false, 0, 0, 0, new JsonObject(), false).looked(2, cow());
         Tag tag = Observation.CODEC.encodeStart(NbtOps.INSTANCE, seen).getOrThrow();
         Observation loaded = Observation.CODEC.parse(NbtOps.INSTANCE, tag).getOrThrow();
         check(loaded.equals(seen) && loaded.looked(), "Saved and loaded unchanged: " + loaded);
@@ -319,16 +340,20 @@ public final class EntityObserverCheck {
         CompoundTag broken = new CompoundTag();
         broken.putString("detect", "everyone");
         broken.putInt("range", 40);
+        broken.putInt("spread", 12);
         broken.putString("details", "not json");
         Observation lenient = Observation.CODEC.parse(NbtOps.INSTANCE, broken).getOrThrow();
-        check(lenient.detect() == Detect.ALL && lenient.range() == EntityObserver.MAX_RANGE && lenient.details().isEmpty() && !lenient.looked(),
-                "Unreadable values take their defaults, a range is clamped: " + lenient);
-        check(seen.placed().equals(new Observation(Detect.MOBS, 5, Payload.COUNT, 0, "", "", false, 0, 0, 0, new JsonObject(), false)),
+        check(lenient.detect() == Detect.ALL && lenient.range() == EntityObserver.MAX_RANGE && lenient.spread() == EntityObserver.MAX_SPREAD && lenient.details().isEmpty() && !lenient.looked(),
+                "Unreadable values take their defaults, a range and a spread are clamped: " + lenient);
+        check(seen.placed().equals(new Observation(Detect.MOBS, 5, 2, Payload.COUNT, 0, "", "", false, 0, 0, 0, new JsonObject(), false)),
                 "A placed copy keeps its settings and has seen nothing");
         Optional<Observation> commanded = seen.apply(new CommandReader(json("{\"range\":3,\"detect\":\"non_players\"}")));
         check(commanded.isPresent() && commanded.get().range() == 3 && commanded.get().detect() == Detect.NON_PLAYERS && commanded.get().payload() == Payload.COUNT
                 && commanded.get().count() == 2, "A command changes its settings only");
         check(seen.apply(new CommandReader(json("{\"count\":9}"))).isEmpty(), "What it saw is no command");
+        Optional<Observation> spread = seen.apply(new CommandReader(json("{\"spread\":1}")));
+        check(spread.isPresent() && spread.get().spread() == 1 && spread.get().range() == 5 && spread.get().count() == 2, "The spread alone is a command");
+        check(loaded.spread() == 2, "The spread is saved");
     }
 
     private static Seen cow() {

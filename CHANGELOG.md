@@ -1,14 +1,16 @@
 # Changelog
 
-## 0.11.0 (the security update)
+## 0.11.1 (the security update)
 
-0.11.0 turns MineQTT into a security system for your base and your Home Assistant: a Vibration Sensor hears
+0.11.1 turns MineQTT into a security system for your base and your Home Assistant: a Vibration Sensor hears
 intruders, a Smart Lock keeps doors and chests shut, an Alarm Panel arms the house with a code, a Speaker sounds the
 siren and a Signal Beacon shows the alarm's state across the map. They work together through wires without Home
 Assistant, and Home Assistant gets a real alarm panel, a lock, a siren and a light for them. All of it comes for every
 Minecraft version from 1.21 to 26.3 on Fabric and NeoForge. Worlds and config files of 0.10.0 load unchanged; the new
 config keys take their defaults. The wiki's *Secure Your Base* guide walks through a complete setup. NeoForge servers on
-Minecraft 1.21.10 and 1.21.11 could not start with MineQTT 0.9.0 to 0.10.0; 0.11.0 fixes that (see *Fixed*).
+Minecraft 1.21.10 and 1.21.11 could not start with MineQTT 0.9.0 to 0.10.0; 0.11.1 fixes that (see *Fixed*).
+0.11.0 was tagged but never published, so 0.11.1 is the first release of the security update; it also lets the
+Entity Observer watch an area.
 
 ### For players
 
@@ -90,15 +92,20 @@ Minecraft 1.21.10 and 1.21.11 could not start with MineQTT 0.9.0 to 0.10.0; 0.11
   iron ingots, glass, redstone and the Network Chip.
 - **Example security dashboard.** `docs/dashboards/mineqtt-security.yaml` shows the Alarm Panel's card, the locks, the
   vibrations and every device's events, the siren and the beacon, with an example automation in its comments.
+- **Entity Observer: Spread** (new setting, `spread`, 0-4, default 0): the watched area reaches that many blocks to each
+  side of the line out of its face, so a 3 by 3 (spread 1) up to a 9 by 9 area (spread 4), still `range` blocks deep. An
+  observer above a doorway facing down with spread 1 sees anyone on the 3 by 3 porch below it. It is a slider on the
+  *Controls* tab, a number in Home Assistant and `/set/spread`; existing observers keep watching their line.
 
 ### For server admins
 
-- **Node-RED nodes** (new, `integrations/node-red`, package `node-red-contrib-mineqtt` 0.1.0, not on npm yet: install
+- **Node-RED nodes** (new, `integrations/node-red`, package `node-red-contrib-mineqtt` 0.1.1, not on npm yet: install
   it from a packed tarball): a palette node for every device type with a twin, from the Smart Lamp to the Alarm Panel.
   Each node picks a Minecraft device of its type (listed by name and room from the broker's discovery) or a matching
   Home Assistant entity, so a flow can wire a Minecraft switch to a Zigbee lamp. Switch presses, timer fires and
-  redstone pulses send `TOGGLE` by default, so a switch node wired into a lamp node toggles it. In the Node-RED add-on
-  of Home Assistant OS the Home Assistant connection needs no token.
+  redstone pulses send `TOGGLE` by default, so a switch node wired into a lamp node toggles it. Nodes send changes
+  only, unless *At start* has them send the current state too (for a display). In the Node-RED add-on of Home
+  Assistant OS the Home Assistant connection needs no token.
 - **`speaker.allowAnnouncements`** (new, default off): whether Speakers show announcements to players. Off, every
   announcement is refused and says so in the Speaker's *Last result*; the notify entity stays in Home Assistant either
   way, so discovery never changes with the key.
@@ -114,6 +121,10 @@ Minecraft 1.21.10 and 1.21.11 could not start with MineQTT 0.9.0 to 0.10.0; 0.11
 - **NeoForge 1.21.10 and 1.21.11:** with MineQTT 0.9.0 to 0.10.0 a server crashed right after it started
   (`Duplicate key L32X64MixRandom`; seen on dedicated servers, and single player starts its world the same way). MineQTT asked Java for its default random generator, a lookup that fails under
   these NeoForge versions. It now uses a plain random generator, and those servers start.
+- **Brokers with an ACL:** when the broker refused a wide filter (say `mineqtt/#`) quickly enough, the narrower
+  subscriptions it was meant to replace could end up unsubscribed at the broker until the next reconnect, so the
+  devices behind them heard no commands. MineQTT now sends the unsubscribe of such a change before it reacts to the
+  refusal, and the narrower subscriptions stay.
 
 ### Known limitations
 
@@ -133,6 +144,9 @@ Minecraft 1.21.10 and 1.21.11 could not start with MineQTT 0.9.0 to 0.10.0; 0.11
   call still apply; a `@Redirect` there stopped NeoForge 1.21.11 (MixinExtras 0.5.3) from starting.
 - The test broker probe hands every listener all its messages, the refused-filter broker scenario waits for the broker
   instead of the clock, and the client game tests get 45 minutes before the runner stops them.
+- The broker integration check waits for a connection whose subscriptions the embedded Moquette acknowledged: on a
+  loaded machine Moquette 0.17 drops a connection whose first SUBSCRIBE comes right after the CONNACK. Its session
+  command queues are also larger, as a full one drops PUBLISHes.
 
 ## 0.10.0 (the Container Observer and the Entity Observer)
 

@@ -305,8 +305,9 @@ public final class DeviceTypesCheck {
                 "OUT entity text 256 FIELD", "OUT present bool FIELD", "OUT count number 0..2147483647 FIELD", "OUT entity_name text 256 FIELD",
                 "OUT living bool FIELD", "OUT health number 0..1024 HP FIELD", "OUT max_health number 0..1024 HP FIELD", "OUT distance number 0..16 m FIELD",
                 "OUT details json FIELD", "OUT detect enum all|non_players|mobs FIELD", "OUT range number 1..8 blocks FIELD",
-                "OUT payload enum full|entity_id|name|count FIELD", "OUT location json FIELD", "OUT changed event changed EVENT",
-                "IN detect enum all|non_players|mobs SETTING", "IN range number 1..8 blocks SETTING", "IN payload enum full|entity_id|name|count SETTING"));
+                "OUT spread number 0..4 blocks FIELD", "OUT payload enum full|entity_id|name|count FIELD", "OUT location json FIELD", "OUT changed event changed EVENT",
+                "IN detect enum all|non_players|mobs SETTING", "IN range number 1..8 blocks SETTING", "IN spread number 0..4 blocks SETTING",
+                "IN payload enum full|entity_id|name|count SETTING"));
         check(EntityObserver.TYPE.unloadedPolicy() == UnloadedPolicy.UNAVAILABLE && !EntityObserver.TYPE.groupable() && EntityObserver.TYPE.use().isEmpty()
                         && EntityObserver.TYPE.minInterval().equals(Duration.ofSeconds(1)) && EntityObserver.TYPE.actions().isEmpty()
                         && EntityObserver.TYPE.noV1Topic() && EntityObserver.TYPE.status().isEmpty() && EntityObserver.TYPE.deadbands().equals(Map.of("distance", 0.5)),
@@ -315,7 +316,8 @@ public final class DeviceTypesCheck {
                         && EntityObserver.CHANGED_EVENT.attributes().equals(Map.of("entity", PortType.text(ValueCodecs.MAX_TEXT_LENGTH)))
                         && EntityObserver.CHANGED_EVENT.minInterval().equals(Duration.ofMillis(500)) && !EntityObserver.CHANGED_EVENT.busOnly(),
                 "changed names the entity, at most twice a second");
-        check(settingKeys(EntityObserver.TYPE.settings()).equals(List.of("detect", "range", "payload")), "Entity Observer settings: detect, range and payload");
+        check(settingKeys(EntityObserver.TYPE.settings()).equals(List.of("detect", "range", "spread", "payload")),
+                "Entity Observer settings: detect, range, spread and payload");
         vibrationSensor();
         speaker();
         smartLock();

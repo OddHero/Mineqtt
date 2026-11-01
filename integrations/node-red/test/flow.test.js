@@ -64,8 +64,13 @@ test('a switch press toggles the lamp through the flow', async (t) => {
         { id: 's', type: 'mineqtt-wall-switch', source: 'mineqtt', broker: 'b', device: sw.dev.ids[0], button: 'any', events: 'press', payloadMode: 'toggle', wires: [['l']] },
         { id: 'l', type: 'mineqtt-smart-lamp', source: 'mineqtt', broker: 'b', device: lamp.dev.ids[0], otherInput: 'toggle', wires: [['out']] },
         { id: 'out', type: 'helper' },
+        // The same lamp, set to also send the state it finds at the start (e.g. for a display).
+        { id: 'l2', type: 'mineqtt-smart-lamp', source: 'mineqtt', broker: 'b', device: lamp.dev.ids[0], initial: 'yes', wires: [['out2']] },
+        { id: 'out2', type: 'helper' },
     ];
     await helper.load([configNodes, deviceNodes], flow);
+    const atStart = [];
+    helper.getNode('out2').on('input', (msg) => atStart.push(msg));
     const broker = helper.getNode('b');
     await waitFor(() => broker.connected && broker.catalog.get(lamp.dev.ids[0]) && broker.catalog.get(sw.dev.ids[0])
         && broker.catalog.get(lamp.dev.ids[0]).state);
@@ -88,4 +93,9 @@ test('a switch press toggles the lamp through the flow', async (t) => {
     assert.strictEqual(outputs[0].device.name, 'Kitchen Lamp');
     assert.strictEqual(outputs[0].device.room, 'Kitchen');
     assert.strictEqual(outputs[0].state.location, undefined);
+
+    // "At start: send the current state": the retained OFF first, then the change, each once.
+    await waitFor(() => atStart.length >= 2);
+    assert.deepStrictEqual(atStart.map((m) => m.payload), ['OFF', 'ON']);
+    assert.strictEqual(atStart[0].state.location, undefined);
 });

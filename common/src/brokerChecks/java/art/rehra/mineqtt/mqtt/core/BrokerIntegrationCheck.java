@@ -4,6 +4,7 @@ import art.rehra.mineqtt.ha.GhostCleanup;
 import com.google.gson.JsonObject;
 import com.hivemq.client.mqtt.MqttClient;
 import com.hivemq.client.mqtt.MqttClientBuilder;
+import com.hivemq.client.mqtt.MqttClientState;
 import com.hivemq.client.mqtt.MqttGlobalPublishFilter;
 import com.hivemq.client.mqtt.datatypes.MqttQos;
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient;
@@ -24,6 +25,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
@@ -50,6 +52,20 @@ public final class BrokerIntegrationCheck {
     private static final class Skipped extends Exception {
         Skipped(String reason) {
             super(reason);
+        }
+    }
+
+    /**
+     * Thrown by a scenario whose premise a dropped connection breaks (a count of CONNACK wakes, say) when the broker
+     * dropped the service's connection over its first SUBSCRIBE ({@link EmbeddedMoquette#DROPS_EARLY_SUBSCRIBE}); the
+     * scenario then runs again from the start. Scenarios that only need a connection use {@link #connect}, which
+     * waits for one that holds.
+     */
+    private static final class BrokerDropped extends Exception {
+        static final int MAX_ATTEMPTS = 3;
+
+        BrokerDropped() {
+            super("the broker dropped the connection before it acknowledged the filter table");
         }
     }
 
@@ -134,23 +150,39 @@ public final class BrokerIntegrationCheck {
     private static void runAll(Target target, ProtocolVersion protocol, List<String> report) throws Exception {
         for (NamedScenario scenario : SCENARIOS) {
             long start = System.nanoTime();
-            String root = root(protocol);
-            try {
-                scenario.scenario().run(target, protocol, root);
-            } catch (Skipped skipped) {
-                report.add(line(target, protocol, scenario.name(), "SKIPPED (" + skipped.getMessage() + ")"));
-                continue;
-            } catch (Exception | AssertionError e) {
-                throw new AssertionError("Scenario " + scenario.name() + " failed for MQTT " + protocol.configValue()
-                        + " against " + target.name() + ": " + e.getMessage(), e);
-            } finally {
-                // Every service's will and graceful stop leave a retained offline behind.
-                try (Remote cleanup = new Remote(target)) {
-                    cleanup.clearRetained(root + "/bridge/state");
+            String skipped = null;
+            int attempt = 1;
+            for (; ; attempt++) {
+                String root = root(protocol);
+                try {
+                    scenario.scenario().run(target, protocol, root);
+                    break;
+                } catch (Skipped skip) {
+                    skipped = skip.getMessage();
+                    break;
+                } catch (BrokerDropped dropped) {
+                    // Only a scenario that cannot take a reconnect in its stride throws this; it starts over.
+                    if (attempt == BrokerDropped.MAX_ATTEMPTS) {
+                        throw new AssertionError("Scenario " + scenario.name() + " failed for MQTT " + protocol.configValue()
+                                + " against " + target.name() + ": " + dropped.getMessage() + ", in all " + attempt + " attempts", dropped);
+                    }
+                } catch (Exception | AssertionError e) {
+                    throw new AssertionError("Scenario " + scenario.name() + " failed for MQTT " + protocol.configValue()
+                            + " against " + target.name() + ": " + e.getMessage(), e);
+                } finally {
+                    // Every service's will and graceful stop leave a retained offline behind.
+                    try (Remote cleanup = new Remote(target)) {
+                        cleanup.clearRetained(root + "/bridge/state");
+                    }
                 }
             }
+            if (skipped != null) {
+                report.add(line(target, protocol, scenario.name(), "SKIPPED (" + skipped + ")"));
+                continue;
+            }
             long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
-            report.add(line(target, protocol, scenario.name(), "PASSED (" + millis + " ms)"));
+            report.add(line(target, protocol, scenario.name(), "PASSED (" + millis + " ms"
+                    + (attempt > 1 ? ", attempt " + attempt + " after the broker dropped a connection" : "") + ")"));
         }
     }
 
@@ -923,6 +955,8 @@ public final class BrokerIntegrationCheck {
                 service.onInboundAvailable(() -> wakes.add(Thread.currentThread()));
                 proxy.restore();
                 waitUntil(() -> !wakes.isEmpty(), "the wake of the CONNACK");
+                // A reconnect would wake again, which the counts below cannot tell from a second wake per burst.
+                requireTableAcknowledged(service);
                 check(service.state().isConnected() && !wakes.contains(owner), "The CONNACK wakes from a client thread, got " + wakes);
                 check(service.hasPendingWork(), "The connect listeners wait for a drain");
                 service.drainInbound(MqttService.DEFAULT_DRAIN_BUDGET_NANOS, MqttService.DEFAULT_MAX_MESSAGES_PER_TICK);
@@ -1133,9 +1167,38 @@ public final class BrokerIntegrationCheck {
         return HiveMqttService.connect(config, options, LOG);
     }
 
+    /**
+     * Ticks until the service is connected and the broker acknowledged the filter table it sent with the CONNACK.
+     * Moquette drops a connection whose first SUBSCRIBE comes too soon after the CONNACK
+     * ({@link EmbeddedMoquette#DROPS_EARLY_SUBSCRIBE}); the service reconnects, as after any lost connection, and this
+     * waits for a connection that holds.
+     */
     private static void connect(HiveMqttService service) throws InterruptedException {
-        tickUntil(service, () -> service.state().isConnected(), "the connection");
+        long deadline = System.currentTimeMillis() + 4 * TIMEOUT_MILLIS;
+        while (true) {
+            tickUntil(service, () -> service.state().isConnected(), "the connection");
+            awaitBrokerOperations(service);
+            HiveMqttService.ConnectionTable latest = service.connectionTable();
+            if (latest.table().isDone() && !latest.table().isCompletedExceptionally()) return;
+            if (System.currentTimeMillis() > deadline) {
+                throw new AssertionError("The broker keeps dropping the connection before it acknowledges the filter table, state " + service.state());
+            }
+            // Not done yet, the table belongs to a newer connection than the operations waited for: wait again.
+            if (latest.table().isDone()) {
+                tickUntil(service, () -> service.connectionTable().connection() > latest.connection(),
+                        "a new connection after the broker dropped connection " + latest.connection());
+            }
+        }
+    }
+
+    /**
+     * Waits for the broker operations and throws {@link BrokerDropped} when the broker dropped the service's latest
+     * connection before it acknowledged the filter table. It neither drains nor flushes the service.
+     */
+    private static void requireTableAcknowledged(HiveMqttService service) throws InterruptedException, BrokerDropped {
         awaitBrokerOperations(service);
+        CompletableFuture<?> table = service.connectionTable().table();
+        if (table.isCompletedExceptionally()) throw new BrokerDropped();
     }
 
     /**
@@ -1292,7 +1355,11 @@ public final class BrokerIntegrationCheck {
         }
     }
 
-    /** A plain MQTT 3.1.1 client connected straight to the broker. */
+    /**
+     * A plain MQTT 3.1.1 client connected straight to the broker. Its constructor returns once the broker acknowledged
+     * a SUBSCRIBE on the connection, so the broker cannot drop it over the first SUBSCRIBE of a check
+     * ({@link EmbeddedMoquette#DROPS_EARLY_SUBSCRIBE}).
+     */
     private static final class Remote implements AutoCloseable {
         private record Message(String topic, String payload) {
         }
@@ -1301,15 +1368,31 @@ public final class BrokerIntegrationCheck {
         private final List<Message> received = new CopyOnWriteArrayList<>();
 
         Remote(Target target) throws Exception {
+            String clientId = "it-r-" + shortId();
             MqttClientBuilder builder = MqttClient.builder()
-                    .identifier("it-r-" + shortId())
+                    .identifier(clientId)
                     .serverHost(target.host())
                     .serverPort(target.port());
             if (target.wsPath() != null) builder = builder.webSocketConfig().serverPath(target.wsPath()).applyWebSocketConfig();
             client = builder.useMqttVersion3().buildAsync();
-            client.publishes(MqttGlobalPublishFilter.ALL,
-                    publish -> received.add(new Message(publish.getTopic().toString(), new String(publish.getPayloadAsBytes(), StandardCharsets.UTF_8))));
-            client.connectWith().cleanSession(true).send().get(TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+            // A filter nobody publishes to; it only shows that the broker takes SUBSCRIBEs on this connection.
+            String settle = "mineqtt-it/remote/" + clientId;
+            long deadline = System.currentTimeMillis() + TIMEOUT_MILLIS;
+            while (true) {
+                // The end of a session ends the client's publish flows too, so each connection gets its own.
+                client.publishes(MqttGlobalPublishFilter.ALL,
+                        publish -> received.add(new Message(publish.getTopic().toString(), new String(publish.getPayloadAsBytes(), StandardCharsets.UTF_8))));
+                client.connectWith().cleanSession(true).send().get(TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+                try {
+                    subscribe(settle, 0);
+                    break;
+                } catch (ExecutionException e) {
+                    if (!HiveMqttService.isConnectionLoss(e) || System.currentTimeMillis() > deadline) throw e;
+                    // The broker dropped the connection; a clean session leaves nothing behind, so connect again.
+                    waitUntil(() -> client.getState() == MqttClientState.DISCONNECTED, "the dropped connection of " + clientId + " to close");
+                }
+            }
+            client.unsubscribeWith().addTopicFilter(settle).send().get(TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
         }
 
         void subscribe(String filter, int qos) throws Exception {

@@ -2,7 +2,6 @@ package art.rehra.mineqtt.blocks.entities;
 
 import art.rehra.mineqtt.MineQTT;
 import art.rehra.mineqtt.blocks.EntityObserverBlock;
-import art.rehra.mineqtt.compat.ChunkPositions;
 import art.rehra.mineqtt.compat.Entities;
 import art.rehra.mineqtt.config.MineQTTConfig;
 import art.rehra.mineqtt.device.CommandReader;
@@ -111,7 +110,7 @@ public class EntityObserverBlockEntity extends DeviceBlockEntity {
     }
 
     /**
-     * Looks at the space in front, unless the entities of any watched block space are not loaded: the observer never loads
+     * Looks at the area in front, unless the entities of any chunk it covers are not loaded: the observer never loads
      * them, nor reports unloaded entities as gone. The state follows the entities it sees; another nearest entity, or the
      * last one leaving, is a {@code changed} event, and the Raw Link payload goes out when it changed. Entity data for a
      * {@code full} payload is sampled every {@value EntityObserver#DATA_SAMPLE_TICKS} ticks, at a change, and when the
@@ -119,10 +118,10 @@ public class EntityObserverBlockEntity extends DeviceBlockEntity {
      */
     private void scan(ServerLevel level, BlockState state) {
         Direction facing = state.getValue(EntityObserverBlock.FACING);
-        for (BlockPos space : EntityObserver.spaces(worldPosition, facing, observation.range())) {
-            if (!level.areEntitiesLoaded(ChunkPositions.pack(space))) return;
+        AABB area = EntityObserver.area(worldPosition, facing, observation.range(), observation.spread());
+        for (long chunk : EntityObserver.chunks(area)) {
+            if (!level.areEntitiesLoaded(chunk)) return;
         }
-        AABB area = EntityObserver.area(worldPosition, facing, observation.range());
         Vec3 face = EntityObserver.face(worldPosition, facing);
         EntityObserver.Detect detect = observation.detect();
         List<Entity> found = level.getEntities((Entity) null, area,

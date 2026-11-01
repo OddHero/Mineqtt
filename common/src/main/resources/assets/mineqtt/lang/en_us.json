@@ -214,6 +214,7 @@
   "mineqtt.device.control.detect.mobs": "Mobs",
   "mineqtt.device.control.detect.all": "Everything",
   "mineqtt.device.control.range": "Range",
+  "mineqtt.device.control.spread": "Spread (to each side)",
   "mineqtt.device.control.clear_delay": "Clear delay",
   "mineqtt.device.control.filter": "Mobs",
   "mineqtt.device.control.filter.hint": "every mob",
