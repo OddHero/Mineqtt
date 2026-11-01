@@ -93,6 +93,12 @@ Minecraft 1.21.10 and 1.21.11 could not start with MineQTT 0.9.0 to 0.10.0; 0.11
 
 ### For server admins
 
+- **Node-RED nodes** (new, `integrations/node-red`, package `node-red-contrib-mineqtt` 0.1.0, not on npm yet: install
+  it from a packed tarball): a palette node for every device type with a twin, from the Smart Lamp to the Alarm Panel.
+  Each node picks a Minecraft device of its type (listed by name and room from the broker's discovery) or a matching
+  Home Assistant entity, so a flow can wire a Minecraft switch to a Zigbee lamp. Switch presses, timer fires and
+  redstone pulses send `TOGGLE` by default, so a switch node wired into a lamp node toggles it. In the Node-RED add-on
+  of Home Assistant OS the Home Assistant connection needs no token.
 - **`speaker.allowAnnouncements`** (new, default off): whether Speakers show announcements to players. Off, every
   announcement is refused and says so in the Speaker's *Last result*; the notify entity stays in Home Assistant either
   way, so discovery never changes with the key.

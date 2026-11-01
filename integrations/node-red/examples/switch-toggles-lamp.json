@@ -1,0 +1,44 @@
+[
+    {
+        "id": "a6f1c0de11110001",
+        "type": "comment",
+        "z": "",
+        "name": "A wall switch toggles a lamp: pick your switch and lamp in the two nodes, then deploy",
+        "info": "Open each node and choose a device. The switch node sends TOGGLE on every short press of either button; the lamp node toggles. Set the lamp node's source to Home Assistant to toggle a real lamp instead.",
+        "x": 330,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "a6f1c0de11110002",
+        "type": "mineqtt-wall-switch",
+        "z": "",
+        "name": "",
+        "source": "mineqtt",
+        "broker": "",
+        "device": "",
+        "ha": "",
+        "entity": "",
+        "button": "any",
+        "events": "press",
+        "payloadMode": "toggle",
+        "x": 170,
+        "y": 120,
+        "wires": [["a6f1c0de11110003"]]
+    },
+    {
+        "id": "a6f1c0de11110003",
+        "type": "mineqtt-smart-lamp",
+        "z": "",
+        "name": "",
+        "source": "mineqtt",
+        "broker": "",
+        "device": "",
+        "ha": "",
+        "entity": "",
+        "otherInput": "toggle",
+        "x": 400,
+        "y": 120,
+        "wires": [[]]
+    }
+]

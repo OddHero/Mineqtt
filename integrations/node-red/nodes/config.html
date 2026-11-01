@@ -1,0 +1,60 @@
+<script type="text/javascript">
+    RED.nodes.registerType('mineqtt-broker', {
+        category: 'config',
+        defaults: {
+            name: { value: '' },
+            url: { value: 'mqtt://localhost:1883', required: true },
+            baseTopic: { value: 'mineqtt', required: true },
+            discoveryPrefix: { value: 'homeassistant', required: true },
+            protocol: { value: '4' }
+        },
+        credentials: { username: { type: 'text' }, password: { type: 'password' } },
+        label: function () { return this.name || this.url; }
+    });
+    RED.nodes.registerType('mineqtt-homeassistant', {
+        category: 'config',
+        defaults: {
+            name: { value: '' },
+            url: { value: '' }
+        },
+        credentials: { token: { type: 'password' } },
+        label: function () { return this.name || this.url || 'Home Assistant (add-on)'; }
+    });
+</script>
+
+<script type="text/html" data-template-name="mineqtt-broker">
+    <div class="form-row"><label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label><input type="text" id="node-config-input-name"></div>
+    <div class="form-row"><label for="node-config-input-url"><i class="fa fa-server"></i> Broker</label><input type="text" id="node-config-input-url" placeholder="mqtt://host:1883 or mqtts://host:8883"></div>
+    <div class="form-row"><label for="node-config-input-username"><i class="fa fa-user"></i> Username</label><input type="text" id="node-config-input-username"></div>
+    <div class="form-row"><label for="node-config-input-password"><i class="fa fa-lock"></i> Password</label><input type="password" id="node-config-input-password"></div>
+    <div class="form-row"><label for="node-config-input-protocol">Protocol</label><select id="node-config-input-protocol" style="width:70%"><option value="4">MQTT 3.1.1</option><option value="5">MQTT 5</option></select></div>
+    <div class="form-row"><label for="node-config-input-baseTopic">Base topic</label><input type="text" id="node-config-input-baseTopic" placeholder="mineqtt"></div>
+    <div class="form-row"><label for="node-config-input-discoveryPrefix">Discovery prefix</label><input type="text" id="node-config-input-discoveryPrefix" placeholder="homeassistant"></div>
+</script>
+
+<script type="text/html" data-help-name="mineqtt-broker">
+<p>The MQTT broker your MineQTT servers use. The nodes find every device from the broker's retained messages: the
+Home Assistant discovery MineQTT publishes (names, types, rooms) and the device states. Every bridge (server) on the
+broker shows up, each device with its room and bridge id.</p>
+<p><b>Base topic</b> and <b>Discovery prefix</b> must match MineQTT's <code>baseTopic</code> and
+<code>discoveryPrefix</code> (defaults <code>mineqtt</code> and <code>homeassistant</code>). A dedicated server exposes
+devices to Home Assistant only on request (<code>ha.expose</code>); devices it does not expose still appear, by their
+topic name, with their type guessed from their state.</p>
+<p>The user needs read access to <code>&lt;base&gt;/#</code> and <code>&lt;prefix&gt;/device/#</code> and write access to
+<code>&lt;base&gt;/+/+/set</code> (and <code>/set/#</code>).</p>
+</script>
+
+<script type="text/html" data-template-name="mineqtt-homeassistant">
+    <div class="form-row"><label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label><input type="text" id="node-config-input-name"></div>
+    <div class="form-row"><label for="node-config-input-url"><i class="fa fa-home"></i> URL</label><input type="text" id="node-config-input-url" placeholder="empty in the Home Assistant add-on, else http://homeassistant.local:8123"></div>
+    <div class="form-row"><label for="node-config-input-token"><i class="fa fa-key"></i> Token</label><input type="password" id="node-config-input-token" placeholder="empty in the add-on, else a long-lived access token"></div>
+</script>
+
+<script type="text/html" data-help-name="mineqtt-homeassistant">
+<p>A Home Assistant server, for device nodes bound to a Home Assistant entity instead of a Minecraft device: a Zigbee
+lamp, a real switch, a sensor.</p>
+<p>In the Node-RED add-on of Home Assistant OS, leave URL and token empty: the node uses the Supervisor's connection.
+Anywhere else, enter the server's URL and a long-lived access token from your Home Assistant profile (Security tab).</p>
+<p>A Minecraft lamp that is bound to a real lamp in MineQTT (a twin) follows it by itself; a node only needs one of
+the two.</p>
+</script>
